@@ -90,8 +90,7 @@
 - NATS
 
 ### 2. 修改配置
-默认配置文件：
-- `backend/configs/config.yaml`
+默认配置文件：`backend/configs/config.yaml`\n\n建议新增本地私有配置时，参考示例文件：\n- `backend/configs/config.example.yaml`
 
 也可以通过环境变量覆盖，前缀为：
 - `LENSCHAIN_`
@@ -109,8 +108,7 @@ cd backend
 go run ./cmd/server
 ```
 
-服务默认监听：
-- `0.0.0.0:8080`
+服务默认监听：\n- `0.0.0.0:3000`
 
 ## 数据库迁移
 
@@ -138,15 +136,16 @@ go run ./cmd/server
 
 ## 安全提醒
 
-当前仓库中的 `backend/configs/config.yaml` 主要用于本地开发示例，包含默认开发配置，例如：
+当前仓库中的 `backend/configs/config.yaml` 当前用于本地开发配置，包含默认开发配置，例如：
 - 数据库连接参数
 - JWT secret 示例值
 - MinIO 默认账号
 
 如果仓库用于公开协作，建议后续改为：
-- 提交 `config.example.yaml`
+- 提交 `backend/configs/config.example.yaml`
 - 将真实配置放入本地环境变量或私有配置文件
 
 ## License
 
 暂未添加 License。
+
