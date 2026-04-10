@@ -1,0 +1,92 @@
+# config.yaml
+# 链镜平台后端默认配置文件
+# 环境变量覆盖前缀：LENSCHAIN_（如 LENSCHAIN_DATABASE_HOST）
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "debug"                      # debug / release / test
+  read_timeout: 10s
+  write_timeout: 10s
+  max_header_bytes: 1048576          # 1MB
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "lenschain"
+  password: "lenschain"
+  dbname: "lenschain"
+  sslmode: "disable"
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: "1h"
+  log_level: "warn"                  # silent / error / warn / info
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 100
+  min_idle_conns: 10
+
+jwt:
+  access_secret: "lenschain-access-secret-change-in-production"
+  refresh_secret: "lenschain-refresh-secret-change-in-production"
+  access_expire: "30m"               # Access Token 30分钟
+  refresh_expire: "168h"             # Refresh Token 7天
+  temp_expire: "5m"                  # 临时Token 5分钟（首次登录改密）
+  issuer: "lenschain"
+
+minio:
+  endpoint: "localhost:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
+  use_ssl: false
+  bucket: "lenschain"
+  region: "us-east-1"
+
+nats:
+  url: "nats://localhost:4222"
+  max_reconnects: 60
+  reconnect_wait: "2s"
+
+snowflake:
+  node_id: 1
+
+log:
+  level: "info"                      # debug / info / warn / error
+  format: "json"                     # json / console
+  output: "stdout"                   # stdout / file
+  file_path: "logs/app.log"
+  max_size: 100                      # MB
+  max_backups: 30
+  max_age: 7                         # 天
+  compress: true
+
+sms:
+  provider: "mock"                   # mock / aliyun / tencent
+  access_key: ""
+  secret_key: ""
+  sign_name: "链镜平台"
+  region: ""
+
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "PATCH"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+  max_age: "12h"
+
+rate_limit:
+  enabled: true
+  requests_per_second: 100
+  burst: 200

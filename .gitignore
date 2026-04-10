@@ -1,0 +1,32 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+bin/
+dist/
+build/
+
+# Go
+*.test
+*.prof
+coverage.out
+
+# Env / local overrides
+.env
+.env.*
+!.env.example
+
+# Runtime data
+/tmp/
