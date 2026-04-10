@@ -92,9 +92,6 @@
 ### 2. 修改配置
 默认配置文件：`backend/configs/config.yaml`
 
-建议新增本地私有配置时，参考示例文件：
-- `backend/configs/config.example.yaml`
-
 也可以通过环境变量覆盖，前缀为：
 - `LENSCHAIN_`
 
@@ -140,7 +137,7 @@ go run ./cmd/server
 
 ## 安全提醒
 
-当前仓库中的 `backend/configs/config.yaml` 当前用于本地开发配置，包含默认开发配置，例如：
+当前仓库中的 `backend/configs/config.yaml` 主要用于本地开发配置，包含默认开发配置，例如：
 - 数据库连接参数
 - JWT secret 示例值
 - MinIO 默认账号
@@ -152,5 +149,3 @@ go run ./cmd/server
 ## License
 
 暂未添加 License。
-
-
