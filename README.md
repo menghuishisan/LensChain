@@ -90,7 +90,10 @@
 - NATS
 
 ### 2. 修改配置
-默认配置文件：`backend/configs/config.yaml`\n\n建议新增本地私有配置时，参考示例文件：\n- `backend/configs/config.example.yaml`
+默认配置文件：`backend/configs/config.yaml`
+
+建议新增本地私有配置时，参考示例文件：
+- `backend/configs/config.example.yaml`
 
 也可以通过环境变量覆盖，前缀为：
 - `LENSCHAIN_`
@@ -108,7 +111,8 @@ cd backend
 go run ./cmd/server
 ```
 
-服务默认监听：\n- `0.0.0.0:3000`
+服务默认监听：
+- `0.0.0.0:3000`
 
 ## 数据库迁移
 
@@ -148,4 +152,5 @@ go run ./cmd/server
 ## License
 
 暂未添加 License。
+
 
