@@ -1,6 +1,6 @@
 // sso_service.go
 // 模块02 — 学校与租户管理：SSO配置业务逻辑
-// 负责 SSO 配置的读取、更新、连接测试、启用/禁用
+// 负责 SSO 配置的读取、更新、连接测试
 // 对照 docs/modules/02-学校与租户管理/03-API接口设计.md
 
 package school
@@ -15,12 +15,12 @@ import (
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
-	schoolrepo "github.com/lenschain/backend/internal/repository/school"
-	"github.com/lenschain/backend/internal/pkg/crypto"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/httpclient"
 	"github.com/lenschain/backend/internal/pkg/logger"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
 // SSOService SSO配置服务接口

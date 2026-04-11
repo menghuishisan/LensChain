@@ -8,7 +8,9 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/mail"
 	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -66,6 +68,17 @@ func (s *importService) validateRow(ctx context.Context, schoolID int64, row *im
 	}
 	if row.PasswordHash == "" {
 		errors = append(errors, "初始密码不能为空")
+	}
+	if row.Email != "" {
+		if _, err := mail.ParseAddress(row.Email); err != nil {
+			errors = append(errors, "邮箱格式不正确")
+		}
+	}
+	if len(strings.TrimSpace(row.Name)) > 50 {
+		errors = append(errors, "姓名长度不能超过50")
+	}
+	if len(strings.TrimSpace(row.StudentNo)) > 50 {
+		errors = append(errors, "学号长度不能超过50")
 	}
 
 	if len(errors) > 0 {

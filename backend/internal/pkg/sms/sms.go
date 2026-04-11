@@ -6,11 +6,14 @@
 package sms
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 
 	"github.com/lenschain/backend/internal/config"
+	"github.com/lenschain/backend/internal/pkg/cache"
 	"github.com/lenschain/backend/internal/pkg/logger"
 )
 
@@ -60,6 +63,29 @@ func Send(phone, templateCode string, params map[string]string) error {
 		return fmt.Errorf("短信网关未初始化")
 	}
 	return sender.Send(phone, templateCode, params)
+}
+
+// VerifyCode 校验短信验证码
+// mock 模式下允许固定验证码 123456，便于联调；真实缓存命中后会立即删除，避免重复使用
+func VerifyCode(ctx context.Context, phone, code string) error {
+	if strings.TrimSpace(phone) == "" || strings.TrimSpace(code) == "" {
+		return fmt.Errorf("手机号或验证码不能为空")
+	}
+
+	if _, ok := sender.(*mockSender); ok && code == "123456" {
+		return nil
+	}
+
+	cachedCode, err := cache.GetString(ctx, cache.KeySMSVerification+phone)
+	if err != nil {
+		return fmt.Errorf("验证码不存在或已过期")
+	}
+	if strings.TrimSpace(cachedCode) != code {
+		return fmt.Errorf("验证码错误")
+	}
+
+	_ = cache.Del(ctx, cache.KeySMSVerification+phone)
+	return nil
 }
 
 // ---- Mock 实现（开发环境） ----
@@ -114,12 +140,12 @@ func (s *tencentSender) Send(phone, templateCode string, params map[string]strin
 // ---- 短信模板编码常量 ----
 
 const (
-	TemplateSchoolApproved    = "school_approved"     // 学校审核通过
-	TemplateSchoolRejected    = "school_rejected"     // 学校审核拒绝
-	TemplateAccountCreated    = "account_created"     // 账号创建通知
-	TemplatePasswordReset     = "password_reset"      // 密码重置通知
-	TemplateLicenseExpiring   = "license_expiring"    // 授权即将到期
-	TemplateLicenseExpired    = "license_expired"     // 授权已过期
-	TemplateSchoolFrozen      = "school_frozen"       // 学校冻结通知
-	TemplateSMSVerification   = "sms_verification"    // 短信验证码
+	TemplateSchoolApproved  = "school_approved"  // 学校审核通过
+	TemplateSchoolRejected  = "school_rejected"  // 学校审核拒绝
+	TemplateAccountCreated  = "account_created"  // 账号创建通知
+	TemplatePasswordReset   = "password_reset"   // 密码重置通知
+	TemplateLicenseExpiring = "license_expiring" // 授权即将到期
+	TemplateLicenseExpired  = "license_expired"  // 授权已过期
+	TemplateSchoolFrozen    = "school_frozen"    // 学校冻结通知
+	TemplateSMSVerification = "sms_verification" // 短信验证码
 )

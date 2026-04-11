@@ -6,14 +6,16 @@
 package auth
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/lenschain/backend/internal/middleware"
 	"github.com/lenschain/backend/internal/model/dto"
-	svc "github.com/lenschain/backend/internal/service/auth"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
+	svc "github.com/lenschain/backend/internal/service/auth"
 )
 
 // AuthHandler 认证处理器
@@ -134,16 +136,46 @@ func (h *AuthHandler) ForceChangePassword(c *gin.Context) {
 // GET /api/v1/auth/sso/:school_id/login
 // 重定向到学校SSO登录页面
 func (h *AuthHandler) SSOLogin(c *gin.Context) {
-	// TODO: 实现SSO登录跳转
-	// 需要查询学校的SSO配置，构建重定向URL
-	response.Error(c, errcode.ErrInternal.WithMessage("SSO登录功能暂未实现"))
+	schoolID, ok := validator.ParsePathID(c, "school_id")
+	if !ok {
+		return
+	}
+
+	loginURL, err := h.authService.SSOLoginURL(c.Request.Context(), schoolID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	c.Redirect(http.StatusFound, loginURL)
 }
 
 // SSOCallback SSO回调
 // GET /api/v1/auth/sso/callback
 // 处理SSO系统回调，验证ticket/code，完成登录
 func (h *AuthHandler) SSOCallback(c *gin.Context) {
-	// TODO: 实现SSO回调处理
-	// 需要验证ticket/code，查找用户，生成Token
-	response.Error(c, errcode.ErrInternal.WithMessage("SSO回调功能暂未实现"))
+	schoolID := validator.ParseQueryInt64(c, "school_id", 0)
+	if schoolID <= 0 {
+		handleError(c, errcode.ErrInvalidParams.WithMessage("缺少学校ID"))
+		return
+	}
+
+	query := make(map[string]string)
+	for key, values := range c.Request.URL.Query() {
+		if len(values) > 0 {
+			query[key] = values[0]
+		}
+	}
+
+	result, err := h.authService.SSOCallback(c.Request.Context(), schoolID, query, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	if result.IsFirstLogin {
+		response.SuccessWithMsg(c, "首次登录，请修改密码", result.ForceResp)
+		return
+	}
+	response.SuccessWithMsg(c, "登录成功", result.TokenResp)
 }

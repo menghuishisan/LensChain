@@ -9,9 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lenschain/backend/internal/model/dto"
-	svc "github.com/lenschain/backend/internal/service/school"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
+	svc "github.com/lenschain/backend/internal/service/school"
 )
 
 // SchoolHandler 学校管理处理器
@@ -271,5 +271,5 @@ func (h *SchoolHandler) GetSSOSchoolList(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, items)
+	response.Success(c, gin.H{"list": items})
 }

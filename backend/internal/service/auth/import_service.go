@@ -16,13 +16,13 @@ import (
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
-	"github.com/lenschain/backend/internal/repository/auth"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/repository/auth"
 )
 
 // ImportService 用户导入服务接口
@@ -92,6 +92,9 @@ var phoneRegex = regexp.MustCompile(`^1[3-9]\d{9}$`)
 func (s *importService) Preview(ctx context.Context, sc *svcctx.ServiceContext, importType string, rows [][]string) (*dto.ImportPreviewResp, error) {
 	if len(rows) == 0 {
 		return nil, errcode.ErrInvalidParams.WithMessage("文件内容为空")
+	}
+	if len(rows) > 5000 {
+		return nil, errcode.ErrInvalidParams.WithMessage("单次导入最多支持5000行数据")
 	}
 
 	importID := fmt.Sprintf("imp_%d", snowflake.Generate())

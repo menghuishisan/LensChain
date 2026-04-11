@@ -6,18 +6,22 @@
 package auth
 
 import (
+	"encoding/csv"
 	"fmt"
+	"io"
 	"net/url"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/xuri/excelize/v2"
 
 	"github.com/lenschain/backend/internal/model/dto"
-	svc "github.com/lenschain/backend/internal/service/auth"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
+	svc "github.com/lenschain/backend/internal/service/auth"
 )
 
 // UserHandler 用户管理处理器
@@ -303,28 +307,16 @@ func (h *UserHandler) ImportPreview(c *gin.Context) {
 	}
 	defer src.Close()
 
-	// 解析 Excel
-	f, err := excelize.OpenReader(src)
+	dataRows, err := parseImportRows(file.Filename, src)
 	if err != nil {
-		response.Error(c, errcode.ErrInvalidParams.WithMessage("文件格式不正确，请上传 Excel 文件"))
-		return
-	}
-	defer f.Close()
-
-	// 读取所有行（跳过表头）
-	excelRows, err := f.GetRows("Sheet1")
-	if err != nil {
-		response.Error(c, errcode.ErrInvalidParams.WithMessage("读取文件内容失败"))
+		response.Error(c, errcode.ErrInvalidParams.WithMessage(err.Error()))
 		return
 	}
 
-	if len(excelRows) <= 1 {
+	if len(dataRows) == 0 {
 		response.Error(c, errcode.ErrInvalidParams.WithMessage("文件内容为空（仅有表头）"))
 		return
 	}
-
-	// 跳过表头，传入数据行
-	dataRows := excelRows[1:]
 
 	sc := buildServiceContext(c)
 	resp, err := h.importService.Preview(c.Request.Context(), sc, importType, dataRows)
@@ -334,6 +326,48 @@ func (h *UserHandler) ImportPreview(c *gin.Context) {
 	}
 
 	response.Success(c, resp)
+}
+
+// parseImportRows 解析导入文件数据行
+// 支持 xlsx / csv，两者均跳过首行表头
+func parseImportRows(filename string, src io.Reader) ([][]string, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+
+	switch ext {
+	case ".csv":
+		reader := csv.NewReader(src)
+		reader.FieldsPerRecord = -1
+		rows, err := reader.ReadAll()
+		if err != nil {
+			return nil, fmt.Errorf("CSV文件解析失败")
+		}
+		if len(rows) <= 1 {
+			return [][]string{}, nil
+		}
+		return rows[1:], nil
+	case ".xlsx", ".xlsm", ".xltx", ".xltm", "":
+		f, err := excelize.OpenReader(src)
+		if err != nil {
+			return nil, fmt.Errorf("文件格式不正确，请上传 Excel 或 CSV 文件")
+		}
+		defer f.Close()
+
+		sheetName := f.GetSheetName(0)
+		if sheetName == "" {
+			return nil, fmt.Errorf("读取文件内容失败")
+		}
+
+		rows, err := f.GetRows(sheetName)
+		if err != nil {
+			return nil, fmt.Errorf("读取文件内容失败")
+		}
+		if len(rows) <= 1 {
+			return [][]string{}, nil
+		}
+		return rows[1:], nil
+	default:
+		return nil, fmt.Errorf("文件格式不正确，请上传 Excel 或 CSV 文件")
+	}
 }
 
 // ImportExecute 确认执行导入

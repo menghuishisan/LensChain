@@ -9,9 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lenschain/backend/internal/model/dto"
-	svc "github.com/lenschain/backend/internal/service/school"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
+	"github.com/lenschain/backend/internal/pkg/sms"
 	"github.com/lenschain/backend/internal/pkg/validator"
+	svc "github.com/lenschain/backend/internal/service/school"
 )
 
 // ApplicationHandler 入驻申请处理器
@@ -40,7 +42,7 @@ func (h *ApplicationHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	response.Created(c, resp)
+	response.SuccessWithMsg(c, "申请提交成功", resp)
 }
 
 // Query 查询申请状态
@@ -52,8 +54,10 @@ func (h *ApplicationHandler) Query(c *gin.Context) {
 		return
 	}
 
-	// TODO: 验证短信验证码（SMS验证逻辑在此处完成）
-	// 当前阶段跳过短信验证，直接查询
+	if err := sms.VerifyCode(c.Request.Context(), req.Phone, req.SMSCode); err != nil {
+		handleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
+		return
+	}
 
 	resp, err := h.appService.Query(c.Request.Context(), req.Phone)
 	if err != nil {
@@ -78,7 +82,10 @@ func (h *ApplicationHandler) Reapply(c *gin.Context) {
 		return
 	}
 
-	// TODO: 验证短信验证码
+	if err := sms.VerifyCode(c.Request.Context(), req.ContactPhone, req.SMSCode); err != nil {
+		handleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
+		return
+	}
 
 	resp, err := h.appService.Reapply(c.Request.Context(), id, &req)
 	if err != nil {
@@ -86,7 +93,7 @@ func (h *ApplicationHandler) Reapply(c *gin.Context) {
 		return
 	}
 
-	response.Created(c, resp)
+	response.SuccessWithMsg(c, "重新申请已提交", resp)
 }
 
 // List 申请列表
@@ -158,7 +165,7 @@ func (h *ApplicationHandler) Approve(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, resp)
+	response.SuccessWithMsg(c, "审核通过", resp)
 }
 
 // Reject 审核拒绝

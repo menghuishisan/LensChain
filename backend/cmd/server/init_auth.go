@@ -6,9 +6,17 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"time"
+
 	handler "github.com/lenschain/backend/internal/handler/auth"
+	"github.com/lenschain/backend/internal/model/dto"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 	authrepo "github.com/lenschain/backend/internal/repository/auth"
+	courserepo "github.com/lenschain/backend/internal/repository/course"
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/router"
 	svc "github.com/lenschain/backend/internal/service/auth"
@@ -25,18 +33,31 @@ func initAuthModule() *router.AuthHandlers {
 	roleRepo := authrepo.NewRoleRepository(db)
 	loginLogRepo := authrepo.NewLoginLogRepository(db)
 	opLogRepo := authrepo.NewOperationLogRepository(db)
+	ssoBindingRepo := authrepo.NewSSOBindingRepository(db)
 
 	// 跨模块依赖：学校名称查询（模块02 → 模块01）
 	schoolRepo := schoolrepo.NewSchoolRepository(db)
-	schoolNameQuerier := newSchoolNameQuerier(schoolRepo)
+	ssoConfigRepo := schoolrepo.NewSSOConfigRepository(db)
+	courseRepo := courserepo.NewCourseRepository(db)
+	progressRepo := courserepo.NewProgressRepository(db)
+	schoolNameQuerier := &profileContextAdapter{
+		schoolNameQuerierAdapter: schoolNameQuerierAdapter{schoolRepo: schoolRepo},
+		courseRepo:               courseRepo,
+		progressRepo:             progressRepo,
+	}
+	schoolStatusChecker := &schoolStatusCheckerAdapter{schoolRepo: schoolRepo}
+	schoolSSOQuerier := &schoolSSOQuerierAdapter{ssoConfigRepo: ssoConfigRepo}
 
 	// Service 层
 	// authService: 认证流程（登录/登出/Token/改密），需要 loginLogRepo 记录登录日志
-	authService := svc.NewAuthService(db, userRepo, roleRepo, loginLogRepo, schoolNameQuerier)
+	authService := svc.NewAuthService(
+		db, userRepo, roleRepo, loginLogRepo, ssoBindingRepo,
+		schoolNameQuerier, schoolStatusChecker, schoolSSOQuerier,
+	)
 	// userService: 用户管理 CRUD，操作日志通过 pkg/audit 直接写入，不再需要 opLogRepo
 	userService := svc.NewUserService(db, userRepo, profileRepo, roleRepo)
 	// profileService: 个人中心
-	profileService := svc.NewProfileService(db, userRepo, profileRepo, roleRepo, schoolNameQuerier)
+	profileService := svc.NewProfileService(db, userRepo, profileRepo, roleRepo, schoolNameQuerier, schoolNameQuerier)
 	// importService: 用户导入，操作日志通过 pkg/audit 直接写入
 	importService := svc.NewImportService(db, userRepo, profileRepo, roleRepo)
 	// securityService: 安全策略与日志查询，需要 loginLogRepo/opLogRepo 做查询
@@ -52,4 +73,96 @@ func initAuthModule() *router.AuthHandlers {
 		UserHandler:     userHandler,
 		SecurityHandler: securityHandler,
 	}
+}
+
+// profileContextAdapter 个人中心跨模块 adapter
+// 同时提供学校名称与学习概览聚合能力，避免模块01直接依赖模块03实现
+type profileContextAdapter struct {
+	schoolNameQuerierAdapter
+	courseRepo   courserepo.CourseRepository
+	progressRepo courserepo.ProgressRepository
+}
+
+// GetLearningOverview 获取学习概览
+func (a *profileContextAdapter) GetLearningOverview(ctx context.Context, userID int64) (*dto.LearningOverview, error) {
+	courses, total, err := a.courseRepo.ListByStudentID(ctx, userID, &courserepo.StudentCourseListParams{
+		Page: 1, PageSize: 100,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var totalStudySeconds int
+	for _, course := range courses {
+		duration, err := a.progressRepo.SumStudyDurationByStudent(ctx, userID, course.ID)
+		if err != nil {
+			return nil, err
+		}
+		totalStudySeconds += duration
+	}
+
+	return &dto.LearningOverview{
+		CourseCount:      int(total),
+		ExperimentCount:  0,
+		CompetitionCount: 0,
+		TotalStudyHours:  float64(totalStudySeconds) / 3600,
+	}, nil
+}
+
+// schoolStatusCheckerAdapter 跨模块 adapter：校验学校登录状态
+type schoolStatusCheckerAdapter struct {
+	schoolRepo schoolrepo.SchoolRepository
+}
+
+// CheckLoginAllowed 校验学校是否允许登录
+func (a *schoolStatusCheckerAdapter) CheckLoginAllowed(ctx context.Context, schoolID int64) error {
+	if schoolID == 0 {
+		return nil
+	}
+
+	school, err := a.schoolRepo.GetByID(ctx, schoolID)
+	if err != nil {
+		return errcode.ErrForbidden.WithMessage("学校不存在或已不可用")
+	}
+
+	switch school.Status {
+	case enum.SchoolStatusFrozen:
+		return errcode.ErrSchoolFrozen
+	case enum.SchoolStatusCancelled:
+		return errcode.ErrForbidden.WithMessage("学校已注销，无法登录")
+	case enum.SchoolStatusPending, enum.SchoolStatusRejected:
+		return errcode.ErrForbidden.WithMessage("学校状态异常，暂不可登录")
+	case enum.SchoolStatusActive:
+		if school.LicenseEndAt != nil && time.Now().After(*school.LicenseEndAt) {
+			return errcode.ErrSchoolExpired.WithMessage("学校授权已过期，请联系管理员")
+		}
+	}
+
+	return nil
+}
+
+// schoolSSOQuerierAdapter 跨模块 adapter：查询学校SSO配置
+type schoolSSOQuerierAdapter struct {
+	ssoConfigRepo schoolrepo.SSOConfigRepository
+}
+
+// GetSchoolSSOConfig 获取学校SSO配置
+func (a *schoolSSOQuerierAdapter) GetSchoolSSOConfig(ctx context.Context, schoolID int64) (*svc.SchoolSSOConfig, error) {
+	config, err := a.ssoConfigRepo.GetBySchoolID(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	configMap := make(map[string]interface{})
+	if err := json.Unmarshal([]byte(config.Config), &configMap); err != nil {
+		return nil, err
+	}
+
+	return &svc.SchoolSSOConfig{
+		SchoolID:  schoolID,
+		Provider:  config.Provider,
+		IsEnabled: config.IsEnabled,
+		IsTested:  config.IsTested,
+		Config:    configMap,
+	}, nil
 }

@@ -29,11 +29,11 @@ type SchoolHandlers struct {
 
 // Handlers 所有模块的 Handler 实例集合
 // 由 main.go 初始化后传入路由注册
-// P2-7 修复：按模块嵌套，每个模块独立结构体，避免扁平化膨胀
+// 按模块嵌套，每个模块独立结构体，避免扁平化膨胀
 type Handlers struct {
 	Auth   *AuthHandlers
 	School *SchoolHandlers
-	// Course   *CourseHandlers   // 模块03 — 课程与教学（待实现）
+	Course *CourseHandlers // 模块03 — 课程与教学
 	// Experiment *ExperimentHandlers // 模块04 — 实验环境（待实现）
 	// CTF      *CTFHandlers      // 模块05 — CTF竞赛（待实现）
 	// Grade    *GradeHandlers    // 模块06 — 评测与成绩（待实现）
@@ -64,7 +64,9 @@ func Setup(mode string, h *Handlers) *gin.Engine {
 	if h != nil && h.School != nil {
 		RegisterSchoolRoutes(v1, h.School.ApplicationHandler, h.School.SchoolHandler, h.School.SSOHandler) // 模块02 — 学校与租户管理
 	}
-	RegisterCourseRoutes(v1)       // 模块03 — 课程与教学
+	if h != nil && h.Course != nil {
+		RegisterCourseRoutes(v1, h.Course) // 模块03 — 课程与教学
+	}
 	RegisterExperimentRoutes(v1)   // 模块04 — 实验环境
 	RegisterCTFRoutes(v1)          // 模块05 — CTF竞赛
 	RegisterGradeRoutes(v1)        // 模块06 — 评测与成绩

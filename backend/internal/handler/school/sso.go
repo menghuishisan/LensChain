@@ -9,9 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lenschain/backend/internal/model/dto"
-	svc "github.com/lenschain/backend/internal/service/school"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
+	svc "github.com/lenschain/backend/internal/service/school"
 )
 
 // SSOHandler SSO配置处理器
@@ -64,9 +65,9 @@ func (h *SSOHandler) TestConnection(c *gin.Context) {
 	sc := buildServiceContext(c)
 	resp, err := h.ssoService.TestConnection(c.Request.Context(), sc)
 	if err != nil {
-		// 测试失败也返回结果（包含错误详情），但附带错误码
+		// 测试失败时按文档返回错误码，同时在 data 中附带错误详情
 		if resp != nil {
-			response.Success(c, resp)
+			response.ErrorWithData(c, errcode.ErrSSOTestFailed, resp)
 			return
 		}
 		handleError(c, err)

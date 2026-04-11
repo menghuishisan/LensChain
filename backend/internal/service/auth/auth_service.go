@@ -18,25 +18,27 @@ import (
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
-	"github.com/lenschain/backend/internal/repository/auth"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
 	"github.com/lenschain/backend/internal/pkg/logger"
+	"github.com/lenschain/backend/internal/repository/auth"
 )
 
 // LoginResult 登录结果（强类型，避免 interface{} 导致 handler 层类型断言出错）
 type LoginResult struct {
 	IsFirstLogin bool                         // 是否首次登录（需强制改密）
 	TokenResp    *dto.LoginResp               // 正常登录时的Token+用户信息
-	ForceResp    *dto.ForceChangePasswordResp  // 首次登录时的临时Token
+	ForceResp    *dto.ForceChangePasswordResp // 首次登录时的临时Token
 }
 
 // AuthService 认证服务接口
 type AuthService interface {
 	Login(ctx context.Context, phone, password, ip, userAgent string) (*LoginResult, error)
+	SSOLoginURL(ctx context.Context, schoolID int64) (string, error)
+	SSOCallback(ctx context.Context, schoolID int64, query map[string]string, ip, userAgent string) (*LoginResult, error)
 	Logout(ctx context.Context, userID int64, jti, ip, userAgent string) error
 	RefreshToken(ctx context.Context, refreshToken string) (*dto.RefreshTokenResp, error)
 	ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword, ip string) error
@@ -49,13 +51,35 @@ type SchoolNameQuerier interface {
 	GetSchoolName(ctx context.Context, schoolID int64) string
 }
 
+// SchoolStatusChecker 跨模块接口：校验学校状态是否允许登录
+type SchoolStatusChecker interface {
+	CheckLoginAllowed(ctx context.Context, schoolID int64) error
+}
+
+// SchoolSSOConfigQuerier 跨模块接口：查询学校SSO配置
+type SchoolSSOConfigQuerier interface {
+	GetSchoolSSOConfig(ctx context.Context, schoolID int64) (*SchoolSSOConfig, error)
+}
+
+// SchoolSSOConfig 学校SSO配置
+type SchoolSSOConfig struct {
+	SchoolID  int64
+	Provider  string
+	IsEnabled bool
+	IsTested  bool
+	Config    map[string]interface{}
+}
+
 // authService 认证服务实现
 type authService struct {
-	db                *gorm.DB
-	userRepo          authrepo.UserRepository
-	roleRepo          authrepo.RoleRepository
-	loginLogRepo      authrepo.LoginLogRepository
-	schoolNameQuerier SchoolNameQuerier
+	db                  *gorm.DB
+	userRepo            authrepo.UserRepository
+	roleRepo            authrepo.RoleRepository
+	loginLogRepo        authrepo.LoginLogRepository
+	ssoBindingRepo      authrepo.SSOBindingRepository
+	schoolNameQuerier   SchoolNameQuerier
+	schoolStatusChecker SchoolStatusChecker
+	schoolSSOQuerier    SchoolSSOConfigQuerier
 }
 
 // NewAuthService 创建认证服务实例
@@ -64,14 +88,20 @@ func NewAuthService(
 	userRepo authrepo.UserRepository,
 	roleRepo authrepo.RoleRepository,
 	loginLogRepo authrepo.LoginLogRepository,
+	ssoBindingRepo authrepo.SSOBindingRepository,
 	schoolNameQuerier SchoolNameQuerier,
+	schoolStatusChecker SchoolStatusChecker,
+	schoolSSOQuerier SchoolSSOConfigQuerier,
 ) AuthService {
 	return &authService{
-		db:                db,
-		userRepo:          userRepo,
-		roleRepo:          roleRepo,
-		loginLogRepo:      loginLogRepo,
-		schoolNameQuerier: schoolNameQuerier,
+		db:                  db,
+		userRepo:            userRepo,
+		roleRepo:            roleRepo,
+		loginLogRepo:        loginLogRepo,
+		ssoBindingRepo:      ssoBindingRepo,
+		schoolNameQuerier:   schoolNameQuerier,
+		schoolStatusChecker: schoolStatusChecker,
+		schoolSSOQuerier:    schoolSSOQuerier,
 	}
 }
 
@@ -117,6 +147,18 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
 		asyncRecordLoginLog(s.loginLogRepo, user.ID, enum.LoginActionFail, enum.LoginMethodPassword, ip, userAgent, "账号已锁定(DB)")
 		return nil, errcode.ErrAccountLocked.WithMessage("账号已锁定，请稍后再试")
+	}
+
+	// 4.1 检查学校状态
+	if s.schoolStatusChecker != nil {
+		if err := s.schoolStatusChecker.CheckLoginAllowed(ctx, user.SchoolID); err != nil {
+			message := err.Error()
+			if appErr, ok := errcode.IsAppError(err); ok {
+				message = appErr.Message
+			}
+			asyncRecordLoginLog(s.loginLogRepo, user.ID, enum.LoginActionFail, enum.LoginMethodPassword, ip, userAgent, message)
+			return nil, err
+		}
 	}
 
 	// 重置登录失败计数（登录成功时清除）
@@ -280,7 +322,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*d
 }
 
 // ChangePassword 修改密码
-// P1-7 修复：改密后踢下线
+// 按文档 AC-19：修改密码后当前会话保持有效，不主动踢下线
 func (s *authService) ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword, ip string) error {
 	// 获取用户
 	user, err := s.userRepo.GetByID(ctx, userID)
@@ -311,9 +353,6 @@ func (s *authService) ChangePassword(ctx context.Context, userID int64, oldPassw
 	if err != nil {
 		return errcode.ErrInternal.WithMessage("更新密码失败")
 	}
-
-	// P1-7 修复：改密后踢下线（清除Session，强制重新登录）
-	_ = cache.Del(ctx, cache.KeySession+strconv.FormatInt(userID, 10))
 
 	// 记录操作日志（使用 pkg/audit 公共包）
 	audit.RecordFromContext(s.db, userID, ip, "change_password", "user", userID, nil)

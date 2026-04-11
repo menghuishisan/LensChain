@@ -6,8 +6,8 @@
 package cron
 
 import (
-	"go.uber.org/zap"
 	cronlib "github.com/robfig/cron/v3"
+	"go.uber.org/zap"
 
 	"github.com/lenschain/backend/internal/pkg/logger"
 )
@@ -76,29 +76,32 @@ func Stop() {
 // 对照 docs/数据库表总览.md 中的定时任务定义
 
 const (
+	// 模块03 — 课程与教学
+	CronCourseStatusTransition = "0 0 * * * *" // 每小时 — 课程状态自动转换
+
 	// 模块02 — 学校与租户管理
-	CronSchoolExpiryCheck  = "0 0 1 * * *"   // 每天凌晨1:00 — 到期提醒检查
-	CronSchoolBufferFreeze = "0 0 2 * * *"    // 每天凌晨2:00 — 缓冲期转冻结
-	CronSchoolExpireBuffer = "0 30 0 * * *"   // 每天凌晨0:30 — 到期转缓冲期
+	CronSchoolExpiryCheck  = "0 0 1 * * *"  // 每天凌晨1:00 — 到期提醒检查
+	CronSchoolBufferFreeze = "0 0 2 * * *"  // 每天凌晨2:00 — 缓冲期转冻结
+	CronSchoolExpireBuffer = "0 30 0 * * *" // 每天凌晨0:30 — 到期转缓冲期
 
 	// 模块04 — 实验环境
-	CronExpIdleReclaim     = "0 */5 * * * *"  // 每5分钟 — 空闲实验回收
-	CronExpExpiredCleanup  = "0 0 * * * *"    // 每小时 — 过期实验清理
+	CronExpIdleReclaim    = "0 */5 * * * *" // 每5分钟 — 空闲实验回收
+	CronExpExpiredCleanup = "0 0 * * * *"   // 每小时 — 过期实验清理
 
 	// 模块06 — 评测与成绩
-	CronGPACacheRefresh    = "0 0 3 * * *"    // 每天凌晨3:00 — GPA缓存刷新
-	CronTranscriptCleanup  = "0 0 4 * * *"    // 每天凌晨4:00 — 成绩单文件清理
+	CronGPACacheRefresh   = "0 0 3 * * *" // 每天凌晨3:00 — GPA缓存刷新
+	CronTranscriptCleanup = "0 0 4 * * *" // 每天凌晨4:00 — 成绩单文件清理
 
 	// 模块07 — 通知与消息
-	CronNotificationScan   = "0 * * * * *"    // 每分钟 — 定时通知调度
-	CronNotificationCleanup = "0 0 5 * * *"   // 每天凌晨5:00 — 过期通知归档
+	CronNotificationScan    = "0 * * * * *" // 每分钟 — 定时通知调度
+	CronNotificationCleanup = "0 0 5 * * *" // 每天凌晨5:00 — 过期通知归档
 
 	// 模块08 — 系统管理与监控
-	CronAlertThreshold     = "0 * * * * *"    // 每分钟 — 阈值告警检测
-	CronAlertEvent         = "0 */5 * * * *"  // 每5分钟 — 事件告警检测
-	CronHealthCheck        = "*/30 * * * * *" // 每30秒 — 服务健康检查
-	CronStatsAggregation   = "0 0 1 * * *"    // 每天凌晨1:00 — 平台统计聚合
-	CronAutoBackup         = "0 0 2 * * *"    // 每天凌晨2:00 — 自动备份
-	CronBackupCleanup      = "0 0 3 * * *"    // 每天凌晨3:00 — 备份清理
-	CronStatsDataCleanup   = "0 0 4 1 * *"    // 每月1号凌晨4:00 — 统计数据清理
+	CronAlertThreshold   = "0 * * * * *"    // 每分钟 — 阈值告警检测
+	CronAlertEvent       = "0 */5 * * * *"  // 每5分钟 — 事件告警检测
+	CronHealthCheck      = "*/30 * * * * *" // 每30秒 — 服务健康检查
+	CronStatsAggregation = "0 0 1 * * *"    // 每天凌晨1:00 — 平台统计聚合
+	CronAutoBackup       = "0 0 2 * * *"    // 每天凌晨2:00 — 自动备份
+	CronBackupCleanup    = "0 0 3 * * *"    // 每天凌晨3:00 — 备份清理
+	CronStatsDataCleanup = "0 0 4 1 * *"    // 每月1号凌晨4:00 — 统计数据清理
 )

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -30,12 +31,54 @@ var (
 // 3. 禁止跟随重定向到不安全地址
 // 4. 10 秒超时
 func SafeGet(ctx context.Context, rawURL string) (*http.Response, error) {
-	// 校验协议
-	if !strings.HasPrefix(rawURL, "https://") {
-		return nil, ErrHTTPScheme
+	if err := validateHTTPSURL(rawURL); err != nil {
+		return nil, err
+	}
+	client := newSafeClient()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败：%w", err)
 	}
 
-	client := &http.Client{
+	return client.Do(req)
+}
+
+// SafePostForm 安全的表单 POST 请求
+func SafePostForm(ctx context.Context, rawURL string, form url.Values) (*http.Response, error) {
+	if err := validateHTTPSURL(rawURL); err != nil {
+		return nil, err
+	}
+	client := newSafeClient()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败：%w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	return client.Do(req)
+}
+
+// SafeGetWithBearer 安全的 Bearer 鉴权 GET 请求
+func SafeGetWithBearer(ctx context.Context, rawURL, token string) (*http.Response, error) {
+	if err := validateHTTPSURL(rawURL); err != nil {
+		return nil, err
+	}
+	client := newSafeClient()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败：%w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	return client.Do(req)
+}
+
+func newSafeClient() *http.Client {
+	// 校验协议
+	return &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			DialContext: safeDialContext,
@@ -54,13 +97,14 @@ func SafeGet(ctx context.Context, rawURL string) (*http.Response, error) {
 			return nil
 		},
 	}
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("创建请求失败：%w", err)
+// validateHTTPSURL 校验仅允许HTTPS
+func validateHTTPSURL(rawURL string) error {
+	if !strings.HasPrefix(rawURL, "https://") {
+		return ErrHTTPScheme
 	}
-
-	return client.Do(req)
+	return nil
 }
 
 // safeDialContext 安全的 TCP 连接建立

@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
@@ -80,22 +81,21 @@ func checkSchoolStatus(c *gin.Context, schoolID int64) error {
 		return nil
 	}
 
-	// 状态4=已冻结
-	if status.Status == 4 {
+	// 冻结/注销直接拦截
+	if status.Status == enum.SchoolStatusFrozen {
 		response.Abort(c, errcode.ErrSchoolFrozen)
 		return errcode.ErrSchoolFrozen
 	}
 
-	// 状态5=已注销
-	if status.Status == 5 {
+	if status.Status == enum.SchoolStatusCancelled {
 		response.Abort(c, errcode.ErrForbidden.WithMessage("学校已注销"))
 		return errcode.ErrForbidden
 	}
 
-	// 检查授权是否过期
+	// 缓冲期允许正常访问，仅在已激活状态下做授权过期拦截
 	if status.LicenseEndAt != "" {
 		licenseEnd, err := time.Parse(time.RFC3339, status.LicenseEndAt)
-		if err == nil && time.Now().UTC().After(licenseEnd) {
+		if err == nil && status.Status == enum.SchoolStatusActive && time.Now().UTC().After(licenseEnd) {
 			response.Abort(c, errcode.ErrSchoolExpired)
 			return errcode.ErrSchoolExpired
 		}

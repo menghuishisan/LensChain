@@ -22,6 +22,8 @@ build/
 *.test
 *.prof
 coverage.out
+.gocache/
+backend/.gocache/
 
 # Env / local overrides
 .env

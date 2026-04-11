@@ -105,7 +105,7 @@ func main() {
 	handlers := &router.Handlers{
 		Auth:   initAuthModule(),   // 模块01 — 用户与认证（init_auth.go）
 		School: initSchoolModule(), // 模块02 — 学校与租户管理（init_school.go）
-		// Course:       initCourseModule(),       // 模块03（待实现）
+		Course: initCourseModule(), // 模块03 — 课程与教学（init_course.go）
 		// Experiment:   initExperimentModule(),   // 模块04（待实现）
 		// CTF:          initCTFModule(),           // 模块05（待实现）
 		// Grade:        initGradeModule(),         // 模块06（待实现）

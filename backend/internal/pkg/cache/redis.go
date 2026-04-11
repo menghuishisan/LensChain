@@ -113,54 +113,59 @@ func SetNX(ctx context.Context, key string, value interface{}, expiration time.D
 
 const (
 	// 模块01 — 用户与认证
-	KeySession        = "session:"             // session:{user_id} — Refresh Token
-	KeyTokenBlacklist = "token_blacklist:"      // token_blacklist:{jti} — Access Token 黑名单
-	KeyLoginFail      = "login_fail:"           // login_fail:{phone} — 登录失败计数
-	KeyAccountLocked  = "account_locked:"       // account_locked:{phone} — 账号锁定标记
+	KeySession        = "session:"               // session:{user_id} — Refresh Token
+	KeyTokenBlacklist = "token_blacklist:"       // token_blacklist:{jti} — Access Token 黑名单
+	KeyLoginFail      = "login_fail:"            // login_fail:{phone} — 登录失败计数
+	KeyAccountLocked  = "account_locked:"        // account_locked:{phone} — 账号锁定标记
+	KeySSOState       = "sso:state:"             // sso:state:{state} — OAuth2 状态校验
 	KeySecurityPolicy = "config:security_policy" // 安全策略配置
 
 	// 模块02 — 学校与租户管理
-	KeySchoolStatus   = "school:status:"        // school:status:{school_id}
-	KeySchoolExpiring = "school:expiring_soon"   // Sorted Set
+	KeySchoolStatus    = "school:status:"       // school:status:{school_id}
+	KeySchoolExpiring  = "school:expiring_soon" // Sorted Set
+	KeySMSVerification = "sms_verification:"    // sms_verification:{phone}
+
+	// 模块03 — 课程与教学
+	KeyCourseProgressRateLimit = "course:progress:ratelimit:" // course:progress:ratelimit:{user_id}
 
 	// 模块04 — 实验环境
-	KeyExpInstanceStatus  = "exp:instance:"      // exp:instance:{id}:status
-	KeyExpStudentRunning  = "exp:student:"        // exp:student:{id}:running_count
-	KeyExpCourseConcur    = "exp:course:"         // exp:course:{id}:concurrency
-	KeyExpQueue           = "exp:queue:"          // exp:queue:{course_id}
-	KeyExpHeartbeat       = "exp:heartbeat:"      // exp:heartbeat:{instance_id}
-	KeyExpMonitor         = "exp:monitor:"        // exp:monitor:{course_id}:{template_id}
-	KeyExpSimState        = "exp:sim:"            // exp:sim:{instance_id}:state
+	KeyExpInstanceStatus = "exp:instance:"  // exp:instance:{id}:status
+	KeyExpStudentRunning = "exp:student:"   // exp:student:{id}:running_count
+	KeyExpCourseConcur   = "exp:course:"    // exp:course:{id}:concurrency
+	KeyExpQueue          = "exp:queue:"     // exp:queue:{course_id}
+	KeyExpHeartbeat      = "exp:heartbeat:" // exp:heartbeat:{instance_id}
+	KeyExpMonitor        = "exp:monitor:"   // exp:monitor:{course_id}:{template_id}
+	KeyExpSimState       = "exp:sim:"       // exp:sim:{instance_id}:state
 
 	// 模块05 — CTF竞赛
-	KeyCTFLeaderboard     = "ctf:leaderboard:"   // ctf:leaderboard:{competition_id}
-	KeyCTFADLeaderboard   = "ctf:ad:leaderboard:" // ctf:ad:leaderboard:{comp_id}:{group_id}
-	KeyCTFFrozen          = "ctf:leaderboard:"    // ctf:leaderboard:{comp_id}:frozen
-	KeyCTFRateLimit       = "ctf:ratelimit:"      // ctf:ratelimit:{comp}:{team}:{challenge}
-	KeyCTFFailCount       = "ctf:failcount:"      // ctf:failcount:{comp}:{team}:{challenge}
-	KeyCTFCooldown        = "ctf:cooldown:"       // ctf:cooldown:{comp}:{team}:{challenge}
-	KeyCTFScore           = "ctf:score:"          // ctf:score:{comp_id}:{challenge_id}
-	KeyCTFADRound         = "ctf:ad:round:"       // ctf:ad:round:{comp_id}:{group_id}
-	KeyCTFADToken         = "ctf:ad:token:"       // ctf:ad:token:{comp_id}:{team_id}
-	KeyCTFADExploit       = "ctf:ad:exploit:"     // ctf:ad:exploit:{comp}:{group}:{challenge}
-	KeyCTFCompStatus      = "ctf:competition:"    // ctf:competition:{comp_id}:status
-	KeyCTFSolved          = "ctf:solved:"         // ctf:solved:{comp}:{team}:{challenge}
+	KeyCTFLeaderboard   = "ctf:leaderboard:"    // ctf:leaderboard:{competition_id}
+	KeyCTFADLeaderboard = "ctf:ad:leaderboard:" // ctf:ad:leaderboard:{comp_id}:{group_id}
+	KeyCTFFrozen        = "ctf:leaderboard:"    // ctf:leaderboard:{comp_id}:frozen
+	KeyCTFRateLimit     = "ctf:ratelimit:"      // ctf:ratelimit:{comp}:{team}:{challenge}
+	KeyCTFFailCount     = "ctf:failcount:"      // ctf:failcount:{comp}:{team}:{challenge}
+	KeyCTFCooldown      = "ctf:cooldown:"       // ctf:cooldown:{comp}:{team}:{challenge}
+	KeyCTFScore         = "ctf:score:"          // ctf:score:{comp_id}:{challenge_id}
+	KeyCTFADRound       = "ctf:ad:round:"       // ctf:ad:round:{comp_id}:{group_id}
+	KeyCTFADToken       = "ctf:ad:token:"       // ctf:ad:token:{comp_id}:{team_id}
+	KeyCTFADExploit     = "ctf:ad:exploit:"     // ctf:ad:exploit:{comp}:{group}:{challenge}
+	KeyCTFCompStatus    = "ctf:competition:"    // ctf:competition:{comp_id}:status
+	KeyCTFSolved        = "ctf:solved:"         // ctf:solved:{comp}:{team}:{challenge}
 
 	// 模块06 — 评测与成绩
-	KeyGradeLevelConfig   = "grade_level_config:" // grade_level_config:{school_id}
-	KeySemesterCurrent    = "semester:current:"    // semester:current:{school_id}
-	KeyStudentGPA         = "grade:student_gpa:"   // grade:student_gpa:{student_id}:{semester_id}
-	KeyReviewLock         = "grade:review_lock:"   // grade:review_lock:{course_id}:{semester_id}
+	KeyGradeLevelConfig = "grade_level_config:" // grade_level_config:{school_id}
+	KeySemesterCurrent  = "semester:current:"   // semester:current:{school_id}
+	KeyStudentGPA       = "grade:student_gpa:"  // grade:student_gpa:{student_id}:{semester_id}
+	KeyReviewLock       = "grade:review_lock:"  // grade:review_lock:{course_id}:{semester_id}
 
 	// 模块07 — 通知与消息
-	KeyNotifyUnread       = "notify:unread:"       // notify:unread:{user_id}
-	KeyNotifyPreference   = "notify:preference:"   // notify:preference:{user_id}
-	KeyNotifyTemplate     = "notify:template:"     // notify:template:{event_code}
-	KeyNotifyDedup        = "notify:dedup:"        // notify:dedup:{event_code}:{receiver}:{hash}
+	KeyNotifyUnread     = "notify:unread:"     // notify:unread:{user_id}
+	KeyNotifyPreference = "notify:preference:" // notify:preference:{user_id}
+	KeyNotifyTemplate   = "notify:template:"   // notify:template:{event_code}
+	KeyNotifyDedup      = "notify:dedup:"      // notify:dedup:{event_code}:{receiver}:{hash}
 
 	// 模块08 — 系统管理与监控
-	KeySystemConfig       = "system_config:"       // system_config:{group}:{key}
-	KeyAlertLastTrigger   = "alert_rule:last_trigger:" // alert_rule:last_trigger:{rule_id}
-	KeyPlatformStats      = "platform_stats:today"  // 今日统计缓存
-	KeyServiceHealth      = "service_health:"       // service_health:{service_name}
+	KeySystemConfig     = "system_config:"           // system_config:{group}:{key}
+	KeyAlertLastTrigger = "alert_rule:last_trigger:" // alert_rule:last_trigger:{rule_id}
+	KeyPlatformStats    = "platform_stats:today"     // 今日统计缓存
+	KeyServiceHealth    = "service_health:"          // service_health:{service_name}
 )
