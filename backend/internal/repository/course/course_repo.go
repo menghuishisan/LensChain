@@ -8,6 +8,7 @@ package courserepo
 import (
 	"context"
 	"fmt"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"time"
 
 	"gorm.io/gorm"
@@ -168,8 +169,8 @@ func (r *courseRepository) List(ctx context.Context, params *CourseListParams) (
 	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
 
 	// 分页
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
-	query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var courses []*entity.Course
 	if err := query.Find(&courses).Error; err != nil {
@@ -202,8 +203,8 @@ func (r *courseRepository) ListShared(ctx context.Context, params *SharedCourseL
 		return nil, 0, err
 	}
 
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
-	query = query.Order("created_at desc").Offset((page - 1) * pageSize).Limit(pageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Order("created_at desc").Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var courses []*entity.Course
 	if err := query.Find(&courses).Error; err != nil {
@@ -230,8 +231,8 @@ func (r *courseRepository) ListByStudentID(ctx context.Context, studentID int64,
 		return nil, 0, err
 	}
 
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
-	query = query.Order("created_at desc").Offset((page - 1) * pageSize).Limit(pageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Order("created_at desc").Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var courses []*entity.Course
 	if err := query.Find(&courses).Error; err != nil {
@@ -275,15 +276,4 @@ func (r *courseRepository) UpdateStatus(ctx context.Context, id int64, status in
 			"status":     status,
 			"updated_at": time.Now(),
 		}).Error
-}
-
-// normalizePagination 规范化分页参数
-func normalizePagination(page, pageSize int) (int, int) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	return page, pageSize
 }

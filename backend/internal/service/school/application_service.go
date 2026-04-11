@@ -8,6 +8,7 @@ package school
 import (
 	"context"
 	"encoding/json"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"strconv"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
-	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
@@ -26,6 +26,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/mask"
 	"github.com/lenschain/backend/internal/pkg/sms"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
 // ApplicationService 入驻申请服务接口
@@ -41,11 +42,11 @@ type ApplicationService interface {
 
 // applicationService 入驻申请服务实现
 type applicationService struct {
-	db             *gorm.DB
-	appRepo        schoolrepo.ApplicationRepository
-	schoolRepo     schoolrepo.SchoolRepository
-	notifyRepo     schoolrepo.NotificationRepository
-	adminCreator   AdminCreator
+	db           *gorm.DB
+	appRepo      schoolrepo.ApplicationRepository
+	schoolRepo   schoolrepo.SchoolRepository
+	notifyRepo   schoolrepo.NotificationRepository
+	adminCreator AdminCreator
 }
 
 // AdminCreator 跨模块接口：创建首个校管账号
@@ -276,7 +277,7 @@ func (s *applicationService) Approve(ctx context.Context, sc *svcctx.ServiceCont
 	now := time.Now()
 
 	// 事务：创建学校 + 更新申请 + 创建校管
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
 		// 1. 创建学校
 		schoolID = snowflake.Generate()
 		schoolEntity := &entity.School{

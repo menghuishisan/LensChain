@@ -1,8 +1,8 @@
-// common.go
-// 模块02 — 学校与租户管理：Handler 层公共辅助函数
-// 提取各 handler 文件中重复的 ServiceContext 构建、错误处理等公共逻辑
+// handlerctx.go
+// Handler 公共上下文辅助工具
+// 统一从 gin.Context 构建 service 层上下文并处理业务错误响应
 
-package school
+package handlerctx
 
 import (
 	"github.com/gin-gonic/gin"
@@ -13,9 +13,9 @@ import (
 	"github.com/lenschain/backend/internal/pkg/response"
 )
 
-// buildServiceContext 从 gin.Context 构建 ServiceContext
-// handler 层提取 HTTP 信息后传给 service 层，service 层不依赖 gin.Context
-func buildServiceContext(c *gin.Context) *svcctx.ServiceContext {
+// BuildServiceContext 从 gin.Context 构建 ServiceContext
+// handler 层提取 HTTP 信息后传给 service 层，service 层不依赖 gin.Context。
+func BuildServiceContext(c *gin.Context) *svcctx.ServiceContext {
 	return svcctx.NewServiceContext(
 		c.Request.Context(),
 		middleware.GetUserID(c),
@@ -24,9 +24,9 @@ func buildServiceContext(c *gin.Context) *svcctx.ServiceContext {
 	).WithClientIP(c.ClientIP())
 }
 
-// handleError 统一错误处理
-// 将业务错误码转为 HTTP 响应，非业务错误返回 500
-func handleError(c *gin.Context, err error) {
+// HandleError 统一处理 handler 层错误响应
+// 业务错误按 errcode 返回，非业务错误统一返回内部错误。
+func HandleError(c *gin.Context, err error) {
 	if appErr, ok := errcode.IsAppError(err); ok {
 		response.Error(c, appErr)
 		return

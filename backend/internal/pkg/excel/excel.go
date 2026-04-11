@@ -7,17 +7,20 @@ package excel
 
 import (
 	"bytes"
+	"encoding/csv"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	"github.com/xuri/excelize/v2"
 )
 
 // ExportConfig 导出配置
 type ExportConfig struct {
-	SheetName string     // 工作表名称
-	Headers   []string   // 表头列名
-	ColWidths []float64  // 列宽（可选，与 Headers 一一对应）
+	SheetName string    // 工作表名称
+	Headers   []string  // 表头列名
+	ColWidths []float64 // 列宽（可选，与 Headers 一一对应）
 }
 
 // Export 导出数据到 Excel
@@ -90,9 +93,9 @@ func Export(config *ExportConfig, rows [][]interface{}) (*bytes.Buffer, error) {
 
 // ImportRow 导入行数据
 type ImportRow struct {
-	RowNum int                    // 行号（从1开始，不含表头）
-	Data   map[string]string      // 列名 -> 值
-	Errors []string               // 该行的校验错误
+	RowNum int               // 行号（从1开始，不含表头）
+	Data   map[string]string // 列名 -> 值
+	Errors []string          // 该行的校验错误
 }
 
 // Import 从 Excel 读取数据
@@ -146,6 +149,46 @@ func Import(reader io.Reader, headers []string) ([]ImportRow, error) {
 	}
 
 	return result, nil
+}
+
+// ImportRawRows 从 Excel 或 CSV 读取原始数据行
+// 支持 xlsx/xlsm/xltx/xltm/csv，统一跳过首行表头。
+func ImportRawRows(filename string, reader io.Reader) ([][]string, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".csv":
+		csvReader := csv.NewReader(reader)
+		csvReader.FieldsPerRecord = -1
+		rows, err := csvReader.ReadAll()
+		if err != nil {
+			return nil, fmt.Errorf("CSV文件解析失败")
+		}
+		if len(rows) <= 1 {
+			return [][]string{}, nil
+		}
+		return rows[1:], nil
+	case ".xlsx", ".xlsm", ".xltx", ".xltm", "":
+		f, err := excelize.OpenReader(reader)
+		if err != nil {
+			return nil, fmt.Errorf("文件格式不正确，请上传 Excel 或 CSV 文件")
+		}
+		defer f.Close()
+
+		sheetName := f.GetSheetName(0)
+		if sheetName == "" {
+			return nil, fmt.Errorf("读取文件内容失败")
+		}
+		rows, err := f.GetRows(sheetName)
+		if err != nil {
+			return nil, fmt.Errorf("读取文件内容失败")
+		}
+		if len(rows) <= 1 {
+			return [][]string{}, nil
+		}
+		return rows[1:], nil
+	default:
+		return nil, fmt.Errorf("文件格式不正确，请上传 Excel 或 CSV 文件")
+	}
 }
 
 // CreateTemplate 创建导入模板

@@ -7,6 +7,8 @@ package course
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/response"
@@ -22,10 +24,10 @@ func (h *CourseHandler) JoinByInviteCode(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	courseID, err := h.contentService.JoinByInviteCode(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, gin.H{"course_id": courseID})
@@ -42,9 +44,9 @@ func (h *CourseHandler) AddStudent(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.AddStudent(c.Request.Context(), sc, courseID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "添加成功", nil)
@@ -61,9 +63,9 @@ func (h *CourseHandler) BatchAddStudents(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.BatchAddStudents(c.Request.Context(), sc, courseID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "批量添加成功", nil)
@@ -80,9 +82,9 @@ func (h *CourseHandler) RemoveStudent(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.RemoveStudent(c.Request.Context(), sc, courseID, studentID); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "移除成功", nil)
@@ -99,13 +101,13 @@ func (h *CourseHandler) ListStudents(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.contentService.ListStudents(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -122,9 +124,9 @@ func (h *CourseHandler) UpdateProgress(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.progressService.UpdateProgress(c.Request.Context(), sc, lessonID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -137,10 +139,10 @@ func (h *CourseHandler) GetMyProgress(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	progress, err := h.progressService.GetMyProgress(c.Request.Context(), sc, courseID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, progress)
@@ -157,13 +159,13 @@ func (h *CourseHandler) ListStudentsProgress(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.progressService.ListStudentsProgress(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -180,9 +182,9 @@ func (h *CourseHandler) SetSchedule(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.progressService.SetSchedule(c.Request.Context(), sc, courseID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "设置成功", nil)
@@ -195,10 +197,10 @@ func (h *CourseHandler) GetSchedule(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	schedules, err := h.progressService.GetSchedule(c.Request.Context(), sc, courseID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, schedules)
@@ -207,10 +209,10 @@ func (h *CourseHandler) GetSchedule(c *gin.Context) {
 // GetMySchedule 我的周课程表
 // GET /api/v1/my-schedule
 func (h *CourseHandler) GetMySchedule(c *gin.Context) {
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.progressService.GetMySchedule(c.Request.Context(), sc)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, resp)
@@ -225,13 +227,13 @@ func (h *CourseHandler) ListShared(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.courseService.ListShared(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -242,10 +244,10 @@ func (h *CourseHandler) GetSharedDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	course, err := h.courseService.GetSharedDetail(c.Request.Context(), sc, courseID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, course)
@@ -260,13 +262,13 @@ func (h *CourseHandler) ListMyCourses(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.courseService.ListMyCourses(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -279,24 +281,11 @@ func (h *CourseHandler) GetCourseOverview(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	stats, err := h.progressService.GetCourseOverview(c.Request.Context(), sc, courseID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, stats)
-}
-
-// ========== 辅助函数 ==========
-
-// normalizePage 规范化分页参数
-func normalizePage(page, pageSize int) (int, int) {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-	return page, pageSize
 }

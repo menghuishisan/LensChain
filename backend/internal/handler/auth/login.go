@@ -6,6 +6,7 @@
 package auth
 
 import (
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -44,7 +45,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	result, err := h.authService.Login(c.Request.Context(), req.Phone, req.Password, ip, userAgent)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -66,7 +67,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	userAgent := c.GetHeader("User-Agent")
 
 	if err := h.authService.Logout(c.Request.Context(), userID, jti, ip, userAgent); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -84,7 +85,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	resp, err := h.authService.RefreshToken(c.Request.Context(), req.RefreshToken)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -104,7 +105,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	ip := c.ClientIP()
 
 	if err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword, ip); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -125,7 +126,7 @@ func (h *AuthHandler) ForceChangePassword(c *gin.Context) {
 
 	result, err := h.authService.ForceChangePassword(c.Request.Context(), userID, req.NewPassword, ip)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -143,7 +144,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 
 	loginURL, err := h.authService.SSOLoginURL(c.Request.Context(), schoolID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -156,7 +157,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 func (h *AuthHandler) SSOCallback(c *gin.Context) {
 	schoolID := validator.ParseQueryInt64(c, "school_id", 0)
 	if schoolID <= 0 {
-		handleError(c, errcode.ErrInvalidParams.WithMessage("缺少学校ID"))
+		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("缺少学校ID"))
 		return
 	}
 
@@ -169,7 +170,7 @@ func (h *AuthHandler) SSOCallback(c *gin.Context) {
 
 	result, err := h.authService.SSOCallback(c.Request.Context(), schoolID, query, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 

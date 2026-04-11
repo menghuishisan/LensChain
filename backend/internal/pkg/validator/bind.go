@@ -77,6 +77,21 @@ func ParsePathID(c *gin.Context, param string) (int64, bool) {
 	return id, true
 }
 
+// ParseIDList 解析字符串 ID 列表（雪花ID字符串 → int64 列表）
+// 解析失败自动返回 400 错误响应并返回 nil, false。
+func ParseIDList(c *gin.Context, ids []string) ([]int64, bool) {
+	result := make([]int64, 0, len(ids))
+	for _, idStr := range ids {
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			response.Error(c, errcode.ErrInvalidParams.WithMessage(fmt.Sprintf("无效的ID: %s", idStr)))
+			return nil, false
+		}
+		result = append(result, id)
+	}
+	return result, true
+}
+
 // ParseQueryInt 解析查询参数中的整数值
 // 如果参数不存在返回 defaultVal
 func ParseQueryInt(c *gin.Context, key string, defaultVal int) int {

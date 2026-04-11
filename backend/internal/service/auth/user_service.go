@@ -7,6 +7,7 @@ package auth
 
 import (
 	"context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"maps"
 	"slices"
 	"strconv"
@@ -17,14 +18,14 @@ import (
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
-	"github.com/lenschain/backend/internal/repository/auth"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
-	"github.com/lenschain/backend/internal/pkg/crypto"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/repository/auth"
 )
 
 // UserService 用户管理服务接口
@@ -139,7 +140,7 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 
 	// 创建用户（事务）
 	userID := snowflake.Generate()
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
 		// 创建用户主记录
 		user := &entity.User{
 			ID:            userID,

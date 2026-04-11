@@ -8,6 +8,7 @@ package courserepo
 import (
 	"context"
 	"fmt"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"gorm.io/gorm"
 
@@ -141,9 +142,9 @@ func (r *assignmentRepository) ListByCourseID(ctx context.Context, params *Assig
 		return nil, 0, err
 	}
 
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
 	query = query.Order("sort_order asc, created_at desc").
-		Offset((page - 1) * pageSize).Limit(pageSize)
+		Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var assignments []*entity.Assignment
 	if err := query.Find(&assignments).Error; err != nil {
@@ -294,9 +295,9 @@ func (r *submissionRepository) ListByAssignment(ctx context.Context, params *Sub
 		return nil, 0, err
 	}
 
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
 	query = query.Order("submitted_at desc").
-		Offset((page - 1) * pageSize).Limit(pageSize)
+		Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var submissions []*entity.AssignmentSubmission
 	if err := query.Find(&submissions).Error; err != nil {

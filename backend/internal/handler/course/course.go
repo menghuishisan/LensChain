@@ -7,6 +7,8 @@ package course
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/response"
@@ -44,10 +46,10 @@ func (h *CourseHandler) Create(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.courseService.Create(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "创建成功", resp)
@@ -60,10 +62,10 @@ func (h *CourseHandler) GetByID(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.courseService.GetByID(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, detail)
@@ -80,9 +82,9 @@ func (h *CourseHandler) Update(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.courseService.Update(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -95,9 +97,9 @@ func (h *CourseHandler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.courseService.Delete(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -110,13 +112,13 @@ func (h *CourseHandler) List(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.courseService.List(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -129,9 +131,9 @@ func (h *CourseHandler) Publish(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.courseService.Publish(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "发布成功", nil)
@@ -144,9 +146,9 @@ func (h *CourseHandler) End(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.courseService.End(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "课程已结束", nil)
@@ -159,9 +161,9 @@ func (h *CourseHandler) Archive(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.courseService.Archive(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "归档成功", nil)
@@ -174,10 +176,10 @@ func (h *CourseHandler) Clone(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	newID, err := h.courseService.Clone(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": newID})
@@ -194,9 +196,9 @@ func (h *CourseHandler) ToggleShare(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.courseService.ToggleShare(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "操作成功", nil)
@@ -209,10 +211,10 @@ func (h *CourseHandler) RefreshInviteCode(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	code, err := h.courseService.RefreshInviteCode(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, gin.H{"invite_code": code})
@@ -227,10 +229,10 @@ func (h *CourseHandler) ListChapters(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	chapters, err := h.contentService.ListChapters(c.Request.Context(), sc, courseID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, chapters)
@@ -247,10 +249,10 @@ func (h *CourseHandler) CreateChapter(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.contentService.CreateChapter(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -267,9 +269,9 @@ func (h *CourseHandler) SortChapters(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.SortChapters(c.Request.Context(), sc, courseID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "排序成功", nil)
@@ -286,9 +288,9 @@ func (h *CourseHandler) UpdateChapter(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.UpdateChapter(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -301,9 +303,9 @@ func (h *CourseHandler) DeleteChapter(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.DeleteChapter(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -322,10 +324,10 @@ func (h *CourseHandler) CreateLesson(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.contentService.CreateLesson(c.Request.Context(), sc, chapterID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -342,9 +344,9 @@ func (h *CourseHandler) SortLessons(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.SortLessons(c.Request.Context(), sc, chapterID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "排序成功", nil)
@@ -357,10 +359,10 @@ func (h *CourseHandler) GetLesson(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.contentService.GetLesson(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, detail)
@@ -377,9 +379,9 @@ func (h *CourseHandler) UpdateLesson(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.UpdateLesson(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -392,9 +394,9 @@ func (h *CourseHandler) DeleteLesson(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.DeleteLesson(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -411,10 +413,10 @@ func (h *CourseHandler) UploadAttachment(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.contentService.UploadAttachment(c.Request.Context(), sc, lessonID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -427,9 +429,9 @@ func (h *CourseHandler) DeleteAttachment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.contentService.DeleteAttachment(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)

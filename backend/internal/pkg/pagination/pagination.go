@@ -54,6 +54,20 @@ func (q *Query) Offset() int {
 	return (q.Page - 1) * q.PageSize
 }
 
+// NormalizeValues 规范化分页数值
+// 供不直接使用 Query 结构体的 handler/service/repository 复用，避免各模块重复实现分页默认值。
+func NormalizeValues(page, pageSize int) (int, int) {
+	q := Query{Page: page, PageSize: pageSize}
+	q.Normalize()
+	return q.Page, q.PageSize
+}
+
+// Offset 计算分页偏移量
+func Offset(page, pageSize int) int {
+	page, pageSize = NormalizeValues(page, pageSize)
+	return (page - 1) * pageSize
+}
+
 // ApplyToGORM 将分页和排序参数应用到 GORM 查询
 // allowedSortFields 为允许排序的字段白名单，防止SQL注入
 func (q *Query) ApplyToGORM(db *gorm.DB, allowedSortFields map[string]string) *gorm.DB {

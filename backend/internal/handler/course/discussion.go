@@ -6,6 +6,8 @@ package course
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/response"
@@ -37,10 +39,10 @@ func (h *DiscussionHandler) CreateDiscussion(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.discussionService.CreateDiscussion(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -53,10 +55,10 @@ func (h *DiscussionHandler) GetDiscussion(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.discussionService.GetDiscussion(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, detail)
@@ -73,13 +75,13 @@ func (h *DiscussionHandler) ListDiscussions(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.discussionService.ListDiscussions(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -90,9 +92,9 @@ func (h *DiscussionHandler) DeleteDiscussion(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.DeleteDiscussion(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -109,9 +111,9 @@ func (h *DiscussionHandler) PinDiscussion(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.PinDiscussion(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "操作成功", nil)
@@ -130,10 +132,10 @@ func (h *DiscussionHandler) CreateReply(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.discussionService.CreateReply(c.Request.Context(), sc, discussionID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -146,9 +148,9 @@ func (h *DiscussionHandler) DeleteReply(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.DeleteReply(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -163,10 +165,10 @@ func (h *DiscussionHandler) ToggleLike(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	liked, err := h.discussionService.ToggleLike(c.Request.Context(), sc, discussionID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, gin.H{"liked": liked})
@@ -185,10 +187,10 @@ func (h *DiscussionHandler) CreateAnnouncement(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.discussionService.CreateAnnouncement(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -205,9 +207,9 @@ func (h *DiscussionHandler) UpdateAnnouncement(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.UpdateAnnouncement(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -220,9 +222,9 @@ func (h *DiscussionHandler) DeleteAnnouncement(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.DeleteAnnouncement(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -239,13 +241,13 @@ func (h *DiscussionHandler) ListAnnouncements(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.discussionService.ListAnnouncements(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -262,10 +264,10 @@ func (h *DiscussionHandler) CreateEvaluation(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.discussionService.CreateEvaluation(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -282,9 +284,9 @@ func (h *DiscussionHandler) UpdateEvaluation(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.UpdateEvaluation(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -301,13 +303,13 @@ func (h *DiscussionHandler) ListEvaluations(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, summary, total, err := h.discussionService.ListEvaluations(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, gin.H{
 		"items":   items,
 		"summary": summary,
@@ -327,9 +329,9 @@ func (h *DiscussionHandler) SetGradeConfig(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.discussionService.SetGradeConfig(c.Request.Context(), sc, courseID, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "设置成功", nil)
@@ -342,10 +344,10 @@ func (h *DiscussionHandler) GetGradeConfig(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	config, err := h.discussionService.GetGradeConfig(c.Request.Context(), sc, courseID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, config)

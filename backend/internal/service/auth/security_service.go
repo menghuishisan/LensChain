@@ -15,11 +15,12 @@ import (
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
-	"github.com/lenschain/backend/internal/repository/auth"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
+	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/repository/auth"
 )
 
 // SecurityService 安全策略服务接口
@@ -132,10 +133,11 @@ func (s *securityService) ListLoginLogs(ctx context.Context, sc *svcctx.ServiceC
 	// 解析 user_id
 	var userID int64
 	if req.UserID != "" {
-		id, err := strconv.ParseInt(req.UserID, 10, 64)
-		if err == nil {
-			userID = id
+		id, err := snowflake.ParseString(req.UserID)
+		if err != nil || id <= 0 {
+			return nil, 0, errcode.ErrInvalidParams.WithMessage("user_id 格式不正确")
 		}
+		userID = id
 	}
 
 	params := &authrepo.LoginLogListParams{
@@ -164,16 +166,16 @@ func (s *securityService) ListLoginLogs(ctx context.Context, sc *svcctx.ServiceC
 	items := make([]*dto.LoginLogItem, 0, len(logs))
 	for _, log := range logs {
 		item := &dto.LoginLogItem{
-			ID:         strconv.FormatInt(log.ID, 10),
-			UserID:     strconv.FormatInt(log.UserID, 10),
-			UserName:   userNameMap[log.UserID],
-			Action:     log.Action,
-			ActionText: enum.GetLoginActionText(log.Action),
+			ID:          strconv.FormatInt(log.ID, 10),
+			UserID:      strconv.FormatInt(log.UserID, 10),
+			UserName:    userNameMap[log.UserID],
+			Action:      log.Action,
+			ActionText:  enum.GetLoginActionText(log.Action),
 			LoginMethod: log.LoginMethod,
-			IP:         log.IP,
-			UserAgent:  log.UserAgent,
-			FailReason: log.FailReason,
-			CreatedAt:  log.CreatedAt.Format(time.RFC3339),
+			IP:          log.IP,
+			UserAgent:   log.UserAgent,
+			FailReason:  log.FailReason,
+			CreatedAt:   log.CreatedAt.Format(time.RFC3339),
 		}
 		if log.LoginMethod != nil {
 			text := enum.GetLoginMethodText(*log.LoginMethod)
@@ -190,10 +192,11 @@ func (s *securityService) ListOperationLogs(ctx context.Context, sc *svcctx.Serv
 	// 解析 operator_id
 	var operatorID int64
 	if req.OperatorID != "" {
-		id, err := strconv.ParseInt(req.OperatorID, 10, 64)
-		if err == nil {
-			operatorID = id
+		id, err := snowflake.ParseString(req.OperatorID)
+		if err != nil || id <= 0 {
+			return nil, 0, errcode.ErrInvalidParams.WithMessage("operator_id 格式不正确")
 		}
+		operatorID = id
 	}
 
 	params := &authrepo.OperationLogListParams{

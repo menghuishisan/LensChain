@@ -8,6 +8,7 @@ package school
 
 import (
 	"context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"math"
 	"strconv"
 	"time"
@@ -18,13 +19,13 @@ import (
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
-	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/sms"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
 // SchoolService 学校管理服务接口
@@ -46,9 +47,9 @@ type SchoolService interface {
 
 // schoolService 学校管理服务实现
 type schoolService struct {
-	db           *gorm.DB
-	schoolRepo   schoolrepo.SchoolRepository
-	adminCreator AdminCreator
+	db            *gorm.DB
+	schoolRepo    schoolrepo.SchoolRepository
+	adminCreator  AdminCreator
 	sessionKicker SessionKicker
 }
 
@@ -128,7 +129,7 @@ func (s *schoolService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 	var schoolID, adminUserID int64
 	var adminPassword string
 
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
 		schoolID = snowflake.Generate()
 		schoolEntity := &entity.School{
 			ID:             schoolID,
@@ -375,4 +376,3 @@ func (s *schoolService) GetSSOSchoolList(ctx context.Context) ([]*dto.SSOSchoolI
 	}
 	return items, nil
 }
-

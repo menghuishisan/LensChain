@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
@@ -85,21 +86,11 @@ func (r *loginLogRepository) List(ctx context.Context, params *LoginLogListParam
 		return nil, 0, err
 	}
 
-	// 分页
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 20
-	}
-	if params.PageSize > 100 {
-		params.PageSize = 100
-	}
-	offset := (params.Page - 1) * params.PageSize
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
 
 	var logs []*entity.LoginLog
 	err := query.Order("created_at DESC").
-		Offset(offset).Limit(params.PageSize).
+		Offset(pagination.Offset(page, pageSize)).Limit(pageSize).
 		Find(&logs).Error
 	if err != nil {
 		return nil, 0, err
@@ -184,21 +175,11 @@ func (r *operationLogRepository) List(ctx context.Context, params *OperationLogL
 		return nil, 0, fmt.Errorf("统计操作日志总数失败: %w", err)
 	}
 
-	// 分页
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 20
-	}
-	if params.PageSize > 100 {
-		params.PageSize = 100
-	}
-	offset := (params.Page - 1) * params.PageSize
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
 
 	var logs []*entity.OperationLog
 	err := query.Order("created_at DESC").
-		Offset(offset).Limit(params.PageSize).
+		Offset(pagination.Offset(page, pageSize)).Limit(pageSize).
 		Find(&logs).Error
 	if err != nil {
 		return nil, 0, err

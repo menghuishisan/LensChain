@@ -32,6 +32,14 @@ func TransactionWithContext(ctx context.Context, fn TxFunc) error {
 	})
 }
 
+// TransactionWithDB 使用指定数据库实例执行事务
+// 适用于已通过依赖注入持有 *gorm.DB 的 service/repository，避免直接重复编写事务模板。
+func TransactionWithDB(ctx context.Context, baseDB *gorm.DB, fn TxFunc) error {
+	return baseDB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(tx)
+	})
+}
+
 // TransactionNested 嵌套事务（SavePoint）
 // 在已有事务中创建保存点，支持部分回滚
 func TransactionNested(tx *gorm.DB, fn TxFunc) error {

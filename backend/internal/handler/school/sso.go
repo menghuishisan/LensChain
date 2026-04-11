@@ -7,6 +7,7 @@ package school
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
@@ -30,10 +31,10 @@ func NewSSOHandler(ssoService svc.SSOService) *SSOHandler {
 // GET /api/v1/school/sso-config
 // 校管接口，client_secret 脱敏显示为 ******
 func (h *SSOHandler) GetConfig(c *gin.Context) {
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.ssoService.GetConfig(c.Request.Context(), sc)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -49,9 +50,9 @@ func (h *SSOHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.ssoService.UpdateConfig(c.Request.Context(), sc, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -62,7 +63,7 @@ func (h *SSOHandler) UpdateConfig(c *gin.Context) {
 // POST /api/v1/school/sso-config/test
 // 校管接口，根据协议类型（CAS/OAuth2）测试连接可达性
 func (h *SSOHandler) TestConnection(c *gin.Context) {
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.ssoService.TestConnection(c.Request.Context(), sc)
 	if err != nil {
 		// 测试失败时按文档返回错误码，同时在 data 中附带错误详情
@@ -70,7 +71,7 @@ func (h *SSOHandler) TestConnection(c *gin.Context) {
 			response.ErrorWithData(c, errcode.ErrSSOTestFailed, resp)
 			return
 		}
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 

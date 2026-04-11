@@ -14,6 +14,7 @@ import (
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
@@ -212,18 +213,8 @@ func (r *userRepository) List(ctx context.Context, params *UserListParams) ([]*e
 	}
 	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
 
-	// 分页
-	if params.Page <= 0 {
-		params.Page = 1
-	}
-	if params.PageSize <= 0 {
-		params.PageSize = 20
-	}
-	if params.PageSize > 100 {
-		params.PageSize = 100
-	}
-	offset := (params.Page - 1) * params.PageSize
-	query = query.Offset(offset).Limit(params.PageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	// 预加载关联
 	var users []*entity.User

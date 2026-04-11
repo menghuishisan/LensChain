@@ -7,6 +7,7 @@ package courserepo
 
 import (
 	"context"
+	"github.com/lenschain/backend/internal/pkg/database"
 
 	"gorm.io/gorm"
 
@@ -106,7 +107,7 @@ func (r *chapterRepository) ListByCourseID(ctx context.Context, courseID int64) 
 
 // UpdateSortOrders 批量更新章节排序
 func (r *chapterRepository) UpdateSortOrders(ctx context.Context, items []SortItem) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return database.TransactionWithDB(ctx, r.db, func(tx *gorm.DB) error {
 		for _, item := range items {
 			if err := tx.Model(&entity.Chapter{}).
 				Where("id = ?", item.ID).
@@ -201,7 +202,7 @@ func (r *lessonRepository) ListByCourseID(ctx context.Context, courseID int64) (
 
 // UpdateSortOrders 批量更新课时排序
 func (r *lessonRepository) UpdateSortOrders(ctx context.Context, items []SortItem) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return database.TransactionWithDB(ctx, r.db, func(tx *gorm.DB) error {
 		for _, item := range items {
 			if err := tx.Model(&entity.Lesson{}).
 				Where("id = ?", item.ID).

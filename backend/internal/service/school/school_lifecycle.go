@@ -7,6 +7,7 @@ package school
 
 import (
 	"context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"math"
 	"strconv"
 	"time"
@@ -102,7 +103,7 @@ func (s *schoolService) Cancel(ctx context.Context, sc *svcctx.ServiceContext, i
 	}
 
 	now := time.Now()
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
 		// 1. 更新学校状态 + 软删除
 		if err := tx.Model(&entity.School{}).Where("id = ?", id).Updates(map[string]interface{}{
 			"status":     enum.SchoolStatusCancelled,
@@ -141,7 +142,7 @@ func (s *schoolService) Restore(ctx context.Context, sc *svcctx.ServiceContext, 
 		return errcode.ErrSchoolNotCancelled
 	}
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
 		// 1. 恢复学校
 		if err := tx.Unscoped().Model(&entity.School{}).Where("id = ?", id).Updates(map[string]interface{}{
 			"status":     enum.SchoolStatusActive,

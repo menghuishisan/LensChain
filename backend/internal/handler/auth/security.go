@@ -7,11 +7,13 @@ package auth
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
-	svc "github.com/lenschain/backend/internal/service/auth"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
+	svc "github.com/lenschain/backend/internal/service/auth"
 )
 
 // SecurityHandler 安全策略与日志处理器
@@ -30,7 +32,7 @@ func NewSecurityHandler(securityService svc.SecurityService) *SecurityHandler {
 func (h *SecurityHandler) GetSecurityPolicy(c *gin.Context) {
 	policy, err := h.securityService.GetSecurityPolicy(c.Request.Context())
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -45,9 +47,9 @@ func (h *SecurityHandler) UpdateSecurityPolicy(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.securityService.UpdateSecurityPolicy(c.Request.Context(), sc, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -62,23 +64,13 @@ func (h *SecurityHandler) ListLoginLogs(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.securityService.ListLoginLogs(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-
-	// 规范化分页参数
-	page := req.Page
-	if page <= 0 {
-		page = 1
-	}
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -90,22 +82,12 @@ func (h *SecurityHandler) ListOperationLogs(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.securityService.ListOperationLogs(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-
-	// 规范化分页参数
-	page := req.Page
-	if page <= 0 {
-		page = 1
-	}
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }

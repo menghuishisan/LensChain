@@ -8,6 +8,7 @@ package courserepo
 import (
 	"context"
 	"fmt"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"gorm.io/gorm"
 
@@ -103,8 +104,8 @@ func (r *enrollmentRepository) List(ctx context.Context, params *EnrollmentListP
 		return nil, 0, err
 	}
 
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
-	query = query.Order("joined_at desc").Offset((page - 1) * pageSize).Limit(pageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Order("joined_at desc").Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var enrollments []*entity.CourseEnrollment
 	if err := query.Find(&enrollments).Error; err != nil {

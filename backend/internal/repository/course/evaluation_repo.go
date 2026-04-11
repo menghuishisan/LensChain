@@ -7,6 +7,8 @@ package courserepo
 
 import (
 	"context"
+	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"gorm.io/gorm"
 
@@ -96,9 +98,9 @@ func (r *evaluationRepository) List(ctx context.Context, courseID int64, page, p
 		return nil, 0, err
 	}
 
-	page, pageSize = normalizePagination(page, pageSize)
+	page, pageSize = pagination.NormalizeValues(page, pageSize)
 	query = query.Order("created_at desc").
-		Offset((page - 1) * pageSize).Limit(pageSize)
+		Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var evaluations []*entity.CourseEvaluation
 	if err := query.Find(&evaluations).Error; err != nil {
@@ -190,7 +192,7 @@ func NewScheduleRepository(db *gorm.DB) ScheduleRepository {
 }
 
 func (r *scheduleRepository) ReplaceByCourseID(ctx context.Context, courseID int64, schedules []*entity.CourseSchedule) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return database.TransactionWithDB(ctx, r.db, func(tx *gorm.DB) error {
 		// 先删除旧的
 		if err := tx.Where("course_id = ?", courseID).Delete(&entity.CourseSchedule{}).Error; err != nil {
 			return err

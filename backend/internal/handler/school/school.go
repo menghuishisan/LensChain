@@ -7,6 +7,8 @@ package school
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/response"
@@ -35,23 +37,13 @@ func (h *SchoolHandler) List(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.schoolService.List(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-
-	// 规范化分页参数
-	page := req.Page
-	if page <= 0 {
-		page = 1
-	}
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -63,10 +55,10 @@ func (h *SchoolHandler) Create(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.schoolService.Create(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -81,10 +73,10 @@ func (h *SchoolHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.schoolService.GetByID(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -104,9 +96,9 @@ func (h *SchoolHandler) Update(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.Update(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -126,9 +118,9 @@ func (h *SchoolHandler) SetLicense(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.SetLicense(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -148,9 +140,9 @@ func (h *SchoolHandler) Freeze(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.Freeze(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -165,9 +157,9 @@ func (h *SchoolHandler) Unfreeze(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.Unfreeze(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -187,9 +179,9 @@ func (h *SchoolHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.Cancel(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -204,9 +196,9 @@ func (h *SchoolHandler) Restore(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.Restore(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -218,10 +210,10 @@ func (h *SchoolHandler) Restore(c *gin.Context) {
 // GetProfile 获取本校信息
 // GET /api/v1/school/profile
 func (h *SchoolHandler) GetProfile(c *gin.Context) {
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.schoolService.GetProfile(c.Request.Context(), sc)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -237,9 +229,9 @@ func (h *SchoolHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.schoolService.UpdateProfile(c.Request.Context(), sc, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -249,10 +241,10 @@ func (h *SchoolHandler) UpdateProfile(c *gin.Context) {
 // GetLicenseStatus 查看授权状态
 // GET /api/v1/school/license
 func (h *SchoolHandler) GetLicenseStatus(c *gin.Context) {
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.schoolService.GetLicenseStatus(c.Request.Context(), sc)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -267,7 +259,7 @@ func (h *SchoolHandler) GetLicenseStatus(c *gin.Context) {
 func (h *SchoolHandler) GetSSOSchoolList(c *gin.Context) {
 	items, err := h.schoolService.GetSSOSchoolList(c.Request.Context())
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 

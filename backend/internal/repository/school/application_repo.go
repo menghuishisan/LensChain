@@ -13,6 +13,7 @@ import (
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
@@ -127,17 +128,8 @@ func (r *applicationRepository) List(ctx context.Context, params *ApplicationLis
 	}
 	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
 
-	// 分页
-	page := params.Page
-	if page < 1 {
-		page = 1
-	}
-	pageSize := params.PageSize
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
-	offset := (page - 1) * pageSize
-	query = query.Offset(offset).Limit(pageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var apps []*entity.SchoolApplication
 	if err := query.Find(&apps).Error; err != nil {

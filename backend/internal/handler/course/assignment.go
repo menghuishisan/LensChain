@@ -6,6 +6,8 @@ package course
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/response"
@@ -37,10 +39,10 @@ func (h *AssignmentHandler) CreateAssignment(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.assignmentService.Create(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -53,10 +55,10 @@ func (h *AssignmentHandler) GetAssignment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.assignmentService.GetByID(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, detail)
@@ -73,9 +75,9 @@ func (h *AssignmentHandler) UpdateAssignment(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.assignmentService.Update(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -88,9 +90,9 @@ func (h *AssignmentHandler) DeleteAssignment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.assignmentService.Delete(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -107,13 +109,13 @@ func (h *AssignmentHandler) ListAssignments(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.assignmentService.List(c.Request.Context(), sc, courseID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -124,9 +126,9 @@ func (h *AssignmentHandler) PublishAssignment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.assignmentService.Publish(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "发布成功", nil)
@@ -145,10 +147,10 @@ func (h *AssignmentHandler) AddQuestion(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	id, err := h.assignmentService.AddQuestion(c.Request.Context(), sc, assignmentID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Created(c, gin.H{"id": id})
@@ -165,9 +167,9 @@ func (h *AssignmentHandler) UpdateQuestion(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.assignmentService.UpdateQuestion(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
@@ -180,9 +182,9 @@ func (h *AssignmentHandler) DeleteQuestion(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.assignmentService.DeleteQuestion(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
@@ -201,10 +203,10 @@ func (h *AssignmentHandler) SubmitAssignment(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.assignmentService.Submit(c.Request.Context(), sc, assignmentID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "提交成功", resp)
@@ -217,10 +219,10 @@ func (h *AssignmentHandler) GetSubmission(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.assignmentService.GetSubmission(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, detail)
@@ -237,13 +239,13 @@ func (h *AssignmentHandler) ListSubmissions(c *gin.Context) {
 	if !validator.BindQuery(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.assignmentService.ListSubmissions(c.Request.Context(), sc, assignmentID, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := normalizePage(req.Page, req.PageSize)
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -254,10 +256,10 @@ func (h *AssignmentHandler) ListMySubmissions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	result, err := h.assignmentService.ListMySubmissions(c.Request.Context(), sc, assignmentID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.Success(c, result)
@@ -274,9 +276,9 @@ func (h *AssignmentHandler) GradeSubmission(c *gin.Context) {
 	if !validator.BindJSON(c, &req) {
 		return
 	}
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.assignmentService.GradeSubmission(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 	response.SuccessWithMsg(c, "批改成功", nil)

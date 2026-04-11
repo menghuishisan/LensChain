@@ -6,19 +6,15 @@
 package auth
 
 import (
-	"encoding/csv"
 	"fmt"
-	"io"
 	"net/url"
-	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/xuri/excelize/v2"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
 	svc "github.com/lenschain/backend/internal/service/auth"
@@ -53,23 +49,14 @@ func (h *UserHandler) List(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.userService.List(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
-	// 规范化分页参数
-	page := req.Page
-	if page <= 0 {
-		page = 1
-	}
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -81,10 +68,10 @@ func (h *UserHandler) Get(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.userService.GetByID(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -99,10 +86,10 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.userService.Create(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -122,9 +109,9 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.userService.Update(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -139,9 +126,9 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.userService.Delete(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -161,9 +148,9 @@ func (h *UserHandler) UpdateStatus(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.userService.UpdateStatus(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -183,9 +170,9 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.userService.ResetPassword(c.Request.Context(), sc, id, req.NewPassword); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -200,9 +187,9 @@ func (h *UserHandler) Unlock(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.userService.UnlockUser(c.Request.Context(), sc, id); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -217,20 +204,14 @@ func (h *UserHandler) BatchDelete(c *gin.Context) {
 		return
 	}
 
-	// 将字符串ID转为int64
-	ids := make([]int64, 0, len(req.IDs))
-	for _, idStr := range req.IDs {
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			response.Error(c, errcode.ErrInvalidParams.WithMessage(fmt.Sprintf("无效的ID: %s", idStr)))
-			return
-		}
-		ids = append(ids, id)
+	ids, ok := validator.ParseIDList(c, req.IDs)
+	if !ok {
+		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.userService.BatchDelete(c.Request.Context(), sc, ids); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -249,31 +230,16 @@ func (h *UserHandler) DownloadTemplate(c *gin.Context) {
 		return
 	}
 
-	// 创建 Excel 模板
-	f := excelize.NewFile()
-	sheet := "Sheet1"
-
-	// 设置表头
-	headers := []string{"姓名", "手机号", "学号/工号", "初始密码", "学院", "专业", "班级", "入学年份", "学业层次", "年级", "邮箱", "备注"}
-	for i, header := range headers {
-		cell := fmt.Sprintf("%c1", 'A'+i)
-		_ = f.SetCellValue(sheet, cell, header)
-	}
-
-	// 设置文件名（P1-5 修复：RFC 5987 编码中文文件名）
-	fileName := "学生导入模板.xlsx"
-	if importType == "teacher" {
-		fileName = "教师导入模板.xlsx"
+	buf, fileName, err := h.importService.BuildTemplate(importType)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
 	}
 	encodedName := url.PathEscape(fileName)
 
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", encodedName))
-
-	if err := f.Write(c.Writer); err != nil {
-		response.Error(c, errcode.ErrInternal.WithMessage("生成模板失败"))
-		return
-	}
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }
 
 // ImportPreview 上传文件预览
@@ -307,7 +273,7 @@ func (h *UserHandler) ImportPreview(c *gin.Context) {
 	}
 	defer src.Close()
 
-	dataRows, err := parseImportRows(file.Filename, src)
+	dataRows, err := h.importService.ParseFile(file.Filename, src)
 	if err != nil {
 		response.Error(c, errcode.ErrInvalidParams.WithMessage(err.Error()))
 		return
@@ -318,56 +284,14 @@ func (h *UserHandler) ImportPreview(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.importService.Preview(c.Request.Context(), sc, importType, dataRows)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
 	response.Success(c, resp)
-}
-
-// parseImportRows 解析导入文件数据行
-// 支持 xlsx / csv，两者均跳过首行表头
-func parseImportRows(filename string, src io.Reader) ([][]string, error) {
-	ext := strings.ToLower(filepath.Ext(filename))
-
-	switch ext {
-	case ".csv":
-		reader := csv.NewReader(src)
-		reader.FieldsPerRecord = -1
-		rows, err := reader.ReadAll()
-		if err != nil {
-			return nil, fmt.Errorf("CSV文件解析失败")
-		}
-		if len(rows) <= 1 {
-			return [][]string{}, nil
-		}
-		return rows[1:], nil
-	case ".xlsx", ".xlsm", ".xltx", ".xltm", "":
-		f, err := excelize.OpenReader(src)
-		if err != nil {
-			return nil, fmt.Errorf("文件格式不正确，请上传 Excel 或 CSV 文件")
-		}
-		defer f.Close()
-
-		sheetName := f.GetSheetName(0)
-		if sheetName == "" {
-			return nil, fmt.Errorf("读取文件内容失败")
-		}
-
-		rows, err := f.GetRows(sheetName)
-		if err != nil {
-			return nil, fmt.Errorf("读取文件内容失败")
-		}
-		if len(rows) <= 1 {
-			return [][]string{}, nil
-		}
-		return rows[1:], nil
-	default:
-		return nil, fmt.Errorf("文件格式不正确，请上传 Excel 或 CSV 文件")
-	}
 }
 
 // ImportExecute 确认执行导入
@@ -378,10 +302,10 @@ func (h *UserHandler) ImportExecute(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.importService.Execute(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -398,10 +322,10 @@ func (h *UserHandler) ImportFailures(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	rows, err := h.importService.GetImportFailures(c.Request.Context(), sc, importID)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -410,46 +334,16 @@ func (h *UserHandler) ImportFailures(c *gin.Context) {
 		return
 	}
 
-	// 生成 Excel 文件
-	f := excelize.NewFile()
-	sheet := "Sheet1"
-
-	// 设置表头
-	headers := []string{"行号", "姓名", "手机号", "学号/工号", "学院", "专业", "班级", "入学年份", "学业层次", "年级", "邮箱", "备注", "失败原因"}
-	for i, header := range headers {
-		cell := fmt.Sprintf("%c1", 'A'+i)
-		_ = f.SetCellValue(sheet, cell, header)
+	buf, fileName, err := h.importService.BuildFailureFile(rows)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
 	}
-
-	// 填充数据
-	for i, row := range rows {
-		rowNum := i + 2
-		_ = f.SetCellValue(sheet, fmt.Sprintf("A%d", rowNum), row.Row)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("B%d", rowNum), row.Name)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("C%d", rowNum), row.Phone)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("D%d", rowNum), row.StudentNo)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("E%d", rowNum), row.College)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("F%d", rowNum), row.Major)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("G%d", rowNum), row.ClassName)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("H%d", rowNum), row.EnrollmentYear)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("I%d", rowNum), row.EducationLevel)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("J%d", rowNum), row.Grade)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("K%d", rowNum), row.Email)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("L%d", rowNum), row.Remark)
-		_ = f.SetCellValue(sheet, fmt.Sprintf("M%d", rowNum), row.FailReason)
-	}
-
-	// P1-5 修复：RFC 5987 编码中文文件名
-	fileName := "导入失败明细.xlsx"
 	encodedName := url.PathEscape(fileName)
 
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", encodedName))
-
-	if err := f.Write(c.Writer); err != nil {
-		response.Error(c, errcode.ErrInternal.WithMessage("生成失败明细文件失败"))
-		return
-	}
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }
 
 // ========== 个人中心接口 ==========
@@ -457,10 +351,10 @@ func (h *UserHandler) ImportFailures(c *gin.Context) {
 // GetProfile 获取个人信息
 // GET /api/v1/profile
 func (h *UserHandler) GetProfile(c *gin.Context) {
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.profileService.GetProfile(c.Request.Context(), sc)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -475,9 +369,9 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.profileService.UpdateProfile(c.Request.Context(), sc, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 

@@ -7,6 +7,8 @@ package school
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
@@ -38,7 +40,7 @@ func (h *ApplicationHandler) Submit(c *gin.Context) {
 
 	resp, err := h.appService.Submit(c.Request.Context(), &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -55,13 +57,13 @@ func (h *ApplicationHandler) Query(c *gin.Context) {
 	}
 
 	if err := sms.VerifyCode(c.Request.Context(), req.Phone, req.SMSCode); err != nil {
-		handleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
+		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
 		return
 	}
 
 	resp, err := h.appService.Query(c.Request.Context(), req.Phone)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -83,13 +85,13 @@ func (h *ApplicationHandler) Reapply(c *gin.Context) {
 	}
 
 	if err := sms.VerifyCode(c.Request.Context(), req.ContactPhone, req.SMSCode); err != nil {
-		handleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
+		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
 		return
 	}
 
 	resp, err := h.appService.Reapply(c.Request.Context(), id, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -105,23 +107,13 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	items, total, err := h.appService.List(c.Request.Context(), sc, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
-
-	// 规范化分页参数
-	page := req.Page
-	if page <= 0 {
-		page = 1
-	}
-	pageSize := req.PageSize
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
 
@@ -134,10 +126,10 @@ func (h *ApplicationHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	detail, err := h.appService.GetByID(c.Request.Context(), sc, id)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -158,10 +150,10 @@ func (h *ApplicationHandler) Approve(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	resp, err := h.appService.Approve(c.Request.Context(), sc, id, &req)
 	if err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 
@@ -182,9 +174,9 @@ func (h *ApplicationHandler) Reject(c *gin.Context) {
 		return
 	}
 
-	sc := buildServiceContext(c)
+	sc := handlerctx.BuildServiceContext(c)
 	if err := h.appService.Reject(c.Request.Context(), sc, id, &req); err != nil {
-		handleError(c, err)
+		handlerctx.HandleError(c, err)
 		return
 	}
 

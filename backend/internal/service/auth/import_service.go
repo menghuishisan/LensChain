@@ -6,9 +6,11 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"time"
 
@@ -20,16 +22,21 @@ import (
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/crypto"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	excelpkg "github.com/lenschain/backend/internal/pkg/excel"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/repository/auth"
 )
 
 // ImportService 用户导入服务接口
 type ImportService interface {
+	BuildTemplate(importType string) (*bytes.Buffer, string, error)
+	ParseFile(filename string, reader io.Reader) ([][]string, error)
 	Preview(ctx context.Context, sc *svcctx.ServiceContext, importType string, rows [][]string) (*dto.ImportPreviewResp, error)
 	Execute(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImportExecuteReq) (*dto.ImportExecuteResp, error)
 	GetImportFailures(ctx context.Context, sc *svcctx.ServiceContext, importID string) ([]*dto.ImportFailureRow, error)
+	BuildFailureFile(rows []*dto.ImportFailureRow) (*bytes.Buffer, string, error)
 }
 
 // importService 用户导入服务实现
@@ -53,6 +60,62 @@ func NewImportService(
 		profileRepo: profileRepo,
 		roleRepo:    roleRepo,
 	}
+}
+
+var userImportHeaders = []string{"姓名", "手机号", "学号/工号", "初始密码", "学院", "专业", "班级", "入学年份", "学业层次", "年级", "邮箱", "备注"}
+
+var userImportFailureHeaders = []string{"行号", "姓名", "手机号", "学号/工号", "学院", "专业", "班级", "入学年份", "学业层次", "年级", "邮箱", "备注", "失败原因"}
+
+// BuildTemplate 生成用户导入模板文件
+func (s *importService) BuildTemplate(importType string) (*bytes.Buffer, string, error) {
+	if importType != enum.ImportTypeStudent && importType != enum.ImportTypeTeacher {
+		return nil, "", errcode.ErrInvalidParams.WithMessage("type 必须为 student 或 teacher")
+	}
+	fileName := "学生导入模板.xlsx"
+	if importType == enum.ImportTypeTeacher {
+		fileName = "教师导入模板.xlsx"
+	}
+	buf, err := excelpkg.CreateTemplate("Sheet1", userImportHeaders, nil)
+	if err != nil {
+		return nil, "", errcode.ErrInternal.WithMessage("生成模板失败")
+	}
+	return buf, fileName, nil
+}
+
+// ParseFile 解析用户导入文件
+// 文件格式解析统一复用 pkg/excel，业务校验由 Preview 负责。
+func (s *importService) ParseFile(filename string, reader io.Reader) ([][]string, error) {
+	return excelpkg.ImportRawRows(filename, reader)
+}
+
+// BuildFailureFile 生成用户导入失败明细文件
+func (s *importService) BuildFailureFile(rows []*dto.ImportFailureRow) (*bytes.Buffer, string, error) {
+	data := make([][]interface{}, 0, len(rows))
+	for _, row := range rows {
+		data = append(data, []interface{}{
+			row.Row,
+			row.Name,
+			row.Phone,
+			row.StudentNo,
+			row.College,
+			row.Major,
+			row.ClassName,
+			row.EnrollmentYear,
+			row.EducationLevel,
+			row.Grade,
+			row.Email,
+			row.Remark,
+			row.FailReason,
+		})
+	}
+	buf, err := excelpkg.Export(&excelpkg.ExportConfig{
+		SheetName: "Sheet1",
+		Headers:   userImportFailureHeaders,
+	}, data)
+	if err != nil {
+		return nil, "", errcode.ErrInternal.WithMessage("生成失败明细文件失败")
+	}
+	return buf, "导入失败明细.xlsx", nil
 }
 
 // importRow 导入行数据（内部使用）
@@ -215,7 +278,7 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 	failedRows := make([]*importRow, 0)
 
 	// 逐行处理（事务）
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
 		for _, row := range cacheData.Rows {
 			// 跳过无效行
 			if row.Status == enum.ImportRowInvalid {

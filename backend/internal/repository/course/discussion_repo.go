@@ -6,6 +6,7 @@ package courserepo
 
 import (
 	"context"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"gorm.io/gorm"
 
@@ -118,8 +119,8 @@ func (r *discussionRepository) List(ctx context.Context, params *DiscussionListP
 	}
 	query = query.Order(orderClause)
 
-	page, pageSize := normalizePagination(params.Page, params.PageSize)
-	query = query.Offset((page - 1) * pageSize).Limit(pageSize)
+	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
+	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var discussions []*entity.CourseDiscussion
 	if err := query.Find(&discussions).Error; err != nil {
@@ -264,9 +265,9 @@ func (r *announcementRepository) List(ctx context.Context, courseID int64, page,
 		return nil, 0, err
 	}
 
-	page, pageSize = normalizePagination(page, pageSize)
+	page, pageSize = pagination.NormalizeValues(page, pageSize)
 	query = query.Order("is_pinned desc, created_at desc").
-		Offset((page - 1) * pageSize).Limit(pageSize)
+		Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var announcements []*entity.CourseAnnouncement
 	if err := query.Find(&announcements).Error; err != nil {
