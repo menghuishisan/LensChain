@@ -19,6 +19,7 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/snowflake"
 	courserepo "github.com/lenschain/backend/internal/repository/course"
 )
 
@@ -40,6 +41,13 @@ type CourseUserSummary struct {
 // UserSummaryQuerier 跨模块接口：查询用户摘要信息
 type UserSummaryQuerier interface {
 	GetUserSummary(ctx context.Context, userID int64) *CourseUserSummary
+}
+
+// UserAccessChecker 跨模块接口：查询用户租户与角色信息
+// 由模块01注入实现，避免课程模块直接依赖用户模块 service。
+type UserAccessChecker interface {
+	GetUserSchoolID(ctx context.Context, userID int64) (int64, error)
+	HasRole(ctx context.Context, userID int64, role string) (bool, error)
 }
 
 // SchoolNameQuerier 跨模块接口：查询学校名称
@@ -122,7 +130,16 @@ func (s *courseService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 		Topic:       req.Topic,
 		Status:      enum.CourseStatusDraft,
 		InviteCode:  &inviteCode,
+		Credits:     req.Credits,
 		MaxStudents: req.MaxStudents,
+	}
+
+	if req.SemesterID != nil && *req.SemesterID != "" {
+		semesterID, err := snowflake.ParseString(*req.SemesterID)
+		if err != nil {
+			return nil, errcode.ErrInvalidParams.WithMessage("学期ID格式错误")
+		}
+		course.SemesterID = &semesterID
 	}
 
 	if req.StartAt != nil {
@@ -192,6 +209,20 @@ func (s *courseService) Update(ctx context.Context, sc *svcctx.ServiceContext, i
 	}
 	if req.Topic != nil {
 		fields["topic"] = *req.Topic
+	}
+	if req.Credits != nil {
+		fields["credits"] = *req.Credits
+	}
+	if req.SemesterID != nil {
+		if *req.SemesterID == "" {
+			fields["semester_id"] = nil
+		} else {
+			semesterID, err := snowflake.ParseString(*req.SemesterID)
+			if err != nil {
+				return errcode.ErrInvalidParams.WithMessage("学期ID格式错误")
+			}
+			fields["semester_id"] = semesterID
+		}
 	}
 	if req.StartAt != nil {
 		t, err := dto.ParseTime(*req.StartAt)

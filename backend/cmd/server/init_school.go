@@ -9,19 +9,21 @@ package main
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	handler "github.com/lenschain/backend/internal/handler/school"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
-	handler "github.com/lenschain/backend/internal/handler/school"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/tokenstate"
 	authrepo "github.com/lenschain/backend/internal/repository/auth"
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/router"
@@ -154,6 +156,12 @@ type sessionKickerAdapter struct {
 // 2. 批量删除 Redis 中的 session:{user_id} 键
 // Access Token 在 30 分钟内自然过期，不单独加黑名单
 func (a *sessionKickerAdapter) KickSchoolUsers(ctx context.Context, schoolID int64) error {
+	now := time.Now()
+	if err := a.userRepo.BatchUpdateTokenValidAfterBySchool(ctx, schoolID, now); err != nil {
+		logger.L.Error("批量更新学校用户Token生效时间失败", zap.Int64("school_id", schoolID), zap.Error(err))
+		return err
+	}
+
 	userIDs, err := a.userRepo.GetIDsBySchoolID(ctx, schoolID)
 	if err != nil {
 		logger.L.Error("查询学校用户ID失败", zap.Int64("school_id", schoolID), zap.Error(err))
@@ -161,6 +169,7 @@ func (a *sessionKickerAdapter) KickSchoolUsers(ctx context.Context, schoolID int
 	}
 
 	for _, uid := range userIDs {
+		_ = tokenstate.SetTokenValidAfter(ctx, uid, now)
 		sessionKey := cache.KeySession + strconv.FormatInt(uid, 10)
 		_ = cache.Del(ctx, sessionKey)
 	}

@@ -29,6 +29,12 @@ type SubmitApplicationResp struct {
 	Tip           string `json:"tip"`
 }
 
+// SendSMSCodeReq 发送查询验证码请求
+// POST /api/v1/school-applications/send-sms-code
+type SendSMSCodeReq struct {
+	Phone string `json:"phone" binding:"required,phone"`
+}
+
 // QueryApplicationReq 查询申请状态请求
 // GET /api/v1/school-applications/query
 type QueryApplicationReq struct {
@@ -288,6 +294,12 @@ type UpdateSSOConfigReq struct {
 	Config   map[string]interface{} `json:"config" binding:"required"`
 }
 
+// ToggleSSOEnableReq 切换SSO启用状态请求
+// POST /api/v1/school/sso-config/enable
+type ToggleSSOEnableReq struct {
+	IsEnabled bool `json:"is_enabled" binding:"required"`
+}
+
 // SSOTestResp SSO连接测试响应
 type SSOTestResp struct {
 	IsTested    bool    `json:"is_tested"`
@@ -299,12 +311,12 @@ type SSOTestResp struct {
 // LicenseStatusResp 授权状态响应
 // GET /api/v1/school/license
 type LicenseStatusResp struct {
-	LicenseStartAt  *string `json:"license_start_at"`
-	LicenseEndAt    *string `json:"license_end_at"`
-	RemainingDays   int     `json:"remaining_days"`
-	Status          int     `json:"status"`
-	StatusText      string  `json:"status_text"`
-	IsExpiringSoon  bool    `json:"is_expiring_soon"`
+	LicenseStartAt *string `json:"license_start_at"`
+	LicenseEndAt   *string `json:"license_end_at"`
+	RemainingDays  int     `json:"remaining_days"`
+	Status         int     `json:"status"`
+	StatusText     string  `json:"status_text"`
+	IsExpiringSoon bool    `json:"is_expiring_soon"`
 }
 
 // ========== 公开接口 DTO ==========

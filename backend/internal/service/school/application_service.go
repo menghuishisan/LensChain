@@ -32,6 +32,7 @@ import (
 // ApplicationService 入驻申请服务接口
 type ApplicationService interface {
 	Submit(ctx context.Context, req *dto.SubmitApplicationReq) (*dto.SubmitApplicationResp, error)
+	SendSMSCode(ctx context.Context, phone string) error
 	Query(ctx context.Context, phone string) (*dto.QueryApplicationResp, error)
 	Reapply(ctx context.Context, previousID int64, req *dto.ReapplyReq) (*dto.SubmitApplicationResp, error)
 	List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ApplicationListReq) ([]*dto.ApplicationListItem, int64, error)
@@ -115,6 +116,20 @@ func (s *applicationService) Submit(ctx context.Context, req *dto.SubmitApplicat
 		StatusText:    enum.GetApplicationStatusText(enum.ApplicationStatusPending),
 		Tip:           "请使用联系人手机号查询审核进度",
 	}, nil
+}
+
+// SendSMSCode 发送申请查询/重申验证码
+// 为避免泄露申请状态，无论手机号是否存在申请记录都返回统一成功响应。
+func (s *applicationService) SendSMSCode(ctx context.Context, phone string) error {
+	err := sms.SendVerificationCode(ctx, phone)
+	if err == nil {
+		return nil
+	}
+	if err.Error() == "短信发送过于频繁" {
+		return errcode.ErrSMSCodeSendTooFrequent
+	}
+	logger.L.Error("发送申请查询验证码失败", zap.String("phone", phone), zap.Error(err))
+	return errcode.ErrInternal.WithMessage("发送验证码失败")
 }
 
 // Query 查询申请状态（通过手机号，SMS验证在handler层完成）

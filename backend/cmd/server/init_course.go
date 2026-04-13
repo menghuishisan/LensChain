@@ -40,6 +40,7 @@ func initCourseModule() *router.CourseHandlers {
 	announcementRepo := courserepo.NewAnnouncementRepository(db)
 	evaluationRepo := courserepo.NewEvaluationRepository(db)
 	gradeConfigRepo := courserepo.NewGradeConfigRepository(db)
+	gradeOverrideRepo := courserepo.NewGradeOverrideRepository(db)
 	scheduleRepo := courserepo.NewScheduleRepository(db)
 
 	// ========== 跨模块 Adapter ==========
@@ -60,7 +61,7 @@ func initCourseModule() *router.CourseHandlers {
 	)
 	contentService := svc.NewContentService(
 		courseRepo, chapterRepo, lessonRepo, attachmentRepo,
-		enrollmentRepo, progressRepo, userNameQuerier,
+		enrollmentRepo, progressRepo, userNameQuerier, userNameQuerier,
 	)
 	assignmentService := svc.NewAssignmentService(
 		courseRepo, assignmentRepo, questionRepo, submissionRepo,
@@ -76,9 +77,13 @@ func initCourseModule() *router.CourseHandlers {
 		progressRepo, assignmentRepo, submissionRepo,
 		scheduleRepo, userNameQuerier, userNameQuerier,
 	)
+	gradeService := svc.NewGradeService(
+		courseRepo, enrollmentRepo, assignmentRepo, submissionRepo,
+		gradeConfigRepo, gradeOverrideRepo, userNameQuerier, nil,
+	)
 
 	// ========== Handler 层 ==========
-	courseHandler := handler.NewCourseHandler(courseService, contentService, progressService)
+	courseHandler := handler.NewCourseHandler(courseService, gradeService, contentService, progressService)
 	assignmentHandler := handler.NewAssignmentHandler(assignmentService)
 	discussionHandler := handler.NewDiscussionHandler(discussionService)
 
@@ -132,4 +137,29 @@ func (a *userNameQuerierAdapter) GetUserSummary(ctx context.Context, userID int6
 		summary.ClassName = user.Profile.ClassName
 	}
 	return summary
+}
+
+// GetUserSchoolID 根据用户ID查询所属学校
+// 查询失败时返回错误，供模块03做租户隔离校验。
+func (a *userNameQuerierAdapter) GetUserSchoolID(ctx context.Context, userID int64) (int64, error) {
+	user, err := a.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return user.SchoolID, nil
+}
+
+// HasRole 判断用户是否具备指定角色
+// 查询失败时返回错误，避免课程模块自行解析用户表结构。
+func (a *userNameQuerierAdapter) HasRole(ctx context.Context, userID int64, role string) (bool, error) {
+	codes, err := a.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, userRole := range codes.Roles {
+		if userRole.Role != nil && userRole.Role.Code == role {
+			return true, nil
+		}
+	}
+	return false, nil
 }

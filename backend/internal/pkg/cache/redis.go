@@ -113,17 +113,19 @@ func SetNX(ctx context.Context, key string, value interface{}, expiration time.D
 
 const (
 	// 模块01 — 用户与认证
-	KeySession        = "session:"               // session:{user_id} — Refresh Token
-	KeyTokenBlacklist = "token_blacklist:"       // token_blacklist:{jti} — Access Token 黑名单
-	KeyLoginFail      = "login_fail:"            // login_fail:{phone} — 登录失败计数
-	KeyAccountLocked  = "account_locked:"        // account_locked:{phone} — 账号锁定标记
-	KeySSOState       = "sso:state:"             // sso:state:{state} — OAuth2 状态校验
-	KeySecurityPolicy = "config:security_policy" // 安全策略配置
+	KeySession         = "session:"               // session:{user_id} — Refresh Token
+	KeyTokenBlacklist  = "token_blacklist:"       // token_blacklist:{jti} — Access Token 黑名单
+	KeyTokenValidAfter = "token_valid_after:"     // token_valid_after:{user_id} — 用户Token生效时间基线
+	KeyLoginFail       = "login_fail:"            // login_fail:{phone} — 登录失败计数
+	KeyAccountLocked   = "account_locked:"        // account_locked:{phone} — 账号锁定标记
+	KeySSOState        = "sso:state:"             // sso:state:{state} — OAuth2 状态校验
+	KeySecurityPolicy  = "config:security_policy" // 安全策略配置
 
 	// 模块02 — 学校与租户管理
-	KeySchoolStatus    = "school:status:"       // school:status:{school_id}
-	KeySchoolExpiring  = "school:expiring_soon" // Sorted Set
-	KeySMSVerification = "sms_verification:"    // sms_verification:{phone}
+	KeySchoolStatus            = "school:status:"             // school:status:{school_id}
+	KeySchoolExpiring          = "school:expiring_soon"       // Sorted Set
+	KeySMSVerification         = "sms_verification:"          // sms_verification:{phone}
+	KeySMSVerificationCooldown = "sms_verification:cooldown:" // sms_verification:cooldown:{phone}
 
 	// 模块03 — 课程与教学
 	KeyCourseProgressRateLimit = "course:progress:ratelimit:" // course:progress:ratelimit:{user_id}

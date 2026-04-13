@@ -77,3 +77,25 @@ func (h *SSOHandler) TestConnection(c *gin.Context) {
 
 	response.Success(c, resp)
 }
+
+// ToggleEnable 启用或禁用SSO
+// POST /api/v1/school/sso-config/enable
+// 校管接口，仅允许启用已通过测试的SSO配置。
+func (h *SSOHandler) ToggleEnable(c *gin.Context) {
+	var req dto.ToggleSSOEnableReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+
+	sc := handlerctx.BuildServiceContext(c)
+	if err := h.ssoService.ToggleEnable(c.Request.Context(), sc, &req); err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+
+	if req.IsEnabled {
+		response.SuccessWithMsg(c, "SSO已启用", nil)
+		return
+	}
+	response.SuccessWithMsg(c, "SSO已禁用", nil)
+}

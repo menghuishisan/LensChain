@@ -9,13 +9,17 @@ package middleware
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/pkg/cache"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
 	"github.com/lenschain/backend/internal/pkg/response"
+	"github.com/lenschain/backend/internal/pkg/tokenstate"
 )
 
 // Context Key 常量
@@ -63,6 +67,12 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
+		validAfter, err := loadTokenValidAfter(context.Background(), claims.UserID)
+		if err == nil && validAfter != nil && claims.IssuedAt != nil && claims.IssuedAt.Time.Before(*validAfter) {
+			response.Abort(c, errcode.ErrRefreshTokenInvalid.WithMessage("账号已在其他设备登录或会话已失效"))
+			return
+		}
+
 		// 将用户信息注入到 Context
 		c.Set(ContextKeyUserID, claims.UserID)
 		c.Set(ContextKeySchoolID, claims.SchoolID)
@@ -71,6 +81,30 @@ func JWTAuth() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// loadTokenValidAfter 加载用户Token生效时间基线
+// 优先读取缓存，缓存不存在时回源数据库并回填缓存。
+func loadTokenValidAfter(ctx context.Context, userID int64) (*time.Time, error) {
+	validAfter, err := tokenstate.GetTokenValidAfter(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if validAfter != nil {
+		return validAfter, nil
+	}
+
+	var user entity.User
+	err = database.Get().WithContext(ctx).
+		Select("token_valid_after").
+		Where("id = ?", userID).
+		First(&user).Error
+	if err != nil {
+		return nil, err
+	}
+
+	_ = tokenstate.SetTokenValidAfter(ctx, userID, user.TokenValidAfter)
+	return &user.TokenValidAfter, nil
 }
 
 // TempTokenAuth 临时Token鉴权中间件（首次登录改密专用）

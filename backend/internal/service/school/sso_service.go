@@ -28,6 +28,7 @@ type SSOService interface {
 	GetConfig(ctx context.Context, sc *svcctx.ServiceContext) (*dto.SSOConfigResp, error)
 	UpdateConfig(ctx context.Context, sc *svcctx.ServiceContext, req *dto.UpdateSSOConfigReq) error
 	TestConnection(ctx context.Context, sc *svcctx.ServiceContext) (*dto.SSOTestResp, error)
+	ToggleEnable(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ToggleSSOEnableReq) error
 }
 
 // ssoService SSO配置服务实现
@@ -192,6 +193,25 @@ func (s *ssoService) TestConnection(ctx context.Context, sc *svcctx.ServiceConte
 		TestedAt:   &nowStr,
 		TestDetail: &testDetail,
 	}, nil
+}
+
+// ToggleEnable 启用或禁用SSO
+// 仅当配置存在且通过测试后才允许启用，禁用时不要求重新测试。
+func (s *ssoService) ToggleEnable(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ToggleSSOEnableReq) error {
+	config, err := s.ssoRepo.GetBySchoolID(ctx, sc.SchoolID)
+	if err != nil {
+		return errcode.ErrSSOConfigNotFound
+	}
+
+	if req.IsEnabled && !config.IsTested {
+		return errcode.ErrSSONotTested
+	}
+
+	return s.ssoRepo.UpdateFields(ctx, sc.SchoolID, map[string]interface{}{
+		"is_enabled": req.IsEnabled,
+		"updated_at": time.Now(),
+		"updated_by": sc.UserID,
+	})
 }
 
 // testCASConnection 测试CAS连接

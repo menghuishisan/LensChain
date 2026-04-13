@@ -8,7 +8,6 @@ package auth
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
@@ -19,7 +18,6 @@ import (
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/audit"
-	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/database"
@@ -41,10 +39,12 @@ type ImportService interface {
 
 // importService 用户导入服务实现
 type importService struct {
-	db          *gorm.DB
-	userRepo    authrepo.UserRepository
-	profileRepo authrepo.ProfileRepository
-	roleRepo    authrepo.RoleRepository
+	db               *gorm.DB
+	userRepo         authrepo.UserRepository
+	profileRepo      authrepo.ProfileRepository
+	roleRepo         authrepo.RoleRepository
+	policyProvider   runtimePolicyProvider
+	importCacheStore importCacheStore
 }
 
 // NewImportService 创建用户导入服务实例
@@ -55,10 +55,12 @@ func NewImportService(
 	roleRepo authrepo.RoleRepository,
 ) ImportService {
 	return &importService{
-		db:          db,
-		userRepo:    userRepo,
-		profileRepo: profileRepo,
-		roleRepo:    roleRepo,
+		db:               db,
+		userRepo:         userRepo,
+		profileRepo:      profileRepo,
+		roleRepo:         roleRepo,
+		policyProvider:   &cacheRuntimePolicyProvider{},
+		importCacheStore: &redisImportCacheStore{},
 	}
 }
 
@@ -203,8 +205,9 @@ func (s *importService) Preview(ctx context.Context, sc *svcctx.ServiceContext, 
 		Rows:       parsedRows,
 		CreatedAt:  time.Now(),
 	}
-	cacheJSON, _ := json.Marshal(cacheData)
-	_ = cache.Set(ctx, "import:"+importID, string(cacheJSON), 30*time.Minute)
+	if s.importCacheStore != nil {
+		_ = s.importCacheStore.SetImport(ctx, cacheData, 30*time.Minute)
+	}
 
 	// 构建预览列表（前100条 + 所有冲突和无效记录）
 	previewList := make([]dto.ImportPreviewRow, 0)
@@ -243,14 +246,13 @@ func (s *importService) Preview(ctx context.Context, sc *svcctx.ServiceContext, 
 // Execute 确认执行导入
 func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImportExecuteReq) (*dto.ImportExecuteResp, error) {
 	// 从 Redis 获取缓存的导入数据
-	cacheJSON, err := cache.GetString(ctx, "import:"+req.ImportID)
-	if err != nil {
-		return nil, errcode.ErrInvalidParams.WithMessage("导入批次不存在或已过期")
+	if s.importCacheStore == nil {
+		return nil, errcode.ErrInternal.WithMessage("导入缓存服务未初始化")
 	}
 
-	var cacheData importCache
-	if err := json.Unmarshal([]byte(cacheJSON), &cacheData); err != nil {
-		return nil, errcode.ErrInternal.WithMessage("解析导入缓存失败")
+	cacheData, err := s.importCacheStore.GetImport(ctx, req.ImportID)
+	if err != nil {
+		return nil, errcode.ErrInvalidParams.WithMessage("导入批次不存在或已过期")
 	}
 
 	// P0-3 修复：校验学校ID一致，防止跨租户操作
@@ -328,12 +330,14 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 	}
 
 	// 清除导入预览缓存
-	_ = cache.Del(ctx, "import:"+req.ImportID)
+	_ = s.importCacheStore.DeleteImport(ctx, req.ImportID)
 
 	// 持久化失败明细到 Redis（24小时有效，供下载失败明细使用）
 	if len(failedRows) > 0 {
-		failJSON, _ := json.Marshal(failedRows)
-		_ = cache.Set(ctx, "import_failures:"+req.ImportID, string(failJSON), 24*time.Hour)
+		_ = s.importCacheStore.SetImportFailures(ctx, req.ImportID, failedRows, &importFailureMeta{
+			ImportID: req.ImportID,
+			SchoolID: sc.SchoolID,
+		}, 24*time.Hour)
 	}
 
 	// 记录操作日志（使用 pkg/audit 公共包）
@@ -359,14 +363,19 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 // GetImportFailures 获取导入失败明细
 // 从 Redis 中读取 Execute 阶段缓存的失败行数据，转换为 DTO
 func (s *importService) GetImportFailures(ctx context.Context, sc *svcctx.ServiceContext, importID string) ([]*dto.ImportFailureRow, error) {
-	failJSON, err := cache.GetString(ctx, "import_failures:"+importID)
+	if s.importCacheStore == nil {
+		return nil, errcode.ErrInternal.WithMessage("导入缓存服务未初始化")
+	}
+
+	rows, meta, err := s.importCacheStore.GetImportFailures(ctx, importID)
 	if err != nil {
 		return nil, errcode.ErrInvalidParams.WithMessage("失败明细不存在或已过期（24小时内有效）")
 	}
-
-	var rows []*importRow
-	if err := json.Unmarshal([]byte(failJSON), &rows); err != nil {
-		return nil, errcode.ErrInternal.WithMessage("解析失败明细缓存失败")
+	if meta == nil {
+		return nil, errcode.ErrInternal.WithMessage("失败明细元数据缺失")
+	}
+	if meta.SchoolID != sc.SchoolID {
+		return nil, errcode.ErrForbidden.WithMessage("无权访问其他学校的失败明细")
 	}
 
 	// 转换为 DTO（不暴露内部 importRow 结构）

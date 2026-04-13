@@ -20,6 +20,7 @@ import (
 // 处理课程 CRUD、发布、结束、归档、克隆、共享、邀请码等接口
 type CourseHandler struct {
 	courseService   svc.CourseService
+	gradeService    svc.GradeService
 	contentService  svc.ContentService
 	progressService svc.ProgressService
 }
@@ -27,11 +28,13 @@ type CourseHandler struct {
 // NewCourseHandler 创建课程管理处理器
 func NewCourseHandler(
 	courseService svc.CourseService,
+	gradeService svc.GradeService,
 	contentService svc.ContentService,
 	progressService svc.ProgressService,
 ) *CourseHandler {
 	return &CourseHandler{
 		courseService:   courseService,
+		gradeService:    gradeService,
 		contentService:  contentService,
 		progressService: progressService,
 	}

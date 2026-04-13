@@ -6,6 +6,9 @@
 package course
 
 import (
+	"fmt"
+	"net/url"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lenschain/backend/internal/pkg/handlerctx"
 	"github.com/lenschain/backend/internal/pkg/pagination"
@@ -288,4 +291,120 @@ func (h *CourseHandler) GetCourseOverview(c *gin.Context) {
 		return
 	}
 	response.Success(c, stats)
+}
+
+// ========== 单课程成绩 ==========
+
+// GetGradeSummary 获取课程成绩汇总
+// GET /api/v1/courses/:id/grades
+func (h *CourseHandler) GetGradeSummary(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.GradeSummaryReq
+	if !validator.BindQuery(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	items, total, err := h.gradeService.GetGradeSummary(c.Request.Context(), sc, courseID, &req)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+// AdjustGrade 手动调整课程最终成绩
+// PATCH /api/v1/courses/:id/grades/:student_id
+func (h *CourseHandler) AdjustGrade(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	studentID, ok := validator.ParsePathID(c, "student_id")
+	if !ok {
+		return
+	}
+	var req dto.AdjustGradeReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	if err := h.gradeService.AdjustGrade(c.Request.Context(), sc, courseID, studentID, &req); err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "成绩调整成功", nil)
+}
+
+// GetMyGrades 获取学生本人在课程内的成绩
+// GET /api/v1/courses/:id/my-grades
+func (h *CourseHandler) GetMyGrades(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	resp, err := h.gradeService.GetMyGrades(c.Request.Context(), sc, courseID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ExportGrades 导出课程成绩单
+// GET /api/v1/courses/:id/grades/export
+func (h *CourseHandler) ExportGrades(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	buf, fileName, err := h.gradeService.ExportGrades(c.Request.Context(), sc, courseID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	encodedName := url.PathEscape(fileName)
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", encodedName))
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
+}
+
+// GetAssignmentStatistics 获取课程作业统计
+// GET /api/v1/courses/:id/statistics/assignments
+func (h *CourseHandler) GetAssignmentStatistics(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	resp, err := h.gradeService.GetAssignmentStatistics(c.Request.Context(), sc, courseID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
+// ExportAssignmentStatistics 导出课程作业统计
+// GET /api/v1/courses/:id/statistics/export
+func (h *CourseHandler) ExportAssignmentStatistics(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	buf, fileName, err := h.gradeService.ExportAssignmentStatistics(c.Request.Context(), sc, courseID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	encodedName := url.PathEscape(fileName)
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", encodedName))
+	c.Data(200, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buf.Bytes())
 }

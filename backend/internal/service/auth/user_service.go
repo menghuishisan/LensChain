@@ -11,6 +11,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -25,6 +26,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/tokenstate"
 	"github.com/lenschain/backend/internal/repository/auth"
 )
 
@@ -43,10 +45,11 @@ type UserService interface {
 
 // userService 用户管理服务实现
 type userService struct {
-	db          *gorm.DB
-	userRepo    authrepo.UserRepository
-	profileRepo authrepo.ProfileRepository
-	roleRepo    authrepo.RoleRepository
+	db             *gorm.DB
+	userRepo       authrepo.UserRepository
+	profileRepo    authrepo.ProfileRepository
+	roleRepo       authrepo.RoleRepository
+	policyProvider runtimePolicyProvider
 }
 
 // NewUserService 创建用户管理服务实例
@@ -57,10 +60,11 @@ func NewUserService(
 	roleRepo authrepo.RoleRepository,
 ) UserService {
 	return &userService{
-		db:          db,
-		userRepo:    userRepo,
-		profileRepo: profileRepo,
-		roleRepo:    roleRepo,
+		db:             db,
+		userRepo:       userRepo,
+		profileRepo:    profileRepo,
+		roleRepo:       roleRepo,
+		policyProvider: &cacheRuntimePolicyProvider{},
 	}
 }
 
@@ -127,6 +131,9 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 	}
 
 	// 加密密码
+	if err := s.validatePasswordByPolicy(ctx, req.Password); err != nil {
+		return nil, err
+	}
 	hash, err := crypto.HashPassword(req.Password)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("密码加密失败")
@@ -384,6 +391,9 @@ func (s *userService) ResetPassword(ctx context.Context, sc *svcctx.ServiceConte
 	}
 
 	// 加密新密码
+	if err := s.validatePasswordByPolicy(ctx, newPassword); err != nil {
+		return err
+	}
 	hash, err := crypto.HashPassword(newPassword)
 	if err != nil {
 		return errcode.ErrInternal.WithMessage("密码加密失败")
@@ -437,6 +447,21 @@ func (s *userService) UnlockUser(ctx context.Context, sc *svcctx.ServiceContext,
 
 // kickUser 踢用户下线（清除Session）
 func (s *userService) kickUser(ctx context.Context, userID int64) {
+	now := time.Now()
+	_ = s.userRepo.UpdateTokenValidAfter(ctx, userID, now)
+	_ = tokenstate.SetTokenValidAfter(ctx, userID, now)
 	sessionKey := cache.KeySession + strconv.FormatInt(userID, 10)
 	_ = cache.Del(ctx, sessionKey)
+}
+
+// validatePasswordByPolicy 按运行时安全策略校验密码复杂度
+func (s *userService) validatePasswordByPolicy(ctx context.Context, password string) error {
+	if s.policyProvider == nil {
+		return validatePasswordWithPolicy(password, defaultRuntimeSecurityPolicy())
+	}
+	policy, err := s.policyProvider.GetRuntimeSecurityPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	return validatePasswordWithPolicy(password, policy)
 }

@@ -47,6 +47,23 @@ func (h *ApplicationHandler) Submit(c *gin.Context) {
 	response.SuccessWithMsg(c, "申请提交成功", resp)
 }
 
+// SendSMSCode 发送查询验证码
+// POST /api/v1/school-applications/send-sms-code
+// 公开接口，用于查询申请状态和重新申请前的验证码发送。
+func (h *ApplicationHandler) SendSMSCode(c *gin.Context) {
+	var req dto.SendSMSCodeReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+
+	if err := h.appService.SendSMSCode(c.Request.Context(), req.Phone); err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+
+	response.SuccessWithMsg(c, "验证码发送成功", nil)
+}
+
 // Query 查询申请状态
 // GET /api/v1/school-applications/query
 // 公开接口，通过手机号+短信验证码查询

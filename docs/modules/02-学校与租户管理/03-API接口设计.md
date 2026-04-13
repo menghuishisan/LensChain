@@ -11,6 +11,7 @@
 | 分组 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|------|
 | **入驻申请（公开）** | POST | /api/v1/school-applications | 提交入驻申请 | 无需认证 |
+| | POST | /api/v1/school-applications/send-sms-code | 发送查询验证码 | 无需认证 |
 | | GET | /api/v1/school-applications/query | 查询申请状态 | 无需认证（手机号+验证码） |
 | | POST | /api/v1/school-applications/:id/reapply | 重新申请 | 无需认证（手机号+验证码） |
 | **入驻审核** | GET | /api/v1/admin/school-applications | 申请列表 | 超管 |
@@ -31,6 +32,7 @@
 | | GET | /api/v1/school/sso-config | 获取SSO配置 | 校管 |
 | | PUT | /api/v1/school/sso-config | 更新SSO配置 | 校管 |
 | | POST | /api/v1/school/sso-config/test | 测试SSO连接 | 校管 |
+| | POST | /api/v1/school/sso-config/enable | 启用/禁用SSO | 校管 |
 | | GET | /api/v1/school/license | 查看授权状态 | 校管 |
 | **公开接口** | GET | /api/v1/schools/sso-list | 获取已配置SSO的学校列表 | 无需认证 |
 
@@ -72,6 +74,32 @@
   }
 }
 ```
+
+#### POST /api/v1/school-applications/send-sms-code — 发送查询验证码
+
+**请求体：**
+
+```json
+{
+  "phone": "13800138000"
+}
+```
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "验证码发送成功",
+  "data": null,
+  "timestamp": "2026-04-09T10:00:00Z"
+}
+```
+
+**业务规则：**
+- 同一手机号 60 秒内仅允许发送一次
+- 验证码有效期 5 分钟
+- 为避免泄露申请状态，该接口对不存在申请记录的手机号也返回统一成功响应
 
 **错误响应：**
 
@@ -484,6 +512,33 @@
   }
 }
 ```
+
+#### POST /api/v1/school/sso-config/enable — 启用/禁用SSO
+
+**权限：** 学校管理员
+
+**请求体：**
+
+```json
+{
+  "is_enabled": true
+}
+```
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "SSO已启用",
+  "data": null,
+  "timestamp": "2026-04-09T10:00:00Z"
+}
+```
+
+**业务规则：**
+- 启用前必须已存在 SSO 配置且最近一次测试通过
+- 禁用时不要求重新测试
 
 ---
 

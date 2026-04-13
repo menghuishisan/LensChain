@@ -14,27 +14,28 @@ import (
 // User 用户主表
 // 对应 users 表，17个字段
 type User struct {
-	ID             int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
-	Phone          string         `gorm:"type:varchar(20);not null" json:"phone"`
-	PasswordHash   string         `gorm:"type:varchar(255);not null" json:"-"`
-	Name           string         `gorm:"type:varchar(50);not null" json:"name"`
-	SchoolID       int64          `gorm:"not null;index" json:"school_id,string"`
-	StudentNo      *string        `gorm:"type:varchar(50)" json:"student_no,omitempty"`
-	Status         int            `gorm:"type:smallint;not null;default:1" json:"status"`
-	IsFirstLogin   bool           `gorm:"not null;default:true" json:"is_first_login"`
-	IsSchoolAdmin  bool           `gorm:"not null;default:false" json:"is_school_admin"`
-	LoginFailCount int            `gorm:"type:smallint;not null;default:0" json:"-"`
-	LockedUntil    *time.Time     `gorm:"" json:"-"`
-	LastLoginAt    *time.Time     `gorm:"" json:"last_login_at,omitempty"`
-	LastLoginIP    *string        `gorm:"type:varchar(45)" json:"-"`
-	CreatedAt      time.Time      `gorm:"not null;default:now()" json:"created_at"`
-	UpdatedAt      time.Time      `gorm:"not null;default:now()" json:"updated_at"`
-	CreatedBy      *int64         `gorm:"" json:"created_by,omitempty,string"`
-	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+	ID              int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
+	Phone           string         `gorm:"type:varchar(20);not null" json:"phone"`
+	PasswordHash    string         `gorm:"type:varchar(255);not null" json:"-"`
+	Name            string         `gorm:"type:varchar(50);not null" json:"name"`
+	SchoolID        int64          `gorm:"not null;index" json:"school_id,string"`
+	StudentNo       *string        `gorm:"type:varchar(50)" json:"student_no,omitempty"`
+	Status          int            `gorm:"type:smallint;not null;default:1" json:"status"`
+	IsFirstLogin    bool           `gorm:"not null;default:true" json:"is_first_login"`
+	IsSchoolAdmin   bool           `gorm:"not null;default:false" json:"is_school_admin"`
+	LoginFailCount  int            `gorm:"type:smallint;not null;default:0" json:"-"`
+	LockedUntil     *time.Time     `gorm:"" json:"-"`
+	TokenValidAfter time.Time      `gorm:"not null;default:now()" json:"-"`
+	LastLoginAt     *time.Time     `gorm:"" json:"last_login_at,omitempty"`
+	LastLoginIP     *string        `gorm:"type:varchar(45)" json:"-"`
+	CreatedAt       time.Time      `gorm:"not null;default:now()" json:"created_at"`
+	UpdatedAt       time.Time      `gorm:"not null;default:now()" json:"updated_at"`
+	CreatedBy       *int64         `gorm:"" json:"created_by,omitempty,string"`
+	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// 关联（非数据库字段，用于预加载）
-	Profile  *UserProfile `gorm:"foreignKey:UserID" json:"profile,omitempty"`
-	Roles    []UserRole   `gorm:"foreignKey:UserID" json:"roles,omitempty"`
+	Profile *UserProfile `gorm:"foreignKey:UserID" json:"profile,omitempty"`
+	Roles   []UserRole   `gorm:"foreignKey:UserID" json:"roles,omitempty"`
 }
 
 // TableName 指定表名

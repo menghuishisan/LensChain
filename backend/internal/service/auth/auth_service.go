@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/lenschain/backend/internal/config"
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
@@ -24,6 +25,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
 	"github.com/lenschain/backend/internal/pkg/logger"
+	"github.com/lenschain/backend/internal/pkg/tokenstate"
 	"github.com/lenschain/backend/internal/repository/auth"
 )
 
@@ -80,6 +82,7 @@ type authService struct {
 	schoolNameQuerier   SchoolNameQuerier
 	schoolStatusChecker SchoolStatusChecker
 	schoolSSOQuerier    SchoolSSOConfigQuerier
+	policyProvider      runtimePolicyProvider
 }
 
 // NewAuthService 创建认证服务实例
@@ -102,6 +105,7 @@ func NewAuthService(
 		schoolNameQuerier:   schoolNameQuerier,
 		schoolStatusChecker: schoolStatusChecker,
 		schoolSSOQuerier:    schoolSSOQuerier,
+		policyProvider:      &cacheRuntimePolicyProvider{},
 	}
 }
 
@@ -184,8 +188,11 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 	}
 
 	// 6. 生成Token对
+	now := time.Now()
+	_ = s.userRepo.UpdateTokenValidAfter(ctx, user.ID, now)
+	_ = tokenstate.SetTokenValidAfter(ctx, user.ID, now)
 	roleCodes := s.extractRoleCodes(user)
-	tokenPair, err := jwtpkg.GenerateTokenPair(user.ID, user.SchoolID, roleCodes)
+	tokenPair, err := s.generateTokenPair(ctx, user.ID, user.SchoolID, roleCodes)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
@@ -194,7 +201,6 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, ip)
 
 	// 8. 更新登录信息
-	now := time.Now()
 	_ = s.userRepo.UpdateLoginInfo(ctx, user.ID, ip, now)
 
 	// 9. 记录登录日志
@@ -267,6 +273,10 @@ func (s *authService) handleLoginFail(ctx context.Context, user *entity.User, ph
 // Logout 登出
 // P1-2 修复：记录登出日志
 func (s *authService) Logout(ctx context.Context, userID int64, jti, ip, userAgent string) error {
+	now := time.Now()
+	_ = s.userRepo.UpdateTokenValidAfter(ctx, userID, now)
+	_ = tokenstate.SetTokenValidAfter(ctx, userID, now)
+
 	// 将 Access Token 加入黑名单（TTL 与 Access Token 剩余有效期一致，这里用30分钟）
 	_ = cache.Set(ctx, cache.KeyTokenBlacklist+jti, "1", 30*time.Minute)
 
@@ -305,7 +315,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*d
 	}
 
 	// 生成新的 Token 对
-	newPair, err := jwtpkg.GenerateTokenPair(claims.UserID, claims.SchoolID, claims.Roles)
+	newPair, err := s.generateTokenPair(ctx, claims.UserID, claims.SchoolID, claims.Roles)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
@@ -338,6 +348,9 @@ func (s *authService) ChangePassword(ctx context.Context, userID int64, oldPassw
 	// 新密码不能与旧密码相同
 	if crypto.CheckPassword(newPassword, user.PasswordHash) {
 		return errcode.ErrPasswordSameAsCurrent
+	}
+	if err := s.validatePasswordByPolicy(ctx, newPassword); err != nil {
+		return err
 	}
 
 	// 加密新密码
@@ -373,6 +386,9 @@ func (s *authService) ForceChangePassword(ctx context.Context, userID int64, new
 	if !user.IsFirstLogin {
 		return nil, errcode.ErrForbidden.WithMessage("非首次登录用户不允许此操作")
 	}
+	if err := s.validatePasswordByPolicy(ctx, newPassword); err != nil {
+		return nil, err
+	}
 
 	// 加密新密码
 	hash, err := crypto.HashPassword(newPassword)
@@ -390,8 +406,11 @@ func (s *authService) ForceChangePassword(ctx context.Context, userID int64, new
 	}
 
 	// 生成正式Token对
+	now := time.Now()
+	_ = s.userRepo.UpdateTokenValidAfter(ctx, user.ID, now)
+	_ = tokenstate.SetTokenValidAfter(ctx, user.ID, now)
 	roleCodes := s.extractRoleCodes(user)
-	tokenPair, err := jwtpkg.GenerateTokenPair(user.ID, user.SchoolID, roleCodes)
+	tokenPair, err := s.generateTokenPair(ctx, user.ID, user.SchoolID, roleCodes)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
@@ -400,7 +419,6 @@ func (s *authService) ForceChangePassword(ctx context.Context, userID int64, new
 	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, ip)
 
 	// 更新登录信息
-	now := time.Now()
 	_ = s.userRepo.UpdateLoginInfo(ctx, user.ID, ip, now)
 
 	// 获取学校名称（跨模块查询）
@@ -482,4 +500,30 @@ func (s *authService) getLockDuration(ctx context.Context) time.Duration {
 		}
 	}
 	return 15 * time.Minute // 默认值
+}
+
+// validatePasswordByPolicy 按运行时安全策略校验密码复杂度
+func (s *authService) validatePasswordByPolicy(ctx context.Context, password string) error {
+	if s.policyProvider == nil {
+		return validatePasswordWithPolicy(password, defaultRuntimeSecurityPolicy())
+	}
+	policy, err := s.policyProvider.GetRuntimeSecurityPolicy(ctx)
+	if err != nil {
+		return err
+	}
+	return validatePasswordWithPolicy(password, policy)
+}
+
+// generateTokenPair 根据运行时策略生成双 Token
+func (s *authService) generateTokenPair(ctx context.Context, userID, schoolID int64, roles []string) (*jwtpkg.TokenPair, error) {
+	cfg := config.Get().JWT
+	policy := defaultRuntimeSecurityPolicy()
+	if s.policyProvider != nil {
+		runtimePolicy, err := s.policyProvider.GetRuntimeSecurityPolicy(ctx)
+		if err == nil && runtimePolicy != nil {
+			policy = runtimePolicy
+		}
+	}
+	accessExpire, refreshExpire := resolveJWTDurations(&cfg, policy)
+	return jwtpkg.GenerateTokenPairWithExpiry(userID, schoolID, roles, cfg.AccessSecret, cfg.RefreshSecret, cfg.Issuer, accessExpire, refreshExpire)
 }

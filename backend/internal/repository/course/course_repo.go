@@ -41,6 +41,7 @@ type CourseListParams struct {
 	TeacherID  int64
 	Keyword    string
 	Status     int
+	Statuses   []int
 	CourseType int
 	SortBy     string
 	SortOrder  string
@@ -61,6 +62,7 @@ type SharedCourseListParams struct {
 // StudentCourseListParams 学生课程列表查询参数
 type StudentCourseListParams struct {
 	Status   int
+	Statuses []int
 	Page     int
 	PageSize int
 }
@@ -136,7 +138,9 @@ func (r *courseRepository) List(ctx context.Context, params *CourseListParams) (
 	}
 
 	// 状态筛选
-	if params.Status > 0 {
+	if len(params.Statuses) > 0 {
+		query = query.Where("status IN ?", params.Statuses)
+	} else if params.Status > 0 {
 		query = query.Scopes(database.WithStatus(params.Status))
 	}
 
@@ -222,7 +226,9 @@ func (r *courseRepository) ListByStudentID(ctx context.Context, studentID int64,
 	query := r.db.WithContext(ctx).Model(&entity.Course{}).
 		Where("id IN (?)", subQuery)
 
-	if params.Status > 0 {
+	if len(params.Statuses) > 0 {
+		query = query.Where("status IN ?", params.Statuses)
+	} else if params.Status > 0 {
 		query = query.Scopes(database.WithStatus(params.Status))
 	}
 

@@ -62,6 +62,7 @@ type AnswerRepository interface {
 type AssignmentListParams struct {
 	CourseID       int64
 	AssignmentType int
+	OnlyPublished  bool
 	Page           int
 	PageSize       int
 }
@@ -135,6 +136,9 @@ func (r *assignmentRepository) ListByCourseID(ctx context.Context, params *Assig
 
 	if params.AssignmentType > 0 {
 		query = query.Where("assignment_type = ?", params.AssignmentType)
+	}
+	if params.OnlyPublished {
+		query = query.Where("is_published = ?", true)
 	}
 
 	var total int64

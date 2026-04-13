@@ -26,6 +26,9 @@ func (s *courseService) Clone(ctx context.Context, sc *svcctx.ServiceContext, id
 	if err != nil {
 		return "", errcode.ErrCourseNotFound
 	}
+	if original.TeacherID != sc.UserID && !original.IsShared {
+		return "", errcode.ErrForbidden.WithMessage("仅可克隆自己的课程或共享课程")
+	}
 
 	inviteCode := generateInviteCode()
 	cloned := &entity.Course{
@@ -214,6 +217,7 @@ func buildCourseDetail(c *entity.Course, studentCount int, teacherName string) *
 		StatusText:     enum.GetCourseStatusText(c.Status),
 		IsShared:       c.IsShared,
 		InviteCode:     c.InviteCode,
+		Credits:        c.Credits,
 		MaxStudents:    c.MaxStudents,
 		StudentCount:   studentCount,
 		TeacherID:      strconv.FormatInt(c.TeacherID, 10),
@@ -228,6 +232,10 @@ func buildCourseDetail(c *entity.Course, studentCount int, teacherName string) *
 	if c.EndAt != nil {
 		e := c.EndAt.Format(time.RFC3339)
 		resp.EndAt = &e
+	}
+	if c.SemesterID != nil {
+		semesterID := strconv.FormatInt(*c.SemesterID, 10)
+		resp.SemesterID = &semesterID
 	}
 	if c.ClonedFromID != nil {
 		cid := strconv.FormatInt(*c.ClonedFromID, 10)

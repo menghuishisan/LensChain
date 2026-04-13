@@ -51,6 +51,26 @@ type TokenPair struct {
 // GenerateTokenPair 生成 Access + Refresh Token 对
 func GenerateTokenPair(userID, schoolID int64, roles []string) (*TokenPair, error) {
 	cfg := config.Get().JWT
+	return GenerateTokenPairWithExpiry(
+		userID,
+		schoolID,
+		roles,
+		cfg.AccessSecret,
+		cfg.RefreshSecret,
+		cfg.Issuer,
+		cfg.AccessExpire,
+		cfg.RefreshExpire,
+	)
+}
+
+// GenerateTokenPairWithExpiry 使用指定密钥和时效生成 Access + Refresh Token 对
+// 用于安全策略动态覆盖 Token 有效期，避免调用方重复实现签名逻辑。
+func GenerateTokenPairWithExpiry(
+	userID, schoolID int64,
+	roles []string,
+	accessSecret, refreshSecret, issuer string,
+	accessExpire, refreshExpire time.Duration,
+) (*TokenPair, error) {
 
 	// 生成 Access Token
 	accessClaims := &Claims{
@@ -59,14 +79,14 @@ func GenerateTokenPair(userID, schoolID int64, roles []string) (*TokenPair, erro
 		Roles:     roles,
 		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwtv5.RegisteredClaims{
-			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(cfg.AccessExpire)),
+			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(accessExpire)),
 			IssuedAt:  jwtv5.NewNumericDate(time.Now()),
-			Issuer:    cfg.Issuer,
+			Issuer:    issuer,
 			ID:        uuid.New().String(), // JTI，用于黑名单
 		},
 	}
 	accessToken, err := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, accessClaims).
-		SignedString([]byte(cfg.AccessSecret))
+		SignedString([]byte(accessSecret))
 	if err != nil {
 		return nil, fmt.Errorf("生成Access Token失败: %w", err)
 	}
@@ -78,14 +98,14 @@ func GenerateTokenPair(userID, schoolID int64, roles []string) (*TokenPair, erro
 		Roles:     roles,
 		TokenType: TokenTypeRefresh,
 		RegisteredClaims: jwtv5.RegisteredClaims{
-			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(cfg.RefreshExpire)),
+			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(refreshExpire)),
 			IssuedAt:  jwtv5.NewNumericDate(time.Now()),
-			Issuer:    cfg.Issuer,
+			Issuer:    issuer,
 			ID:        uuid.New().String(),
 		},
 	}
 	refreshToken, err := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, refreshClaims).
-		SignedString([]byte(cfg.RefreshSecret))
+		SignedString([]byte(refreshSecret))
 	if err != nil {
 		return nil, fmt.Errorf("生成Refresh Token失败: %w", err)
 	}
@@ -93,7 +113,7 @@ func GenerateTokenPair(userID, schoolID int64, roles []string) (*TokenPair, erro
 	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		ExpiresIn:    int64(cfg.AccessExpire.Seconds()),
+		ExpiresIn:    int64(accessExpire.Seconds()),
 	}, nil
 }
 

@@ -37,6 +37,8 @@ type UserRepository interface {
 	UpdateLoginInfo(ctx context.Context, id int64, ip string, loginAt time.Time) error
 	LockUser(ctx context.Context, id int64, lockedUntil time.Time) error
 	UnlockUser(ctx context.Context, id int64) error
+	UpdateTokenValidAfter(ctx context.Context, id int64, validAfter time.Time) error
+	BatchUpdateTokenValidAfterBySchool(ctx context.Context, schoolID int64, validAfter time.Time) error
 
 	// 批量操作
 	GetByIDs(ctx context.Context, ids []int64) ([]*entity.User, error)
@@ -280,6 +282,24 @@ func (r *userRepository) UnlockUser(ctx context.Context, id int64) error {
 			"locked_until":     nil,
 			"login_fail_count": 0,
 		}).Error
+}
+
+// UpdateTokenValidAfter 更新用户Token生效时间基线
+// 用于强制历史 Access Token 失效。
+func (r *userRepository) UpdateTokenValidAfter(ctx context.Context, id int64, validAfter time.Time) error {
+	return r.db.WithContext(ctx).
+		Model(&entity.User{}).
+		Where("id = ?", id).
+		Update("token_valid_after", validAfter).Error
+}
+
+// BatchUpdateTokenValidAfterBySchool 批量更新学校下所有用户的Token生效时间基线
+// 用于学校冻结、注销等需要统一强制下线的场景。
+func (r *userRepository) BatchUpdateTokenValidAfterBySchool(ctx context.Context, schoolID int64, validAfter time.Time) error {
+	return r.db.WithContext(ctx).
+		Model(&entity.User{}).
+		Where("school_id = ? AND deleted_at IS NULL", schoolID).
+		Update("token_valid_after", validAfter).Error
 }
 
 // GetByIDs 根据ID列表批量获取用户

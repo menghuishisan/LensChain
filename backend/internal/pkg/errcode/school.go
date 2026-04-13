@@ -11,6 +11,7 @@ var (
 	ErrDuplicateApplication   = New(40901, http.StatusConflict, "该手机号已有待审核的申请")
 	ErrDuplicateSchoolName    = New(40902, http.StatusConflict, "该学校名称已存在")
 	ErrDuplicateSchoolCode    = New(40903, http.StatusConflict, "该学校编码已存在")
+	ErrSMSCodeSendTooFrequent = New(40014, http.StatusBadRequest, "短信发送过于频繁，请稍后再试")
 	ErrApplicationNotPending  = New(40909, http.StatusConflict, "申请不在待审核状态")
 	ErrApplicationNotRejected = New(40910, http.StatusConflict, "仅被拒绝的申请可重新提交")
 
@@ -25,5 +26,7 @@ var (
 	ErrCancelNotConfirmed     = New(40013, http.StatusBadRequest, "注销操作需要确认")
 
 	// SSO配置
-	ErrSSOTestFailed = New(40010, http.StatusBadRequest, "SSO连接测试失败")
+	ErrSSOTestFailed     = New(40010, http.StatusBadRequest, "SSO连接测试失败")
+	ErrSSONotTested      = New(40011, http.StatusBadRequest, "SSO配置尚未通过测试")
+	ErrSSOConfigNotFound = New(40410, http.StatusNotFound, "SSO配置不存在")
 )

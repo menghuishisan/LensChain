@@ -7,8 +7,11 @@ package sms
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -28,6 +31,11 @@ type Sender interface {
 
 // 全局短信发送器
 var sender Sender
+
+const (
+	verificationCodeTTL      = 5 * time.Minute
+	verificationCodeCooldown = 1 * time.Minute
+)
 
 // Init 初始化短信网关
 func Init(cfg *config.SMSConfig) error {
@@ -86,6 +94,53 @@ func VerifyCode(ctx context.Context, phone, code string) error {
 
 	_ = cache.Del(ctx, cache.KeySMSVerification+phone)
 	return nil
+}
+
+// SendVerificationCode 发送短信验证码并写入缓存
+// 统一实现验证码缓存与发送冷却，供公开查询/重申场景复用。
+func SendVerificationCode(ctx context.Context, phone string) error {
+	if strings.TrimSpace(phone) == "" {
+		return fmt.Errorf("手机号不能为空")
+	}
+
+	cooldownKey := cache.KeySMSVerificationCooldown + phone
+	ok, err := cache.SetNX(ctx, cooldownKey, "1", verificationCodeCooldown)
+	if err != nil {
+		return fmt.Errorf("设置短信发送冷却失败: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("短信发送过于频繁")
+	}
+
+	code, err := generateVerificationCode()
+	if err != nil {
+		_ = cache.Del(ctx, cooldownKey)
+		return fmt.Errorf("生成验证码失败: %w", err)
+	}
+
+	if err := cache.Set(ctx, cache.KeySMSVerification+phone, code, verificationCodeTTL); err != nil {
+		_ = cache.Del(ctx, cooldownKey)
+		return fmt.Errorf("缓存验证码失败: %w", err)
+	}
+
+	if err := Send(phone, TemplateSMSVerification, map[string]string{
+		"code": code,
+	}); err != nil {
+		_ = cache.Del(ctx, cache.KeySMSVerification+phone)
+		_ = cache.Del(ctx, cooldownKey)
+		return err
+	}
+
+	return nil
+}
+
+// generateVerificationCode 生成 6 位数字验证码
+func generateVerificationCode() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
 // ---- Mock 实现（开发环境） ----

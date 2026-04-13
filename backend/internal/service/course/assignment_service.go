@@ -221,7 +221,8 @@ func (s *assignmentService) List(ctx context.Context, sc *svcctx.ServiceContext,
 
 	assignments, total, err := s.assignmentRepo.ListByCourseID(ctx, &courserepo.AssignmentListParams{
 		CourseID: courseID, AssignmentType: req.AssignmentType,
-		Page: req.Page, PageSize: req.PageSize,
+		OnlyPublished: !teacherView,
+		Page:          req.Page, PageSize: req.PageSize,
 	})
 	if err != nil {
 		return nil, 0, err
@@ -230,10 +231,6 @@ func (s *assignmentService) List(ctx context.Context, sc *svcctx.ServiceContext,
 	studentCount, _ := s.courseRepo.CountStudents(ctx, courseID)
 	items := make([]*dto.AssignmentListItem, 0, len(assignments))
 	for _, a := range assignments {
-		if !teacherView && !a.IsPublished {
-			continue
-		}
-
 		submitCount, _ := s.submissionRepo.CountByAssignment(ctx, a.ID)
 		item := &dto.AssignmentListItem{
 			ID: strconv.FormatInt(a.ID, 10), Title: a.Title,
@@ -248,9 +245,6 @@ func (s *assignmentService) List(ctx context.Context, sc *svcctx.ServiceContext,
 			item.DeadlineAt = &d
 		}
 		items = append(items, item)
-	}
-	if !teacherView {
-		total = int64(len(items))
 	}
 	return items, total, nil
 }

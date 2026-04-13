@@ -28,6 +28,8 @@ type Course struct {
 	InviteCode   *string        `gorm:"type:varchar(10)" json:"invite_code,omitempty"`
 	StartAt      *time.Time     `gorm:"" json:"start_at,omitempty"`
 	EndAt        *time.Time     `gorm:"" json:"end_at,omitempty"`
+	Credits      *float64       `gorm:"type:decimal(3,1)" json:"credits,omitempty"`
+	SemesterID   *int64         `gorm:"index" json:"semester_id,omitempty,string"`
 	MaxStudents  *int           `gorm:"" json:"max_students,omitempty"`
 	ClonedFromID *int64         `gorm:"" json:"cloned_from_id,omitempty,string"`
 	CreatedAt    time.Time      `gorm:"not null;default:now()" json:"created_at"`
@@ -386,4 +388,24 @@ type CourseExperiment struct {
 // TableName 指定表名
 func (CourseExperiment) TableName() string {
 	return "course_experiments"
+}
+
+// CourseGradeOverride 课程成绩调整记录表
+// 对应 course_grade_overrides 表
+type CourseGradeOverride struct {
+	ID            int64     `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
+	CourseID      int64     `gorm:"not null;index" json:"course_id,string"`
+	StudentID     int64     `gorm:"not null;index" json:"student_id,string"`
+	WeightedTotal float64   `gorm:"type:decimal(6,2);not null" json:"weighted_total"`
+	FinalScore    float64   `gorm:"type:decimal(6,2);not null" json:"final_score"`
+	AdjustReason  string    `gorm:"type:varchar(200);not null" json:"adjust_reason"`
+	AdjustedBy    int64     `gorm:"not null" json:"adjusted_by,string"`
+	AdjustedAt    time.Time `gorm:"not null;default:now()" json:"adjusted_at"`
+	CreatedAt     time.Time `gorm:"not null;default:now()" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"not null;default:now()" json:"updated_at"`
+}
+
+// TableName 指定表名
+func (CourseGradeOverride) TableName() string {
+	return "course_grade_overrides"
 }

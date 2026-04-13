@@ -11,6 +11,7 @@ import (
 	"net/mail"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -53,6 +54,12 @@ func (s *importService) parseRow(rowNum int, cells []string) *importRow {
 // validateRow 校验行数据
 func (s *importService) validateRow(ctx context.Context, schoolID int64, row *importRow) {
 	var errors []string
+	policy := defaultRuntimeSecurityPolicy()
+	if s.policyProvider != nil {
+		if runtimePolicy, err := s.policyProvider.GetRuntimeSecurityPolicy(ctx); err == nil && runtimePolicy != nil {
+			policy = runtimePolicy
+		}
+	}
 
 	// 必填校验
 	if row.Name == "" {
@@ -68,6 +75,8 @@ func (s *importService) validateRow(ctx context.Context, schoolID int64, row *im
 	}
 	if row.PasswordHash == "" {
 		errors = append(errors, "初始密码不能为空")
+	} else if err := validatePasswordWithPolicy(row.PasswordHash, policy); err != nil {
+		errors = append(errors, "初始密码不满足当前密码复杂度要求")
 	}
 	if row.Email != "" {
 		if _, err := mail.ParseAddress(row.Email); err != nil {
@@ -79,6 +88,16 @@ func (s *importService) validateRow(ctx context.Context, schoolID int64, row *im
 	}
 	if len(strings.TrimSpace(row.StudentNo)) > 50 {
 		errors = append(errors, "学号长度不能超过50")
+	}
+	if row.EnrollmentYear != "" {
+		year, err := strconv.Atoi(row.EnrollmentYear)
+		currentYear := time.Now().Year()
+		if err != nil || year < 2000 || year > currentYear {
+			errors = append(errors, "入学年份不在有效范围内")
+		}
+	}
+	if row.EducationLevel != "" && enum.ParseEduLevel(row.EducationLevel) == 0 {
+		errors = append(errors, "学业层次仅支持本科/硕士/博士")
 	}
 
 	if len(errors) > 0 {

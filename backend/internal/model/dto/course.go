@@ -11,15 +11,17 @@ import "time"
 // CreateCourseReq 创建课程请求
 // POST /api/v1/courses
 type CreateCourseReq struct {
-	Title       string  `json:"title" binding:"required,max=200"`
-	Description *string `json:"description"`
-	CoverURL    *string `json:"cover_url" binding:"omitempty,url,max=500"`
-	CourseType  int     `json:"course_type" binding:"required,oneof=1 2 3 4"`
-	Difficulty  int     `json:"difficulty" binding:"required,oneof=1 2 3 4"`
-	Topic       string  `json:"topic" binding:"required,max=50"`
-	StartAt     *string `json:"start_at"`
-	EndAt       *string `json:"end_at"`
-	MaxStudents *int    `json:"max_students" binding:"omitempty,min=1"`
+	Title       string   `json:"title" binding:"required,max=200"`
+	Description *string  `json:"description"`
+	CoverURL    *string  `json:"cover_url" binding:"omitempty,url,max=500"`
+	CourseType  int      `json:"course_type" binding:"required,oneof=1 2 3 4"`
+	Difficulty  int      `json:"difficulty" binding:"required,oneof=1 2 3 4"`
+	Topic       string   `json:"topic" binding:"required,max=50"`
+	Credits     *float64 `json:"credits" binding:"omitempty,min=0,max=99.9"`
+	SemesterID  *string  `json:"semester_id"`
+	StartAt     *string  `json:"start_at"`
+	EndAt       *string  `json:"end_at"`
+	MaxStudents *int     `json:"max_students" binding:"omitempty,min=1"`
 }
 
 // CreateCourseResp 创建课程响应
@@ -36,15 +38,17 @@ type CreateCourseResp struct {
 // UpdateCourseReq 编辑课程请求
 // PUT /api/v1/courses/:id
 type UpdateCourseReq struct {
-	Title       *string `json:"title" binding:"omitempty,max=200"`
-	Description *string `json:"description"`
-	CoverURL    *string `json:"cover_url" binding:"omitempty,url,max=500"`
-	CourseType  *int    `json:"course_type" binding:"omitempty,oneof=1 2 3 4"`
-	Difficulty  *int    `json:"difficulty" binding:"omitempty,oneof=1 2 3 4"`
-	Topic       *string `json:"topic" binding:"omitempty,max=50"`
-	StartAt     *string `json:"start_at"`
-	EndAt       *string `json:"end_at"`
-	MaxStudents *int    `json:"max_students" binding:"omitempty,min=1"`
+	Title       *string  `json:"title" binding:"omitempty,max=200"`
+	Description *string  `json:"description"`
+	CoverURL    *string  `json:"cover_url" binding:"omitempty,url,max=500"`
+	CourseType  *int     `json:"course_type" binding:"omitempty,oneof=1 2 3 4"`
+	Difficulty  *int     `json:"difficulty" binding:"omitempty,oneof=1 2 3 4"`
+	Topic       *string  `json:"topic" binding:"omitempty,max=50"`
+	Credits     *float64 `json:"credits" binding:"omitempty,min=0,max=99.9"`
+	SemesterID  *string  `json:"semester_id"`
+	StartAt     *string  `json:"start_at"`
+	EndAt       *string  `json:"end_at"`
+	MaxStudents *int     `json:"max_students" binding:"omitempty,min=1"`
 }
 
 // CourseListReq 课程列表查询参数（教师视角）
@@ -81,28 +85,30 @@ type CourseListItem struct {
 // CourseDetailResp 课程详情响应
 // GET /api/v1/courses/:id
 type CourseDetailResp struct {
-	ID             string  `json:"id"`
-	Title          string  `json:"title"`
-	Description    *string `json:"description"`
-	CoverURL       *string `json:"cover_url"`
-	CourseType     int     `json:"course_type"`
-	CourseTypeText string  `json:"course_type_text"`
-	Difficulty     int     `json:"difficulty"`
-	DifficultyText string  `json:"difficulty_text"`
-	Topic          string  `json:"topic"`
-	Status         int     `json:"status"`
-	StatusText     string  `json:"status_text"`
-	IsShared       bool    `json:"is_shared"`
-	InviteCode     *string `json:"invite_code"`
-	StartAt        *string `json:"start_at"`
-	EndAt          *string `json:"end_at"`
-	MaxStudents    *int    `json:"max_students"`
-	StudentCount   int     `json:"student_count"`
-	TeacherID      string  `json:"teacher_id"`
-	TeacherName    string  `json:"teacher_name"`
-	ClonedFromID   *string `json:"cloned_from_id"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Description    *string  `json:"description"`
+	CoverURL       *string  `json:"cover_url"`
+	CourseType     int      `json:"course_type"`
+	CourseTypeText string   `json:"course_type_text"`
+	Difficulty     int      `json:"difficulty"`
+	DifficultyText string   `json:"difficulty_text"`
+	Topic          string   `json:"topic"`
+	Status         int      `json:"status"`
+	StatusText     string   `json:"status_text"`
+	IsShared       bool     `json:"is_shared"`
+	InviteCode     *string  `json:"invite_code"`
+	Credits        *float64 `json:"credits"`
+	SemesterID     *string  `json:"semester_id"`
+	StartAt        *string  `json:"start_at"`
+	EndAt          *string  `json:"end_at"`
+	MaxStudents    *int     `json:"max_students"`
+	StudentCount   int      `json:"student_count"`
+	TeacherID      string   `json:"teacher_id"`
+	TeacherName    string   `json:"teacher_name"`
+	ClonedFromID   *string  `json:"cloned_from_id"`
+	CreatedAt      string   `json:"created_at"`
+	UpdatedAt      string   `json:"updated_at"`
 }
 
 // ToggleShareReq 切换共享状态请求

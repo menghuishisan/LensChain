@@ -51,6 +51,7 @@ type contentService struct {
 	enrollmentRepo     courserepo.EnrollmentRepository
 	progressRepo       courserepo.ProgressRepository
 	userSummaryQuerier UserSummaryQuerier
+	userAccessChecker  UserAccessChecker
 }
 
 // NewContentService 创建章节课时管理服务实例
@@ -62,12 +63,14 @@ func NewContentService(
 	enrollmentRepo courserepo.EnrollmentRepository,
 	progressRepo courserepo.ProgressRepository,
 	userSummaryQuerier UserSummaryQuerier,
+	userAccessChecker UserAccessChecker,
 ) ContentService {
 	return &contentService{
 		courseRepo: courseRepo, chapterRepo: chapterRepo,
 		lessonRepo: lessonRepo, attachmentRepo: attachmentRepo,
 		enrollmentRepo: enrollmentRepo, progressRepo: progressRepo,
 		userSummaryQuerier: userSummaryQuerier,
+		userAccessChecker:  userAccessChecker,
 	}
 }
 
@@ -398,6 +401,9 @@ func (s *contentService) AddStudent(ctx context.Context, sc *svcctx.ServiceConte
 	if enrolled {
 		return errcode.ErrAlreadyEnrolled
 	}
+	if err := s.ensureCourseStudentCandidate(ctx, sc, studentID); err != nil {
+		return err
+	}
 	enrollment := &entity.CourseEnrollment{
 		CourseID: courseID, StudentID: studentID,
 		JoinMethod: enum.JoinMethodTeacher, JoinedAt: time.Now(),
@@ -419,6 +425,9 @@ func (s *contentService) BatchAddStudents(ctx context.Context, sc *svcctx.Servic
 		enrolled, _ := s.enrollmentRepo.IsEnrolled(ctx, studentID, courseID)
 		if enrolled {
 			continue
+		}
+		if err := s.ensureCourseStudentCandidate(ctx, sc, studentID); err != nil {
+			return err
 		}
 		enrollments = append(enrollments, &entity.CourseEnrollment{
 			CourseID: courseID, StudentID: studentID,
@@ -484,4 +493,30 @@ func (s *contentService) ListStudents(ctx context.Context, sc *svcctx.ServiceCon
 func (s *contentService) verifyCourseTeacher(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) error {
 	_, err := ensureCourseTeacher(ctx, sc, s.courseRepo, courseID)
 	return err
+}
+
+// ensureCourseStudentCandidate 校验待添加用户是否为当前学校的学生
+// 课程选课属于模块03职责，但用户身份与租户归属来自模块01，因此通过跨模块接口读取。
+func (s *contentService) ensureCourseStudentCandidate(ctx context.Context, sc *svcctx.ServiceContext, studentID int64) error {
+	if s.userAccessChecker == nil {
+		return errcode.ErrInternal.WithMessage("用户访问校验器未初始化")
+	}
+
+	schoolID, err := s.userAccessChecker.GetUserSchoolID(ctx, studentID)
+	if err != nil {
+		return errcode.ErrUserNotFound
+	}
+	if schoolID != sc.SchoolID {
+		return errcode.ErrForbidden.WithMessage("只能添加本校学生")
+	}
+
+	hasStudentRole, err := s.userAccessChecker.HasRole(ctx, studentID, enum.RoleStudent)
+	if err != nil {
+		return errcode.ErrUserNotFound
+	}
+	if !hasStudentRole {
+		return errcode.ErrForbidden.WithMessage("只能添加学生角色用户")
+	}
+
+	return nil
 }

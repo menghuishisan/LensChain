@@ -45,6 +45,14 @@ type progressService struct {
 	userSummaryQuerier UserSummaryQuerier
 }
 
+func scheduleVisibleCourseStatuses() []int {
+	return []int{
+		enum.CourseStatusPublished,
+		enum.CourseStatusActive,
+		enum.CourseStatusEnded,
+	}
+}
+
 // NewProgressService 创建学习进度与课表服务实例
 func NewProgressService(
 	courseRepo courserepo.CourseRepository,
@@ -283,7 +291,7 @@ func (s *progressService) GetMySchedule(ctx context.Context, sc *svcctx.ServiceC
 	if sc.IsTeacher() {
 		teacherCourses, _, err := s.courseRepo.List(ctx, &courserepo.CourseListParams{
 			SchoolID: sc.SchoolID, TeacherID: sc.UserID,
-			Status: enum.CourseStatusActive, Page: 1, PageSize: 100,
+			Statuses: scheduleVisibleCourseStatuses(), Page: 1, PageSize: 100,
 		})
 		if err != nil {
 			return nil, err
@@ -295,7 +303,7 @@ func (s *progressService) GetMySchedule(ctx context.Context, sc *svcctx.ServiceC
 
 	if sc.IsStudent() || len(courseMap) == 0 {
 		studentCourses, _, err := s.courseRepo.ListByStudentID(ctx, sc.UserID, &courserepo.StudentCourseListParams{
-			Status: enum.CourseStatusActive, Page: 1, PageSize: 100,
+			Statuses: scheduleVisibleCourseStatuses(), Page: 1, PageSize: 100,
 		})
 		if err != nil {
 			return nil, err
