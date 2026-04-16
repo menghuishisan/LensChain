@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: lenschain-platform
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/part-of: lenschain
+  annotations:
+    lenschain.io/status: "reserved"
+    lenschain.io/note: "frontend 代码尚未落地，当前仅保留部署接入位。"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/part-of: lenschain
+    spec:
+      containers:
+        - name: frontend
+          image: lenschain/frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http

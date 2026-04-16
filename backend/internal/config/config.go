@@ -25,6 +25,28 @@ type Config struct {
 	SMS       SMSConfig       `mapstructure:"sms"`
 	CORS      CORSConfig      `mapstructure:"cors"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
+	K8s       K8sConfig       `mapstructure:"k8s"`
+	SimEngine SimEngineConfig `mapstructure:"sim_engine"`
+}
+
+// K8sConfig Kubernetes 集群配置
+type K8sConfig struct {
+	InCluster              bool          `mapstructure:"in_cluster"`
+	KubeConfigPath         string        `mapstructure:"kubeconfig_path"`
+	NamespacePrefix        string        `mapstructure:"namespace_prefix"`
+	DefaultCPU             string        `mapstructure:"default_cpu"`
+	DefaultMemory          string        `mapstructure:"default_memory"`
+	CollectorImageTemplate string        `mapstructure:"collector_image_template"`
+	Timeout                time.Duration `mapstructure:"timeout"`
+}
+
+// SimEngineConfig SimEngine 仿真引擎 gRPC 配置
+type SimEngineConfig struct {
+	GRPCAddr   string        `mapstructure:"grpc_addr"`
+	Timeout    time.Duration `mapstructure:"timeout"`
+	MaxRetries int           `mapstructure:"max_retries"`
+	TLSEnabled bool          `mapstructure:"tls_enabled"`
+	CertFile   string        `mapstructure:"cert_file"`
 }
 
 // ServerConfig HTTP服务器配置
@@ -96,9 +118,9 @@ type MinIOConfig struct {
 
 // NATSConfig NATS消息队列配置
 type NATSConfig struct {
-	URL            string        `mapstructure:"url"`
-	MaxReconnects  int           `mapstructure:"max_reconnects"`
-	ReconnectWait  time.Duration `mapstructure:"reconnect_wait"`
+	URL           string        `mapstructure:"url"`
+	MaxReconnects int           `mapstructure:"max_reconnects"`
+	ReconnectWait time.Duration `mapstructure:"reconnect_wait"`
 }
 
 // SnowflakeConfig 雪花ID生成器配置

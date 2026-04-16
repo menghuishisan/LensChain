@@ -1,0 +1,28 @@
+# staging overlay
+# 预发布环境建议：固定镜像 tag、启用更接近生产的资源限制与域名配置。
+
+resources:
+  - ../../base/platform/namespace.yaml
+  - ../../base/platform/backend-configmap.yaml
+  - ../../base/platform/backend-deployment.yaml
+  - ../../base/platform/backend-service.yaml
+  - ../../base/platform/backend-hpa.yaml
+  - ../../base/platform/backend-pdb.yaml
+  - ../../base/platform/backend-secret.example.yaml
+  - ../../base/platform/sim-engine-configmap.yaml
+  - ../../base/platform/sim-engine-deployment.yaml
+  - ../../base/platform/sim-engine-service.yaml
+  - ../../base/platform/sim-engine-hpa.yaml
+  - ../../base/platform/sim-engine-pdb.yaml
+  - ../../base/platform/sim-engine-secret.example.yaml
+  - ../../base/platform/postgres-statefulset.yaml
+  - ../../base/platform/postgres-service.yaml
+  - ../../base/platform/redis-deployment.yaml
+  - ../../base/platform/redis-service.yaml
+  - ../../base/platform/minio-deployment.yaml
+  - ../../base/platform/minio-service.yaml
+  - ../../base/platform/minio-bootstrap-job.yaml
+  - ../../base/platform/nats-deployment.yaml
+  - ../../base/platform/nats-service.yaml
+  - ../../base/platform/platform-infra-secret.example.yaml
+  - ../../base/platform/network-policy.yaml

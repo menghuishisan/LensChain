@@ -1,0 +1,10 @@
+# image.yaml
+# 实验环境 — DApp 开发基础镜像元数据
+
+name: dapp-dev
+module: experiment
+category: base
+runtime: dapp-dev
+ports:
+  - 3000/tcp
+description: 包含 Node.js、React/Next.js 生态与 EVM 客户端库的 DApp 教学基础镜像。

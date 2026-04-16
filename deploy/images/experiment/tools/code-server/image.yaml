@@ -1,0 +1,31 @@
+# image.yaml
+# 实验环境 — code-server 工具镜像元数据
+
+name: code-server
+module: experiment
+category: tools
+runtime: ide
+default_ports:
+  - port: 8080
+    protocol: tcp
+    name: HTTP
+ports:
+  - 8080/tcp
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: geth-dev
+      reason: 在 IDE 中直接联调本地链环境
+    - image: ganache
+      reason: 在线编写与测试智能合约
+  optional:
+    - image: xterm-server
+      reason: 额外提供终端入口
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+default_volumes:
+  - path: /home/coder/project
+    desc: 工作目录
+description: 面向实验环境的 Web IDE 工具容器。

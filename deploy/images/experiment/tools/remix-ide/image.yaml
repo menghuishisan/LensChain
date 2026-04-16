@@ -1,0 +1,30 @@
+# image.yaml
+name: remix-ide
+module: experiment
+category: tools
+runtime: evm-ide
+default_ports:
+  - port: 8080
+    protocol: tcp
+    name: HTTP
+ports:
+  - 8080/tcp
+default_env_vars: []
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: ganache
+      reason: 连接本地开发链进行合约部署
+    - image: geth-dev
+      reason: 连接 EVM 教学链环境
+  optional:
+    - image: blockscout
+      reason: 浏览合约部署后的链上状态
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+default_volumes:
+  - path: /app
+    desc: Remix 运行目录
+description: Solidity 在线 IDE 镜像。

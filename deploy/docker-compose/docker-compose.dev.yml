@@ -1,0 +1,185 @@
+# docker-compose.dev.yml
+# 链镜平台本地开发编排
+# 提供 backend、sim-engine 与基础设施依赖，并启动首批场景算法容器
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: lenschain-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lenschain}
+      POSTGRES_USER: ${POSTGRES_USER:-lenschain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lenschain}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lenschain} -d ${POSTGRES_DB:-lenschain}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: lenschain-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    container_name: lenschain-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-03-12T17-29-24Z
+    container_name: lenschain-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}; do sleep 1; done &&
+      mc mb --ignore-existing local/${MINIO_BUCKET:-lenschain}
+      "
+    restart: "no"
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: lenschain-nats
+    restart: unless-stopped
+    command: ["-js"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8222/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  pbft-consensus:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/scenario.Dockerfile
+      args:
+        SCENARIO_PATH: consensus/pbft-consensus
+    container_name: lenschain-scene-pbft-consensus
+    restart: unless-stopped
+    environment:
+      SCENARIO_LISTEN_ADDR: :8080
+    expose:
+      - "8080"
+
+  pow-mining:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/scenario.Dockerfile
+      args:
+        SCENARIO_PATH: consensus/pow-mining
+    container_name: lenschain-scene-pow-mining
+    restart: unless-stopped
+    environment:
+      SCENARIO_LISTEN_ADDR: :8080
+    expose:
+      - "8080"
+
+  sim-engine:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/sim-engine.Dockerfile
+    container_name: lenschain-sim-engine
+    restart: unless-stopped
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      pbft-consensus:
+        condition: service_started
+      pow-mining:
+        condition: service_started
+    environment:
+      SIM_ENGINE_HTTP_ADDR: :8090
+      SIM_ENGINE_GRPC_ADDR: :9090
+      SIM_ENGINE_PUBLIC_BASE: ${SIM_ENGINE_PUBLIC_BASE:-ws://localhost:8090}
+      SIM_ENGINE_OBJECT_STORAGE_ENDPOINT: minio:9000
+      SIM_ENGINE_OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      SIM_ENGINE_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      SIM_ENGINE_OBJECT_STORAGE_BUCKET: ${MINIO_BUCKET:-lenschain}
+      SIM_ENGINE_OBJECT_STORAGE_REGION: us-east-1
+      SIM_ENGINE_OBJECT_STORAGE_PREFIX: sim-engine/snapshots
+      SIM_ENGINE_OBJECT_STORAGE_USE_SSL: "false"
+      SIM_ENGINE_SNAPSHOT_ENCRYPTION_KEY: ${SIM_ENGINE_SNAPSHOT_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+      SIM_ENGINE_SCENE_ENDPOINTS: ${SIM_ENGINE_SCENE_ENDPOINTS:-pbft-consensus=pbft-consensus:8080,pow-mining=pow-mining:8080}
+      SIM_ENGINE_WS_JWT_SECRET: lenschain-simengine-ws-secret
+      SIM_ENGINE_WS_JWT_ISSUER: lenschain
+      SIM_ENGINE_WS_JWT_AUDIENCE: lenschain-users
+    ports:
+      - "${SIM_ENGINE_HTTP_PORT:-8090}:8090"
+      - "${SIM_ENGINE_GRPC_PORT:-9090}:9090"
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+    container_name: lenschain-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      sim-engine:
+        condition: service_started
+    environment:
+      LENSCHAIN_CONFIG: /app/configs/config.yaml
+      LENSCHAIN_DATABASE_HOST: postgres
+      LENSCHAIN_DATABASE_PORT: 5432
+      LENSCHAIN_DATABASE_USER: ${POSTGRES_USER:-lenschain}
+      LENSCHAIN_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-lenschain}
+      LENSCHAIN_DATABASE_DBNAME: ${POSTGRES_DB:-lenschain}
+      LENSCHAIN_DATABASE_SSLMODE: disable
+      LENSCHAIN_REDIS_HOST: redis
+      LENSCHAIN_REDIS_PORT: 6379
+      LENSCHAIN_MINIO_ENDPOINT: minio:9000
+      LENSCHAIN_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      LENSCHAIN_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      LENSCHAIN_MINIO_BUCKET: ${MINIO_BUCKET:-lenschain}
+      LENSCHAIN_MINIO_USE_SSL: "false"
+      LENSCHAIN_NATS_URL: nats://nats:4222
+      LENSCHAIN_SIM_ENGINE_GRPC_ADDR: sim-engine:9090
+      LENSCHAIN_SERVER_HOST: 0.0.0.0
+      LENSCHAIN_SERVER_PORT: 3000
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

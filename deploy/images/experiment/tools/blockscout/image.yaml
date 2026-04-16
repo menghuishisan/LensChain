@@ -1,0 +1,11 @@
+# image.yaml
+name: blockscout
+module: experiment
+category: tools
+runtime: explorer
+ports:
+  - 4000/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: EVM 本地区块链浏览器镜像。

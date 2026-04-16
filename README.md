@@ -1,213 +1,107 @@
 # LensChain
 
-**链镜** 是一个覆盖高校场景的区块链综合教学平台，集 **教学、实验实践、CTF 竞赛** 三位一体，支持多链生态、多层次学生、多学校混合部署。
+链镜（LensChain）是一个面向高校区块链教学场景的开源平台，围绕课程教学、实验实践、可视化仿真、CTF 竞赛与成绩反馈，提供一套可扩展的教学基础设施。
 
-## 项目简介
+项目目标是把“讲解概念、组织实验、观察过程、完成实操、开展竞赛、跟踪结果”放到同一个平台里，帮助教师更高效地组织区块链课程，也让学生能够在统一入口中完成学习与实践。
 
-当前仓库以 **Go 后端服务** 与 **项目文档体系** 为主，采用文档驱动开发方式推进。
+## 核心能力
 
-平台围绕高校区块链教学场景，提供从学校入驻、用户认证、课程教学到实验实践和竞赛训练的统一能力。当前后端已包含以下基础业务能力：
+- 课程教学：支持课程、章节、课时、作业与学习过程管理
+- 实验环境：支持实验模板、容器化实验环境、分组协作与教师监控
+- 可视化仿真：支持多领域区块链仿真场景、时间控制、联动观察与交互演示
+- CTF 竞赛：支持题目管理、报名、攻防赛与排行榜
+- 评测反馈：支持成绩、审核、申诉与预警
+- 多租户部署：支持学校级隔离与多角色协同
 
-- 用户与认证
-- 学校与租户管理
-- 课程与教学
+## 适用对象
 
-后续模块将在现有规范和接口体系上继续扩展。
+- 开设区块链课程的高校教师与实验教学团队
+- 需要构建教学实验平台的院校或实验室
+- 希望扩展仿真场景、实验环境或竞赛模块的开源贡献者
 
-## 技术栈
-
-### 后端
-
-- Go
-- Gin
-- GORM
-- PostgreSQL
-- Redis
-- MinIO
-- NATS
-- Zap
-- Viper
-- robfig/cron
-
-### 规划中的整体技术栈
-
-- 前端：React / Next.js
-- 容器化：Docker
-- 编排部署：Kubernetes
-- 对象存储：MinIO / S3 Compatible
-
-## 目录结构
+## 仓库结构
 
 ```text
-.
-├── backend/               # Go 后端服务
-│   ├── cmd/               # 服务入口与命令
-│   │   ├── migrate/       # 数据库迁移命令入口
-│   │   └── server/        # HTTP 服务入口与模块初始化
-│   ├── configs/           # 本地开发配置
-│   ├── internal/          # 后端内部实现
-│   │   ├── handler/       # HTTP 处理层
-│   │   ├── middleware/    # 中间件
-│   │   ├── model/         # DTO、实体、枚举
-│   │   ├── pkg/           # 基础设施封装
-│   │   ├── repository/    # 数据访问层
-│   │   ├── router/        # 路由注册
-│   │   └── service/       # 业务逻辑层
-│   ├── migrations/        # 数据库迁移脚本
-│   ├── go.mod
-│   └── go.sum
-├── docs/                  # 项目文档
-│   ├── modules/           # 模块设计文档
-│   ├── standards/         # API、数据库等规范
-│   ├── 00-项目总览与文档规范.md
-│   ├── API接口总览.md
-│   ├── 数据库表总览.md
-│   └── 项目功能总览.md
-├── CLAUDE.md              # 项目开发规范与目录职责说明
+LensChain/
+├── backend/      # 平台后端服务
+├── frontend/     # 平台前端应用
+├── sim-engine/   # 可视化仿真引擎
+├── deploy/       # Docker / Kubernetes / CI 配置
+├── docs/         # 项目文档与模块设计说明
+├── scripts/      # 工具脚本
 └── README.md
 ```
 
-## 当前状态
+## 子系统简介
 
-当前后端入口位于：
+- `backend/`
+  平台后端服务，负责用户、课程、实验、竞赛、评测、通知与系统管理等业务能力。
 
-- `backend/cmd/server/main.go`
+- `frontend/`
+  平台 Web 前端，提供教师、学生、管理员等不同角色的操作界面。
 
-目前代码中已接入或初始化的基础组件：
+- `sim-engine/`
+  可视化仿真引擎，负责场景调度、前端渲染、场景算法运行与扩展开发能力。
+  详细说明见 [sim-engine/README.md](./sim-engine/README.md)。
 
-- 配置加载
-- 日志系统
-- 雪花 ID
-- PostgreSQL
-- Redis
-- MinIO
-- NATS
-- WebSocket 管理器
-- 定时任务调度器
+- `deploy/`
+  部署与运维配置，包含 Dockerfile、Compose、Kubernetes 与 CI 配置。
 
-当前已挂载的业务模块：
+## 快速了解
 
-- Auth（用户与认证）
-- School（学校与租户管理）
-- Course（课程与教学）
+如果你想快速判断这个项目是否适合你，可以按下面顺序阅读：
 
-以下模块在代码中预留了位置，后续逐步实现：
-
-- Experiment（实验环境）
-- CTF（CTF 竞赛）
-- Grade（评测与成绩）
-- Notification（通知与消息）
-- System（系统管理与监控）
+1. 先看本页了解项目范围和组成
+2. 想了解实验与仿真能力，继续看 [sim-engine/README.md](./sim-engine/README.md)
+3. 想深入了解平台设计，查看 [docs/](./docs/)
 
 ## 本地运行
 
-### 1. 准备依赖
+当前仓库按子系统拆分维护，通常按以下方式分别启动：
 
-请先准备：
-
-- Go
-- PostgreSQL
-- Redis
-- MinIO
-- NATS
-
-### 2. 修改配置
-
-默认配置文件：
-
-- `backend/configs/config.yaml`
-
-也可以通过环境变量覆盖配置，前缀为：
-
-- `LENSCHAIN_`
-
-例如：
-
-- `LENSCHAIN_DATABASE_HOST`
-
-> 建议不要在生产环境中直接使用仓库中的默认密钥与默认密码。
-
-### 3. 启动服务
-
-在项目根目录执行：
+### 后端
 
 ```bash
 cd backend
 go run ./cmd/server
 ```
 
-服务监听地址以配置文件为准，默认本地开发配置通常为：
-
-- `0.0.0.0:3000`
-
-## 数据库迁移
-
-迁移脚本位于：
-
-- `backend/migrations`
-
-迁移命令入口位于：
-
-- `backend/cmd/migrate`
-
-请根据本地数据库配置执行对应迁移。
-
-## 运行检查
-
-在后端目录执行：
+### 前端
 
 ```bash
-go test ./...
+cd frontend
+npm install
+npm run dev
 ```
 
-如需指定本地 Go 构建缓存目录，可以使用：
+### 仿真引擎
 
-```bash
-mkdir -p .gocache
-GOCACHE="$(pwd)/.gocache" go test ./...
-```
+可视化仿真引擎的目录、协议与检查方式见 [sim-engine/README.md](./sim-engine/README.md)。
 
-`backend/.gocache/` 属于本地缓存目录，已加入 `.gitignore`，不会提交到仓库。
+## 项目状态
 
-## 文档入口
+LensChain 当前处于持续开发阶段。仓库中的模块、接口与能力会随着版本演进而扩展和调整。
 
-建议优先阅读以下文档：
+如果你计划用于课程落地或二次开发，建议在使用前先阅读对应模块文档，并结合你的部署环境进行评估。
 
-- `docs/00-项目总览与文档规范.md`
-- `docs/项目功能总览.md`
-- `docs/API接口总览.md`
-- `docs/数据库表总览.md`
-- `docs/standards/API规范.md`
-- `docs/standards/数据库规范.md`
-- `docs/modules/01-用户与认证/`
-- `docs/modules/02-学校与租户管理/`
-- `docs/modules/03-课程与教学/`
-- `CLAUDE.md`
+## 文档
 
-## 开发说明
+更详细的项目文档位于 [docs/](./docs/) 目录，包括项目总览、模块说明、接口设计、数据库设计与验收标准。
 
-本项目采用 **文档驱动开发（Documentation-Driven Development）**：
+如果你只是想了解或使用项目，本页和各子系统 README 已经足够作为入口。
 
-1. 先确认模块功能需求、API 设计、数据库设计和验收标准
-2. 再落地数据库迁移、实体、DTO、repository、service 和 handler
-3. 后端实现遵循 handler / service / repository 分层职责
-4. 跨模块调用通过接口与 adapter 解耦
-5. 数据库字段、迁移脚本、实体结构和接口 DTO 需要保持一致
+## Contributing
 
-## 安全提醒
+欢迎通过 Issue 和 Pull Request 参与改进，包括但不限于：
 
-当前仓库中的 `backend/configs/config.yaml` 主要用于本地开发配置，可能包含默认开发配置，例如：
+- 修复问题
+- 改进文档
+- 增加仿真场景
+- 扩展实验环境能力
+- 优化前端体验与部署流程
 
-- 数据库连接参数
-- JWT secret 示例值
-- MinIO 默认账号
-
-如果仓库用于公开协作，建议后续改为：
-
-- 提交 `backend/configs/config.example.yaml`
-- 将真实配置放入本地环境变量或私有配置文件
-- 在生产环境中启用 HTTPS、独立密钥和更严格的访问控制策略
+在提交较大改动前，建议先创建 Issue 讨论目标和范围。
 
 ## License
 
-暂未添加 License。
+当前仓库尚未发布正式 License。在将代码用于生产或对外分发前，请先确认项目后续的授权方式。

@@ -1,0 +1,33 @@
+# image.yaml
+name: postgres
+module: experiment
+category: middleware
+runtime: database
+default_ports:
+  - port: 5432
+    protocol: tcp
+    name: PostgreSQL
+ports:
+  - 5432/tcp
+default_env_vars:
+  - key: POSTGRES_DB
+    value: lenschain
+    desc: 默认数据库名
+  - key: POSTGRES_USER
+    value: lenschain
+    desc: 默认用户名
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: nginx
+      reason: 作为上层应用配套基础设施
+  optional: []
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+  disk: 5Gi
+default_volumes:
+  - path: /var/lib/postgresql/data
+    desc: PostgreSQL 数据目录
+description: 实验环境应用数据存储镜像。

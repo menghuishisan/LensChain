@@ -1,0 +1,13 @@
+# image.yaml
+name: aptos-node
+module: experiment
+category: chain-nodes
+runtime: move
+ports:
+  - 8080/tcp
+  - 9101/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: Aptos 节点镜像接入位。
+implementation_status: placeholder

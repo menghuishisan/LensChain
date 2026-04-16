@@ -1,0 +1,13 @@
+# image.yaml
+name: chainmaker-node
+module: experiment
+category: chain-nodes
+runtime: chainmaker
+ports:
+  - 11301/tcp
+  - 12301/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+description: 长安链教学节点镜像接入位。
+implementation_status: placeholder

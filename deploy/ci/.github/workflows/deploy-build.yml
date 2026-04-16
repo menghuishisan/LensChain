@@ -1,0 +1,69 @@
+name: Build deploy artifacts
+
+on:
+  push:
+    paths:
+      - 'deploy/**'
+      - 'backend/**'
+      - 'sim-engine/**'
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - 'backend/**'
+      - 'sim-engine/**'
+
+jobs:
+  validate-compose-and-k8s:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose -f deploy/docker-compose/docker-compose.dev.yml config >/dev/null
+
+      - name: Validate K8s YAML syntax
+        run: |
+          python - <<'PY'
+          import pathlib, yaml
+          root = pathlib.Path('deploy/k8s')
+          for file in root.rglob('*.yaml'):
+              with file.open('r', encoding='utf-8') as f:
+                  list(yaml.safe_load_all(f))
+          print('k8s yaml ok')
+          PY
+
+  build-platform-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -f deploy/docker/backend.Dockerfile -t lenschain/backend:ci .
+
+      - name: Build sim-engine image
+        run: docker build -f deploy/docker/sim-engine.Dockerfile -t lenschain/sim-engine:ci .
+
+      - name: Build scenario image
+        run: docker build -f deploy/docker/scenario.Dockerfile --build-arg SCENARIO_PATH=consensus/pbft-consensus -t lenschain/scenario-pbft-consensus:ci .
+
+  build-runtime-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build experiment runtime images
+        run: |
+          docker build -f deploy/images/experiment/chain-nodes/ganache/Dockerfile -t lenschain/experiment-ganache:ci deploy/images/experiment/chain-nodes/ganache
+          docker build -f deploy/images/experiment/chain-nodes/hardhat-node/Dockerfile -t lenschain/experiment-hardhat-node:ci deploy/images/experiment/chain-nodes/hardhat-node
+          docker build -f deploy/images/experiment/chain-nodes/geth-dev/Dockerfile -t lenschain/experiment-geth-dev:ci deploy/images/experiment/chain-nodes/geth-dev
+          docker build -f deploy/images/experiment/base/solidity-dev/Dockerfile -t lenschain/experiment-solidity-dev:ci deploy/images/experiment/base/solidity-dev
+
+      - name: Build ctf runtime images
+        run: |
+          docker build -f deploy/images/ctf/targets/web/Dockerfile -t lenschain/ctf-web-target:ci deploy/images/ctf/targets/web
+          docker build -f deploy/images/ctf/chain-nodes/ganache/Dockerfile -t lenschain/ctf-ganache:ci deploy/images/ctf/chain-nodes/ganache
+          docker build -f deploy/images/ctf/tools/ctf-tools/Dockerfile -t lenschain/ctf-tools:ci deploy/images/ctf/tools/ctf-tools
+          docker build -f deploy/images/ctf/base/ctf-blockchain/Dockerfile -t lenschain/ctf-blockchain:ci deploy/images/ctf/base/ctf-blockchain

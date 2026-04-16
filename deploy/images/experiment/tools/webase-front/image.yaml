@@ -1,0 +1,11 @@
+# image.yaml
+name: webase-front
+module: experiment
+category: tools
+runtime: explorer
+ports:
+  - 5002/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+description: FISCO BCOS WeBase Front 服务镜像。

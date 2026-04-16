@@ -1,0 +1,9 @@
+# image.yaml
+name: rust-dev
+module: experiment
+category: base
+runtime: rust-dev
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: Rust + WASM 工具链教学基础镜像。

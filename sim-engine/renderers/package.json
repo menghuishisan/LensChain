@@ -1,0 +1,25 @@
+{
+  "name": "@lenschain/sim-engine-renderers",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./shared": "./shared/index.ts",
+    "./node-network": "./node-network/index.ts",
+    "./consensus": "./consensus/index.ts",
+    "./cryptography": "./cryptography/index.ts",
+    "./data-structure": "./data-structure/index.ts",
+    "./transaction": "./transaction/index.ts",
+    "./smart-contract": "./smart-contract/index.ts",
+    "./attack-security": "./attack-security/index.ts",
+    "./economic": "./economic/index.ts"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "powershell -Command \"Remove-Item -Recurse -Force .tmp-test -ErrorAction SilentlyContinue; npx tsc -p tsconfig.json --outDir .tmp-test; Get-ChildItem ./.tmp-test/shared/*.test.js | ForEach-Object { node $_.FullName }\""
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

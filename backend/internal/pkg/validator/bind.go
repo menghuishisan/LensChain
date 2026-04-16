@@ -15,6 +15,7 @@ import (
 
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
+	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
 // BindAndValidate 绑定请求参数并校验
@@ -68,7 +69,7 @@ func ParsePathID(c *gin.Context, param string) (int64, bool) {
 		return 0, false
 	}
 
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := snowflake.ParseString(idStr)
 	if err != nil || id <= 0 {
 		response.Error(c, errcode.ErrInvalidID.WithMessage(fmt.Sprintf("无效的ID: %s", idStr)))
 		return 0, false
@@ -82,7 +83,7 @@ func ParsePathID(c *gin.Context, param string) (int64, bool) {
 func ParseIDList(c *gin.Context, ids []string) ([]int64, bool) {
 	result := make([]int64, 0, len(ids))
 	for _, idStr := range ids {
-		id, err := strconv.ParseInt(idStr, 10, 64)
+		id, err := snowflake.ParseString(idStr)
 		if err != nil || id <= 0 {
 			response.Error(c, errcode.ErrInvalidParams.WithMessage(fmt.Sprintf("无效的ID: %s", idStr)))
 			return nil, false

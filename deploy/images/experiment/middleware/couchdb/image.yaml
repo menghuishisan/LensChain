@@ -1,0 +1,11 @@
+# image.yaml
+name: couchdb
+module: experiment
+category: middleware
+runtime: database
+ports:
+  - 5984/tcp
+resource_recommendation:
+  cpu: 0.25
+  memory: 256Mi
+description: Fabric 富查询推荐状态数据库镜像。

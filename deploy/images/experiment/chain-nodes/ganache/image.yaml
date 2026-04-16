@@ -1,0 +1,37 @@
+# image.yaml
+# 实验环境 — Ganache 开发链镜像元数据
+
+name: ganache
+module: experiment
+category: chain-nodes
+runtime: evm
+default_ports:
+  - port: 8545
+    protocol: tcp
+    name: RPC
+ports:
+  - 8545/tcp
+default_env_vars:
+  - key: CHAIN_ID
+    value: "1337"
+    desc: 开发链链 ID
+  - key: TOTAL_ACCOUNTS
+    value: "10"
+    desc: 默认预置账户数
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: blockscout
+      reason: 浏览本地开发链交易与区块
+    - image: remix-ide
+      reason: 在线连接与部署 Solidity 合约
+  optional:
+    - image: code-server
+      reason: 补充 Web IDE 能力
+resource_recommendation:
+  cpu: 0.25
+  memory: 512Mi
+  disk: 1Gi
+default_volumes: []
+description: 轻量 EVM 开发链，适用于实验环境和智能合约演示。

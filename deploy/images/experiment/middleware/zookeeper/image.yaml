@@ -1,0 +1,11 @@
+# image.yaml
+name: zookeeper
+module: experiment
+category: middleware
+runtime: coordination
+ports:
+  - 2181/tcp
+resource_recommendation:
+  cpu: 0.25
+  memory: 256Mi
+description: Kafka 依赖的 ZooKeeper 协调服务镜像。

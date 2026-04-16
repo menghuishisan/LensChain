@@ -5,10 +5,7 @@
 package course
 
 import (
-	"path/filepath"
-	"strings"
-
-	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/filesecurity"
 )
 
 const (
@@ -31,21 +28,15 @@ var allowedDocumentMIMEs = map[string]bool{
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
 }
 
+var lessonAttachmentRule = filesecurity.DocumentRule{
+	MaxSize:        maxDocumentAttachmentSize,
+	AllowedMIMEs:   allowedDocumentMIMEs,
+	AllowedExts:    allowedDocumentExtensions,
+	TooLargeMsg:    "文档文件不能超过50MB",
+	InvalidTypeMsg: "仅支持PDF、Word、PPT文档附件",
+}
+
 // validateLessonAttachment 校验课时附件类型和大小
 func validateLessonAttachment(fileName, fileType string, fileSize int64) error {
-	if fileSize > maxDocumentAttachmentSize {
-		return errcode.ErrInvalidParams.WithMessage("文档文件不能超过50MB")
-	}
-
-	normalizedType := strings.ToLower(strings.TrimSpace(fileType))
-	if allowedDocumentMIMEs[normalizedType] {
-		return nil
-	}
-
-	ext := strings.ToLower(filepath.Ext(fileName))
-	if allowedDocumentExtensions[ext] {
-		return nil
-	}
-
-	return errcode.ErrInvalidParams.WithMessage("仅支持PDF、Word、PPT文档附件")
+	return filesecurity.ValidateDocument(fileName, fileType, fileSize, lessonAttachmentRule)
 }

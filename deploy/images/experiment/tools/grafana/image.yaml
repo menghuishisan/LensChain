@@ -1,0 +1,32 @@
+# image.yaml
+name: grafana
+module: experiment
+category: tools
+runtime: monitoring
+default_ports:
+  - port: 3000
+    protocol: tcp
+    name: HTTP
+ports:
+  - 3000/tcp
+default_env_vars:
+  - key: GF_SECURITY_ADMIN_USER
+    value: admin
+    desc: 默认管理员用户名
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: prometheus
+      reason: 作为默认指标数据源
+  optional:
+    - image: geth-dev
+      reason: 展示链节点监控指标
+resource_recommendation:
+  cpu: 0.25
+  memory: 256Mi
+  disk: 2Gi
+default_volumes:
+  - path: /var/lib/grafana
+    desc: Grafana 数据目录
+description: 监控仪表盘镜像。

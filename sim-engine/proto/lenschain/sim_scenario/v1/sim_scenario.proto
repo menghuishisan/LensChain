@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package lenschain.sim_scenario.v1;
+
+option go_package = "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_scenario/v1;simscenariov1";
+
+// SimScenario 是每个场景算法容器必须暴露的 gRPC 服务。
+// Core 只通过此接口驱动算法容器，不直接理解具体场景的内部算法。
+service SimScenarioService {
+  // Init 初始化场景状态。
+  rpc Init(InitRequest) returns (InitResponse);
+
+  // Step 执行一个仿真 tick。
+  rpc Step(StepRequest) returns (StepResponse);
+
+  // HandleAction 处理前端采集到的场景专属交互。
+  rpc HandleAction(HandleActionRequest) returns (HandleActionResponse);
+
+  // GetRenderState 获取当前可渲染状态。
+  rpc GetRenderState(GetRenderStateRequest) returns (GetRenderStateResponse);
+
+  // GetInteractionSchema 获取场景专属操作面板定义。
+  rpc GetInteractionSchema(GetInteractionSchemaRequest) returns (GetInteractionSchemaResponse);
+
+  // GetMeta 获取场景元信息。
+  rpc GetMeta(GetMetaRequest) returns (GetMetaResponse);
+
+  // HealthCheck 检查场景容器健康状态。
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// TimeControlMode 定义场景的时间控制模式。
+enum TimeControlMode {
+  TIME_CONTROL_MODE_UNSPECIFIED = 0;
+  TIME_CONTROL_MODE_PROCESS = 1;
+  TIME_CONTROL_MODE_REACTIVE = 2;
+  TIME_CONTROL_MODE_CONTINUOUS = 3;
+}
+
+// DataSourceMode 定义场景的数据源模式。
+enum DataSourceMode {
+  DATA_SOURCE_MODE_UNSPECIFIED = 0;
+  DATA_SOURCE_MODE_SIMULATION = 1;
+  DATA_SOURCE_MODE_COLLECTION = 2;
+  DATA_SOURCE_MODE_DUAL = 3;
+}
+
+// HealthStatus 定义场景容器健康状态。
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_SERVING = 1;
+  HEALTH_STATUS_NOT_SERVING = 2;
+  HEALTH_STATUS_STARTING = 3;
+}
+
+// InteractionFieldType 定义动态交互面板字段类型。
+enum InteractionFieldType {
+  INTERACTION_FIELD_TYPE_UNSPECIFIED = 0;
+  INTERACTION_FIELD_TYPE_STRING = 1;
+  INTERACTION_FIELD_TYPE_NUMBER = 2;
+  INTERACTION_FIELD_TYPE_BOOLEAN = 3;
+  INTERACTION_FIELD_TYPE_SELECT = 4;
+  INTERACTION_FIELD_TYPE_NODE_REF = 5;
+  INTERACTION_FIELD_TYPE_RANGE = 6;
+  INTERACTION_FIELD_TYPE_JSON = 7;
+}
+
+// InteractionTrigger 定义交互操作的触发方式。
+enum InteractionTrigger {
+  INTERACTION_TRIGGER_UNSPECIFIED = 0;
+  INTERACTION_TRIGGER_CLICK = 1;
+  INTERACTION_TRIGGER_FORM_SUBMIT = 2;
+  INTERACTION_TRIGGER_DRAG = 3;
+  INTERACTION_TRIGGER_CANVAS_SELECT = 4;
+}
+
+// CollectorEvent 表示混合实验采集模式下的标准化采集事件。
+message CollectorEvent {
+  string source = 1;
+  int64 timestamp_ms = 2;
+  string data_type = 3;
+  bytes payload_json = 4;
+}
+
+// ScenarioMeta 是场景库和 Core 自动匹配渲染器的唯一元信息来源。
+message ScenarioMeta {
+  string code = 1;
+  string name = 2;
+  string category = 3;
+  string algorithm_type = 5;
+  string description = 6;
+  string version = 7;
+  TimeControlMode time_control_mode = 8;
+  DataSourceMode data_source_mode = 9;
+  bytes default_params_json = 10;
+  bytes default_state_json = 11;
+  repeated string supported_link_group_codes = 12;
+}
+
+// InitRequest 是 Core 初始化场景时传入的上下文。
+message InitRequest {
+  string session_id = 1;
+  string scene_code = 2;
+  string instance_id = 3;
+  string student_id = 4;
+  int64 seed = 5;
+  bytes params_json = 6;
+  bytes initial_state_json = 7;
+  bytes shared_state_json = 8;
+}
+
+// SceneState 是场景算法容器返回给 Core 的完整状态。
+message InitResponse {
+  string scene_code = 1;
+  int64 tick = 2;
+  bytes state_json = 3;
+  bytes render_state_json = 4;
+  bytes shared_state_json = 5;
+  repeated SimEvent events = 6;
+}
+
+// StepRequest 表示单次仿真时钟推进请求。
+message StepRequest {
+  string session_id = 1;
+  string scene_code = 2;
+  bytes state_json = 3;
+  int64 tick = 4;
+  bytes shared_state_json = 5;
+}
+
+// StepResponse 表示单次 tick 计算结果。
+message StepResponse {
+  string scene_code = 1;
+  int64 tick = 2;
+  bytes state_json = 3;
+  bytes render_state_json = 4;
+  repeated SimEvent events = 5;
+  bytes shared_state_diff_json = 6;
+}
+
+// ActionRequest 表示前端通过 Core 转发给场景容器的交互操作。
+message HandleActionRequest {
+  string session_id = 1;
+  string scene_code = 2;
+  bytes state_json = 3;
+  string action_code = 4;
+  bytes params_json = 5;
+  int64 tick = 6;
+  bytes shared_state_json = 7;
+  string actor_id = 8;
+  string role_key = 9;
+}
+
+// ActionResponse 表示交互操作处理结果。
+message HandleActionResponse {
+  string scene_code = 1;
+  int64 tick = 2;
+  bool success = 3;
+  string error_message = 4;
+  bytes state_json = 5;
+  bytes render_state_json = 6;
+  repeated SimEvent events = 7;
+  bytes shared_state_diff_json = 8;
+}
+
+// StateRequest 表示 Core 查询可渲染状态。
+message GetRenderStateRequest {
+  string session_id = 1;
+  string scene_code = 2;
+  bytes state_json = 3;
+  int64 tick = 4;
+  bytes shared_state_json = 5;
+}
+
+// RenderState 是前端领域渲染器消费的标准状态。
+message GetRenderStateResponse {
+  string scene_code = 1;
+  string category = 2;
+  string algorithm_type = 3;
+  int64 tick = 4;
+  bytes state_json = 5;
+  bytes render_state_json = 6;
+  bytes metrics_json = 7;
+  repeated SimEvent events = 8;
+}
+
+// SimEvent 表示场景算法产生的过程事件。
+message SimEvent {
+  string event_id = 1;
+  string event_type = 2;
+  string scene_code = 3;
+  int64 tick = 4;
+  int64 timestamp_ms = 5;
+  bytes payload_json = 6;
+}
+
+// InteractionSchema 是前端动态生成场景专属操作面板的依据。
+message GetInteractionSchemaRequest {}
+
+// GetInteractionSchemaResponse 是前端动态生成场景专属操作面板的依据。
+message GetInteractionSchemaResponse {
+  string scene_code = 1;
+  repeated InteractionAction actions = 2;
+}
+
+// InteractionAction 表示一个可执行的场景操作。
+message InteractionAction {
+  string action_code = 1;
+  string label = 2;
+  string description = 3;
+  InteractionTrigger trigger = 4;
+  repeated InteractionField fields = 5;
+  bytes ui_schema_json = 6;
+}
+
+// InteractionField 表示操作面板中的一个输入字段。
+message InteractionField {
+  string key = 1;
+  string label = 2;
+  InteractionFieldType type = 3;
+  bool required = 4;
+  string default_value = 5;
+  repeated InteractionOption options = 6;
+  bytes validation_json = 7;
+}
+
+// InteractionOption 表示选择类字段的候选项。
+message InteractionOption {
+  string value = 1;
+  string label = 2;
+}
+
+// HealthResponse 表示场景容器健康检查结果。
+message GetMetaRequest {}
+
+// GetMetaResponse 返回场景元信息。
+message GetMetaResponse {
+  ScenarioMeta meta = 1;
+}
+
+// HealthCheckRequest 是健康检查请求。
+message HealthCheckRequest {}
+
+// HealthCheckResponse 表示场景容器健康检查结果。
+message HealthCheckResponse {
+  HealthStatus status = 1;
+  string message = 2;
+  int64 checked_at_ms = 3;
+}

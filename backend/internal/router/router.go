@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	authhandler "github.com/lenschain/backend/internal/handler/auth"
+	experimenthandler "github.com/lenschain/backend/internal/handler/experiment"
 	schoolhandler "github.com/lenschain/backend/internal/handler/school"
 	"github.com/lenschain/backend/internal/middleware"
 )
@@ -27,14 +28,20 @@ type SchoolHandlers struct {
 	SSOHandler         *schoolhandler.SSOHandler
 }
 
+// ExperimentHandlers 模块04（实验环境）的 Handler 集合
+type ExperimentHandlers struct {
+	TemplateHandler *experimenthandler.TemplateHandler
+	InstanceHandler *experimenthandler.InstanceHandler
+}
+
 // Handlers 所有模块的 Handler 实例集合
 // 由 main.go 初始化后传入路由注册
 // 按模块嵌套，每个模块独立结构体，避免扁平化膨胀
 type Handlers struct {
-	Auth   *AuthHandlers
-	School *SchoolHandlers
-	Course *CourseHandlers // 模块03 — 课程与教学
-	// Experiment *ExperimentHandlers // 模块04 — 实验环境（待实现）
+	Auth       *AuthHandlers
+	School     *SchoolHandlers
+	Course     *CourseHandlers     // 模块03 — 课程与教学
+	Experiment *ExperimentHandlers // 模块04 — 实验环境
 	// CTF      *CTFHandlers      // 模块05 — CTF竞赛（待实现）
 	// Grade    *GradeHandlers    // 模块06 — 评测与成绩（待实现）
 	// Notification *NotificationHandlers // 模块07 — 通知与消息（待实现）
@@ -67,7 +74,9 @@ func Setup(mode string, h *Handlers) *gin.Engine {
 	if h != nil && h.Course != nil {
 		RegisterCourseRoutes(v1, h.Course) // 模块03 — 课程与教学
 	}
-	RegisterExperimentRoutes(v1)   // 模块04 — 实验环境
+	if h != nil && h.Experiment != nil {
+		RegisterExperimentRoutes(v1, h.Experiment) // 模块04 — 实验环境
+	}
 	RegisterCTFRoutes(v1)          // 模块05 — CTF竞赛
 	RegisterGradeRoutes(v1)        // 模块06 — 评测与成绩
 	RegisterNotificationRoutes(v1) // 模块07 — 通知与消息
@@ -78,7 +87,7 @@ func Setup(mode string, h *Handlers) *gin.Engine {
 	RegisterInternalRoutes(internal)
 
 	// WebSocket 路由
-	RegisterWebSocketRoutes(r)
+	RegisterWebSocketRoutes(r, h)
 
 	// 健康检查（不经过鉴权）
 	r.GET("/health", func(c *gin.Context) {
@@ -96,20 +105,22 @@ func RegisterInternalRoutes(rg *gin.RouterGroup) {
 
 // RegisterWebSocketRoutes 注册 WebSocket 路由
 // WebSocket 连接需要 JWT 鉴权，但不走标准中间件链
-func RegisterWebSocketRoutes(r *gin.Engine) {
+func RegisterWebSocketRoutes(r *gin.Engine, h *Handlers) {
 	ws := r.Group("/api/v1/ws")
 	ws.Use(middleware.JWTAuth())
 	{
 		// 模块04 — 实验环境 WebSocket
-		ws.GET("/experiment-instances/:id", todo)                   // 实验实例状态推送
-		ws.GET("/experiment-groups/:id/chat", todo)                 // 组内实时消息
-		ws.GET("/courses/:id/experiment-monitor", todo)             // 教师监控面板实时推送
-		ws.GET("/sim-engine/:session_id", todo)                     // SimEngine 仿真数据通道
+		if h != nil && h.Experiment != nil && h.Experiment.InstanceHandler != nil {
+			ws.GET("/experiment-instances/:id", h.Experiment.InstanceHandler.ServeInstanceWS)            // 实验实例状态推送
+			ws.GET("/experiment-groups/:id/chat", h.Experiment.InstanceHandler.ServeGroupChatWS)         // 组内实时消息
+			ws.GET("/courses/:id/experiment-monitor", h.Experiment.InstanceHandler.ServeCourseMonitorWS) // 教师监控面板实时推送
+			ws.GET("/sim-engine/:session_id", h.Experiment.InstanceHandler.ServeSimEngineWS)             // SimEngine 仿真数据通道
+		}
 
 		// 模块05 — CTF竞赛 WebSocket
-		ws.GET("/ctf", todo)                                       // CTF实时通信（排行榜、公告、回合、攻击）
+		ws.GET("/ctf", todo) // CTF实时通信（排行榜、公告、回合、攻击）
 
 		// 模块07 — 通知与消息 WebSocket
-		ws.GET("/notifications", todo)                             // 通知推送通道
+		ws.GET("/notifications", todo) // 通知推送通道
 	}
 }

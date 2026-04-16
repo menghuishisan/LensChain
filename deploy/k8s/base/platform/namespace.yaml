@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lenschain-platform
+  labels:
+    app.kubernetes.io/name: lenschain
+    app.kubernetes.io/part-of: lenschain-platform

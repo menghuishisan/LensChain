@@ -131,13 +131,16 @@ const (
 	KeyCourseProgressRateLimit = "course:progress:ratelimit:" // course:progress:ratelimit:{user_id}
 
 	// 模块04 — 实验环境
-	KeyExpInstanceStatus = "exp:instance:"  // exp:instance:{id}:status
-	KeyExpStudentRunning = "exp:student:"   // exp:student:{id}:running_count
-	KeyExpCourseConcur   = "exp:course:"    // exp:course:{id}:concurrency
-	KeyExpQueue          = "exp:queue:"     // exp:queue:{course_id}
-	KeyExpHeartbeat      = "exp:heartbeat:" // exp:heartbeat:{instance_id}
-	KeyExpMonitor        = "exp:monitor:"   // exp:monitor:{course_id}:{template_id}
-	KeyExpSimState       = "exp:sim:"       // exp:sim:{instance_id}:state
+	KeyExpInstanceStatus = "exp:instance:"             // exp:instance:{id}:status
+	KeyExpStudentRunning = "exp:student:"              // exp:student:{id}:running_count
+	KeyExpCourseConcur   = "exp:course:"               // exp:course:{id}:concurrency
+	KeyExpQueue          = "exp:queue:"                // exp:queue:{course_id}
+	KeyExpHeartbeat      = "exp:heartbeat:"            // exp:heartbeat:{instance_id}
+	KeyExpMonitor        = "exp:monitor:"              // exp:monitor:{course_id}:{template_id}
+	KeyExpSimState       = "exp:sim:"                  // exp:sim:{instance_id}:state
+	KeyExpCourseEndWarn  = "exp:course-end-warning:"   // exp:course-end-warning:{instance_id}:{end_unix}
+	KeyExpHeartbeatRate  = "exp:heartbeat:ratelimit:"  // exp:heartbeat:ratelimit:{user_id}
+	KeyExpCheckpointRate = "exp:checkpoint:ratelimit:" // exp:checkpoint:ratelimit:{user_id}
 
 	// 模块05 — CTF竞赛
 	KeyCTFLeaderboard   = "ctf:leaderboard:"    // ctf:leaderboard:{competition_id}

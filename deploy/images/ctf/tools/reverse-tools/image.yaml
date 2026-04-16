@@ -1,0 +1,9 @@
+# image.yaml
+name: reverse-tools
+module: ctf
+category: tools
+runtime: reverse-tools
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: 逆向分析选手工具镜像。

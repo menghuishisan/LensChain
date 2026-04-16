@@ -1,0 +1,33 @@
+# image.yaml
+# CTF 竞赛 — 区块链题基础镜像元数据
+
+name: ctf-blockchain
+module: ctf
+category: base
+runtime: ctf-blockchain
+default_ports: []
+ports: []
+default_env_vars:
+  - key: CHALLENGE_TYPE
+    value: contract
+    desc: 默认面向智能合约/链上分析题目
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: ganache
+      reason: 提供独立链环境
+    - image: foundry
+      reason: 用于 PoC 与断言验证
+    - image: blockchain-tools
+      reason: 选手链上交互与调试
+  optional:
+    - image: ctf-tools
+      reason: 提供通用脚本与网络工具
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+default_volumes:
+  - path: /workspace
+    desc: 题目源码与脚本工作目录
+description: 适用于智能合约安全、链上分析、攻防赛链环境的基础镜像。

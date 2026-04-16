@@ -1,0 +1,9 @@
+# image.yaml
+name: cosmos-dev
+module: experiment
+category: base
+runtime: cosmos-dev
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: Cosmos SDK / Ignite CLI 教学开发基础镜像。

@@ -1,0 +1,31 @@
+# image.yaml
+name: jupyter-notebook
+module: experiment
+category: tools
+runtime: notebook
+default_ports:
+  - port: 8888
+    protocol: tcp
+    name: HTTP
+ports:
+  - 8888/tcp
+default_env_vars:
+  - key: JUPYTER_ENABLE_LAB
+    value: "yes"
+    desc: 启用 JupyterLab
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: python-dev
+      reason: 与 Python 教学开发环境搭配使用
+    - image: code-server
+      reason: 同时提供 IDE 与 Notebook 两种交互方式
+  optional: []
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+default_volumes:
+  - path: /home/jovyan/work
+    desc: Notebook 工作目录
+description: 通用交互式编程环境镜像。

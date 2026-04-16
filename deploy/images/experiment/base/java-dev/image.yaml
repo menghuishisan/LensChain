@@ -1,0 +1,9 @@
+# image.yaml
+name: java-dev
+module: experiment
+category: base
+runtime: java-dev
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: Java + 区块链 SDK 教学开发基础镜像。

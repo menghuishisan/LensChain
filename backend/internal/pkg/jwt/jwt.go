@@ -23,13 +23,14 @@ const (
 	TokenTypeAccess  TokenType = "access"
 	TokenTypeRefresh TokenType = "refresh"
 	TokenTypeTemp    TokenType = "temp"
+	TokenTypeSimWS   TokenType = "sim_ws"
 )
 
 // Claims Access/Refresh Token 载荷
 type Claims struct {
-	UserID    int64    `json:"user_id"`
-	SchoolID  int64    `json:"school_id"`
-	Roles     []string `json:"roles"`
+	UserID    int64     `json:"user_id"`
+	SchoolID  int64     `json:"school_id"`
+	Roles     []string  `json:"roles"`
 	TokenType TokenType `json:"token_type"`
 	jwtv5.RegisteredClaims
 }
@@ -38,6 +39,18 @@ type Claims struct {
 type TempClaims struct {
 	UserID    int64     `json:"user_id"`
 	TokenType TokenType `json:"token_type"`
+	jwtv5.RegisteredClaims
+}
+
+// SimWSClaims SimEngine WebSocket 专用载荷
+type SimWSClaims struct {
+	UserID     int64     `json:"user_id"`
+	SchoolID   int64     `json:"school_id"`
+	Roles      []string  `json:"roles"`
+	SessionID  string    `json:"session_id"`
+	InstanceID string    `json:"instance_id"`
+	AccessMode string    `json:"access_mode"`
+	TokenType  TokenType `json:"token_type"`
 	jwtv5.RegisteredClaims
 }
 
@@ -136,6 +149,39 @@ func GenerateTempToken(userID int64) (string, error) {
 		SignedString([]byte(cfg.AccessSecret))
 }
 
+// GenerateSimWSToken 生成 SimEngine WebSocket 会话级 token。
+func GenerateSimWSToken(
+	userID, schoolID int64,
+	roles []string,
+	sessionID, instanceID, accessMode string,
+	expire time.Duration,
+) (string, error) {
+	cfg := config.Get().JWT
+	if expire <= 0 {
+		expire = cfg.AccessExpire
+	}
+
+	claims := &SimWSClaims{
+		UserID:     userID,
+		SchoolID:   schoolID,
+		Roles:      roles,
+		SessionID:  sessionID,
+		InstanceID: instanceID,
+		AccessMode: accessMode,
+		TokenType:  TokenTypeSimWS,
+		RegisteredClaims: jwtv5.RegisteredClaims{
+			Subject:   fmt.Sprintf("%d", userID),
+			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(expire)),
+			IssuedAt:  jwtv5.NewNumericDate(time.Now()),
+			Issuer:    cfg.Issuer,
+			ID:        uuid.New().String(),
+		},
+	}
+
+	return jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, claims).
+		SignedString([]byte(cfg.AccessSecret))
+}
+
 // ParseAccessToken 解析 Access Token
 func ParseAccessToken(tokenString string) (*Claims, error) {
 	cfg := config.Get().JWT
@@ -169,6 +215,32 @@ func ParseTempToken(tokenString string) (*TempClaims, error) {
 
 	if claims.TokenType != TokenTypeTemp {
 		return nil, fmt.Errorf("Token类型不匹配，期望temp")
+	}
+
+	return claims, nil
+}
+
+// ParseSimWSToken 解析 SimEngine WebSocket 会话级 Token。
+func ParseSimWSToken(tokenString string) (*SimWSClaims, error) {
+	cfg := config.Get().JWT
+
+	token, err := jwtv5.ParseWithClaims(tokenString, &SimWSClaims{}, func(token *jwtv5.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwtv5.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("不支持的签名方法: %v", token.Header["alg"])
+		}
+		return []byte(cfg.AccessSecret), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("解析SimEngine WebSocket Token失败: %w", err)
+	}
+
+	claims, ok := token.Claims.(*SimWSClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("无效的SimEngine WebSocket Token")
+	}
+
+	if claims.TokenType != TokenTypeSimWS {
+		return nil, fmt.Errorf("Token类型不匹配，期望sim_ws")
 	}
 
 	return claims, nil

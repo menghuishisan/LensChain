@@ -1,0 +1,13 @@
+# image.yaml
+name: kafka
+module: experiment
+category: middleware
+runtime: message
+ports:
+  - 9092/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+required_dependencies:
+  - zookeeper
+description: Fabric 旧版排序服务依赖的 Kafka Broker 镜像。

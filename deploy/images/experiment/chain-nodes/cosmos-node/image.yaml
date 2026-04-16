@@ -1,0 +1,14 @@
+# image.yaml
+name: cosmos-node
+module: experiment
+category: chain-nodes
+runtime: cosmos
+ports:
+  - 26657/tcp
+  - 1317/tcp
+  - 9090/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: Cosmos SDK 节点镜像接入位。
+implementation_status: placeholder

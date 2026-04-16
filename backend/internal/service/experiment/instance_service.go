@@ -1,0 +1,850 @@
+// instance_service.go
+// 模块04 — 实验环境：实验实例生命周期业务逻辑
+// 负责实例启动、暂停、恢复、重启、提交、销毁、心跳
+// 对照 docs/modules/04-实验环境/03-API接口设计.md
+
+package experiment
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/lenschain/backend/internal/model/dto"
+	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/cache"
+	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/snowflake"
+	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
+)
+
+// InstanceService 实验实例服务接口
+type InstanceService interface {
+	// 实例生命周期
+	Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateInstanceReq) (*dto.CreateInstanceResp, error)
+	GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.InstanceDetailResp, error)
+	ExecuteTerminalCommand(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName, command string) (*TerminalCommandOutput, error)
+	GetStudentTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string, tailLines int) (*TerminalOutput, error)
+	GetTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, tailLines int) (*TerminalOutput, error)
+	GetGroupMemberTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, groupID, studentID int64, tailLines int) (*TerminalOutput, error)
+	GetSimEngineProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, sessionID string) (*SimEngineProxyTarget, error)
+	RecordSimEngineOperation(ctx context.Context, sc *svcctx.ServiceContext, instanceID int64, payload []byte)
+	TouchActivity(ctx context.Context, id int64)
+	List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.InstanceListReq) ([]*dto.InstanceListItem, int64, error)
+	ListAdmin(ctx context.Context, sc *svcctx.ServiceContext, req *dto.AdminInstanceListReq) ([]*dto.InstanceListItem, int64, error)
+
+	// 暂停 / 恢复 / 重启 / 提交 / 销毁
+	Pause(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.PauseInstanceResp, error)
+	Resume(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.ResumeInstanceReq) (*dto.ResumeInstanceResp, error)
+	Restart(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.CreateInstanceResp, error)
+	Submit(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.SubmitInstanceResp, error)
+	Destroy(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
+	ForceDestroy(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
+
+	// 心跳
+	Heartbeat(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.HeartbeatReq) (*dto.HeartbeatResp, error)
+
+	// 检查点 / 快照 / 日志 / 报告 / 教师指导
+	VerifyCheckpoints(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.VerifyCheckpointReq) (*dto.VerifyCheckpointResp, error)
+	ListCheckpointResults(ctx context.Context, sc *svcctx.ServiceContext, id int64) ([]dto.InstanceCheckpointItem, error)
+	GradeCheckpoint(ctx context.Context, sc *svcctx.ServiceContext, resultID int64, req *dto.GradeCheckpointReq) error
+	ManualGrade(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.ManualGradeReq) (*dto.ManualGradeResp, error)
+	ListSnapshots(ctx context.Context, sc *svcctx.ServiceContext, id int64) ([]dto.SnapshotResp, error)
+	CreateSnapshot(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.CreateSnapshotReq) (*dto.SnapshotResp, error)
+	RestoreSnapshot(ctx context.Context, sc *svcctx.ServiceContext, id, snapshotID int64) error
+	ListOperationLogs(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.InstanceOpLogListReq) ([]dto.InstanceOpLogItem, int64, error)
+	CreateReport(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.CreateReportReq) (*dto.ReportResp, error)
+	GetReport(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ReportResp, error)
+	UpdateReport(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateReportReq) (*dto.ReportResp, error)
+	SendGuidance(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.SendGuidanceReq) error
+}
+
+// instanceService 实验实例服务实现
+type instanceService struct {
+	db                *gorm.DB
+	instanceRepo      experimentrepo.InstanceRepository
+	containerRepo     experimentrepo.InstanceContainerRepository
+	templateRepo      experimentrepo.TemplateRepository
+	imageRepo         experimentrepo.ImageRepository
+	imageVersionRepo  experimentrepo.ImageVersionRepository
+	checkpointRepo    experimentrepo.CheckpointRepository
+	checkResultRepo   experimentrepo.CheckpointResultRepository
+	groupMemberRepo   experimentrepo.GroupMemberRepository
+	snapshotRepo      experimentrepo.SnapshotRepository
+	opLogRepo         experimentrepo.OperationLogRepository
+	reportRepo        experimentrepo.ReportRepository
+	quotaRepo         experimentrepo.QuotaRepository
+	simSceneRepo      experimentrepo.SimSceneRepository
+	scenarioRepo      experimentrepo.ScenarioRepository
+	linkGroupRepo     experimentrepo.LinkGroupRepository
+	k8sSvc            K8sService
+	simEngineSvc      SimEngineService
+	userNameQuerier   UserNameQuerier
+	courseQuerier     CourseQuerier
+	courseGradeSyncer CourseGradeSyncer
+	enrollmentChecker EnrollmentChecker
+}
+
+// NewInstanceService 创建实验实例服务实例
+func NewInstanceService(
+	db *gorm.DB,
+	instanceRepo experimentrepo.InstanceRepository,
+	containerRepo experimentrepo.InstanceContainerRepository,
+	templateRepo experimentrepo.TemplateRepository,
+	imageRepo experimentrepo.ImageRepository,
+	imageVersionRepo experimentrepo.ImageVersionRepository,
+	checkpointRepo experimentrepo.CheckpointRepository,
+	checkResultRepo experimentrepo.CheckpointResultRepository,
+	groupMemberRepo experimentrepo.GroupMemberRepository,
+	snapshotRepo experimentrepo.SnapshotRepository,
+	opLogRepo experimentrepo.OperationLogRepository,
+	reportRepo experimentrepo.ReportRepository,
+	quotaRepo experimentrepo.QuotaRepository,
+	simSceneRepo experimentrepo.SimSceneRepository,
+	scenarioRepo experimentrepo.ScenarioRepository,
+	linkGroupRepo experimentrepo.LinkGroupRepository,
+	k8sSvc K8sService,
+	simEngineSvc SimEngineService,
+	userNameQuerier UserNameQuerier,
+	courseQuerier CourseQuerier,
+	courseGradeSyncer CourseGradeSyncer,
+	enrollmentChecker EnrollmentChecker,
+) InstanceService {
+	return &instanceService{
+		db:                db,
+		instanceRepo:      instanceRepo,
+		containerRepo:     containerRepo,
+		templateRepo:      templateRepo,
+		imageRepo:         imageRepo,
+		imageVersionRepo:  imageVersionRepo,
+		checkpointRepo:    checkpointRepo,
+		checkResultRepo:   checkResultRepo,
+		groupMemberRepo:   groupMemberRepo,
+		snapshotRepo:      snapshotRepo,
+		opLogRepo:         opLogRepo,
+		reportRepo:        reportRepo,
+		quotaRepo:         quotaRepo,
+		simSceneRepo:      simSceneRepo,
+		scenarioRepo:      scenarioRepo,
+		linkGroupRepo:     linkGroupRepo,
+		k8sSvc:            k8sSvc,
+		simEngineSvc:      simEngineSvc,
+		userNameQuerier:   userNameQuerier,
+		courseQuerier:     courseQuerier,
+		courseGradeSyncer: courseGradeSyncer,
+		enrollmentChecker: enrollmentChecker,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 启动实验环境
+// ---------------------------------------------------------------------------
+
+// Create 启动实验环境
+// POST /api/v1/experiment-instances
+func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateInstanceReq) (*dto.CreateInstanceResp, error) {
+	// 解析模板ID
+	templateID, err := snowflake.ParseString(req.TemplateID)
+	if err != nil {
+		return nil, errcode.ErrTemplateNotFound
+	}
+
+	// 获取模板（含完整配置）
+	template, err := s.templateRepo.GetByIDWithAll(ctx, templateID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrTemplateNotFound
+		}
+		return nil, err
+	}
+
+	// 模板必须已发布
+	if template.Status != enum.TemplateStatusPublished {
+		return nil, errcode.ErrTemplateNotPublished
+	}
+
+	// 同一模板已有活动实例时复用现有实例，避免重复创建。
+	activeInstance, err := s.findReusableInstance(ctx, templateID, sc.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if activeInstance != nil {
+		idStr := strconv.FormatInt(activeInstance.ID, 10)
+		return &dto.CreateInstanceResp{
+			InstanceID: &idStr,
+			Status:     activeInstance.Status,
+			StatusText: enum.GetInstanceStatusText(activeInstance.Status),
+			AttemptNo:  activeInstance.AttemptNo,
+		}, nil
+	}
+
+	// 课程选课校验
+	if req.CourseID != nil {
+		courseID, _ := snowflake.ParseString(*req.CourseID)
+		if courseID > 0 {
+			enrolled, err := s.enrollmentChecker.IsEnrolled(ctx, courseID, sc.UserID)
+			if err != nil {
+				return nil, err
+			}
+			if !enrolled {
+				return nil, errcode.ErrNotCourseStudent
+			}
+		}
+	}
+
+	// 个人并发限制
+	runningCount, err := s.instanceRepo.CountRunningByStudent(ctx, sc.UserID)
+	if err != nil {
+		return nil, err
+	}
+	maxPerStudent := 2 // 默认
+	schoolQuota, _ := s.quotaRepo.GetBySchoolID(ctx, sc.SchoolID)
+	if schoolQuota != nil && schoolQuota.MaxPerStudent > 0 {
+		maxPerStudent = schoolQuota.MaxPerStudent
+	}
+	if req.CourseID != nil {
+		courseID, _ := snowflake.ParseString(*req.CourseID)
+		if courseID > 0 {
+			courseQuota, _ := s.quotaRepo.GetByCourseID(ctx, courseID)
+			if courseQuota != nil && courseQuota.MaxPerStudent > 0 {
+				maxPerStudent = courseQuota.MaxPerStudent
+			}
+		}
+	}
+	if runningCount >= int64(maxPerStudent) {
+		return nil, errcode.ErrConcurrencyExceeded.WithMessage("已达个人并发实验上限")
+	}
+
+	// 获取最大尝试次数
+	maxAttempt, err := s.instanceRepo.GetMaxAttemptNo(ctx, templateID, sc.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 学校并发限制
+	if schoolQuota != nil && schoolQuota.MaxConcurrency > 0 {
+		schoolRunning, _ := s.instanceRepo.CountRunningBySchool(ctx, sc.SchoolID)
+		if schoolRunning >= int64(schoolQuota.MaxConcurrency) {
+			return nil, errcode.ErrResourceQuotaExceeded
+		}
+	}
+
+	// 课程并发限制
+	if req.CourseID != nil {
+		courseID, _ := snowflake.ParseString(*req.CourseID)
+		if courseID > 0 {
+			courseQuota, _ := s.quotaRepo.GetByCourseID(ctx, courseID)
+			if courseQuota != nil && courseQuota.MaxConcurrency > 0 {
+				courseRunning, _ := s.instanceRepo.CountRunningByCourse(ctx, courseID)
+				if courseRunning >= int64(courseQuota.MaxConcurrency) {
+					return s.createQueuedInstance(ctx, sc, template, req, maxAttempt+1)
+				}
+			}
+		}
+	}
+
+	// 创建实例记录
+	now := time.Now()
+	instance := &entity.ExperimentInstance{
+		ID:             snowflake.Generate(),
+		TemplateID:     templateID,
+		StudentID:      sc.UserID,
+		SchoolID:       sc.SchoolID,
+		ExperimentType: template.ExpType,
+		Status:         enum.InstanceStatusCreating,
+		AttemptNo:      maxAttempt + 1,
+		StartedAt:      &now,
+		LastActiveAt:   &now,
+	}
+
+	// 可选字段
+	if req.CourseID != nil {
+		courseID, _ := snowflake.ParseString(*req.CourseID)
+		instance.CourseID = &courseID
+	}
+	if req.LessonID != nil {
+		lessonID, _ := snowflake.ParseString(*req.LessonID)
+		instance.LessonID = &lessonID
+	}
+	if req.AssignmentID != nil {
+		assignID, _ := snowflake.ParseString(*req.AssignmentID)
+		instance.AssignmentID = &assignID
+	}
+	if req.GroupID != nil {
+		groupID, _ := snowflake.ParseString(*req.GroupID)
+		instance.GroupID = &groupID
+	}
+
+	if err := s.instanceRepo.Create(ctx, instance); err != nil {
+		return nil, err
+	}
+
+	// 异步创建环境（根据实验类型）
+	snapshotID := ""
+	if req.SnapshotID != nil {
+		snapshotID = *req.SnapshotID
+	}
+	go s.provisionEnvironment(context.Background(), instance, template, snapshotID, true)
+
+	// 记录操作日志
+	s.recordOpLog(ctx, instance.ID, sc.UserID, enum.ActionStart, nil, nil, nil, nil, nil, nil)
+	s.pushCourseMonitorStatusChange(instance, 0, instance.Status)
+
+	// 更新配额已用并发
+	_ = s.quotaRepo.IncrUsedConcurrency(ctx, sc.SchoolID, 1)
+
+	idStr := strconv.FormatInt(instance.ID, 10)
+	resp := &dto.CreateInstanceResp{
+		InstanceID: &idStr,
+		Status:     instance.Status,
+		StatusText: enum.GetInstanceStatusText(instance.Status),
+		AttemptNo:  instance.AttemptNo,
+	}
+	readySec := 30
+	resp.EstimatedReadySeconds = &readySec
+	return resp, nil
+}
+
+// provisionEnvironment 异步创建实验环境（K8s 容器 + SimEngine 会话）
+func (s *instanceService) provisionEnvironment(ctx context.Context, instance *entity.ExperimentInstance, template *entity.ExperimentTemplate, snapshotID string, releaseConcurrencyOnError bool) {
+	var accessURL string
+	var errMsg string
+	oldStatus := instance.Status
+	var restoreSnapshot *entity.InstanceSnapshot
+	var simSessionID string
+	var collectorWebSocketURL string
+
+	defer func() {
+		fields := map[string]interface{}{"updated_at": time.Now()}
+		if errMsg != "" {
+			fields["status"] = enum.InstanceStatusError
+			fields["error_message"] = errMsg
+		} else {
+			fields["status"] = enum.InstanceStatusRunning
+			if accessURL != "" {
+				fields["access_url"] = accessURL
+			}
+		}
+		_ = s.instanceRepo.UpdateFields(ctx, instance.ID, fields)
+		// 缓存实例状态到 Redis
+		_ = cache.Set(ctx, fmt.Sprintf("%s:%d", cache.KeyExpInstanceStatus, instance.ID),
+			fmt.Sprintf("%d", fields["status"]), 24*time.Hour)
+		newStatus, _ := fields["status"].(int)
+		s.pushCourseMonitorStatusChange(instance, oldStatus, newStatus)
+		if errMsg != "" && releaseConcurrencyOnError {
+			_ = s.quotaRepo.DecrUsedConcurrency(ctx, instance.SchoolID, 1)
+			if instance.CourseID != nil {
+				s.activateNextQueuedInstance(ctx, *instance.CourseID)
+			}
+			s.pushCourseMonitorInstanceError(instance, errMsg)
+		}
+	}()
+
+	if strings.TrimSpace(snapshotID) != "" {
+		snapID, parseErr := snowflake.ParseString(snapshotID)
+		if parseErr != nil {
+			errMsg = "恢复快照无效"
+			return
+		}
+		restoreSnapshot, _ = s.snapshotRepo.GetByID(ctx, snapID)
+		if restoreSnapshot == nil || restoreSnapshot.InstanceID != instance.ID {
+			errMsg = "恢复快照不存在"
+			return
+		}
+	}
+
+	// 1. 纯仿真 / 混合实验 → 创建 SimEngine 会话
+	if template.ExpType == enum.ExperimentTypeSimulation || template.ExpType == enum.ExperimentTypeMixed {
+		simReq, err := s.buildSimSessionRequest(ctx, instance, template)
+		if err != nil {
+			errMsg = fmt.Sprintf("构建仿真会话请求失败: %v", err)
+			return
+		}
+
+		session, err := s.simEngineSvc.CreateSession(ctx, simReq)
+		if err != nil {
+			errMsg = fmt.Sprintf("创建仿真会话失败: %v", err)
+			return
+		}
+
+		simSessionID = session.SessionID
+		collectorWebSocketURL = buildCollectorWebSocketURL(session.WebSocketURL)
+		_ = s.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{
+			"sim_session_id":    session.SessionID,
+			"sim_websocket_url": session.WebSocketURL,
+		})
+		instance.SimSessionID = &session.SessionID
+		instance.SimWebSocketURL = &session.WebSocketURL
+	}
+
+	// 2. 真实环境 / 混合实验 → 部署 K8s 容器
+	if template.ExpType == enum.ExperimentTypeReal || template.ExpType == enum.ExperimentTypeMixed {
+		nsName := fmt.Sprintf("exp-%d", instance.ID)
+		ns := nsName
+		_ = s.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{"namespace": ns})
+
+		// 创建命名空间
+		labels := buildInstanceNamespaceLabels(instance)
+		if err := s.k8sSvc.CreateNamespace(ctx, nsName, labels, buildNamespaceResourceSpec(template)); err != nil {
+			errMsg = fmt.Sprintf("创建命名空间失败: %v", err)
+			return
+		}
+
+		// 部署容器
+		for _, tc := range template.Containers {
+			containerSpec, collectorSpec, err := s.buildContainerSpec(ctx, tc, template)
+			if err != nil {
+				errMsg = fmt.Sprintf("构建容器 %s 规格失败: %v", tc.ContainerName, err)
+				return
+			}
+			if collectorSpec != nil {
+				collectorSpec.SessionID = simSessionID
+				collectorSpec.CoreWebSocketURL = collectorWebSocketURL
+			}
+			podLabels := map[string]string{
+				"app":            "lenschain-experiment",
+				"instance-id":    strconv.FormatInt(instance.ID, 10),
+				"container-name": tc.ContainerName,
+			}
+			deployReq := &DeployPodRequest{
+				Namespace:     nsName,
+				PodName:       fmt.Sprintf("%s-%s", nsName, tc.ContainerName),
+				Containers:    []ContainerSpec{containerSpec},
+				Labels:        podLabels,
+				NetworkPolicy: buildInstanceNetworkPolicy(instance),
+				Collector:     collectorSpec,
+			}
+
+			deployResp, err := s.k8sSvc.DeployPod(ctx, deployReq)
+			if err != nil {
+				errMsg = fmt.Sprintf("部署容器 %s 失败: %v", tc.ContainerName, err)
+				return
+			}
+
+			// 记录实例容器
+			ic := &entity.InstanceContainer{
+				ID:                  snowflake.Generate(),
+				InstanceID:          instance.ID,
+				TemplateContainerID: tc.ID,
+				ContainerName:       tc.ContainerName,
+				PodName:             &deployResp.PodName,
+				InternalIP:          &deployResp.InternalIP,
+				Status:              enum.ContainerStatusRunning,
+			}
+			_ = s.containerRepo.Create(ctx, ic)
+
+			if tc.IsPrimary && deployResp.InternalIP != "" {
+				accessURL = fmt.Sprintf("http://%s", deployResp.InternalIP)
+			}
+		}
+
+		// 新建环境执行初始化脚本；从快照恢复时跳过，避免覆盖恢复态数据。
+		if restoreSnapshot == nil {
+			for _, script := range template.InitScripts {
+				podName := fmt.Sprintf("%s-%s", nsName, script.TargetContainer)
+				scriptCtx := ctx
+				cancel := func() {}
+				if script.Timeout > 0 {
+					scriptCtx, cancel = context.WithTimeout(ctx, time.Duration(script.Timeout)*time.Second)
+				}
+				_, _ = s.k8sSvc.ExecInPod(scriptCtx, nsName, podName, script.TargetContainer, script.ScriptContent)
+				cancel()
+			}
+		} else if err := s.restoreInstanceRuntimeState(ctx, instance, restoreSnapshot); err != nil {
+			errMsg = fmt.Sprintf("恢复容器状态失败: %v", err)
+			return
+		}
+	}
+
+	// 3. 从快照恢复
+	if restoreSnapshot != nil && restoreSnapshot.SimEngineState != nil {
+		if simSessionID == "" && instance.SimSessionID != nil {
+			simSessionID = *instance.SimSessionID
+		}
+		if simSessionID != "" {
+			if err := s.simEngineSvc.RestoreSnapshot(ctx, simSessionID, strconv.FormatInt(restoreSnapshot.ID, 10)); err != nil {
+				errMsg = fmt.Sprintf("恢复仿真快照失败: %v", err)
+				return
+			}
+		}
+	}
+
+	// 4. 混合实验 → 启动数据采集
+	if template.ExpType == enum.ExperimentTypeMixed {
+		if simSessionID == "" && instance.SimSessionID != nil {
+			simSessionID = *instance.SimSessionID
+		}
+		if simSessionID != "" {
+			_ = s.simEngineSvc.StartDataCollection(ctx, simSessionID, buildMixedDataCollectionConfig(template))
+		}
+	}
+
+	if restoreSnapshot != nil {
+		_ = s.syncRestoredContainerState(ctx, instance.ID)
+	}
+}
+
+// buildContainerSpec 根据模板容器配置构建 K8s ContainerSpec
+func (s *instanceService) buildContainerSpec(ctx context.Context, tc entity.TemplateContainer, template *entity.ExperimentTemplate) (ContainerSpec, *CollectorSidecarSpec, error) {
+	version, err := s.imageVersionRepo.GetByID(ctx, tc.ImageVersionID)
+	if err != nil {
+		return ContainerSpec{}, nil, errcode.ErrImageVersionNotFound
+	}
+	image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+	if err != nil {
+		return ContainerSpec{}, nil, errcode.ErrImageNotFound
+	}
+	spec, err := mergeContainerConfig(tc, image, version, template.Containers)
+	if err != nil {
+		return ContainerSpec{}, nil, err
+	}
+	return spec, buildCollectorInjectionPlan(template, &tc, image), nil
+}
+
+// buildCollectorWebSocketURL 将 SimEngine 前端会话地址转换为 Collector sidecar 使用的采集地址。
+func buildCollectorWebSocketURL(simWebSocketURL string) string {
+	if simWebSocketURL == "" {
+		return ""
+	}
+	return strings.Replace(simWebSocketURL, "/api/v1/ws/sim-engine/", "/api/v1/ws/collector/", 1)
+}
+
+// buildSimSessionRequest 根据模板仿真场景构建 SimEngine 会话请求
+func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *entity.ExperimentInstance, template *entity.ExperimentTemplate) (*CreateSimSessionRequest, error) {
+	req := &CreateSimSessionRequest{
+		InstanceID: instance.ID,
+		StudentID:  instance.StudentID,
+	}
+
+	scenes := make([]SimSceneConfig, 0, len(template.SimScenes))
+	hasLinkGroup := false
+
+	for _, ts := range template.SimScenes {
+		scenario, err := s.scenarioRepo.GetByID(ctx, ts.ScenarioID)
+		if err != nil {
+			continue
+		}
+
+		sc := SimSceneConfig{
+			SceneCode:        scenario.Code,
+			ScenarioID:       strconv.FormatInt(ts.ScenarioID, 10),
+			Params:           ts.Config,
+			LayoutPosition:   ts.LayoutPosition,
+			DataSourceConfig: ts.DataSourceConfig,
+		}
+
+		// 联动组
+		if ts.LinkGroupID != nil {
+			sc.LinkGroupID = strconv.FormatInt(*ts.LinkGroupID, 10)
+			linkGroup, err := s.linkGroupRepo.GetByIDWithScenes(ctx, *ts.LinkGroupID)
+			if err == nil {
+				sc.LinkGroupCode = linkGroup.Code
+				sc.SharedState = linkGroup.SharedStateSchema
+				hasLinkGroup = true
+			}
+		}
+
+		// 初始状态
+		if scenario.InteractionSchema != nil {
+			sc.InitialState = scenario.InteractionSchema
+		}
+
+		scenes = append(scenes, sc)
+	}
+
+	req.Scenes = scenes
+	req.LinkageEnabled = hasLinkGroup
+
+	return req, nil
+}
+
+// findReusableInstance 查找同一学生在同一模板下可直接复用的活动实例。
+func (s *instanceService) findReusableInstance(ctx context.Context, templateID, studentID int64) (*entity.ExperimentInstance, error) {
+	instances, err := s.instanceRepo.ListByTemplateAndStudent(ctx, templateID, studentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, instance := range instances {
+		switch instance.Status {
+		case enum.InstanceStatusCreating, enum.InstanceStatusRunning, enum.InstanceStatusQueued, enum.InstanceStatusRestoring:
+			return instance, nil
+		}
+	}
+	return nil, nil
+}
+
+// createQueuedInstance 在课程并发已满时创建排队中的实例记录。
+func (s *instanceService) createQueuedInstance(
+	ctx context.Context,
+	sc *svcctx.ServiceContext,
+	template *entity.ExperimentTemplate,
+	req *dto.CreateInstanceReq,
+	attemptNo int,
+) (*dto.CreateInstanceResp, error) {
+	now := time.Now()
+	instance := &entity.ExperimentInstance{
+		ID:             snowflake.Generate(),
+		TemplateID:     template.ID,
+		StudentID:      sc.UserID,
+		SchoolID:       sc.SchoolID,
+		ExperimentType: template.ExpType,
+		Status:         enum.InstanceStatusQueued,
+		AttemptNo:      attemptNo,
+		StartedAt:      &now,
+		LastActiveAt:   &now,
+	}
+	if req.CourseID != nil {
+		courseID, _ := snowflake.ParseString(*req.CourseID)
+		instance.CourseID = &courseID
+	}
+	if req.LessonID != nil {
+		lessonID, _ := snowflake.ParseString(*req.LessonID)
+		instance.LessonID = &lessonID
+	}
+	if req.AssignmentID != nil {
+		assignmentID, _ := snowflake.ParseString(*req.AssignmentID)
+		instance.AssignmentID = &assignmentID
+	}
+	if req.GroupID != nil {
+		groupID, _ := snowflake.ParseString(*req.GroupID)
+		instance.GroupID = &groupID
+	}
+	if err := s.instanceRepo.Create(ctx, instance); err != nil {
+		return nil, err
+	}
+
+	queuePosition := 1
+	if instance.CourseID != nil && cache.Get() != nil {
+		queueKey := fmt.Sprintf("%s:%d", cache.KeyExpQueue, *instance.CourseID)
+		if length, err := cache.Get().RPush(ctx, queueKey, strconv.FormatInt(instance.ID, 10)).Result(); err == nil {
+			queuePosition = int(length)
+		}
+	}
+
+	idStr := strconv.FormatInt(instance.ID, 10)
+	waitSeconds := queuePosition * 60
+	return &dto.CreateInstanceResp{
+		InstanceID:           &idStr,
+		Status:               enum.InstanceStatusQueued,
+		StatusText:           enum.GetInstanceStatusText(enum.InstanceStatusQueued),
+		AttemptNo:            instance.AttemptNo,
+		QueuePosition:        &queuePosition,
+		EstimatedWaitSeconds: &waitSeconds,
+	}, nil
+}
+
+// buildNamespaceResourceSpec 根据实验模板生成命名空间资源隔离规格。
+func buildNamespaceResourceSpec(template *entity.ExperimentTemplate) *NamespaceResourceSpec {
+	if template == nil {
+		return nil
+	}
+	spec := &NamespaceResourceSpec{}
+	if template.CPULimit != nil {
+		spec.HardCPU = *template.CPULimit
+		spec.DefaultContainerCPU = *template.CPULimit
+	}
+	if template.MemoryLimit != nil {
+		spec.HardMemory = *template.MemoryLimit
+		spec.DefaultContainerMemory = *template.MemoryLimit
+	}
+	if template.DiskLimit != nil {
+		spec.HardStorage = *template.DiskLimit
+		spec.DefaultContainerStorage = *template.DiskLimit
+	}
+	if spec.HardCPU == "" && spec.HardMemory == "" && spec.HardStorage == "" &&
+		spec.DefaultContainerCPU == "" && spec.DefaultContainerMemory == "" && spec.DefaultContainerStorage == "" {
+		return nil
+	}
+	return spec
+}
+
+// ---------------------------------------------------------------------------
+// 获取实例详情
+// ---------------------------------------------------------------------------
+
+// GetByID 获取实验实例详情
+func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.InstanceDetailResp, error) {
+	instance, err := s.getAccessibleInstance(ctx, sc, id)
+	if err != nil {
+		return nil, err
+	}
+	instance, err = s.instanceRepo.GetByIDWithAll(ctx, instance.ID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrInstanceNotFound
+		}
+		return nil, err
+	}
+
+	// 获取模板信息
+	template, _ := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+
+	resp := &dto.InstanceDetailResp{
+		ID:         strconv.FormatInt(instance.ID, 10),
+		Status:     instance.Status,
+		StatusText: enum.GetInstanceStatusText(instance.Status),
+		AttemptNo:  instance.AttemptNo,
+		AccessURL:  instance.AccessURL,
+		CreatedAt:  instance.CreatedAt.Format(time.RFC3339),
+	}
+
+	if instance.StartedAt != nil {
+		t := instance.StartedAt.Format(time.RFC3339)
+		resp.StartedAt = &t
+	}
+	if instance.LastActiveAt != nil {
+		t := instance.LastActiveAt.Format(time.RFC3339)
+		resp.LastActiveAt = &t
+	}
+
+	// 模板摘要
+	if template != nil {
+		resp.Template = dto.InstanceTemplateBrief{
+			ID:          strconv.FormatInt(template.ID, 10),
+			Title:       template.Title,
+			JudgeMode:   template.JudgeMode,
+			TotalScore:  template.TotalScore,
+			IdleTimeout: template.IdleTimeout,
+		}
+		if template.TopologyMode != nil {
+			resp.Template.TopologyMode = *template.TopologyMode
+		}
+		if template.Instructions != nil {
+			resp.Template.Instructions = template.Instructions
+		}
+		if template.MaxDuration != nil {
+			resp.Template.MaxDuration = *template.MaxDuration
+		}
+	}
+
+	// 学生摘要
+	studentName := s.userNameQuerier.GetUserName(ctx, instance.StudentID)
+	resp.Student = dto.InstanceStudentBrief{
+		ID:   strconv.FormatInt(instance.StudentID, 10),
+		Name: studentName,
+	}
+
+	// 容器列表
+	containers := make([]dto.InstanceContainerItem, 0, len(instance.Containers))
+	for _, c := range instance.Containers {
+		containers = append(containers, dto.InstanceContainerItem{
+			ID:            strconv.FormatInt(c.ID, 10),
+			ContainerName: c.ContainerName,
+			Status:        c.Status,
+			StatusText:    enum.GetContainerStatusText(c.Status),
+			InternalIP:    c.InternalIP,
+			CPUUsage:      c.CPUUsage,
+			MemoryUsage:   c.MemoryUsage,
+		})
+	}
+	resp.Containers = containers
+
+	// 检查点列表
+	if template != nil {
+		checkpoints := make([]dto.InstanceCheckpointItem, 0, len(template.Checkpoints))
+		for _, cp := range template.Checkpoints {
+			item := dto.InstanceCheckpointItem{
+				CheckpointID: strconv.FormatInt(cp.ID, 10),
+				Title:        cp.Title,
+				CheckType:    cp.CheckType,
+				Score:        cp.Score,
+			}
+			// 查找结果
+			for _, cr := range instance.CheckpointResults {
+				if cr.CheckpointID == cp.ID {
+					score := float64(0)
+					if cr.Score != nil {
+						score = *cr.Score
+					}
+					item.Result = &dto.InstanceCheckpointResult{
+						IsPassed:  cr.IsPassed,
+						Score:     score,
+						CheckedAt: cr.CheckedAt.UTC().Format(time.RFC3339),
+					}
+					break
+				}
+			}
+			checkpoints = append(checkpoints, item)
+		}
+		resp.Checkpoints = checkpoints
+	}
+
+	// 成绩
+	resp.Scores = dto.InstanceScoresInfo{
+		AutoScore:   instance.AutoScore,
+		ManualScore: instance.ManualScore,
+		TotalScore:  instance.TotalScore,
+	}
+
+	return resp, nil
+}
+
+// ---------------------------------------------------------------------------
+// 实例列表
+// ---------------------------------------------------------------------------
+
+// List 我的实验实例列表
+func (s *instanceService) List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.InstanceListReq) ([]*dto.InstanceListItem, int64, error) {
+	params := &experimentrepo.StudentInstanceListParams{
+		Page:     req.Page,
+		PageSize: req.PageSize,
+		Status:   req.Status,
+	}
+	if req.TemplateID != "" {
+		tid, _ := snowflake.ParseString(req.TemplateID)
+		params.TemplateID = tid
+	}
+	if req.CourseID != "" {
+		cid, _ := snowflake.ParseString(req.CourseID)
+		params.CourseID = cid
+	}
+
+	instances, total, err := s.instanceRepo.ListByStudentID(ctx, sc.UserID, params)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	items := make([]*dto.InstanceListItem, 0, len(instances))
+	for _, inst := range instances {
+		item := &dto.InstanceListItem{
+			ID:         strconv.FormatInt(inst.ID, 10),
+			TemplateID: strconv.FormatInt(inst.TemplateID, 10),
+			Status:     inst.Status,
+			StatusText: enum.GetInstanceStatusText(inst.Status),
+			AttemptNo:  inst.AttemptNo,
+			TotalScore: inst.TotalScore,
+			CreatedAt:  inst.CreatedAt.Format(time.RFC3339),
+		}
+		if inst.StartedAt != nil {
+			t := inst.StartedAt.Format(time.RFC3339)
+			item.StartedAt = &t
+		}
+		if inst.SubmittedAt != nil {
+			t := inst.SubmittedAt.Format(time.RFC3339)
+			item.SubmittedAt = &t
+		}
+		// 模板标题
+		tmpl, _ := s.templateRepo.GetByID(ctx, inst.TemplateID)
+		if tmpl != nil {
+			item.TemplateTitle = tmpl.Title
+		}
+		// 课程标题
+		if inst.CourseID != nil {
+			cidStr := strconv.FormatInt(*inst.CourseID, 10)
+			item.CourseID = &cidStr
+			title := s.courseQuerier.GetCourseTitle(ctx, *inst.CourseID)
+			if title != "" {
+				item.CourseTitle = &title
+			}
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}

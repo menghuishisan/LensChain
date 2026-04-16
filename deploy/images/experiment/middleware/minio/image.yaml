@@ -1,0 +1,39 @@
+# image.yaml
+name: minio
+module: experiment
+category: middleware
+runtime: object-storage
+default_ports:
+  - port: 9000
+    protocol: tcp
+    name: API
+  - port: 9001
+    protocol: tcp
+    name: Console
+ports:
+  - 9000/tcp
+  - 9001/tcp
+default_env_vars:
+  - key: MINIO_ROOT_USER
+    value: minioadmin
+    desc: 默认管理员用户名
+  - key: MINIO_ROOT_PASSWORD
+    value: minioadmin
+    desc: 默认管理员密码
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: nginx
+      reason: 作为外部访问代理或统一入口
+  optional:
+    - image: grafana
+      reason: 展示对象存储运行监控
+resource_recommendation:
+  cpu: 0.25
+  memory: 256Mi
+  disk: 5Gi
+default_volumes:
+  - path: /data
+    desc: MinIO 数据目录
+description: 实验环境对象存储镜像。

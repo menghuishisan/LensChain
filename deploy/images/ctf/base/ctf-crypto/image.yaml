@@ -1,0 +1,27 @@
+# image.yaml
+name: ctf-crypto
+module: ctf
+category: base
+runtime: ctf-crypto
+default_ports: []
+ports: []
+default_env_vars:
+  - key: CHALLENGE_TYPE
+    value: crypto
+    desc: 默认密码学题型标识
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: crypto-tools
+      reason: 选手在题目基础镜像外使用附加分析工具
+    - image: ctf-tools
+      reason: 提供通用网络与脚本辅助能力
+  optional: []
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+default_volumes:
+  - path: /workspace
+    desc: 题目脚本与数据目录
+description: 密码学题目基础镜像，内置常见编码与数学工具。

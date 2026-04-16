@@ -1,0 +1,28 @@
+# image.yaml
+name: blockchain-tools
+module: ctf
+category: tools
+runtime: blockchain-tools
+default_ports: []
+ports: []
+default_env_vars: []
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: ganache
+      reason: 提供智能合约题目链环境
+    - image: foundry
+      reason: 配合 PoC 与断言验证
+    - image: ctf-blockchain
+      reason: 搭配区块链题基础环境
+  optional:
+    - image: ctf-tools
+      reason: 增强通用网络与脚本能力
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+default_volumes:
+  - path: /workspace
+    desc: 合约与脚本工作目录
+description: 区块链/智能合约安全题目选手工具镜像。

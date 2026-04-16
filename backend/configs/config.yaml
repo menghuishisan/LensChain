@@ -90,3 +90,19 @@ rate_limit:
   enabled: true
   requests_per_second: 100
   burst: 200
+
+k8s:
+  in_cluster: false                    # true=集群内部署（使用 ServiceAccount），false=外部（使用 kubeconfig）
+  kubeconfig_path: ""                  # 外部模式时 kubeconfig 路径，为空则使用 ~/.kube/config
+  namespace_prefix: "lenschain-exp"    # 实验命名空间前缀
+  default_cpu: "500m"                  # 默认容器 CPU 限制
+  default_memory: "512Mi"              # 默认容器内存限制
+  collector_image_template: "registry.lianjing.com/collector-agents/%s:latest" # 混合实验 Collector Agent 镜像模板
+  timeout: "30s"                       # K8s API 超时
+
+sim_engine:
+  grpc_addr: "localhost:50051"         # SimEngine Core gRPC 地址
+  timeout: "10s"                       # gRPC 调用超时
+  max_retries: 3                       # 最大重试次数
+  tls_enabled: false                   # 是否启用 TLS
+  cert_file: ""                        # TLS 证书路径

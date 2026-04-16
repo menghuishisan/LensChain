@@ -1,0 +1,28 @@
+# image.yaml
+name: novnc-desktop
+module: experiment
+category: tools
+runtime: desktop
+default_ports:
+  - port: 6080
+    protocol: tcp
+    name: HTTP
+ports:
+  - 6080/tcp
+default_env_vars: []
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: xterm-server
+      reason: 同时提供图形与终端两种操作方式
+  optional:
+    - image: code-server
+      reason: 作为图形化开发桌面的一部分
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+default_volumes:
+  - path: /headless
+    desc: 图形桌面工作目录
+description: 图形化桌面访问镜像。

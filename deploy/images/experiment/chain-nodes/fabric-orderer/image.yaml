@@ -1,0 +1,22 @@
+# image.yaml
+name: fabric-orderer
+module: experiment
+category: chain-nodes
+runtime: fabric
+ports:
+  - 7050/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: fabric-peer
+      reason: 与 Peer 共同构成 Fabric 网络
+  optional: []
+default_ports:
+  - port: 7050
+    protocol: tcp
+    name: gRPC
+description: Hyperledger Fabric 排序节点镜像。

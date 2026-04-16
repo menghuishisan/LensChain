@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: runtime-default-limits
+  namespace: ${NAMESPACE}
+  labels:
+    lenschain.io/runtime-type: ${RUNTIME_TYPE}
+    lenschain.io/runtime-scope: dynamic
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: ${DEFAULT_REQUEST_CPU}
+        memory: ${DEFAULT_REQUEST_MEMORY}
+      default:
+        cpu: ${DEFAULT_LIMIT_CPU}
+        memory: ${DEFAULT_LIMIT_MEMORY}

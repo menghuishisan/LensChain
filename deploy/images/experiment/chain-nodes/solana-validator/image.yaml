@@ -1,0 +1,14 @@
+# image.yaml
+name: solana-validator
+module: experiment
+category: chain-nodes
+runtime: solana
+ports:
+  - 8899/tcp
+  - 8900/tcp
+  - 8001/tcp
+resource_recommendation:
+  cpu: 1
+  memory: 2Gi
+description: Solana 验证者节点镜像接入位。
+implementation_status: placeholder

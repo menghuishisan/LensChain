@@ -1,0 +1,32 @@
+# image.yaml
+name: redis
+module: experiment
+category: middleware
+runtime: cache
+default_ports:
+  - port: 6379
+    protocol: tcp
+    name: Redis
+ports:
+  - 6379/tcp
+default_env_vars:
+  - key: APPENDONLY
+    value: "yes"
+    desc: 启用 AOF 持久化
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: postgres
+      reason: 作为应用层常见缓存/会话组合
+  optional:
+    - image: grafana
+      reason: 通过监控工具观察运行状态
+resource_recommendation:
+  cpu: 0.25
+  memory: 256Mi
+  disk: 1Gi
+default_volumes:
+  - path: /data
+    desc: Redis 数据目录
+description: 实验环境缓存与消息队列镜像。

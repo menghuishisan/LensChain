@@ -85,8 +85,11 @@ const (
 	CronSchoolExpireBuffer = "0 30 0 * * *" // 每天凌晨0:30 — 到期转缓冲期
 
 	// 模块04 — 实验环境
-	CronExpIdleReclaim    = "0 */5 * * * *" // 每5分钟 — 空闲实验回收
-	CronExpExpiredCleanup = "0 0 * * * *"   // 每小时 — 过期实验清理
+	CronExpAutoSnapshot     = "0 */5 * * * *" // 每5分钟 — 运行中实例自动快照
+	CronExpIdleReclaim      = "0 */5 * * * *" // 每5分钟 — 空闲实验回收
+	CronExpExpiredCleanup   = "0 * * * * *"   // 每分钟 — 实验超时、课程结束预警与回收
+	CronExpRuntimeHealth    = "0 * * * * *"   // 每分钟 — 运行中实例健康检查与异常恢复
+	CronExpImagePrePullSync = "0 */5 * * * *" // 每5分钟 — 镜像预拉取对账补拉
 
 	// 模块06 — 评测与成绩
 	CronGPACacheRefresh   = "0 0 3 * * *" // 每天凌晨3:00 — GPA缓存刷新

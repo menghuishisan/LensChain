@@ -127,6 +127,7 @@
 | POST | /api/v1/experiment-instances/:id/restart | 重新开始实验 | 实例所属学生 |
 | POST | /api/v1/experiment-instances/:id/submit | 提交实验 | 实例所属学生 |
 | POST | /api/v1/experiment-instances/:id/destroy | 销毁实验环境 | 实例所属学生/课程教师/管理员 |
+| GET | /api/v1/experiment-instances/:id/terminal | 学生 Web 终端（WebSocket升级） | 实例所属学生 |
 | POST | /api/v1/experiment-instances/:id/heartbeat | 心跳上报 | 实例所属学生 |
 
 ### 1.12 检查点验证
@@ -180,6 +181,7 @@
 |------|------|------|------|
 | POST | /api/v1/experiment-groups/:id/messages | 发送组内消息 | 组内学生 |
 | GET | /api/v1/experiment-groups/:id/messages | 组内消息历史 | 组内学生/课程教师 |
+| GET | /api/v1/experiment-groups/:id/members/:student_id/terminal-stream | 只读查看组员终端（WebSocket升级） | 组内学生 |
 
 > 实时消息通过 WebSocket 推送，REST 接口用于发送和查询历史。
 
@@ -952,6 +954,7 @@
 ```
 
 > `checkpoint_id` 可选，不传则验证所有自动检查点。
+> 接口限流：每用户每分钟最多触发 10 次检查点验证。
 
 **响应：**
 
@@ -980,6 +983,7 @@
 |------|---------|------|
 | 40001 | 实验未在运行中 | 实例状态不是运行中 |
 | 40401 | 检查点不存在 | checkpoint_id 无效 |
+| 42911 | 检查点验证过于频繁，请稍后再试 | 超过每分钟 10 次限制 |
 
 ---
 
@@ -1048,21 +1052,19 @@
 
 **权限：** 实例所属学生
 
-**请求体（Markdown）：**
+**请求体（Markdown / 文件元数据）：**
 
 ```json
 {
-  "content": "# 实验报告\n\n## 实验目的\n\n...\n\n## 实验过程\n\n...\n\n## 实验总结\n\n..."
+  "content": "# 实验报告\n\n## 实验目的\n\n...\n\n## 实验过程\n\n...\n\n## 实验总结\n\n...",
+  "file_url": "https://oss.example.com/experiment-reports/report-1780000000600001.pdf",
+  "file_name": "实验报告.pdf",
+  "file_size": 1048576
 }
 ```
 
-**请求体（文件上传）：**
-
-```
-Content-Type: multipart/form-data
-
-file: (PDF/Word文件，最大50MB)
-```
+> `content` 和报告文件元数据至少提供一种；当提交文件时，前端应先完成文件上传，再将 `file_url / file_name / file_size` 回传后端。  
+> 报告文件仅允许 `pdf / doc / docx`，且文件大小不得超过 50MB。
 
 **响应：**
 
@@ -1074,8 +1076,11 @@ file: (PDF/Word文件，最大50MB)
     "id": "1780000000800001",
     "instance_id": "1780000000600001",
     "content": "# 实验报告\n\n...",
-    "file_url": null,
-    "submitted_at": "2026-04-08T11:45:00Z"
+    "file_url": "https://oss.example.com/experiment-reports/report-1780000000600001.pdf",
+    "file_name": "实验报告.pdf",
+    "file_size": 1048576,
+    "created_at": "2026-04-08T11:45:00Z",
+    "updated_at": "2026-04-08T11:45:00Z"
   }
 }
 ```
@@ -1259,6 +1264,52 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
 ```
 
 > 教师端为只读模式，不可操作学生终端，仅可发送指导消息。
+
+---
+
+### 2.19A GET /api/v1/experiment-instances/:id/terminal — 学生 Web 终端
+
+**权限：** 实例所属学生
+
+**协议：** WebSocket 升级
+
+**连接地址：**
+
+```
+wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal?token=<jwt>&container=geth-node
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| container | string | 可选，目标容器名；不传时默认主容器 |
+
+**WebSocket 消息格式：**
+
+```json
+// 学生发送终端命令
+{
+  "type": "terminal_command",
+  "container": "geth-node",
+  "command": "geth attach http://127.0.0.1:8545"
+}
+
+// 服务端返回命令执行结果
+{
+  "type": "terminal_output",
+  "container": "geth-node",
+  "command": "geth attach http://127.0.0.1:8545",
+  "exit_code": 0,
+  "stdout": "Welcome to the Geth JavaScript console!\n",
+  "stderr": "",
+  "timestamp": "2026-04-08T10:30:00Z"
+}
+```
+
+> 学生 Web 终端以命令执行流方式工作，服务端负责在目标容器内执行命令并回传输出。  
+> 每次成功接收终端命令时更新 `last_active_at`。  
+> 每条终端命令必须记录到实例操作日志，`action=terminal_command`，用于教师回查与评分审计。
 
 ---
 
@@ -1465,7 +1516,9 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
 }
 ```
 
-> 前端每60秒上报一次心跳，后端更新 last_active_at 和 Redis 心跳缓存。
+> 前端每60秒上报一次心跳，后端仅更新 Redis 心跳缓存与剩余时间信息，用于判断连接仍然在线。  
+> `heartbeat` **不更新** `last_active_at`；`last_active_at` 仅在终端命令、检查点验证、快照恢复、暂停/恢复、提交、SimEngine 场景交互等真实用户操作发生时更新。  
+> 接口限流：每用户每分钟最多上报 2 次心跳。
 
 **响应：**
 
@@ -1474,7 +1527,7 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
   "code": 200,
   "message": "success",
   "data": {
-    "status": 3,
+    "status": 2,
     "remaining_minutes": 85,
     "idle_warning": false
   }
@@ -1483,6 +1536,12 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
 
 > `remaining_minutes` 为距离最长运行时间的剩余分钟数。
 > `idle_warning` 为 true 时表示即将因空闲超时被回收（剩余5分钟内）。
+>
+> **错误响应：**
+>
+> | code | message | 场景 |
+> |------|---------|------|
+> | 42910 | 心跳上报过于频繁，请稍后再试 | 超过每分钟 2 次限制 |
 
 ---
 
@@ -1528,7 +1587,11 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
         "action": "terminal_command",
         "target_container": "geth-node",
         "command": "geth --dev --http --http.addr 0.0.0.0",
-        "command_output": "INFO [04-08|10:05:00] Starting Geth in dev mode...",
+        "detail": {
+          "exit_code": 0,
+          "stdout": "INFO [04-08|10:05:00] Starting Geth in dev mode...",
+          "stderr": ""
+        },
         "created_at": "2026-04-08T10:05:00Z"
       },
       {
@@ -1551,6 +1614,35 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
   }
 }
 ```
+
+---
+
+### 2.26A GET /api/v1/experiment-groups/:id/members/:student_id/terminal-stream — 只读查看组员终端
+
+**权限：** 组内学生
+
+**协议：** WebSocket 升级
+
+**连接地址：**
+
+```
+wss://api.lianjing.com/api/v1/experiment-groups/:id/members/:student_id/terminal-stream?token=<jwt>
+```
+
+**WebSocket 消息格式：**
+
+```json
+// 服务端推送组员终端输出
+{
+  "type": "terminal_output",
+  "container": "geth-node",
+  "data": "root@geth-node:~# geth --dev\n",
+  "timestamp": "2026-04-08T10:30:00Z"
+}
+```
+
+> 仅允许查看同组成员的终端输出，不可输入命令，也不可发送教师指导消息。  
+> 权限校验必须同时满足：请求方为该实验分组成员，且 `student_id` 对应实例属于同一分组。
 
 ---
 
@@ -1879,7 +1971,8 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
       "total_nodes": 5,
       "fully_pulled": 52,
       "partially_pulled": 3,
-      "not_pulled": 2
+      "not_pulled": 2,
+      "completion_rate": 96.49
     },
     "items": [
       {
@@ -1889,9 +1982,9 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
         "source_type": 1,
         "source_type_text": "官方",
         "nodes": [
-          { "node_name": "node-01", "status": 1, "status_text": "已拉取", "pulled_at": "2026-04-08T06:00:00Z" },
-          { "node_name": "node-02", "status": 1, "status_text": "已拉取", "pulled_at": "2026-04-08T06:01:00Z" },
-          { "node_name": "node-03", "status": 2, "status_text": "拉取中", "pulled_at": null }
+          { "node_name": "node-01", "status": 1, "status_text": "已拉取", "pulled_at": "2026-04-08T06:00:00Z", "node_cache_size": "12.3Gi" },
+          { "node_name": "node-02", "status": 1, "status_text": "已拉取", "pulled_at": "2026-04-08T06:01:00Z", "node_cache_size": "11.8Gi" },
+          { "node_name": "node-03", "status": 2, "status_text": "拉取中", "pulled_at": null, "node_cache_size": "8.4Gi" }
         ]
       }
     ],
@@ -1903,6 +1996,9 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal-stream?token=<jw
   }
 }
 ```
+
+> `completion_rate` 表示当前筛选条件下，所有“镜像版本 × 节点”组合中状态为“已拉取”的占比，范围 0~100，保留两位小数。  
+> `node_cache_size` 表示该节点当前镜像缓存总大小，便于管理员判断节点磁盘占用情况。
 
 ---
 
@@ -2128,17 +2224,50 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
 ```
 
 > `session_id` 为 SimEngine 会话ID，在启动实验时由 SimEngine Core 分配。
+> 前端浏览器 WebSocket 连接通过 query token 完成鉴权；服务端实现时需校验该 token 与实验实例、会话归属关系。
 
 **消息格式：**
 
 ```json
-// 场景状态推送（SimEngine Core → 前端）
+// 通用消息格式
 {
-  "type": "scene_state",
+  "type": "state_diff | state_full | event | link_update | control_ack | snapshot | action | control | rewind_to",
+  "scene_code": "pbft-consensus",
+  "tick": 42,
+  "timestamp": 1712500000000,
+  "payload": {}
+}
+```
+
+**后端 → 前端消息：**
+
+| type | 说明 | payload 示例 |
+|------|------|-------------|
+| `state_diff` | 状态增量更新（每 tick） | `{"nodes":{"node-3":{"status":"byzantine"}},"messages":[...]}` |
+| `state_full` | 完整状态快照（初始化/回退时） | 完整状态树 |
+| `event` | 仿真事件通知 | `{"event":"view_change","data":{"new_view":2,"reason":"timeout"}}` |
+| `link_update` | 联动状态变更 | `{"source_scene":"pow-mining","affected_scenes":["51-percent-attack"],"changed_keys":["nodes.attacker.hashrate"]}` |
+| `control_ack` | 控制指令确认 | `{"command":"pause","success":true}` |
+| `snapshot` | 快照通知 | `{"snapshot_type":"keyframe","snapshot_id":"snap-001"}` |
+
+**前端 → 后端消息：**
+
+| type | 说明 | payload 示例 |
+|------|------|-------------|
+| `action` | 用户交互操作 | `{"action_code":"crash_node","params":{"node_id":"node-3"}}` |
+| `control` | 仿真控制 | `{"command":"play" | "pause" | "step" | "set_speed" | "reset" | "resume","value":1.5}` |
+| `rewind_to` | 回退到指定 tick | `{"target_tick":30}` |
+
+**消息示例：**
+
+```json
+// 状态增量推送（SimEngine Core → 前端）
+{
+  "type": "state_diff",
   "scene_code": "blockchain-structure-fork",
-  "session_id": "sim-session-001",
-  "sim_tick": 150,
-  "data": {
+  "tick": 150,
+  "timestamp": 1712500000000,
+  "payload": {
     "blocks": [...],
     "latest_block": 42,
     "fork_detected": false,
@@ -2148,43 +2277,59 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
 
 // 用户交互操作（前端 → SimEngine Core → 场景算法容器 gRPC）
 {
-  "type": "interaction",
+  "type": "action",
   "scene_code": "pbft-consensus",
-  "action": "inject_byzantine",
-  "params": {
-    "node_id": "node-3",
-    "behavior": "send_conflicting"
+  "tick": 150,
+  "timestamp": 1712500000000,
+  "payload": {
+    "action_code": "inject_byzantine",
+    "params": {
+      "node_id": "node-3",
+      "behavior": "send_conflicting"
+    }
   }
 }
 
 // 时间控制指令（前端 → SimEngine Core）
 {
-  "type": "time_control",
-  "command": "set_speed",
-  "params": {
-    "speed": 1.5
+  "type": "control",
+  "scene_code": "pbft-consensus",
+  "tick": 150,
+  "timestamp": 1712500000000,
+  "payload": {
+    "command": "set_speed",
+    "value": 1.5
   }
 }
 
 // 联动事件广播（SimEngine Core → 同联动组所有场景前端）
 {
-  "type": "linkage_event",
-  "link_group_id": "1780000000700002",
-  "source_scene": "pbft-consensus",
-  "event": "byzantine_injected",
-  "data": {
-    "node_id": "node-3",
-    "behavior": "send_conflicting",
-    "affected_scenes": ["pbft-consensus", "byzantine-attack", "network-partition"]
+  "type": "link_update",
+  "scene_code": "pbft-consensus",
+  "tick": 150,
+  "timestamp": 1712500000000,
+  "payload": {
+    "link_group_id": "1780000000700002",
+    "source_scene": "pbft-consensus",
+    "event": "byzantine_injected",
+    "data": {
+      "node_id": "node-3",
+      "behavior": "send_conflicting",
+      "affected_scenes": ["pbft-consensus", "byzantine-attack", "network-partition"]
+    }
   }
 }
 
 // 快照通知（SimEngine Core → 前端）
 {
   "type": "snapshot",
-  "snapshot_type": "keyframe",
-  "sim_tick": 150,
-  "snapshot_id": "snap-001"
+  "scene_code": "pbft-consensus",
+  "tick": 150,
+  "timestamp": 1712500000000,
+  "payload": {
+    "snapshot_type": "keyframe",
+    "snapshot_id": "snap-001"
+  }
 }
 ```
 
@@ -2195,10 +2340,12 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
 | play | process | 播放 |
 | pause | process, continuous | 暂停 |
 | step | process | 单步推进 |
-| rewind | process | 回退到指定 tick |
 | set_speed | process, continuous | 变速（0.5x / 1x / 1.5x / 2x） |
 | reset | process | 重置到初始状态 |
-| resume | process, continuous | 恢复播放 |
+| resume | continuous | 恢复持续运行 |
+
+> 回退到指定 tick 不通过 `control.command` 传递，统一使用独立消息 `rewind_to`，负载为 `{"target_tick":30}`。
+> process 模式使用 `play` 启动播放，不使用 `resume`；continuous 模式使用 `resume` 恢复持续运行，不使用 `play`。
 
 > reactive 模式无时间控件，操作即响应。
 

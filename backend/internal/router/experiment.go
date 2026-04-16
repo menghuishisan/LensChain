@@ -1,9 +1,7 @@
 // experiment.go
-// 模块04 — 实验环境 路由注册
-// 注册镜像管理、实验模板、容器配置、检查点、初始化脚本、仿真场景、
-// 标签、多人角色、实验实例、快照、操作日志、实验报告、分组、
-// 组内通信、教师监控、资源配额、全局监控、共享实验库等路由
-// 共 114 个 REST 端点 + 4 个 WebSocket 端点
+// 模块04 — 实验环境路由注册
+// 注册镜像管理、实验模板、实例生命周期、分组协作、监控统计、资源配额与管理员监控等路由
+// WebSocket 路由在 router.go 中统一注册
 
 package router
 
@@ -13,286 +11,234 @@ import (
 	"github.com/lenschain/backend/internal/middleware"
 )
 
-// RegisterExperimentRoutes 注册实验环境模块路由
-func RegisterExperimentRoutes(rg *gin.RouterGroup) {
+// RegisterExperimentRoutes 注册实验环境模块路由。
+func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 	// ========== 1. 镜像管理 ==========
 	images := rg.Group("/images")
 	images.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		images.GET("", todo)                                                         // 镜像列表
-		images.POST("", middleware.RequireAdminOrTeacher(), todo)                     // 创建/上传镜像
-		images.GET("/:id", todo)                                                     // 镜像详情
-		images.PUT("/:id", todo)                                                     // 编辑镜像信息
-		images.DELETE("/:id", middleware.RequireSuperAdmin(), todo)                   // 删除/下架镜像
-		images.POST("/:id/review", middleware.RequireSuperAdmin(), todo)              // 审核镜像
-
-		// 镜像版本
-		images.GET("/:id/versions", todo)                                            // 镜像版本列表
-		images.POST("/:id/versions", todo)                                           // 添加镜像版本
-		images.GET("/:id/config-template", middleware.RequireTeacher(), todo)         // 获取镜像配置模板
-		images.GET("/:id/documentation", middleware.RequireTeacher(), todo)           // 获取镜像结构化文档
+		images.GET("", eh.TemplateHandler.ListImages)
+		images.POST("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.CreateImage)
+		images.GET("/:id", eh.TemplateHandler.GetImage)
+		images.PUT("/:id", eh.TemplateHandler.UpdateImage)
+		images.DELETE("/:id", middleware.RequireSuperAdmin(), eh.TemplateHandler.DeleteImage)
+		images.POST("/:id/review", middleware.RequireSuperAdmin(), eh.TemplateHandler.ReviewImage)
+		images.GET("/:id/versions", eh.TemplateHandler.ListImageVersions)
+		images.POST("/:id/versions", eh.TemplateHandler.CreateImageVersion)
+		images.GET("/:id/config-template", middleware.RequireTeacher(), eh.TemplateHandler.GetImageConfigTemplate)
+		images.GET("/:id/documentation", middleware.RequireTeacher(), eh.TemplateHandler.GetImageDocumentation)
 	}
 
-	// 镜像分类
 	imageCategories := rg.Group("/image-categories")
 	imageCategories.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		imageCategories.GET("", todo)                   // 镜像分类列表
+		imageCategories.GET("", eh.TemplateHandler.ListImageCategories)
 	}
 
-	// 镜像版本（独立路径）
 	imageVersions := rg.Group("/image-versions")
 	imageVersions.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		imageVersions.PUT("/:id", todo)                 // 编辑镜像版本
-		imageVersions.DELETE("/:id", middleware.RequireSuperAdmin(), todo)            // 删除镜像版本
-		imageVersions.PATCH("/:id/default", todo)       // 设为默认版本
+		imageVersions.PUT("/:id", eh.TemplateHandler.UpdateImageVersion)
+		imageVersions.DELETE("/:id", middleware.RequireSuperAdmin(), eh.TemplateHandler.DeleteImageVersion)
+		imageVersions.PATCH("/:id/default", eh.TemplateHandler.SetDefaultImageVersion)
 	}
 
-	// ========== 2. 实验模板管理 ==========
+	// ========== 2. 实验模板 ==========
 	templates := rg.Group("/experiment-templates")
 	templates.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		templates.POST("", middleware.RequireTeacher(), todo)                         // 创建实验模板
-		templates.GET("", middleware.RequireTeacher(), todo)                          // 实验模板列表
-		templates.GET("/:id", middleware.RequireTeacher(), todo)                      // 实验模板详情
-		templates.PUT("/:id", middleware.RequireTeacher(), todo)                      // 编辑实验模板
-		templates.DELETE("/:id", middleware.RequireTeacher(), todo)                   // 删除实验模板
-		templates.POST("/:id/publish", middleware.RequireTeacher(), todo)             // 发布实验模板
-		templates.POST("/:id/clone", middleware.RequireTeacher(), todo)               // 克隆实验模板
-		templates.PATCH("/:id/share", middleware.RequireTeacher(), todo)              // 设置共享状态
-		templates.GET("/:id/k8s-config", middleware.RequireTeacher(), todo)           // 查看K8s编排配置
-		templates.POST("/:id/k8s-config", middleware.RequireTeacher(), todo)          // 微调K8s编排配置
-		templates.POST("/:id/validate", middleware.RequireTeacher(), todo)            // 模板配置验证
-
-		// 容器配置
-		templates.GET("/:id/containers", middleware.RequireTeacher(), todo)           // 容器配置列表
-		templates.POST("/:id/containers", middleware.RequireTeacher(), todo)          // 添加容器配置
-		templates.PUT("/:id/containers/sort", middleware.RequireTeacher(), todo)      // 容器排序
-
-		// 检查点
-		templates.GET("/:id/checkpoints", middleware.RequireTeacher(), todo)          // 检查点列表
-		templates.POST("/:id/checkpoints", middleware.RequireTeacher(), todo)         // 添加检查点
-		templates.PUT("/:id/checkpoints/sort", middleware.RequireTeacher(), todo)     // 检查点排序
-
-		// 初始化脚本
-		templates.GET("/:id/init-scripts", middleware.RequireTeacher(), todo)         // 初始化脚本列表
-		templates.POST("/:id/init-scripts", middleware.RequireTeacher(), todo)        // 添加初始化脚本
-
-		// 仿真场景配置
-		templates.GET("/:id/sim-scenes", middleware.RequireTeacher(), todo)           // 模板仿真场景配置列表
-		templates.POST("/:id/sim-scenes", middleware.RequireTeacher(), todo)          // 添加仿真场景到模板
-		templates.PUT("/:id/sim-scenes/layout", middleware.RequireTeacher(), todo)    // 更新仿真场景布局
-
-		// 标签
-		templates.PUT("/:id/tags", middleware.RequireTeacher(), todo)                 // 设置模板标签
-		templates.GET("/:id/tags", middleware.RequireTeacher(), todo)                 // 获取模板标签
-
-		// 多人实验角色
-		templates.GET("/:id/roles", middleware.RequireTeacher(), todo)                // 角色列表
-		templates.POST("/:id/roles", middleware.RequireTeacher(), todo)               // 添加角色
+		templates.POST("", middleware.RequireTeacher(), eh.TemplateHandler.CreateTemplate)
+		templates.GET("", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplates)
+		templates.GET("/:id", middleware.RequireTeacher(), eh.TemplateHandler.GetTemplate)
+		templates.PUT("/:id", middleware.RequireTeacher(), eh.TemplateHandler.UpdateTemplate)
+		templates.DELETE("/:id", middleware.RequireTeacher(), eh.TemplateHandler.DeleteTemplate)
+		templates.POST("/:id/publish", middleware.RequireTeacher(), eh.TemplateHandler.PublishTemplate)
+		templates.POST("/:id/clone", middleware.RequireTeacher(), eh.TemplateHandler.CloneTemplate)
+		templates.PATCH("/:id/share", middleware.RequireTeacher(), eh.TemplateHandler.ShareTemplate)
+		templates.GET("/:id/k8s-config", middleware.RequireTeacher(), eh.TemplateHandler.GetTemplateK8sConfig)
+		templates.POST("/:id/k8s-config", middleware.RequireTeacher(), eh.TemplateHandler.SetTemplateK8sConfig)
+		templates.POST("/:id/validate", middleware.RequireTeacher(), eh.TemplateHandler.ValidateTemplate)
+		templates.GET("/:id/containers", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplateContainers)
+		templates.POST("/:id/containers", middleware.RequireTeacher(), eh.TemplateHandler.CreateTemplateContainer)
+		templates.PUT("/:id/containers/sort", middleware.RequireTeacher(), eh.TemplateHandler.SortTemplateContainers)
+		templates.GET("/:id/checkpoints", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplateCheckpoints)
+		templates.POST("/:id/checkpoints", middleware.RequireTeacher(), eh.TemplateHandler.CreateTemplateCheckpoint)
+		templates.PUT("/:id/checkpoints/sort", middleware.RequireTeacher(), eh.TemplateHandler.SortTemplateCheckpoints)
+		templates.GET("/:id/init-scripts", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplateInitScripts)
+		templates.POST("/:id/init-scripts", middleware.RequireTeacher(), eh.TemplateHandler.CreateTemplateInitScript)
+		templates.GET("/:id/sim-scenes", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplateSimScenes)
+		templates.POST("/:id/sim-scenes", middleware.RequireTeacher(), eh.TemplateHandler.CreateTemplateSimScene)
+		templates.PUT("/:id/sim-scenes/layout", middleware.RequireTeacher(), eh.TemplateHandler.UpdateTemplateSimSceneLayout)
+		templates.PUT("/:id/tags", middleware.RequireTeacher(), eh.TemplateHandler.SetTemplateTags)
+		templates.GET("/:id/tags", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplateTags)
+		templates.GET("/:id/roles", middleware.RequireTeacher(), eh.TemplateHandler.ListTemplateRoles)
+		templates.POST("/:id/roles", middleware.RequireTeacher(), eh.TemplateHandler.CreateTemplateRole)
 	}
 
-	// 模板容器配置（独立路径）
 	templateContainers := rg.Group("/template-containers")
-	templateContainers.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	templateContainers.Use(middleware.RequireTeacher())
+	templateContainers.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		templateContainers.PUT("/:id", todo)            // 编辑容器配置
-		templateContainers.DELETE("/:id", todo)         // 删除容器配置
+		templateContainers.PUT("/:id", eh.TemplateHandler.UpdateTemplateContainer)
+		templateContainers.DELETE("/:id", eh.TemplateHandler.DeleteTemplateContainer)
 	}
 
-	// 模板检查点（独立路径）
 	templateCheckpoints := rg.Group("/template-checkpoints")
-	templateCheckpoints.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	templateCheckpoints.Use(middleware.RequireTeacher())
+	templateCheckpoints.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		templateCheckpoints.PUT("/:id", todo)           // 编辑检查点
-		templateCheckpoints.DELETE("/:id", todo)        // 删除检查点
+		templateCheckpoints.PUT("/:id", eh.TemplateHandler.UpdateTemplateCheckpoint)
+		templateCheckpoints.DELETE("/:id", eh.TemplateHandler.DeleteTemplateCheckpoint)
 	}
 
-	// 模板初始化脚本（独立路径）
 	templateInitScripts := rg.Group("/template-init-scripts")
-	templateInitScripts.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	templateInitScripts.Use(middleware.RequireTeacher())
+	templateInitScripts.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		templateInitScripts.PUT("/:id", todo)           // 编辑初始化脚本
-		templateInitScripts.DELETE("/:id", todo)        // 删除初始化脚本
+		templateInitScripts.PUT("/:id", eh.TemplateHandler.UpdateTemplateInitScript)
+		templateInitScripts.DELETE("/:id", eh.TemplateHandler.DeleteTemplateInitScript)
 	}
 
-	// 模板仿真场景（独立路径）
 	templateSimScenes := rg.Group("/template-sim-scenes")
-	templateSimScenes.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	templateSimScenes.Use(middleware.RequireTeacher())
+	templateSimScenes.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		templateSimScenes.PUT("/:id", todo)             // 编辑仿真场景配置
-		templateSimScenes.DELETE("/:id", todo)          // 移除仿真场景
+		templateSimScenes.PUT("/:id", eh.TemplateHandler.UpdateTemplateSimScene)
+		templateSimScenes.DELETE("/:id", eh.TemplateHandler.DeleteTemplateSimScene)
 	}
 
-	// 模板角色（独立路径）
 	templateRoles := rg.Group("/template-roles")
-	templateRoles.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	templateRoles.Use(middleware.RequireTeacher())
+	templateRoles.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		templateRoles.PUT("/:id", todo)                 // 编辑角色
-		templateRoles.DELETE("/:id", todo)              // 删除角色
+		templateRoles.PUT("/:id", eh.TemplateHandler.UpdateTemplateRole)
+		templateRoles.DELETE("/:id", eh.TemplateHandler.DeleteTemplateRole)
 	}
 
-	// ========== 3. 仿真场景库 ==========
+	// ========== 3. 仿真场景库与标签 ==========
 	simScenarios := rg.Group("/sim-scenarios")
 	simScenarios.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		simScenarios.GET("", todo)                                                   // 仿真场景列表
-		simScenarios.POST("", middleware.RequireAdminOrTeacher(), todo)               // 上传自定义仿真场景
-		simScenarios.GET("/:id", todo)                                               // 场景详情
-		simScenarios.PUT("/:id", todo)                                               // 编辑场景信息
-		simScenarios.DELETE("/:id", middleware.RequireSuperAdmin(), todo)             // 删除/下架场景
-		simScenarios.POST("/:id/review", middleware.RequireSuperAdmin(), todo)        // 审核场景
+		simScenarios.GET("", eh.TemplateHandler.ListScenarios)
+		simScenarios.POST("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.CreateScenario)
+		simScenarios.GET("/:id", eh.TemplateHandler.GetScenario)
+		simScenarios.PUT("/:id", eh.TemplateHandler.UpdateScenario)
+		simScenarios.DELETE("/:id", middleware.RequireSuperAdmin(), eh.TemplateHandler.DeleteScenario)
+		simScenarios.POST("/:id/review", middleware.RequireSuperAdmin(), eh.TemplateHandler.ReviewScenario)
 	}
 
-	// 联动组
 	simLinkGroups := rg.Group("/sim-link-groups")
-	simLinkGroups.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	simLinkGroups.Use(middleware.RequireTeacher())
+	simLinkGroups.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		simLinkGroups.GET("", todo)                     // 联动组列表
-		simLinkGroups.GET("/:id", todo)                 // 联动组详情
+		simLinkGroups.GET("", eh.TemplateHandler.ListLinkGroups)
+		simLinkGroups.GET("/:id", eh.TemplateHandler.GetLinkGroup)
 	}
 
-	// ========== 4. 标签管理 ==========
 	tags := rg.Group("/tags")
-	tags.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	tags.Use(middleware.RequireTeacher())
+	tags.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		tags.GET("", todo)                              // 标签列表
-		tags.POST("", todo)                             // 创建自定义标签
+		tags.GET("", eh.TemplateHandler.ListTags)
+		tags.POST("", eh.TemplateHandler.CreateTag)
 	}
 
-	// ========== 5. 实验实例管理 ==========
+	sharedTemplates := rg.Group("/shared-experiment-templates")
+	sharedTemplates.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
+	{
+		sharedTemplates.GET("", eh.TemplateHandler.ListSharedTemplates)
+		sharedTemplates.GET("/:id", eh.TemplateHandler.GetSharedTemplate)
+	}
+
+	// ========== 4. 实验实例 ==========
 	instances := rg.Group("/experiment-instances")
 	instances.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		instances.POST("", middleware.RequireStudent(), todo)                         // 启动实验环境
-		instances.GET("", middleware.RequireStudent(), todo)                          // 我的实验实例列表
-		instances.GET("/:id", todo)                                                  // 实验实例详情
-		instances.POST("/:id/pause", todo)                                           // 暂停实验
-		instances.POST("/:id/resume", todo)                                          // 恢复实验
-		instances.POST("/:id/restart", todo)                                         // 重新开始实验
-		instances.POST("/:id/submit", todo)                                          // 提交实验
-		instances.POST("/:id/destroy", todo)                                         // 销毁实验环境
-		instances.POST("/:id/heartbeat", todo)                                       // 心跳上报
-
-		// 检查点验证
-		instances.POST("/:id/checkpoints/verify", todo)                              // 触发检查点验证
-		instances.GET("/:id/checkpoints", todo)                                      // 检查点结果列表
-
-		// 快照
-		instances.GET("/:id/snapshots", todo)                                        // 快照列表
-		instances.POST("/:id/snapshots", todo)                                       // 手动创建快照
-		instances.POST("/:id/snapshots/:snapshot_id/restore", todo)                  // 从快照恢复
-
-		// 操作日志
-		instances.GET("/:id/operation-logs", todo)                                   // 操作日志列表
-
-		// 实验报告
-		instances.POST("/:id/report", todo)                                          // 提交实验报告
-		instances.GET("/:id/report", todo)                                           // 获取实验报告
-		instances.PUT("/:id/report", todo)                                           // 更新实验报告
-
-		// 教师监控相关
-		instances.GET("/:id/terminal-stream", middleware.RequireTeacher(), todo)      // 远程查看学生终端（WebSocket）
-		instances.POST("/:id/message", middleware.RequireTeacher(), todo)             // 向学生发送指导消息
-		instances.POST("/:id/force-destroy", middleware.RequireAdminOrTeacher(), todo) // 强制回收实验环境
-		instances.POST("/:id/manual-grade", middleware.RequireTeacher(), todo)        // 教师手动评分
+		instances.POST("", middleware.RequireStudent(), eh.InstanceHandler.CreateInstance)
+		instances.GET("", middleware.RequireStudent(), eh.InstanceHandler.ListInstances)
+		instances.GET("/:id", eh.InstanceHandler.GetInstance)
+		instances.POST("/:id/pause", eh.InstanceHandler.PauseInstance)
+		instances.POST("/:id/resume", eh.InstanceHandler.ResumeInstance)
+		instances.POST("/:id/restart", eh.InstanceHandler.RestartInstance)
+		instances.POST("/:id/submit", eh.InstanceHandler.SubmitInstance)
+		instances.POST("/:id/destroy", eh.InstanceHandler.DestroyInstance)
+		instances.GET("/:id/terminal", middleware.RequireStudent(), eh.InstanceHandler.ServeStudentTerminalWS)
+		instances.POST("/:id/heartbeat", eh.InstanceHandler.Heartbeat)
+		instances.POST("/:id/checkpoints/verify", eh.InstanceHandler.VerifyCheckpoints)
+		instances.GET("/:id/checkpoints", eh.InstanceHandler.ListCheckpointResults)
+		instances.GET("/:id/snapshots", eh.InstanceHandler.ListSnapshots)
+		instances.POST("/:id/snapshots", eh.InstanceHandler.CreateSnapshot)
+		instances.POST("/:id/snapshots/:snapshot_id/restore", eh.InstanceHandler.RestoreSnapshot)
+		instances.GET("/:id/operation-logs", eh.InstanceHandler.ListOperationLogs)
+		instances.POST("/:id/report", eh.InstanceHandler.CreateReport)
+		instances.GET("/:id/report", eh.InstanceHandler.GetReport)
+		instances.PUT("/:id/report", eh.InstanceHandler.UpdateReport)
+		instances.GET("/:id/terminal-stream", middleware.RequireTeacher(), eh.InstanceHandler.ServeTerminalStreamWS)
+		instances.POST("/:id/message", middleware.RequireTeacher(), eh.InstanceHandler.SendGuidance)
+		instances.POST("/:id/force-destroy", middleware.RequireAdminOrTeacher(), eh.InstanceHandler.ForceDestroyInstance)
+		instances.POST("/:id/manual-grade", middleware.RequireTeacher(), eh.InstanceHandler.ManualGradeInstance)
 	}
 
-	// 检查点结果评分（独立路径）
 	checkpointResults := rg.Group("/checkpoint-results")
-	checkpointResults.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	checkpointResults.Use(middleware.RequireTeacher())
+	checkpointResults.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		checkpointResults.POST("/:id/grade", todo)      // 手动评分检查点
+		checkpointResults.POST("/:id/grade", eh.InstanceHandler.GradeCheckpoint)
 	}
 
-	// ========== 6. 实验分组 ==========
+	// ========== 5. 分组协作 ==========
 	groups := rg.Group("/experiment-groups")
 	groups.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		groups.POST("", middleware.RequireTeacher(), todo)                            // 创建实验分组
-		groups.GET("", todo)                                                         // 分组列表
-		groups.GET("/:id", todo)                                                     // 分组详情
-		groups.PUT("/:id", middleware.RequireTeacher(), todo)                         // 编辑分组
-		groups.DELETE("/:id", middleware.RequireTeacher(), todo)                      // 删除分组
-		groups.POST("/auto-assign", middleware.RequireTeacher(), todo)                // 系统随机分组
-		groups.POST("/:id/join", middleware.RequireStudent(), todo)                   // 学生加入分组
-		groups.DELETE("/:id/members/:student_id", middleware.RequireTeacher(), todo)  // 移除组员
-		groups.GET("/:id/members", todo)                                             // 组员列表
-		groups.GET("/:id/progress", todo)                                            // 组内进度同步
-
-		// 组内通信
-		groups.POST("/:id/messages", todo)                                           // 发送组内消息
-		groups.GET("/:id/messages", todo)                                            // 组内消息历史
+		groups.POST("", middleware.RequireTeacher(), eh.InstanceHandler.CreateGroup)
+		groups.GET("", eh.InstanceHandler.ListGroups)
+		groups.GET("/:id", eh.InstanceHandler.GetGroup)
+		groups.PUT("/:id", middleware.RequireTeacher(), eh.InstanceHandler.UpdateGroup)
+		groups.DELETE("/:id", middleware.RequireTeacher(), eh.InstanceHandler.DeleteGroup)
+		groups.POST("/auto-assign", middleware.RequireTeacher(), eh.InstanceHandler.AutoAssignGroups)
+		groups.POST("/:id/join", middleware.RequireStudent(), eh.InstanceHandler.JoinGroup)
+		groups.DELETE("/:id/members/:student_id", middleware.RequireTeacher(), eh.InstanceHandler.RemoveGroupMember)
+		groups.GET("/:id/members/:student_id/terminal-stream", middleware.RequireStudent(), eh.InstanceHandler.ServeGroupMemberTerminalStreamWS)
+		groups.GET("/:id/members", eh.InstanceHandler.ListGroupMembers)
+		groups.GET("/:id/progress", eh.InstanceHandler.GetGroupProgress)
+		groups.POST("/:id/messages", eh.InstanceHandler.SendGroupMessage)
+		groups.GET("/:id/messages", eh.InstanceHandler.ListGroupMessages)
 	}
 
-	// ========== 7. 教师监控 ==========
-	// 课程维度的实验监控（挂在 /courses 下）
+	// ========== 6. 教师监控 ==========
 	courseMonitor := rg.Group("/courses")
-	courseMonitor.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	courseMonitor.Use(middleware.RequireTeacher())
+	courseMonitor.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
 	{
-		courseMonitor.GET("/:id/experiment-monitor", todo)                            // 课程实验监控面板
-		courseMonitor.GET("/:id/experiment-statistics", todo)                         // 实验统计数据
+		courseMonitor.GET("/:id/experiment-monitor", eh.InstanceHandler.GetCourseMonitor)
+		courseMonitor.GET("/:id/experiment-statistics", eh.InstanceHandler.GetCourseStatistics)
 	}
 
-	// ========== 8. 资源配额管理 ==========
+	// ========== 7. 配额与学校管理员视角 ==========
 	quotas := rg.Group("/resource-quotas")
-	quotas.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	quotas.Use(middleware.RequireSchoolAdminOrSuperAdmin())
+	quotas.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireSchoolAdminOrSuperAdmin())
 	{
-		quotas.GET("", todo)                            // 资源配额列表
-		quotas.POST("", middleware.RequireSuperAdmin(), todo)                         // 创建资源配额
-		quotas.PUT("/:id", todo)                        // 编辑资源配额
-		quotas.GET("/:id", todo)                        // 资源配额详情
+		quotas.GET("", eh.InstanceHandler.ListQuotas)
+		quotas.POST("", middleware.RequireSuperAdmin(), eh.InstanceHandler.CreateQuota)
+		quotas.PUT("/:id", eh.InstanceHandler.UpdateQuota)
+		quotas.GET("/:id", eh.InstanceHandler.GetQuota)
 	}
 
-	// 学校资源使用情况
 	schoolResource := rg.Group("/schools")
-	schoolResource.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	schoolResource.Use(middleware.RequireSchoolAdminOrSuperAdmin())
+	schoolResource.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireSchoolAdminOrSuperAdmin())
 	{
-		schoolResource.GET("/:id/resource-usage", todo) // 学校资源使用情况
+		schoolResource.GET("/:id/resource-usage", eh.InstanceHandler.GetSchoolUsage)
 	}
 
-	// ========== 9. 全局监控（超管） ==========
-	adminExperiment := rg.Group("/admin")
-	adminExperiment.Use(middleware.JWTAuth())
-	adminExperiment.Use(middleware.RequireSuperAdmin())
-	{
-		adminExperiment.GET("/experiment-overview", todo)                             // 全平台实验概览
-		adminExperiment.GET("/container-resources", todo)                             // 全平台容器资源监控
-		adminExperiment.GET("/k8s-cluster-status", todo)                              // K8s集群状态
-		adminExperiment.GET("/experiment-instances", todo)                            // 全平台实验实例列表
-		adminExperiment.POST("/experiment-instances/:id/force-destroy", todo)         // 强制回收任意实验环境
-		adminExperiment.GET("/image-pull-status", todo)                               // 镜像预拉取状态
-		adminExperiment.POST("/image-pull", todo)                                     // 触发镜像预拉取
-	}
-
-	// ========== 10. 共享实验库 ==========
-	sharedTemplates := rg.Group("/shared-experiment-templates")
-	sharedTemplates.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	sharedTemplates.Use(middleware.RequireTeacher())
-	{
-		sharedTemplates.GET("", todo)                   // 共享实验模板列表
-		sharedTemplates.GET("/:id", todo)               // 共享实验模板详情
-	}
-
-	// ========== 11. 学校管理员视角 ==========
 	schoolAdmin := rg.Group("/school")
-	schoolAdmin.Use(middleware.JWTAuth(), middleware.TenantIsolation())
-	schoolAdmin.Use(middleware.RequireSchoolAdmin())
+	schoolAdmin.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireSchoolAdmin())
 	{
-		schoolAdmin.GET("/images", todo)                                              // 本校镜像列表
-		schoolAdmin.GET("/experiment-monitor", todo)                                  // 本校实验监控
-		schoolAdmin.PUT("/course-quotas/:course_id", todo)                            // 课程资源配额分配
+		schoolAdmin.GET("/images", eh.TemplateHandler.ListSchoolImages)
+		schoolAdmin.GET("/experiment-monitor", eh.InstanceHandler.GetSchoolMonitor)
+		schoolAdmin.PUT("/course-quotas/:course_id", eh.InstanceHandler.AssignCourseQuota)
+	}
+
+	// ========== 8. 超管监控 ==========
+	adminExperiment := rg.Group("/admin")
+	adminExperiment.Use(middleware.JWTAuth(), middleware.RequireSuperAdmin())
+	{
+		adminExperiment.GET("/experiment-overview", eh.InstanceHandler.GetExperimentOverview)
+		adminExperiment.GET("/container-resources", eh.InstanceHandler.GetContainerResources)
+		adminExperiment.GET("/k8s-cluster-status", eh.InstanceHandler.GetK8sClusterStatus)
+		adminExperiment.GET("/experiment-instances", eh.InstanceHandler.ListAdminInstances)
+		adminExperiment.POST("/experiment-instances/:id/force-destroy", eh.InstanceHandler.ForceDestroyAdminInstance)
+		adminExperiment.GET("/image-pull-status", eh.InstanceHandler.GetImagePullStatus)
+		adminExperiment.POST("/image-pull", eh.InstanceHandler.TriggerImagePull)
 	}
 }

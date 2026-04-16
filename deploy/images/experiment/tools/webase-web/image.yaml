@@ -1,0 +1,11 @@
+# image.yaml
+name: webase-web
+module: experiment
+category: tools
+runtime: explorer
+ports:
+  - 5000/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+description: FISCO BCOS WeBase Web 管理界面镜像。

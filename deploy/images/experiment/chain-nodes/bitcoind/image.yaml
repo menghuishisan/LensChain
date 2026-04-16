@@ -1,0 +1,45 @@
+# image.yaml
+# 实验环境 — Bitcoind 节点镜像元数据
+
+name: bitcoind
+module: experiment
+category: chain-nodes
+runtime: bitcoin
+default_ports:
+  - port: 8332
+    protocol: tcp
+    name: RPC
+  - port: 8333
+    protocol: tcp
+    name: P2P
+  - port: 18332
+    protocol: tcp
+    name: Testnet RPC
+ports:
+  - 8332/tcp
+  - 8333/tcp
+  - 18332/tcp
+default_env_vars:
+  - key: REGTEST
+    value: "1"
+    desc: 启用教学用 regtest 模式
+  - key: SERVER
+    value: "1"
+    desc: 启用 RPC 服务
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: code-server
+      reason: 在线编写与调试 Bitcoin 脚本实验
+  optional:
+    - image: prometheus
+      reason: 采集节点运行指标
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+  disk: 2Gi
+default_volumes:
+  - path: /home/bitcoin/.bitcoin
+    desc: Bitcoin 数据目录
+description: Bitcoin Core 全节点教学镜像。

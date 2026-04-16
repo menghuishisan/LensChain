@@ -1,0 +1,14 @@
+# image.yaml
+name: substrate-node
+module: experiment
+category: chain-nodes
+runtime: polkadot
+ports:
+  - 9944/tcp
+  - 9933/tcp
+  - 30333/tcp
+resource_recommendation:
+  cpu: 0.5
+  memory: 1Gi
+description: Substrate 开发节点镜像接入位。
+implementation_status: placeholder

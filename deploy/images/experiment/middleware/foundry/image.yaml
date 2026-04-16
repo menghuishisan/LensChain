@@ -1,0 +1,8 @@
+# image.yaml
+# 实验环境 — Foundry 工具链镜像元数据
+
+name: foundry
+module: experiment
+category: middleware
+runtime: evm-tools
+description: 包含 forge / cast / anvil 的智能合约开发与测试工具链。

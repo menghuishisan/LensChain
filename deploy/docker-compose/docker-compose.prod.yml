@@ -1,0 +1,122 @@
+# docker-compose.prod.yml
+# 链镜平台单机生产/演示环境编排模板
+# 适用于非 K8s 环境下的整机部署，正式生产推荐使用 deploy/k8s/
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lenschain}
+      POSTGRES_USER: ${POSTGRES_USER:-lenschain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-03-12T17-29-24Z
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-change-me}; do sleep 1; done &&
+      mc mb --ignore-existing local/${MINIO_BUCKET:-lenschain}
+      "
+    restart: "no"
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js"]
+
+  pbft-consensus:
+    image: lenschain/scenario-pbft-consensus:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SCENARIO_LISTEN_ADDR: :8080
+
+  pow-mining:
+    image: lenschain/scenario-pow-mining:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SCENARIO_LISTEN_ADDR: :8080
+
+  sim-engine:
+    image: lenschain/sim-engine:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - minio-init
+      - pbft-consensus
+      - pow-mining
+    environment:
+      SIM_ENGINE_HTTP_ADDR: :8090
+      SIM_ENGINE_GRPC_ADDR: :9090
+      SIM_ENGINE_PUBLIC_BASE: ${SIM_ENGINE_PUBLIC_BASE:-wss://sim-engine.example.com}
+      SIM_ENGINE_OBJECT_STORAGE_ENDPOINT: minio:9000
+      SIM_ENGINE_OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      SIM_ENGINE_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-me}
+      SIM_ENGINE_OBJECT_STORAGE_BUCKET: ${MINIO_BUCKET:-lenschain}
+      SIM_ENGINE_OBJECT_STORAGE_REGION: us-east-1
+      SIM_ENGINE_OBJECT_STORAGE_PREFIX: sim-engine/snapshots
+      SIM_ENGINE_OBJECT_STORAGE_USE_SSL: "false"
+      SIM_ENGINE_SNAPSHOT_ENCRYPTION_KEY: ${SIM_ENGINE_SNAPSHOT_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+      SIM_ENGINE_SCENE_ENDPOINTS: ${SIM_ENGINE_SCENE_ENDPOINTS:-pbft-consensus=pbft-consensus:8080,pow-mining=pow-mining:8080}
+      SIM_ENGINE_WS_JWT_SECRET: ${SIM_ENGINE_WS_JWT_SECRET:-change-me}
+      SIM_ENGINE_WS_JWT_ISSUER: ${SIM_ENGINE_WS_JWT_ISSUER:-lenschain}
+      SIM_ENGINE_WS_JWT_AUDIENCE: ${SIM_ENGINE_WS_JWT_AUDIENCE:-lenschain-users}
+    ports:
+      - "8090:8090"
+      - "9090:9090"
+
+  backend:
+    image: lenschain/backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+      - minio-init
+      - nats
+      - sim-engine
+    environment:
+      LENSCHAIN_CONFIG: /app/configs/config.yaml
+      LENSCHAIN_DATABASE_HOST: postgres
+      LENSCHAIN_DATABASE_PORT: 5432
+      LENSCHAIN_DATABASE_USER: ${POSTGRES_USER:-lenschain}
+      LENSCHAIN_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      LENSCHAIN_DATABASE_DBNAME: ${POSTGRES_DB:-lenschain}
+      LENSCHAIN_DATABASE_SSLMODE: disable
+      LENSCHAIN_REDIS_HOST: redis
+      LENSCHAIN_REDIS_PORT: 6379
+      LENSCHAIN_MINIO_ENDPOINT: minio:9000
+      LENSCHAIN_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      LENSCHAIN_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-me}
+      LENSCHAIN_MINIO_BUCKET: ${MINIO_BUCKET:-lenschain}
+      LENSCHAIN_MINIO_USE_SSL: "false"
+      LENSCHAIN_NATS_URL: nats://nats:4222
+      LENSCHAIN_SIM_ENGINE_GRPC_ADDR: sim-engine:9090
+      LENSCHAIN_SERVER_HOST: 0.0.0.0
+      LENSCHAIN_SERVER_PORT: 3000
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

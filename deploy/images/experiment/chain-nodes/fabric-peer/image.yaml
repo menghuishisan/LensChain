@@ -1,0 +1,51 @@
+# image.yaml
+# 实验环境 — Fabric Peer 节点镜像元数据
+
+name: fabric-peer
+module: experiment
+category: chain-nodes
+runtime: fabric
+default_ports:
+  - port: 7051
+    protocol: tcp
+    name: gRPC
+  - port: 7053
+    protocol: tcp
+    name: Event Hub
+ports:
+  - 7051/tcp
+  - 7053/tcp
+default_env_vars:
+  - key: CORE_PEER_ID
+    value: peer0.org1
+    desc: Peer 节点 ID
+  - key: CORE_PEER_ADDRESS
+    value: 0.0.0.0:7051
+    desc: Peer 监听地址
+  - key: CORE_PEER_LOCALMSPID
+    value: Org1MSP
+    desc: 本地 MSP ID
+required_dependencies:
+  - fabric-orderer
+typical_companions:
+  required:
+    - image: fabric-orderer
+      reason: Fabric 网络必须有排序节点
+    - image: fabric-ca
+      reason: 证书管理依赖 CA
+  recommended:
+    - image: couchdb
+      reason: 提供富查询状态数据库
+    - image: fabric-tools
+      reason: 提供 CLI 管理能力
+  optional:
+    - image: fabric-explorer
+      reason: 提供链上浏览能力
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+  disk: 1Gi
+default_volumes:
+  - path: /var/hyperledger/production
+    desc: Peer 数据目录
+description: Hyperledger Fabric Peer 教学节点镜像。

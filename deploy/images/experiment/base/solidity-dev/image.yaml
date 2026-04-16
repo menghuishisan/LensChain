@@ -1,0 +1,9 @@
+# image.yaml
+# 实验环境 — Solidity 开发基础镜像元数据
+
+name: solidity-dev
+module: experiment
+category: base
+runtime: solidity-dev
+ports: []
+description: 包含 Node.js、solc、Hardhat、Foundry 的 EVM 教学开发基础镜像。

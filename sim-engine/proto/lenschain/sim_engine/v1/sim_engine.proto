@@ -1,0 +1,243 @@
+syntax = "proto3";
+
+package lenschain.sim_engine.v1;
+
+import "lenschain/sim_scenario/v1/sim_scenario.proto";
+
+option go_package = "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_engine/v1;simenginev1";
+
+// SimEngineService 是平台后端和 SimEngine Core 的控制面 gRPC 接口。
+service SimEngineService {
+  // CreateSession 创建仿真会话并按需启动场景算法容器。
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+
+  // DestroySession 销毁仿真会话并回收场景算法容器。
+  rpc DestroySession(DestroySessionRequest) returns (DestroySessionResponse);
+
+  // GetSessionState 获取会话状态摘要。
+  rpc GetSessionState(GetSessionStateRequest) returns (GetSessionStateResponse);
+
+  // SendInteraction 发送场景交互操作。
+  rpc SendInteraction(SendInteractionRequest) returns (SendInteractionResponse);
+
+  // GetInteractionSchema 获取场景专属交互面板定义。
+  rpc GetInteractionSchema(GetInteractionSchemaRequest) returns (GetInteractionSchemaResponse);
+
+  // ControlTime 控制仿真时钟。
+  rpc ControlTime(ControlTimeRequest) returns (ControlTimeResponse);
+
+  // CreateSnapshot 创建 SimEngine 状态快照。
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+
+  // RestoreSnapshot 恢复 SimEngine 状态快照。
+  rpc RestoreSnapshot(RestoreSnapshotRequest) returns (RestoreSnapshotResponse);
+
+  // StartDataCollection 启动混合实验 Collector 数据采集。
+  rpc StartDataCollection(StartDataCollectionRequest) returns (StartDataCollectionResponse);
+
+  // StopDataCollection 停止混合实验 Collector 数据采集。
+  rpc StopDataCollection(StopDataCollectionRequest) returns (StopDataCollectionResponse);
+}
+
+// SessionStatus 定义仿真会话状态。
+enum SessionStatus {
+  SESSION_STATUS_UNSPECIFIED = 0;
+  SESSION_STATUS_CREATING = 1;
+  SESSION_STATUS_RUNNING = 2;
+  SESSION_STATUS_PAUSED = 3;
+  SESSION_STATUS_STOPPED = 4;
+  SESSION_STATUS_ERROR = 5;
+}
+
+// TimeControlCommand 定义前端可发送的时间控制命令。
+enum TimeControlCommand {
+  TIME_CONTROL_COMMAND_UNSPECIFIED = 0;
+  TIME_CONTROL_COMMAND_PLAY = 1;
+  TIME_CONTROL_COMMAND_PAUSE = 2;
+  TIME_CONTROL_COMMAND_STEP = 3;
+  TIME_CONTROL_COMMAND_REWIND = 4;
+  TIME_CONTROL_COMMAND_SET_SPEED = 5;
+  TIME_CONTROL_COMMAND_RESET = 6;
+  TIME_CONTROL_COMMAND_RESUME = 7;
+}
+
+// WebSocketMessageType 是 SimEngine 数据通道的标准消息类型。
+enum WebSocketMessageType {
+  WEB_SOCKET_MESSAGE_TYPE_UNSPECIFIED = 0;
+  WEB_SOCKET_MESSAGE_TYPE_STATE_DIFF = 1;
+  WEB_SOCKET_MESSAGE_TYPE_STATE_FULL = 2;
+  WEB_SOCKET_MESSAGE_TYPE_EVENT = 3;
+  WEB_SOCKET_MESSAGE_TYPE_LINK_UPDATE = 4;
+  WEB_SOCKET_MESSAGE_TYPE_CONTROL_ACK = 5;
+  WEB_SOCKET_MESSAGE_TYPE_SNAPSHOT = 6;
+  WEB_SOCKET_MESSAGE_TYPE_ACTION = 7;
+  WEB_SOCKET_MESSAGE_TYPE_CONTROL = 8;
+  WEB_SOCKET_MESSAGE_TYPE_REWIND_TO = 9;
+  WEB_SOCKET_MESSAGE_TYPE_TEACHER_SUMMARY = 10;
+}
+
+// CreateSessionRequest 是平台后端创建 SimEngine 会话的请求。
+message CreateSessionRequest {
+  string instance_id = 1;
+  string student_id = 2;
+  repeated SceneConfig scenes = 3;
+  bool linkage_enabled = 4;
+  bytes session_config_json = 5;
+}
+
+// SceneConfig 表示一个实验模板中的仿真场景实例配置。
+message SceneConfig {
+  string scene_code = 1;
+  string scenario_id = 2;
+  string link_group_id = 3;
+  string link_group_code = 4;
+  bytes params_json = 5;
+  bytes initial_state_json = 6;
+  bytes data_source_config_json = 7;
+  bytes layout_position_json = 8;
+  lenschain.sim_scenario.v1.DataSourceMode data_source_mode = 9;
+  bytes shared_state_json = 10;
+}
+
+// Session 是会话创建结果。
+message CreateSessionResponse {
+  string session_id = 1;
+  string instance_id = 2;
+  SessionStatus status = 3;
+  string websocket_url = 4;
+  repeated string active_scene_codes = 5;
+  string error_message = 6;
+}
+
+// DestroySessionRequest 是销毁会话请求。
+message DestroySessionRequest {
+  string session_id = 1;
+}
+
+// GetSessionStateRequest 是会话状态查询请求。
+message GetSessionStateRequest {
+  string session_id = 1;
+}
+
+// SessionState 是教师监控和实验恢复使用的状态摘要。
+message GetSessionStateResponse {
+  string session_id = 1;
+  string instance_id = 2;
+  SessionStatus status = 3;
+  int64 sim_tick = 4;
+  double sim_time_seconds = 5;
+  double speed = 6;
+  repeated string active_scene_codes = 7;
+  repeated string link_group_codes = 8;
+  bytes scene_state_json = 9;
+  string last_action = 10;
+  int64 updated_at_ms = 11;
+}
+
+// SendInteractionRequest 是场景交互控制面请求。
+message SendInteractionRequest {
+  string session_id = 1;
+  string scene_code = 2;
+  string action_code = 3;
+  bytes params_json = 4;
+  string actor_id = 5;
+  string role_key = 6;
+}
+
+// InteractionResult 是交互结果。
+message SendInteractionResponse {
+  bool success = 1;
+  string error_message = 2;
+  bytes data_json = 3;
+}
+
+// GetInteractionSchemaRequest 是场景交互 schema 查询请求。
+message GetInteractionSchemaRequest {
+  string session_id = 1;
+  string scene_code = 2;
+}
+
+// GetInteractionSchemaResponse 返回动态交互面板定义。
+message GetInteractionSchemaResponse {
+  string scene_code = 1;
+  repeated lenschain.sim_scenario.v1.InteractionAction actions = 2;
+}
+
+// ControlTimeRequest 是时间控制请求。
+message ControlTimeRequest {
+  string session_id = 1;
+  TimeControlCommand command = 2;
+  bytes params_json = 3;
+}
+
+// CreateSnapshotRequest 是快照创建请求。
+message CreateSnapshotRequest {
+  string session_id = 1;
+  string description = 2;
+}
+
+// RestoreSnapshotRequest 是快照恢复请求。
+message RestoreSnapshotRequest {
+  string session_id = 1;
+  string snapshot_id = 2;
+}
+
+// Snapshot 表示 SimEngine 状态快照。
+message CreateSnapshotResponse {
+  string snapshot_id = 1;
+  string session_id = 2;
+  string snapshot_type = 3;
+  int64 sim_tick = 4;
+  string object_url = 5;
+  int64 created_at_ms = 6;
+}
+
+// StartDataCollectionRequest 是混合实验采集启动请求。
+message StartDataCollectionRequest {
+  string session_id = 1;
+  bytes collector_config_json = 2;
+}
+
+// StopDataCollectionRequest 是混合实验采集停止请求。
+message StopDataCollectionRequest {
+  string session_id = 1;
+}
+
+// DestroySessionResponse 是销毁会话响应。
+message DestroySessionResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// ControlTimeResponse 是时间控制响应。
+message ControlTimeResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// RestoreSnapshotResponse 是恢复快照响应。
+message RestoreSnapshotResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// StartDataCollectionResponse 是启动采集响应。
+message StartDataCollectionResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// StopDataCollectionResponse 是停止采集响应。
+message StopDataCollectionResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// WebSocketMessage 是前端与 Core 之间的标准数据通道消息。
+message WebSocketMessage {
+  WebSocketMessageType type = 1;
+  string scene_code = 2;
+  int64 tick = 3;
+  int64 timestamp_ms = 4;
+  bytes payload_json = 5;
+}

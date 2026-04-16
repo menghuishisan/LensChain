@@ -1,0 +1,28 @@
+# image.yaml
+# CTF 竞赛 — 通用工具镜像元数据
+
+name: ctf-tools
+module: ctf
+category: tools
+runtime: ctf-tools
+default_ports: []
+ports: []
+default_env_vars: []
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: web-target
+      reason: Web 题目基础联调与利用
+    - image: ganache
+      reason: 智能合约题目链上辅助操作
+  optional:
+    - image: team-tools
+      reason: 攻防赛队伍协作工具补充
+resource_recommendation:
+  cpu: 0.5
+  memory: 512Mi
+default_volumes:
+  - path: /workspace
+    desc: 工具工作目录
+description: 包含常见网络、Web、编码处理工具的比赛辅助镜像。

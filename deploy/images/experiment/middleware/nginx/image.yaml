@@ -1,0 +1,35 @@
+# image.yaml
+name: nginx
+module: experiment
+category: middleware
+runtime: proxy
+default_ports:
+  - port: 80
+    protocol: tcp
+    name: HTTP
+  - port: 443
+    protocol: tcp
+    name: HTTPS
+ports:
+  - 80/tcp
+  - 443/tcp
+default_env_vars: []
+required_dependencies: []
+typical_companions:
+  required: []
+  recommended:
+    - image: postgres
+      reason: 作为应用整体部署中的基础设施代理层
+    - image: minio
+      reason: 为对象存储提供统一入口
+  optional:
+    - image: grafana
+      reason: 与监控系统组合提供统一入口
+resource_recommendation:
+  cpu: 0.1
+  memory: 128Mi
+  disk: 1Gi
+default_volumes:
+  - path: /etc/nginx/conf.d
+    desc: Nginx 配置目录
+description: 反向代理与负载均衡镜像。
