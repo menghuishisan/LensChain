@@ -4,8 +4,6 @@
 
 package dto
 
-import "time"
-
 // ========== 课程管理 DTO ==========
 
 // CreateCourseReq 创建课程请求
@@ -14,8 +12,8 @@ type CreateCourseReq struct {
 	Title       string   `json:"title" binding:"required,max=200"`
 	Description *string  `json:"description"`
 	CoverURL    *string  `json:"cover_url" binding:"omitempty,url,max=500"`
-	CourseType  int      `json:"course_type" binding:"required,oneof=1 2 3 4"`
-	Difficulty  int      `json:"difficulty" binding:"required,oneof=1 2 3 4"`
+	CourseType  int16    `json:"course_type" binding:"required,oneof=1 2 3 4"`
+	Difficulty  int16    `json:"difficulty" binding:"required,oneof=1 2 3 4"`
 	Topic       string   `json:"topic" binding:"required,max=50"`
 	Credits     *float64 `json:"credits" binding:"omitempty,min=0,max=99.9"`
 	SemesterID  *string  `json:"semester_id"`
@@ -29,7 +27,7 @@ type CreateCourseReq struct {
 type CreateCourseResp struct {
 	ID         string  `json:"id"`
 	Title      string  `json:"title"`
-	Status     int     `json:"status"`
+	Status     int16   `json:"status"`
 	StatusText string  `json:"status_text"`
 	InviteCode string  `json:"invite_code"`
 	CoverURL   *string `json:"cover_url"`
@@ -41,8 +39,8 @@ type UpdateCourseReq struct {
 	Title       *string  `json:"title" binding:"omitempty,max=200"`
 	Description *string  `json:"description"`
 	CoverURL    *string  `json:"cover_url" binding:"omitempty,url,max=500"`
-	CourseType  *int     `json:"course_type" binding:"omitempty,oneof=1 2 3 4"`
-	Difficulty  *int     `json:"difficulty" binding:"omitempty,oneof=1 2 3 4"`
+	CourseType  *int16   `json:"course_type" binding:"omitempty,oneof=1 2 3 4"`
+	Difficulty  *int16   `json:"difficulty" binding:"omitempty,oneof=1 2 3 4"`
 	Topic       *string  `json:"topic" binding:"omitempty,max=50"`
 	Credits     *float64 `json:"credits" binding:"omitempty,min=0,max=99.9"`
 	SemesterID  *string  `json:"semester_id"`
@@ -57,8 +55,8 @@ type CourseListReq struct {
 	Page       int    `form:"page" binding:"omitempty,min=1"`
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword    string `form:"keyword"`
-	Status     int    `form:"status" binding:"omitempty,oneof=1 2 3 4 5"`
-	CourseType int    `form:"course_type" binding:"omitempty,oneof=1 2 3 4"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5"`
+	CourseType int16  `form:"course_type" binding:"omitempty,oneof=1 2 3 4"`
 	SortBy     string `form:"sort_by" binding:"omitempty"`
 	SortOrder  string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
@@ -68,18 +66,24 @@ type CourseListItem struct {
 	ID             string  `json:"id"`
 	Title          string  `json:"title"`
 	CoverURL       *string `json:"cover_url"`
-	CourseType     int     `json:"course_type"`
+	CourseType     int16   `json:"course_type"`
 	CourseTypeText string  `json:"course_type_text"`
-	Difficulty     int     `json:"difficulty"`
+	Difficulty     int16   `json:"difficulty"`
 	DifficultyText string  `json:"difficulty_text"`
 	Topic          string  `json:"topic"`
-	Status         int     `json:"status"`
+	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
 	IsShared       bool    `json:"is_shared"`
 	StudentCount   int     `json:"student_count"`
 	StartAt        *string `json:"start_at"`
 	EndAt          *string `json:"end_at"`
 	CreatedAt      string  `json:"created_at"`
+}
+
+// CourseListResp 课程列表响应。
+type CourseListResp struct {
+	List       []CourseListItem `json:"list"`
+	Pagination PaginationResp   `json:"pagination"`
 }
 
 // CourseDetailResp 课程详情响应
@@ -89,12 +93,12 @@ type CourseDetailResp struct {
 	Title          string   `json:"title"`
 	Description    *string  `json:"description"`
 	CoverURL       *string  `json:"cover_url"`
-	CourseType     int      `json:"course_type"`
+	CourseType     int16    `json:"course_type"`
 	CourseTypeText string   `json:"course_type_text"`
-	Difficulty     int      `json:"difficulty"`
+	Difficulty     int16    `json:"difficulty"`
 	DifficultyText string   `json:"difficulty_text"`
 	Topic          string   `json:"topic"`
-	Status         int      `json:"status"`
+	Status         int16    `json:"status"`
 	StatusText     string   `json:"status_text"`
 	IsShared       bool     `json:"is_shared"`
 	InviteCode     *string  `json:"invite_code"`
@@ -133,17 +137,6 @@ type UpdateChapterReq struct {
 	Description *string `json:"description"`
 }
 
-// SortItemReq 排序项（通用）
-type SortItemReq struct {
-	ID        string `json:"id" binding:"required"`
-	SortOrder int    `json:"sort_order" binding:"min=0"`
-}
-
-// SortReq 排序请求
-type SortReq struct {
-	Items []SortItemReq `json:"items" binding:"required,min=1,dive"`
-}
-
 // ChapterWithLessonsResp 章节（含课时列表）响应
 type ChapterWithLessonsResp struct {
 	ID          string           `json:"id"`
@@ -159,7 +152,7 @@ type ChapterWithLessonsResp struct {
 // POST /api/v1/chapters/:id/lessons
 type CreateLessonReq struct {
 	Title            string  `json:"title" binding:"required,max=200"`
-	ContentType      int     `json:"content_type" binding:"required,oneof=1 2 3 4"`
+	ContentType      int16   `json:"content_type" binding:"required,oneof=1 2 3 4"`
 	Content          *string `json:"content"`
 	VideoURL         *string `json:"video_url" binding:"omitempty,url,max=500"`
 	VideoDuration    *int    `json:"video_duration" binding:"omitempty,min=0"`
@@ -171,7 +164,7 @@ type CreateLessonReq struct {
 // PUT /api/v1/lessons/:id
 type UpdateLessonReq struct {
 	Title            *string `json:"title" binding:"omitempty,max=200"`
-	ContentType      *int    `json:"content_type" binding:"omitempty,oneof=1 2 3 4"`
+	ContentType      *int16  `json:"content_type" binding:"omitempty,oneof=1 2 3 4"`
 	Content          *string `json:"content"`
 	VideoURL         *string `json:"video_url" binding:"omitempty,url,max=500"`
 	VideoDuration    *int    `json:"video_duration" binding:"omitempty,min=0"`
@@ -183,7 +176,7 @@ type UpdateLessonReq struct {
 type LessonListItem struct {
 	ID               string  `json:"id"`
 	Title            string  `json:"title"`
-	ContentType      int     `json:"content_type"`
+	ContentType      int16   `json:"content_type"`
 	ContentTypeText  string  `json:"content_type_text"`
 	VideoDuration    *int    `json:"video_duration"`
 	ExperimentID     *string `json:"experiment_id"`
@@ -198,7 +191,7 @@ type LessonDetailResp struct {
 	ChapterID        string                 `json:"chapter_id"`
 	CourseID         string                 `json:"course_id"`
 	Title            string                 `json:"title"`
-	ContentType      int                    `json:"content_type"`
+	ContentType      int16                  `json:"content_type"`
 	ContentTypeText  string                 `json:"content_type_text"`
 	Content          *string                `json:"content"`
 	VideoURL         *string                `json:"video_url"`
@@ -263,10 +256,16 @@ type EnrolledStudentItem struct {
 	College        *string `json:"college"`
 	Major          *string `json:"major"`
 	ClassName      *string `json:"class_name"`
-	JoinMethod     int     `json:"join_method"`
+	JoinMethod     int16   `json:"join_method"`
 	JoinMethodText string  `json:"join_method_text"`
 	JoinedAt       string  `json:"joined_at"`
 	Progress       float64 `json:"progress"`
+}
+
+// StudentListResp 课程学生列表响应。
+type StudentListResp struct {
+	List       []EnrolledStudentItem `json:"list"`
+	Pagination PaginationResp        `json:"pagination"`
 }
 
 // ========== 课表 DTO ==========
@@ -325,8 +324,8 @@ type SharedCourseListReq struct {
 	Page       int    `form:"page" binding:"omitempty,min=1"`
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword    string `form:"keyword"`
-	CourseType int    `form:"course_type" binding:"omitempty,oneof=1 2 3 4"`
-	Difficulty int    `form:"difficulty" binding:"omitempty,oneof=1 2 3 4"`
+	CourseType int16  `form:"course_type" binding:"omitempty,oneof=1 2 3 4"`
+	Difficulty int16  `form:"difficulty" binding:"omitempty,oneof=1 2 3 4"`
 	Topic      string `form:"topic"`
 }
 
@@ -336,15 +335,21 @@ type SharedCourseItem struct {
 	Title          string  `json:"title"`
 	Description    *string `json:"description"`
 	CoverURL       *string `json:"cover_url"`
-	CourseType     int     `json:"course_type"`
+	CourseType     int16   `json:"course_type"`
 	CourseTypeText string  `json:"course_type_text"`
-	Difficulty     int     `json:"difficulty"`
+	Difficulty     int16   `json:"difficulty"`
 	DifficultyText string  `json:"difficulty_text"`
 	Topic          string  `json:"topic"`
 	TeacherName    string  `json:"teacher_name"`
 	SchoolName     string  `json:"school_name"`
 	StudentCount   int     `json:"student_count"`
 	Rating         float64 `json:"rating"`
+}
+
+// SharedCourseListResp 共享课程列表响应。
+type SharedCourseListResp struct {
+	List       []SharedCourseItem `json:"list"`
+	Pagination PaginationResp     `json:"pagination"`
 }
 
 // ========== 课程统计 DTO ==========
@@ -384,9 +389,9 @@ type AssignmentStatItem struct {
 // MyCourseListReq 我的课程列表查询参数
 // GET /api/v1/my-courses
 type MyCourseListReq struct {
-	Page     int `form:"page" binding:"omitempty,min=1"`
-	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
-	Status   int `form:"status" binding:"omitempty,oneof=2 3 4"`
+	Page     int   `form:"page" binding:"omitempty,min=1"`
+	PageSize int   `form:"page_size" binding:"omitempty,min=1,max=100"`
+	Status   int16 `form:"status" binding:"omitempty,oneof=2 3 4"`
 }
 
 // MyCourseItem 我的课程列表项
@@ -394,13 +399,19 @@ type MyCourseItem struct {
 	ID             string  `json:"id"`
 	Title          string  `json:"title"`
 	CoverURL       *string `json:"cover_url"`
-	CourseType     int     `json:"course_type"`
+	CourseType     int16   `json:"course_type"`
 	CourseTypeText string  `json:"course_type_text"`
 	TeacherName    string  `json:"teacher_name"`
-	Status         int     `json:"status"`
+	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
 	Progress       float64 `json:"progress"`
 	JoinedAt       string  `json:"joined_at"`
+}
+
+// MyCourseListResp 我的课程列表响应。
+type MyCourseListResp struct {
+	List       []MyCourseItem `json:"list"`
+	Pagination PaginationResp `json:"pagination"`
 }
 
 // ========== 学习进度 DTO ==========
@@ -408,9 +419,9 @@ type MyCourseItem struct {
 // UpdateProgressReq 更新学习进度请求
 // POST /api/v1/lessons/:id/progress
 type UpdateProgressReq struct {
-	VideoProgress          *int `json:"video_progress" binding:"omitempty,min=0"`
-	StudyDurationIncrement int  `json:"study_duration_increment" binding:"min=0"`
-	Completed              bool `json:"completed"`
+	Status                 int16 `json:"status" binding:"required,oneof=1 2 3"`
+	VideoProgress          *int  `json:"video_progress" binding:"omitempty,min=0"`
+	StudyDurationIncrement int   `json:"study_duration_increment" binding:"min=0"`
 }
 
 // MyProgressResp 我的课程学习进度响应
@@ -429,7 +440,7 @@ type LessonProgressItem struct {
 	LessonID       string  `json:"lesson_id"`
 	LessonTitle    string  `json:"lesson_title"`
 	ChapterTitle   string  `json:"chapter_title"`
-	Status         int     `json:"status"`
+	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
 	VideoProgress  int     `json:"video_progress"`
 	VideoDuration  *int    `json:"video_duration"`
@@ -458,16 +469,8 @@ type StudentProgressItem struct {
 	LastAccessedAt  *string `json:"last_accessed_at"`
 }
 
-// ========== 时间解析辅助 ==========
-
-// ParseTime 解析时间字符串（ISO 8601）
-func ParseTime(s string) (*time.Time, error) {
-	if s == "" {
-		return nil, nil
-	}
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return nil, err
-	}
-	return &t, nil
+// StudentsProgressResp 全班学习进度列表响应。
+type StudentsProgressResp struct {
+	List       []StudentProgressItem `json:"list"`
+	Pagination PaginationResp        `json:"pagination"`
 }

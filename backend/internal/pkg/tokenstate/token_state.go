@@ -1,6 +1,6 @@
 // token_state.go
-// Token生效时间基线缓存工具
-// 统一封装用户 Access Token 失效基线的缓存读写，供认证服务、中间件和跨模块强制下线场景复用
+// 该文件封装令牌失效基线与黑名单状态的统一读写能力，用来支撑“强制下线、其他设备登录
+// 失效、踢人退出”这类认证安全场景。认证服务和 JWT 中间件通过它共享同一套令牌状态判断。
 
 package tokenstate
 
@@ -9,7 +9,11 @@ import (
 	"strconv"
 	"time"
 
+	"gorm.io/gorm"
+
+	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/pkg/cache"
+	"github.com/lenschain/backend/internal/pkg/database"
 )
 
 const tokenValidAfterTTL = 7 * 24 * time.Hour
@@ -33,4 +37,44 @@ func GetTokenValidAfter(ctx context.Context, userID int64) (*time.Time, error) {
 		return nil, err
 	}
 	return &parsed, nil
+}
+
+// ResolveTokenValidAfter 获取用户 Token 生效时间基线。
+// 优先读取缓存，缓存未命中时回源数据库并自动回填缓存。
+func ResolveTokenValidAfter(ctx context.Context, userID int64) (*time.Time, error) {
+	validAfter, err := GetTokenValidAfter(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if validAfter != nil {
+		return validAfter, nil
+	}
+
+	var user entity.User
+	err = database.Get().
+		WithContext(ctx).
+		Select("token_valid_after").
+		Where("id = ?", userID).
+		First(&user).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if user.TokenValidAfter.IsZero() {
+		return nil, nil
+	}
+
+	_ = SetTokenValidAfter(ctx, userID, user.TokenValidAfter)
+	return &user.TokenValidAfter, nil
+}
+
+// IsTokenBlacklisted 判断访问令牌是否已加入黑名单。
+func IsTokenBlacklisted(ctx context.Context, jti string) (bool, error) {
+	if jti == "" {
+		return false, nil
+	}
+	return cache.Exists(ctx, cache.KeyTokenBlacklist+jti)
 }

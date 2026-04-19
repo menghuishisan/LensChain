@@ -1,11 +1,12 @@
 // cors.go
-// 跨域中间件
-// 根据配置文件设置 CORS 响应头
+// 该文件负责处理平台 HTTP 接口的跨域策略，把配置文件里的允许来源、方法和请求头规则
+// 转成标准 CORS 响应头。它只解决浏览器跨域访问边界，不承担鉴权或业务来源校验职责。
 
 package middleware
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -31,17 +32,22 @@ func CORS() gin.HandlerFunc {
 
 		if allowed {
 			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Vary", "Origin")
 		}
 
 		c.Header("Access-Control-Allow-Methods", strings.Join(cfg.AllowedMethods, ", "))
 		c.Header("Access-Control-Allow-Headers", strings.Join(cfg.AllowedHeaders, ", "))
-		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Expose-Headers", "Content-Disposition, X-Total-Count")
 		c.Header("Access-Control-Max-Age", fmt.Sprintf("%.0f", cfg.MaxAge.Seconds()))
 
 		// 预检请求直接返回
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		if c.Request.Method == http.MethodOptions {
+			if !allowed && origin != "" {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 

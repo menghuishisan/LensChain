@@ -1,6 +1,6 @@
 // logger.go
-// 日志模块
-// 基于 Zap 的结构化日志封装，支持控制台和文件输出
+// 该文件封装平台统一的日志初始化与输出入口，负责根据配置决定日志级别、编码格式和输出
+// 位置。中间件、基础设施和业务层都通过这里获取结构化日志器，避免项目里混用多套日志实现。
 
 package logger
 
@@ -16,8 +16,8 @@ import (
 
 // 全局日志实例
 var (
-	L *zap.Logger
-	S *zap.SugaredLogger
+	L = zap.NewNop()
+	S = L.Sugar()
 )
 
 // Init 初始化日志系统
@@ -44,6 +44,11 @@ func Init(cfg *config.LogConfig) error {
 		}
 		fileCore := zapcore.NewCore(encoder, zapcore.AddSync(fileWriter), level)
 		cores = append(cores, fileCore)
+	}
+
+	if len(cores) == 0 {
+		consoleCore := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), level)
+		cores = append(cores, consoleCore)
 	}
 
 	core := zapcore.NewTee(cores...)

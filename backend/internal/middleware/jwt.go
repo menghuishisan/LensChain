@@ -1,33 +1,21 @@
 // jwt.go
-// JWT 鉴权中间件
-// 从 Authorization: Bearer <token> 头中提取并验证 Access Token
-// 将用户信息（UserID、SchoolID、Roles）注入到 gin.Context 中
-// 公开接口（登录、SSO回调等）不经过此中间件
+// 该文件实现平台的 JWT 鉴权中间件，负责从请求头或受控的 query token 中解析访问令牌，
+// 校验黑名单和失效基线，并把当前登录用户信息写入请求上下文。它只负责认证与身份注入，
+// 不负责编排具体业务权限判断。
 
 package middleware
 
 import (
-	"context"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/lenschain/backend/internal/model/entity"
-	"github.com/lenschain/backend/internal/pkg/cache"
-	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
+	"github.com/lenschain/backend/internal/pkg/requestctx"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/tokenstate"
-)
-
-// Context Key 常量
-const (
-	ContextKeyUserID   = "user_id"
-	ContextKeySchoolID = "school_id"
-	ContextKeyRoles    = "roles"
-	ContextKeyJTI      = "jti"
 )
 
 // JWTAuth JWT 鉴权中间件
@@ -63,7 +51,7 @@ func JWTAuth() gin.HandlerFunc {
 		}
 
 		// 检查 Token 是否在黑名单中（被踢下线的 Token）
-		blacklisted, err := cache.Exists(context.Background(), cache.KeyTokenBlacklist+jti)
+		blacklisted, err := tokenstate.IsTokenBlacklisted(c.Request.Context(), jti)
 		if err == nil && blacklisted {
 			response.Abort(c, errcode.ErrTokenBlacklist)
 			return
@@ -83,17 +71,19 @@ func JWTAuth() gin.HandlerFunc {
 				hasIssuedAt = true
 			}
 		}
-		validAfter, err := loadTokenValidAfter(context.Background(), userID)
+		validAfter, err := tokenstate.ResolveTokenValidAfter(c.Request.Context(), userID)
 		if err == nil && validAfter != nil && hasIssuedAt && issuedAt.Before(*validAfter) {
 			response.Abort(c, errcode.ErrRefreshTokenInvalid.WithMessage("账号已在其他设备登录或会话已失效"))
 			return
 		}
 
 		// 将用户信息注入到 Context
-		c.Set(ContextKeyUserID, userID)
-		c.Set(ContextKeySchoolID, schoolID)
-		c.Set(ContextKeyRoles, roles)
-		c.Set(ContextKeyJTI, jti)
+		requestctx.SetAuth(c, requestctx.AuthContext{
+			UserID:   userID,
+			SchoolID: schoolID,
+			Roles:    roles,
+			JTI:      jti,
+		})
 
 		c.Next()
 	}
@@ -133,30 +123,6 @@ func parseJWTClaims(tokenString string) (*jwtpkg.Claims, *jwtpkg.SimWSClaims, er
 	return nil, nil, err
 }
 
-// loadTokenValidAfter 加载用户Token生效时间基线
-// 优先读取缓存，缓存不存在时回源数据库并回填缓存。
-func loadTokenValidAfter(ctx context.Context, userID int64) (*time.Time, error) {
-	validAfter, err := tokenstate.GetTokenValidAfter(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if validAfter != nil {
-		return validAfter, nil
-	}
-
-	var user entity.User
-	err = database.Get().WithContext(ctx).
-		Select("token_valid_after").
-		Where("id = ?", userID).
-		First(&user).Error
-	if err != nil {
-		return nil, err
-	}
-
-	_ = tokenstate.SetTokenValidAfter(ctx, userID, user.TokenValidAfter)
-	return &user.TokenValidAfter, nil
-}
-
 // TempTokenAuth 临时Token鉴权中间件（首次登录改密专用）
 func TempTokenAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -178,39 +144,7 @@ func TempTokenAuth() gin.HandlerFunc {
 			return
 		}
 
-		c.Set(ContextKeyUserID, claims.UserID)
+		requestctx.SetTempAuth(c, claims.UserID)
 		c.Next()
 	}
-}
-
-// GetUserID 从 Context 获取当前用户ID
-func GetUserID(c *gin.Context) int64 {
-	if v, exists := c.Get(ContextKeyUserID); exists {
-		return v.(int64)
-	}
-	return 0
-}
-
-// GetSchoolID 从 Context 获取当前用户的学校ID
-func GetSchoolID(c *gin.Context) int64 {
-	if v, exists := c.Get(ContextKeySchoolID); exists {
-		return v.(int64)
-	}
-	return 0
-}
-
-// GetRoles 从 Context 获取当前用户的角色列表
-func GetRoles(c *gin.Context) []string {
-	if v, exists := c.Get(ContextKeyRoles); exists {
-		return v.([]string)
-	}
-	return nil
-}
-
-// GetJTI 从 Context 获取当前 Token 的 JTI
-func GetJTI(c *gin.Context) string {
-	if v, exists := c.Get(ContextKeyJTI); exists {
-		return v.(string)
-	}
-	return ""
 }

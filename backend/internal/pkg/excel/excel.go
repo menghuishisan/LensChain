@@ -1,7 +1,7 @@
 // excel.go
-// Excel 导入导出工具
-// 基于 excelize/v2 封装
-// 用于：用户批量导入（模块01）、成绩导出（模块06）、审计日志导出（模块08）
+// 该文件封装平台统一的表格导入导出能力，负责处理 Excel/CSV 的模板生成、原始行读取、
+// 标准表头映射和二维数据导出。用户导入、成绩导出、失败明细下载、审计数据导出等功能都
+// 应复用这里的能力，避免每个模块自己解析文件或自己拼导出格式。
 
 package excel
 
@@ -23,8 +23,9 @@ type ExportConfig struct {
 	ColWidths []float64 // 列宽（可选，与 Headers 一一对应）
 }
 
-// Export 导出数据到 Excel
-// rows 为二维字符串数组，每行对应一条数据
+// Export 导出数据到 Excel。
+// 该函数用于生成带表头和基础样式的标准 xlsx 文件，适合模板下载、失败明细导出、
+// 成绩导出和审计导出等需要直接下载 Excel 的场景。
 func Export(config *ExportConfig, rows [][]interface{}) (*bytes.Buffer, error) {
 	f := excelize.NewFile()
 	defer f.Close()
@@ -91,6 +92,36 @@ func Export(config *ExportConfig, rows [][]interface{}) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
+// ExportCSV 导出数据到 CSV。
+// 当接口或文档要求导出 CSV 时使用该函数；它与 Export 共享表头和行数据输入形式，
+// 方便上层在 Excel/CSV 两种格式之间切换而不用重新组织数据。
+func ExportCSV(headers []string, rows [][]interface{}) (*bytes.Buffer, error) {
+	buf := new(bytes.Buffer)
+	writer := csv.NewWriter(buf)
+
+	if len(headers) > 0 {
+		if err := writer.Write(headers); err != nil {
+			return nil, fmt.Errorf("写入 CSV 表头失败: %w", err)
+		}
+	}
+
+	for _, row := range rows {
+		record := make([]string, 0, len(row))
+		for _, value := range row {
+			record = append(record, fmt.Sprint(value))
+		}
+		if err := writer.Write(record); err != nil {
+			return nil, fmt.Errorf("写入 CSV 数据失败: %w", err)
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, fmt.Errorf("生成 CSV 文件失败: %w", err)
+	}
+	return buf, nil
+}
+
 // ImportRow 导入行数据
 type ImportRow struct {
 	RowNum int               // 行号（从1开始，不含表头）
@@ -98,9 +129,9 @@ type ImportRow struct {
 	Errors []string          // 该行的校验错误
 }
 
-// Import 从 Excel 读取数据
-// reader 为文件读取器
-// headers 为期望的表头列名（用于映射）
+// Import 从 Excel 读取数据。
+// 它负责根据期望表头把用户上传的列映射成结构化数据，供后续导入 service 做逐行校验、
+// 去空格、去重和失败明细生成。
 func Import(reader io.Reader, headers []string) ([]ImportRow, error) {
 	f, err := excelize.OpenReader(reader)
 	if err != nil {
@@ -151,8 +182,9 @@ func Import(reader io.Reader, headers []string) ([]ImportRow, error) {
 	return result, nil
 }
 
-// ImportRawRows 从 Excel 或 CSV 读取原始数据行
-// 支持 xlsx/xlsm/xltx/xltm/csv，统一跳过首行表头。
+// ImportRawRows 从 Excel 或 CSV 读取原始数据行。
+// 该函数只负责把首行表头之后的原始内容读出来，不做业务字段含义解释，适合导入前的统一
+// 预处理流程，例如跳过空行、裁剪空格和生成失败明细。
 func ImportRawRows(filename string, reader io.Reader) ([][]string, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
@@ -191,9 +223,9 @@ func ImportRawRows(filename string, reader io.Reader) ([][]string, error) {
 	}
 }
 
-// CreateTemplate 创建导入模板
-// headers 为表头列名
-// sampleRows 为示例数据行（可选）
+// CreateTemplate 创建导入模板。
+// 上层导入接口可以通过它快速生成标准表头和示例行一致的模板文件，减少各模块各自拼装
+// 模板内容的重复工作。
 func CreateTemplate(sheetName string, headers []string, sampleRows [][]interface{}) (*bytes.Buffer, error) {
 	config := &ExportConfig{
 		SheetName: sheetName,

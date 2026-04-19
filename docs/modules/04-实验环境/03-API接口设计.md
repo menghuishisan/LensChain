@@ -378,7 +378,7 @@
   "description": "# 实验简介\n\n本实验将引导你完成第一个Solidity智能合约的编写、编译和部署...",
   "objectives": "1. 理解Solidity基本语法\n2. 掌握合约编译和部署流程\n3. 学会使用Remix IDE",
   "instructions": "## 步骤一：编写合约\n\n打开Remix IDE...",
-  "references": "- [Solidity官方文档](https://docs.soliditylang.org)\n- [Remix IDE](https://remix.ethereum.org)",
+  "reference_materials": "- [Solidity官方文档](https://docs.soliditylang.org)\n- [Remix IDE](https://remix.ethereum.org)",
   "experiment_type": 2,
   "topology_mode": 1,
   "judge_mode": 3,
@@ -435,7 +435,7 @@
     "description": "# 实验简介\n\n...",
     "objectives": "1. 理解Solidity基本语法...",
     "instructions": "## 步骤一：编写合约\n\n...",
-    "references": "- [Solidity官方文档]...",
+    "reference_materials": "- [Solidity官方文档]...",
     "experiment_type": 2,
     "experiment_type_text": "真实环境实验",
     "topology_mode": 1,
@@ -696,7 +696,8 @@
   "message": "资源不足，已加入排队",
   "data": {
     "instance_id": null,
-    "status": "queued",
+    "status": 10,
+    "status_text": "排队中",
     "queue_position": 3,
     "estimated_wait_seconds": 180
   }

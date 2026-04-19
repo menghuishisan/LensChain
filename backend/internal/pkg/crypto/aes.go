@@ -1,7 +1,7 @@
 // aes.go
-// AES-256 加密/解密工具
-// 用于 SSO client_secret 等敏感配置的加密存储
-// 使用 AES-256-GCM 模式，提供认证加密（AEAD）
+// 该文件提供平台统一的对称加密能力，主要用于保护数据库或配置中不应明文保存的敏感值，
+// 例如 SSO 密钥、第三方接入凭据和对象存储访问令牌。这里统一采用 AES-256-GCM，既负责
+// 加密也负责完整性校验，避免各模块自行选算法或写出不安全的加密实现。
 
 package crypto
 
@@ -18,46 +18,53 @@ import (
 	"sync"
 
 	"github.com/lenschain/backend/internal/pkg/logger"
-	"go.uber.org/zap"
 )
 
 // aesKey 全局 AES 密钥（32字节 = AES-256）
 var (
 	aesKey     []byte
+	aesKeyErr  error
 	aesKeyOnce sync.Once
 )
 
-// initAESKey 从环境变量加载 AES 密钥
-// 密钥必须是 base64 编码的 32 字节数据
-// 生产环境（GIN_MODE=release）缺少密钥时直接 panic
+const devAESKeyBase64 = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+
+// initAESKey 从环境变量加载 AES 密钥。
+// 密钥必须是 base64 编码的 32 字节数据；开发环境允许回落到固定开发密钥。
 func initAESKey() {
 	keyStr := os.Getenv("AES_ENCRYPTION_KEY")
 	if keyStr == "" {
 		if os.Getenv("GIN_MODE") == "release" {
-			panic("生产环境必须配置 AES_ENCRYPTION_KEY 环境变量")
+			aesKeyErr = errors.New("生产环境必须配置 AES_ENCRYPTION_KEY 环境变量")
+			return
 		}
 		// 开发环境使用默认密钥并打印警告
 		logger.L.Warn("AES_ENCRYPTION_KEY 未配置，使用开发环境默认密钥（请勿用于生产环境）")
-		keyStr = "bGVuc2NoYWluLWFlcy0yNTYta2V5LWRldiE=" // base64("lenschain-aes-256-key-dev!")
+		keyStr = devAESKeyBase64
 	}
 
 	key, err := base64.StdEncoding.DecodeString(keyStr)
 	if err != nil {
-		panic(fmt.Sprintf("AES_ENCRYPTION_KEY base64 解码失败: %v", err))
+		aesKeyErr = fmt.Errorf("AES_ENCRYPTION_KEY base64 解码失败: %w", err)
+		return
 	}
 
 	// 严格要求 32 字节（AES-256），不做 padding
 	if len(key) != 32 {
-		panic(fmt.Sprintf("AES_ENCRYPTION_KEY 必须为 32 字节（当前 %d 字节）", len(key)))
+		aesKeyErr = fmt.Errorf("AES_ENCRYPTION_KEY 必须为 32 字节（当前 %d 字节）", len(key))
+		return
 	}
 
 	aesKey = key
 }
 
-// getAESKey 获取 AES 密钥（懒加载）
-func getAESKey() []byte {
+// getAESKey 获取 AES 密钥（懒加载）。
+func getAESKey() ([]byte, error) {
 	aesKeyOnce.Do(initAESKey)
-	return aesKey
+	if aesKeyErr != nil {
+		return nil, aesKeyErr
+	}
+	return aesKey, nil
 }
 
 // AESEncrypt 使用 AES-256-GCM 加密明文
@@ -67,7 +74,10 @@ func AESEncrypt(plaintext string) (string, error) {
 		return "", nil
 	}
 
-	key := getAESKey()
+	key, err := getAESKey()
+	if err != nil {
+		return "", err
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
@@ -89,6 +99,36 @@ func AESEncrypt(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// AESEncryptBytes 使用 AES-256-GCM 加密二进制内容。
+// 该函数适用于备份文件、导出文件等非文本数据场景，返回值仍为“随机 nonce + 密文”的字节流。
+func AESEncryptBytes(plaintext []byte) ([]byte, error) {
+	if len(plaintext) == 0 {
+		return []byte{}, nil
+	}
+
+	key, err := getAESKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return ciphertext, nil
+}
+
 // AESDecrypt 使用 AES-256-GCM 解密密文
 // 输入为 base64 编码的密文（包含 nonce）
 func AESDecrypt(cipherBase64 string) (string, error) {
@@ -96,7 +136,10 @@ func AESDecrypt(cipherBase64 string) (string, error) {
 		return "", nil
 	}
 
-	key := getAESKey()
+	key, err := getAESKey()
+	if err != nil {
+		return "", err
+	}
 	ciphertext, err := base64.StdEncoding.DecodeString(cipherBase64)
 	if err != nil {
 		return "", errors.New("密文格式错误")
@@ -124,6 +167,36 @@ func AESDecrypt(cipherBase64 string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// AESDecryptBytes 使用 AES-256-GCM 解密二进制内容。
+// 输入必须是 AESEncryptBytes 输出的原始字节流格式。
+func AESDecryptBytes(ciphertext []byte) ([]byte, error) {
+	if len(ciphertext) == 0 {
+		return []byte{}, nil
+	}
+
+	key, err := getAESKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ciphertext) < gcm.NonceSize() {
+		return nil, errors.New("密文格式错误")
+	}
+
+	nonce := ciphertext[:gcm.NonceSize()]
+	payload := ciphertext[gcm.NonceSize():]
+	return gcm.Open(nil, nonce, payload, nil)
 }
 
 // GenerateRandomPassword 生成随机密码
@@ -185,15 +258,4 @@ func pickRandom(charset string) rune {
 		return rune(charset[0])
 	}
 	return rune(charset[idx.Int64()])
-}
-
-// MustGenerateRandomPassword 生成随机密码，失败时记录日志并 panic
-// 仅在密码生成是关键路径时使用（如创建校管账号）
-func MustGenerateRandomPassword(length int) string {
-	pwd, err := GenerateRandomPassword(length)
-	if err != nil {
-		logger.L.Error("生成随机密码失败", zap.Error(err))
-		panic("生成随机密码失败: " + err.Error())
-	}
-	return pwd
 }

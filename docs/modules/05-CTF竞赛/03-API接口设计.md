@@ -2400,6 +2400,141 @@
 
 ---
 
+### 2.43 GET /api/v1/ctf/competitions/:id/leaderboard/history — 排行榜历史快照
+
+**权限：** 全部角色
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | int | 否 | 页码，默认1 |
+| page_size | int | 否 | 每页条数，默认20 |
+| group_id | string | 否 | 攻防赛分组ID（攻防赛时可传） |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "snapshot_at": "2026-04-20T14:30:00Z",
+        "rankings": [
+          {
+            "rank": 1,
+            "team_id": "1780000000540003",
+            "team_name": "SmartAudit",
+            "score": 1250,
+            "solve_count": 5,
+            "last_solve_at": "2026-04-20T13:20:00Z"
+          },
+          {
+            "rank": 2,
+            "team_id": "1780000000540001",
+            "team_name": "BlockSec",
+            "score": 1100,
+            "solve_count": 4,
+            "last_solve_at": "2026-04-20T14:10:00Z"
+          }
+        ]
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "total": 12,
+      "total_pages": 1
+    }
+  }
+}
+```
+
+> 解题赛返回 `score / solve_count / last_solve_at`；攻防赛返回 `token_balance / attacks_successful / defenses_successful / patches_accepted`。快照数据来源于定时归档的排行榜快照表。
+
+---
+
+### 2.44 GET /api/v1/ctf/competitions/:id/environments — 竞赛环境资源列表
+
+**权限：** 竞赛创建者 / 超级管理员
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | int | 否 | 页码，默认1 |
+| page_size | int | 否 | 每页条数，默认20 |
+| status | int | 否 | 环境状态：1创建中 2运行中 3已停止 4异常 5已销毁 |
+| challenge_id | string | 否 | 按题目筛选 |
+| team_id | string | 否 | 按队伍筛选 |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "id": "1780000000630001",
+        "competition_id": "1780000000500001",
+        "challenge_id": "1780000000510001",
+        "challenge_title": "重入攻击：银行合约",
+        "team_id": "1780000000540001",
+        "team_name": "BlockSec",
+        "namespace": "ctf-1780000000500001-1780000000540001-1780000000510001",
+        "status": 2,
+        "status_text": "运行中",
+        "chain_rpc_url": "http://10.0.5.12:8545",
+        "started_at": "2026-04-20T10:00:30Z",
+        "created_at": "2026-04-20T10:00:00Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "total": 67,
+      "total_pages": 4
+    }
+  }
+}
+```
+
+---
+
+### 2.45 POST /api/v1/ctf/challenge-environments/:id/force-destroy — 强制回收环境
+
+**权限：** 超级管理员
+
+**请求体：**
+
+```json
+{
+  "reason": "竞赛已结束，统一回收残留环境"
+}
+```
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "强制回收成功",
+  "data": {
+    "environment_id": "1780000000630001",
+    "status": 5,
+    "status_text": "已销毁"
+  }
+}
+```
+
+> 该接口用于管理员绕过参赛者权限直接回收异常或残留环境，并记录审计原因。
+
+---
+
 ## 三、WebSocket 接口
 
 ### 3.1 连接地址

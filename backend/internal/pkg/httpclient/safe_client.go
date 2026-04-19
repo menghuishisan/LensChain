@@ -1,7 +1,7 @@
 // safe_client.go
-// SSRF 安全的 HTTP 客户端
-// 用于 SSO 连接测试等需要访问外部 URL 的场景
-// 防止服务端请求伪造（SSRF）攻击：仅允许 HTTPS、拒绝私有/回环 IP
+// 该文件提供带 SSRF 防护的 HTTP 访问能力，主要用于 SSO 对接测试、外部服务探测等必须
+// 访问外部地址的场景。它的核心目标是统一拦截不安全 URL，避免业务层直接拿标准客户端去
+// 请求内网、回环或非 HTTPS 地址。
 
 package httpclient
 
@@ -24,6 +24,8 @@ var (
 	// ErrHTTPScheme 非 HTTPS 协议
 	ErrHTTPScheme = errors.New("仅允许HTTPS协议")
 )
+
+var privateNetworks = parsePrivateNetworks()
 
 // SafeGet 安全的 HTTP GET 请求
 // 1. 仅允许 HTTPS 协议
@@ -101,8 +103,25 @@ func newSafeClient() *http.Client {
 
 // validateHTTPSURL 校验仅允许HTTPS
 func validateHTTPSURL(rawURL string) error {
-	if !strings.HasPrefix(rawURL, "https://") {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("URL格式错误：%w", err)
+	}
+	if parsedURL.Scheme != "https" {
 		return ErrHTTPScheme
+	}
+	if parsedURL.Host == "" {
+		return errors.New("URL缺少主机名")
+	}
+	if parsedURL.User != nil {
+		return errors.New("URL中不允许携带用户信息")
+	}
+	host := parsedURL.Hostname()
+	if host == "" {
+		return errors.New("URL缺少主机名")
+	}
+	if ip := net.ParseIP(host); ip != nil && isPrivateIP(ip) {
+		return ErrPrivateIP
 	}
 	return nil
 }
@@ -149,20 +168,8 @@ func isPrivateIP(ip net.IP) bool {
 	}
 
 	// RFC 1918 私有地址
-	privateRanges := []struct {
-		network *net.IPNet
-	}{
-		{mustParseCIDR("10.0.0.0/8")},
-		{mustParseCIDR("172.16.0.0/12")},
-		{mustParseCIDR("192.168.0.0/16")},
-		// IPv6 私有地址
-		{mustParseCIDR("fc00::/7")},
-		// AWS/云元数据地址
-		{mustParseCIDR("169.254.169.254/32")},
-	}
-
-	for _, r := range privateRanges {
-		if r.network.Contains(ip) {
+	for _, network := range privateNetworks {
+		if network.Contains(ip) {
 			return true
 		}
 	}
@@ -170,11 +177,24 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// mustParseCIDR 解析 CIDR，失败时 panic（仅用于初始化常量）
-func mustParseCIDR(cidr string) *net.IPNet {
-	_, network, err := net.ParseCIDR(cidr)
-	if err != nil {
-		panic(fmt.Sprintf("无效的CIDR: %s", cidr))
+// parsePrivateNetworks 解析基础内网地址段。
+// 这里使用固定常量，若未来常量维护出错，则跳过异常项而不是在运行时 panic。
+func parsePrivateNetworks() []*net.IPNet {
+	cidrs := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+		"169.254.169.254/32",
 	}
-	return network
+
+	networks := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		networks = append(networks, network)
+	}
+	return networks
 }

@@ -8,7 +8,7 @@
 
 package enum
 
-// ========== 镜像来源类型（experiment_images.source_type） ==========
+// ========== 镜像来源类型（images.source_type） ==========
 
 const (
 	ImageSourceTypeOfficial = 1 // 平台官方
@@ -16,13 +16,13 @@ const (
 )
 
 // ImageSourceTypeText 镜像来源类型文本映射
-var ImageSourceTypeText = map[int]string{
+var ImageSourceTypeText = map[int16]string{
 	ImageSourceTypeOfficial: "平台官方",
 	ImageSourceTypeCustom:   "教师自定义",
 }
 
 // GetImageSourceTypeText 获取镜像来源类型文本
-func GetImageSourceTypeText(t int) string {
+func GetImageSourceTypeText(t int16) string {
 	if text, ok := ImageSourceTypeText[t]; ok {
 		return text
 	}
@@ -30,12 +30,12 @@ func GetImageSourceTypeText(t int) string {
 }
 
 // IsValidImageSourceType 校验镜像来源类型是否合法
-func IsValidImageSourceType(t int) bool {
+func IsValidImageSourceType(t int16) bool {
 	_, ok := ImageSourceTypeText[t]
 	return ok
 }
 
-// ========== 镜像状态（experiment_images.status） ==========
+// ========== 镜像状态（images.status） ==========
 
 const (
 	ImageStatusNormal   = 1 // 正常
@@ -45,7 +45,7 @@ const (
 )
 
 // ImageStatusText 镜像状态文本映射
-var ImageStatusText = map[int]string{
+var ImageStatusText = map[int16]string{
 	ImageStatusNormal:   "正常",
 	ImageStatusPending:  "待审核",
 	ImageStatusOffShelf: "已下架",
@@ -53,7 +53,7 @@ var ImageStatusText = map[int]string{
 }
 
 // GetImageStatusText 获取镜像状态文本
-func GetImageStatusText(s int) string {
+func GetImageStatusText(s int16) string {
 	if text, ok := ImageStatusText[s]; ok {
 		return text
 	}
@@ -61,7 +61,7 @@ func GetImageStatusText(s int) string {
 }
 
 // IsValidImageStatus 校验镜像状态是否合法
-func IsValidImageStatus(s int) bool {
+func IsValidImageStatus(s int16) bool {
 	_, ok := ImageStatusText[s]
 	return ok
 }
@@ -74,13 +74,13 @@ const (
 )
 
 // ImageVersionStatusText 镜像版本状态文本映射
-var ImageVersionStatusText = map[int]string{
+var ImageVersionStatusText = map[int16]string{
 	ImageVersionStatusNormal:     "正常",
 	ImageVersionStatusDeprecated: "已废弃",
 }
 
 // GetImageVersionStatusText 获取镜像版本状态文本
-func GetImageVersionStatusText(s int) string {
+func GetImageVersionStatusText(s int16) string {
 	if text, ok := ImageVersionStatusText[s]; ok {
 		return text
 	}
@@ -88,7 +88,7 @@ func GetImageVersionStatusText(s int) string {
 }
 
 // IsValidImageVersionStatus 校验镜像版本状态是否合法
-func IsValidImageVersionStatus(s int) bool {
+func IsValidImageVersionStatus(s int16) bool {
 	_, ok := ImageVersionStatusText[s]
 	return ok
 }
@@ -102,14 +102,14 @@ const (
 )
 
 // ExperimentTypeText 实验类型文本映射
-var ExperimentTypeText = map[int]string{
+var ExperimentTypeText = map[int16]string{
 	ExperimentTypeSimulation: "纯仿真",
 	ExperimentTypeReal:       "真实环境",
 	ExperimentTypeMixed:      "混合",
 }
 
 // GetExperimentTypeText 获取实验类型文本
-func GetExperimentTypeText(t int) string {
+func GetExperimentTypeText(t int16) string {
 	if text, ok := ExperimentTypeText[t]; ok {
 		return text
 	}
@@ -117,7 +117,7 @@ func GetExperimentTypeText(t int) string {
 }
 
 // IsValidExperimentType 校验实验类型是否合法
-func IsValidExperimentType(t int) bool {
+func IsValidExperimentType(t int16) bool {
 	_, ok := ExperimentTypeText[t]
 	return ok
 }
@@ -132,7 +132,7 @@ const (
 )
 
 // TopologyModeText 拓扑模式文本映射
-var TopologyModeText = map[int]string{
+var TopologyModeText = map[int16]string{
 	TopologyModeSingleNode:  "单人单节点",
 	TopologyModeMultiNode:   "单人多节点",
 	TopologyModeCollaborate: "多人协作组网",
@@ -140,7 +140,7 @@ var TopologyModeText = map[int]string{
 }
 
 // GetTopologyModeText 获取拓扑模式文本
-func GetTopologyModeText(m int) string {
+func GetTopologyModeText(m int16) string {
 	if text, ok := TopologyModeText[m]; ok {
 		return text
 	}
@@ -148,7 +148,7 @@ func GetTopologyModeText(m int) string {
 }
 
 // IsValidTopologyMode 校验拓扑模式是否合法
-func IsValidTopologyMode(m int) bool {
+func IsValidTopologyMode(m int16) bool {
 	_, ok := TopologyModeText[m]
 	return ok
 }
@@ -162,14 +162,14 @@ const (
 )
 
 // JudgeModeText 判题模式文本映射
-var JudgeModeText = map[int]string{
+var JudgeModeText = map[int16]string{
 	JudgeModeAuto:   "纯自动",
 	JudgeModeManual: "纯手动",
 	JudgeModeMixed:  "混合",
 }
 
 // GetJudgeModeText 获取判题模式文本
-func GetJudgeModeText(m int) string {
+func GetJudgeModeText(m int16) string {
 	if text, ok := JudgeModeText[m]; ok {
 		return text
 	}
@@ -177,7 +177,7 @@ func GetJudgeModeText(m int) string {
 }
 
 // IsValidJudgeMode 校验判题模式是否合法
-func IsValidJudgeMode(m int) bool {
+func IsValidJudgeMode(m int16) bool {
 	_, ok := JudgeModeText[m]
 	return ok
 }
@@ -190,13 +190,13 @@ const (
 )
 
 // ScoreStrategyText 成绩策略文本映射
-var ScoreStrategyText = map[int]string{
+var ScoreStrategyText = map[int16]string{
 	ScoreStrategyLast:    "取最后一次",
 	ScoreStrategyHighest: "取最高分",
 }
 
 // GetScoreStrategyText 获取成绩策略文本
-func GetScoreStrategyText(s int) string {
+func GetScoreStrategyText(s int16) string {
 	if text, ok := ScoreStrategyText[s]; ok {
 		return text
 	}
@@ -204,7 +204,7 @@ func GetScoreStrategyText(s int) string {
 }
 
 // IsValidScoreStrategy 校验成绩策略是否合法
-func IsValidScoreStrategy(s int) bool {
+func IsValidScoreStrategy(s int16) bool {
 	_, ok := ScoreStrategyText[s]
 	return ok
 }
@@ -218,14 +218,14 @@ const (
 )
 
 // TemplateStatusText 模板状态文本映射
-var TemplateStatusText = map[int]string{
+var TemplateStatusText = map[int16]string{
 	TemplateStatusDraft:     "草稿",
 	TemplateStatusPublished: "已发布",
 	TemplateStatusOffShelf:  "已下架",
 }
 
 // GetTemplateStatusText 获取模板状态文本
-func GetTemplateStatusText(s int) string {
+func GetTemplateStatusText(s int16) string {
 	if text, ok := TemplateStatusText[s]; ok {
 		return text
 	}
@@ -233,12 +233,12 @@ func GetTemplateStatusText(s int) string {
 }
 
 // IsValidTemplateStatus 校验模板状态是否合法
-func IsValidTemplateStatus(s int) bool {
+func IsValidTemplateStatus(s int16) bool {
 	_, ok := TemplateStatusText[s]
 	return ok
 }
 
-// ========== 检查点类型（experiment_checkpoints.check_type） ==========
+// ========== 检查点类型（template_checkpoints.check_type） ==========
 
 const (
 	CheckTypeScript    = 1 // 后端脚本验证
@@ -247,14 +247,14 @@ const (
 )
 
 // CheckTypeText 检查点类型文本映射
-var CheckTypeText = map[int]string{
+var CheckTypeText = map[int16]string{
 	CheckTypeScript:    "后端脚本验证",
 	CheckTypeManual:    "手动评分",
 	CheckTypeSimAssert: "SimEngine状态断言",
 }
 
 // GetCheckTypeText 获取检查点类型文本
-func GetCheckTypeText(t int) string {
+func GetCheckTypeText(t int16) string {
 	if text, ok := CheckTypeText[t]; ok {
 		return text
 	}
@@ -262,12 +262,12 @@ func GetCheckTypeText(t int) string {
 }
 
 // IsValidCheckType 校验检查点类型是否合法
-func IsValidCheckType(t int) bool {
+func IsValidCheckType(t int16) bool {
 	_, ok := CheckTypeText[t]
 	return ok
 }
 
-// ========== 检查点范围（experiment_checkpoints.scope） ==========
+// ========== 检查点范围（template_checkpoints.scope） ==========
 
 const (
 	CheckpointScopePersonal = 1 // 个人
@@ -275,13 +275,13 @@ const (
 )
 
 // CheckpointScopeText 检查点范围文本映射
-var CheckpointScopeText = map[int]string{
+var CheckpointScopeText = map[int16]string{
 	CheckpointScopePersonal: "个人",
 	CheckpointScopeGroup:    "组级",
 }
 
 // GetCheckpointScopeText 获取检查点范围文本
-func GetCheckpointScopeText(s int) string {
+func GetCheckpointScopeText(s int16) string {
 	if text, ok := CheckpointScopeText[s]; ok {
 		return text
 	}
@@ -289,7 +289,7 @@ func GetCheckpointScopeText(s int) string {
 }
 
 // IsValidCheckpointScope 校验检查点范围是否合法
-func IsValidCheckpointScope(s int) bool {
+func IsValidCheckpointScope(s int16) bool {
 	_, ok := CheckpointScopeText[s]
 	return ok
 }
@@ -302,13 +302,13 @@ const (
 )
 
 // ScenarioSourceTypeText 场景来源文本映射
-var ScenarioSourceTypeText = map[int]string{
+var ScenarioSourceTypeText = map[int16]string{
 	ScenarioSourceTypeBuiltIn: "平台内置",
 	ScenarioSourceTypeCustom:  "教师自定义",
 }
 
 // GetScenarioSourceTypeText 获取场景来源文本
-func GetScenarioSourceTypeText(t int) string {
+func GetScenarioSourceTypeText(t int16) string {
 	if text, ok := ScenarioSourceTypeText[t]; ok {
 		return text
 	}
@@ -316,7 +316,7 @@ func GetScenarioSourceTypeText(t int) string {
 }
 
 // IsValidScenarioSourceType 校验场景来源是否合法
-func IsValidScenarioSourceType(t int) bool {
+func IsValidScenarioSourceType(t int16) bool {
 	_, ok := ScenarioSourceTypeText[t]
 	return ok
 }
@@ -331,7 +331,7 @@ const (
 )
 
 // ScenarioStatusText 场景状态文本映射
-var ScenarioStatusText = map[int]string{
+var ScenarioStatusText = map[int16]string{
 	ScenarioStatusNormal:   "正常",
 	ScenarioStatusPending:  "待审核",
 	ScenarioStatusOffShelf: "已下架",
@@ -339,7 +339,7 @@ var ScenarioStatusText = map[int]string{
 }
 
 // GetScenarioStatusText 获取场景状态文本
-func GetScenarioStatusText(s int) string {
+func GetScenarioStatusText(s int16) string {
 	if text, ok := ScenarioStatusText[s]; ok {
 		return text
 	}
@@ -347,61 +347,28 @@ func GetScenarioStatusText(s int) string {
 }
 
 // IsValidScenarioStatus 校验场景状态是否合法
-func IsValidScenarioStatus(s int) bool {
+func IsValidScenarioStatus(s int16) bool {
 	_, ok := ScenarioStatusText[s]
 	return ok
-}
-
-// ========== 场景分类（sim_scenarios.category） ==========
-
-const (
-	ScenarioCategoryNodeNetwork    = "node_network"
-	ScenarioCategoryConsensus      = "consensus"
-	ScenarioCategoryCryptography   = "cryptography"
-	ScenarioCategoryDataStructure  = "data_structure"
-	ScenarioCategoryTransaction    = "transaction"
-	ScenarioCategorySmartContract  = "smart_contract"
-	ScenarioCategoryAttackSecurity = "attack_security"
-	ScenarioCategoryEconomic       = "economic"
-)
-
-// ScenarioCategoryText 场景分类文本映射。
-var ScenarioCategoryText = map[string]string{
-	ScenarioCategoryNodeNetwork:    "节点网络",
-	ScenarioCategoryConsensus:      "共识过程",
-	ScenarioCategoryCryptography:   "密码学",
-	ScenarioCategoryDataStructure:  "数据结构",
-	ScenarioCategoryTransaction:    "交易流程",
-	ScenarioCategorySmartContract:  "智能合约",
-	ScenarioCategoryAttackSecurity: "攻击安全",
-	ScenarioCategoryEconomic:       "经济模型",
-}
-
-// GetScenarioCategoryText 获取场景分类文本。
-func GetScenarioCategoryText(category string) string {
-	if text, ok := ScenarioCategoryText[category]; ok {
-		return text
-	}
-	return category
 }
 
 // ========== 数据源模式（sim_scenarios.data_source_mode） ==========
 
 const (
-	DataSourceModeSim  = 1 // 仿真模式
-	DataSourceModeReal = 2 // 采集模式
-	DataSourceModeDual = 3 // 双模式
+	DataSourceModeSim     = 1 // 仿真模式
+	DataSourceModeCollect = 2 // 采集模式
+	DataSourceModeDual    = 3 // 双模式
 )
 
 // DataSourceModeText 数据源模式文本映射
-var DataSourceModeText = map[int]string{
-	DataSourceModeSim:  "仿真模式",
-	DataSourceModeReal: "采集模式",
-	DataSourceModeDual: "双模式",
+var DataSourceModeText = map[int16]string{
+	DataSourceModeSim:     "仿真模式",
+	DataSourceModeCollect: "采集模式",
+	DataSourceModeDual:    "双模式",
 }
 
 // GetDataSourceModeText 获取数据源模式文本
-func GetDataSourceModeText(m int) string {
+func GetDataSourceModeText(m int16) string {
 	if text, ok := DataSourceModeText[m]; ok {
 		return text
 	}
@@ -409,7 +376,7 @@ func GetDataSourceModeText(m int) string {
 }
 
 // IsValidDataSourceMode 校验数据源模式是否合法
-func IsValidDataSourceMode(m int) bool {
+func IsValidDataSourceMode(m int16) bool {
 	_, ok := DataSourceModeText[m]
 	return ok
 }
@@ -417,32 +384,34 @@ func IsValidDataSourceMode(m int) bool {
 // ========== 实例状态（experiment_instances.status） ==========
 
 const (
-	InstanceStatusCreating  = 1 // 创建中
-	InstanceStatusRunning   = 2 // 运行中
-	InstanceStatusPaused    = 3 // 暂停
-	InstanceStatusSubmitted = 4 // 已提交
-	InstanceStatusTimeout   = 5 // 已超时
-	InstanceStatusDestroyed = 6 // 已销毁
-	InstanceStatusError     = 7 // 错误
-	InstanceStatusQueued    = 8 // 排队中
-	InstanceStatusRestoring = 9 // 恢复中
+	InstanceStatusCreating     = 1  // 创建中
+	InstanceStatusInitializing = 2  // 初始化中
+	InstanceStatusRunning      = 3  // 运行中
+	InstanceStatusPaused       = 4  // 暂停
+	InstanceStatusCompleted    = 5  // 已完成
+	InstanceStatusExpired      = 6  // 已过期
+	InstanceStatusError        = 7  // 异常
+	InstanceStatusDestroyed    = 8  // 已销毁
+	InstanceStatusCreateFailed = 9  // 创建失败
+	InstanceStatusQueued       = 10 // 排队中
 )
 
 // InstanceStatusText 实例状态文本映射
-var InstanceStatusText = map[int]string{
-	InstanceStatusCreating:  "创建中",
-	InstanceStatusRunning:   "运行中",
-	InstanceStatusPaused:    "暂停",
-	InstanceStatusSubmitted: "已提交",
-	InstanceStatusTimeout:   "已超时",
-	InstanceStatusDestroyed: "已销毁",
-	InstanceStatusError:     "错误",
-	InstanceStatusQueued:    "排队中",
-	InstanceStatusRestoring: "恢复中",
+var InstanceStatusText = map[int16]string{
+	InstanceStatusCreating:     "创建中",
+	InstanceStatusInitializing: "初始化中",
+	InstanceStatusRunning:      "运行中",
+	InstanceStatusPaused:       "暂停",
+	InstanceStatusCompleted:    "已完成",
+	InstanceStatusExpired:      "已过期",
+	InstanceStatusError:        "异常",
+	InstanceStatusDestroyed:    "已销毁",
+	InstanceStatusCreateFailed: "创建失败",
+	InstanceStatusQueued:       "排队中",
 }
 
 // GetInstanceStatusText 获取实例状态文本
-func GetInstanceStatusText(s int) string {
+func GetInstanceStatusText(s int16) string {
 	if text, ok := InstanceStatusText[s]; ok {
 		return text
 	}
@@ -450,7 +419,7 @@ func GetInstanceStatusText(s int) string {
 }
 
 // IsValidInstanceStatus 校验实例状态是否合法
-func IsValidInstanceStatus(s int) bool {
+func IsValidInstanceStatus(s int16) bool {
 	_, ok := InstanceStatusText[s]
 	return ok
 }
@@ -461,19 +430,19 @@ const (
 	ContainerStatusCreating = 1 // 创建中
 	ContainerStatusRunning  = 2 // 运行中
 	ContainerStatusStopped  = 3 // 已停止
-	ContainerStatusError    = 4 // 错误
+	ContainerStatusError    = 4 // 异常
 )
 
 // ContainerStatusText 容器状态文本映射
-var ContainerStatusText = map[int]string{
+var ContainerStatusText = map[int16]string{
 	ContainerStatusCreating: "创建中",
 	ContainerStatusRunning:  "运行中",
 	ContainerStatusStopped:  "已停止",
-	ContainerStatusError:    "错误",
+	ContainerStatusError:    "异常",
 }
 
 // GetContainerStatusText 获取容器状态文本
-func GetContainerStatusText(s int) string {
+func GetContainerStatusText(s int16) string {
 	if text, ok := ContainerStatusText[s]; ok {
 		return text
 	}
@@ -481,7 +450,7 @@ func GetContainerStatusText(s int) string {
 }
 
 // IsValidContainerStatus 校验容器状态是否合法
-func IsValidContainerStatus(s int) bool {
+func IsValidContainerStatus(s int16) bool {
 	_, ok := ContainerStatusText[s]
 	return ok
 }
@@ -489,22 +458,22 @@ func IsValidContainerStatus(s int) bool {
 // ========== 快照类型（instance_snapshots.snapshot_type） ==========
 
 const (
-	SnapshotTypeScheduled = 1 // 定时
-	SnapshotTypePause     = 2 // 暂停
-	SnapshotTypeTimeout   = 3 // 超时
-	SnapshotTypeSimEngine = 4 // SimEngine
+	SnapshotTypeScheduled = 1 // 自动定时
+	SnapshotTypePause     = 2 // 手动暂停
+	SnapshotTypeTimeout   = 3 // 超时保存
+	SnapshotTypeSimEngine = 4 // SimEngine状态快照
 )
 
 // SnapshotTypeText 快照类型文本映射
-var SnapshotTypeText = map[int]string{
-	SnapshotTypeScheduled: "定时",
-	SnapshotTypePause:     "暂停",
-	SnapshotTypeTimeout:   "超时",
-	SnapshotTypeSimEngine: "SimEngine",
+var SnapshotTypeText = map[int16]string{
+	SnapshotTypeScheduled: "自动定时",
+	SnapshotTypePause:     "手动暂停",
+	SnapshotTypeTimeout:   "超时保存",
+	SnapshotTypeSimEngine: "SimEngine状态快照",
 }
 
 // GetSnapshotTypeText 获取快照类型文本
-func GetSnapshotTypeText(t int) string {
+func GetSnapshotTypeText(t int16) string {
 	if text, ok := SnapshotTypeText[t]; ok {
 		return text
 	}
@@ -512,7 +481,7 @@ func GetSnapshotTypeText(t int) string {
 }
 
 // IsValidSnapshotType 校验快照类型是否合法
-func IsValidSnapshotType(t int) bool {
+func IsValidSnapshotType(t int16) bool {
 	_, ok := SnapshotTypeText[t]
 	return ok
 }
@@ -520,20 +489,20 @@ func IsValidSnapshotType(t int) bool {
 // ========== 分组方式（experiment_groups.group_method） ==========
 
 const (
-	GroupMethodManual = 1 // 手动
-	GroupMethodSelf   = 2 // 自选
-	GroupMethodRandom = 3 // 随机
+	GroupMethodManual = 1 // 教师手动
+	GroupMethodSelf   = 2 // 学生自选
+	GroupMethodRandom = 3 // 系统随机
 )
 
 // GroupMethodText 分组方式文本映射
-var GroupMethodText = map[int]string{
-	GroupMethodManual: "手动",
-	GroupMethodSelf:   "自选",
-	GroupMethodRandom: "随机",
+var GroupMethodText = map[int16]string{
+	GroupMethodManual: "教师手动",
+	GroupMethodSelf:   "学生自选",
+	GroupMethodRandom: "系统随机",
 }
 
 // GetGroupMethodText 获取分组方式文本
-func GetGroupMethodText(m int) string {
+func GetGroupMethodText(m int16) string {
 	if text, ok := GroupMethodText[m]; ok {
 		return text
 	}
@@ -541,7 +510,7 @@ func GetGroupMethodText(m int) string {
 }
 
 // IsValidGroupMethod 校验分组方式是否合法
-func IsValidGroupMethod(m int) bool {
+func IsValidGroupMethod(m int16) bool {
 	_, ok := GroupMethodText[m]
 	return ok
 }
@@ -556,7 +525,7 @@ const (
 )
 
 // GroupStatusText 分组状态文本映射
-var GroupStatusText = map[int]string{
+var GroupStatusText = map[int16]string{
 	GroupStatusForming:   "组建中",
 	GroupStatusReady:     "已就绪",
 	GroupStatusRunning:   "实验中",
@@ -564,7 +533,7 @@ var GroupStatusText = map[int]string{
 }
 
 // GetGroupStatusText 获取分组状态文本
-func GetGroupStatusText(s int) string {
+func GetGroupStatusText(s int16) string {
 	if text, ok := GroupStatusText[s]; ok {
 		return text
 	}
@@ -572,7 +541,7 @@ func GetGroupStatusText(s int) string {
 }
 
 // IsValidGroupStatus 校验分组状态是否合法
-func IsValidGroupStatus(s int) bool {
+func IsValidGroupStatus(s int16) bool {
 	_, ok := GroupStatusText[s]
 	return ok
 }
@@ -580,45 +549,46 @@ func IsValidGroupStatus(s int) bool {
 // ========== 消息类型（group_messages.message_type） ==========
 
 const (
-	MessageTypeText   = 1 // 文本
-	MessageTypeSystem = 2 // 系统通知
+	GroupMessageTypeText   = 1 // 文本消息
+	GroupMessageTypeSystem = 2 // 系统通知
 )
 
-// MessageTypeText_ 消息类型文本映射（加下划线避免与 MessageTypeText 常量名冲突）
-var MessageTypeText_ = map[int]string{
-	MessageTypeText:   "文本",
-	MessageTypeSystem: "系统通知",
+// GroupMessageTypeTextMap 消息类型文本映射。
+// 使用独立映射名称，避免与同名枚举常量冲突。
+var GroupMessageTypeTextMap = map[int16]string{
+	GroupMessageTypeText:   "文本",
+	GroupMessageTypeSystem: "系统通知",
 }
 
 // GetMessageTypeText 获取消息类型文本
-func GetMessageTypeText(t int) string {
-	if text, ok := MessageTypeText_[t]; ok {
+func GetMessageTypeText(t int16) string {
+	if text, ok := GroupMessageTypeTextMap[t]; ok {
 		return text
 	}
 	return "未知"
 }
 
 // IsValidMessageType 校验消息类型是否合法
-func IsValidMessageType(t int) bool {
-	_, ok := MessageTypeText_[t]
+func IsValidMessageType(t int16) bool {
+	_, ok := GroupMessageTypeTextMap[t]
 	return ok
 }
 
-// ========== 配额级别（resource_quotas.level） ==========
+// ========== 配额级别（resource_quotas.quota_level） ==========
 
 const (
-	QuotaLevelSchool = 1 // 学校
-	QuotaLevelCourse = 2 // 课程
+	QuotaLevelSchool = 1 // 学校级
+	QuotaLevelCourse = 2 // 课程级
 )
 
 // QuotaLevelText 配额级别文本映射
-var QuotaLevelText = map[int]string{
-	QuotaLevelSchool: "学校",
-	QuotaLevelCourse: "课程",
+var QuotaLevelText = map[int16]string{
+	QuotaLevelSchool: "学校级",
+	QuotaLevelCourse: "课程级",
 }
 
 // GetQuotaLevelText 获取配额级别文本
-func GetQuotaLevelText(l int) string {
+func GetQuotaLevelText(l int16) string {
 	if text, ok := QuotaLevelText[l]; ok {
 		return text
 	}
@@ -626,12 +596,12 @@ func GetQuotaLevelText(l int) string {
 }
 
 // IsValidQuotaLevel 校验配额级别是否合法
-func IsValidQuotaLevel(l int) bool {
+func IsValidQuotaLevel(l int16) bool {
 	_, ok := QuotaLevelText[l]
 	return ok
 }
 
-// ========== 交付阶段（experiment_templates.delivery_phase） ==========
+// ========== 交付阶段（sim_scenarios.delivery_phase） ==========
 
 const (
 	DeliveryPhaseOne   = 1 // 第一阶段
@@ -640,14 +610,14 @@ const (
 )
 
 // DeliveryPhaseText 交付阶段文本映射
-var DeliveryPhaseText = map[int]string{
+var DeliveryPhaseText = map[int16]string{
 	DeliveryPhaseOne:   "第一阶段",
 	DeliveryPhaseTwo:   "第二阶段",
 	DeliveryPhaseThree: "第三阶段",
 }
 
 // GetDeliveryPhaseText 获取交付阶段文本
-func GetDeliveryPhaseText(p int) string {
+func GetDeliveryPhaseText(p int16) string {
 	if text, ok := DeliveryPhaseText[p]; ok {
 		return text
 	}
@@ -655,7 +625,7 @@ func GetDeliveryPhaseText(p int) string {
 }
 
 // IsValidDeliveryPhase 校验交付阶段是否合法
-func IsValidDeliveryPhase(p int) bool {
+func IsValidDeliveryPhase(p int16) bool {
 	_, ok := DeliveryPhaseText[p]
 	return ok
 }
@@ -682,98 +652,116 @@ const (
 	ActionGuidanceMessage = "guidance_message" // 教师指导消息
 )
 
-// OperationActionOptions 操作动作合法值列表
-var OperationActionOptions = []string{
-	ActionStart,
-	ActionPause,
-	ActionResume,
-	ActionRestart,
-	ActionSubmit,
-	ActionDestroy,
-	ActionForceDestroy,
-	ActionCheckpoint,
-	ActionTerminalCommand,
-	ActionSimInteraction,
-	ActionSimTimeControl,
-	ActionManualGrade,
-	ActionSnapshotCreate,
-	ActionSnapshotRestore,
-	ActionReportSubmit,
-	ActionReportUpdate,
-	ActionGuidanceMessage,
+// OperationActionText 操作动作文本映射
+var OperationActionText = map[string]string{
+	ActionStart:           "启动",
+	ActionPause:           "暂停",
+	ActionResume:          "恢复",
+	ActionRestart:         "重启",
+	ActionSubmit:          "提交",
+	ActionDestroy:         "销毁",
+	ActionForceDestroy:    "强制销毁",
+	ActionCheckpoint:      "检查点验证",
+	ActionTerminalCommand: "终端命令",
+	ActionSimInteraction:  "仿真交互",
+	ActionSimTimeControl:  "仿真时间控制",
+	ActionManualGrade:     "手动评分",
+	ActionSnapshotCreate:  "创建快照",
+	ActionSnapshotRestore: "恢复快照",
+	ActionReportSubmit:    "提交报告",
+	ActionReportUpdate:    "更新报告",
+	ActionGuidanceMessage: "教师指导消息",
+}
+
+// GetOperationActionText 获取操作动作文本
+func GetOperationActionText(s string) string {
+	if text, ok := OperationActionText[s]; ok {
+		return text
+	}
+	return "未知"
 }
 
 // IsValidOperationAction 校验操作动作是否合法
 func IsValidOperationAction(s string) bool {
-	for _, v := range OperationActionOptions {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	_, ok := OperationActionText[s]
+	return ok
 }
 
-// ========== 场景领域（sim_scenarios.scene_category） ==========
+// ========== 场景领域（sim_scenarios.category） ==========
 
 const (
-	SceneCategoryNodeNetwork    = "node_network"    // 节点网络
+	SceneCategoryNodeNetwork    = "node_network"    // 节点与网络
 	SceneCategoryConsensus      = "consensus"       // 共识过程
-	SceneCategoryCryptography   = "cryptography"    // 密码学
+	SceneCategoryCryptography   = "cryptography"    // 密码学运算
 	SceneCategoryDataStructure  = "data_structure"  // 数据结构
-	SceneCategoryTransaction    = "transaction"     // 交易流程
+	SceneCategoryTransaction    = "transaction"     // 交易生命周期
 	SceneCategorySmartContract  = "smart_contract"  // 智能合约
-	SceneCategoryAttackSecurity = "attack_security" // 攻击安全
+	SceneCategoryAttackSecurity = "attack_security" // 攻击与安全
 	SceneCategoryEconomic       = "economic"        // 经济模型
 )
 
-// SceneCategoryOptions 场景领域合法值列表
-var SceneCategoryOptions = []string{
-	SceneCategoryNodeNetwork,
-	SceneCategoryConsensus,
-	SceneCategoryCryptography,
-	SceneCategoryDataStructure,
-	SceneCategoryTransaction,
-	SceneCategorySmartContract,
-	SceneCategoryAttackSecurity,
-	SceneCategoryEconomic,
+// SceneCategoryText 场景领域文本映射。
+var SceneCategoryText = map[string]string{
+	SceneCategoryNodeNetwork:    "节点与网络",
+	SceneCategoryConsensus:      "共识过程",
+	SceneCategoryCryptography:   "密码学运算",
+	SceneCategoryDataStructure:  "数据结构",
+	SceneCategoryTransaction:    "交易生命周期",
+	SceneCategorySmartContract:  "智能合约",
+	SceneCategoryAttackSecurity: "攻击与安全",
+	SceneCategoryEconomic:       "经济模型",
 }
 
-// IsValidSceneCategory 校验场景领域是否合法
-func IsValidSceneCategory(s string) bool {
-	for _, v := range SceneCategoryOptions {
-		if v == s {
-			return true
-		}
+// GetSceneCategoryText 获取场景领域文本。
+func GetSceneCategoryText(category string) string {
+	if text, ok := SceneCategoryText[category]; ok {
+		return text
 	}
-	return false
+	return category
+}
+
+// IsBuiltinSceneCategory 校验是否为平台内置的标准场景领域
+func IsBuiltinSceneCategory(s string) bool {
+	_, ok := SceneCategoryText[s]
+	return ok
+}
+
+// IsValidSceneCategory 校验场景领域字段是否合法。
+// 平台内置场景使用 8 个标准领域，教师自定义场景允许使用扩展领域字符串。
+func IsValidSceneCategory(s string) bool {
+	return s != ""
 }
 
 // ========== 时间控制模式（sim_scenarios.time_control_mode） ==========
 
 const (
-	TimeControlProcess    = "process"    // 流程驱动
-	TimeControlReactive   = "reactive"   // 响应式
-	TimeControlContinuous = "continuous" // 连续推进
+	TimeControlProcess    = "process"    // 过程化
+	TimeControlReactive   = "reactive"   // 交互响应式
+	TimeControlContinuous = "continuous" // 持续运行式
 )
 
-// TimeControlModeOptions 时间控制模式合法值列表
-var TimeControlModeOptions = []string{
-	TimeControlProcess,
-	TimeControlReactive,
-	TimeControlContinuous,
+// TimeControlModeText 时间控制模式文本映射
+var TimeControlModeText = map[string]string{
+	TimeControlProcess:    "过程化",
+	TimeControlReactive:   "交互响应式",
+	TimeControlContinuous: "持续运行式",
+}
+
+// GetTimeControlModeText 获取时间控制模式文本
+func GetTimeControlModeText(s string) string {
+	if text, ok := TimeControlModeText[s]; ok {
+		return text
+	}
+	return "未知"
 }
 
 // IsValidTimeControlMode 校验时间控制模式是否合法
 func IsValidTimeControlMode(s string) bool {
-	for _, v := range TimeControlModeOptions {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	_, ok := TimeControlModeText[s]
+	return ok
 }
 
-// ========== 链生态（experiment_images.ecosystem / sim_scenarios.ecosystem） ==========
+// ========== 链生态（images.ecosystem / sim_scenarios.category关联生态标签） ==========
 
 const (
 	EcosystemBitcoin    = "bitcoin"    // 比特币
@@ -788,28 +776,32 @@ const (
 	EcosystemGeneral    = "general"    // 通用
 )
 
-// EcosystemOptions 链生态合法值列表
-var EcosystemOptions = []string{
-	EcosystemBitcoin,
-	EcosystemEthereum,
-	EcosystemFabric,
-	EcosystemChainmaker,
-	EcosystemFisco,
-	EcosystemSolana,
-	EcosystemPolkadot,
-	EcosystemCosmos,
-	EcosystemMove,
-	EcosystemGeneral,
+// EcosystemText 链生态文本映射
+var EcosystemText = map[string]string{
+	EcosystemBitcoin:    "比特币",
+	EcosystemEthereum:   "以太坊",
+	EcosystemFabric:     "Hyperledger Fabric",
+	EcosystemChainmaker: "长安链",
+	EcosystemFisco:      "FISCO BCOS",
+	EcosystemSolana:     "Solana",
+	EcosystemPolkadot:   "Polkadot",
+	EcosystemCosmos:     "Cosmos",
+	EcosystemMove:       "Move 系",
+	EcosystemGeneral:    "通用",
+}
+
+// GetEcosystemText 获取链生态文本
+func GetEcosystemText(s string) string {
+	if text, ok := EcosystemText[s]; ok {
+		return text
+	}
+	return "未知"
 }
 
 // IsValidEcosystem 校验链生态是否合法
 func IsValidEcosystem(s string) bool {
-	for _, v := range EcosystemOptions {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	_, ok := EcosystemText[s]
+	return ok
 }
 
 // IsValidCollectorEcosystem 校验 Collector 内置采集生态是否合法。
@@ -822,7 +814,7 @@ func IsValidCollectorEcosystem(s string) bool {
 	}
 }
 
-// ========== 标签分类（experiment_tags.category） ==========
+// ========== 标签分类（tags.category） ==========
 
 const (
 	TagCategoryEcosystem  = "ecosystem"  // 链生态
@@ -831,20 +823,24 @@ const (
 	TagCategoryCustom     = "custom"     // 自定义
 )
 
-// TagCategoryOptions 标签分类合法值列表
-var TagCategoryOptions = []string{
-	TagCategoryEcosystem,
-	TagCategoryType,
-	TagCategoryDifficulty,
-	TagCategoryCustom,
+// TagCategoryText 标签分类文本映射
+var TagCategoryText = map[string]string{
+	TagCategoryEcosystem:  "链生态",
+	TagCategoryType:       "类型",
+	TagCategoryDifficulty: "难度",
+	TagCategoryCustom:     "自定义",
+}
+
+// GetTagCategoryText 获取标签分类文本
+func GetTagCategoryText(s string) string {
+	if text, ok := TagCategoryText[s]; ok {
+		return text
+	}
+	return "未知"
 }
 
 // IsValidTagCategory 校验标签分类是否合法
 func IsValidTagCategory(s string) bool {
-	for _, v := range TagCategoryOptions {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	_, ok := TagCategoryText[s]
+	return ok
 }

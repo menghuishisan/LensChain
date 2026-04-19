@@ -1,13 +1,12 @@
 // transaction.go
-// 数据库事务辅助工具
-// 为 service 层提供事务管理封装
-// service 层跨 repository 调用时必须使用事务
+// 该文件封装 service 层可复用的事务执行入口，目的是把跨多个 repository 的写操作放进
+// 统一的事务边界里，避免每个业务服务自己手搓 Begin/Commit/Rollback。凡是存在多表写入、
+// 状态切换或“必须全部成功/全部失败”的场景，都应优先复用这里的事务辅助函数。
 
 package database
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -55,27 +54,4 @@ func GetDB(tx ...*gorm.DB) *gorm.DB {
 		return tx[0]
 	}
 	return db
-}
-
-// Paginate 通用分页查询
-// 返回数据列表和总数
-func Paginate(db *gorm.DB, page, pageSize int, dest interface{}) (int64, error) {
-	var total int64
-
-	// 先查总数
-	if err := db.Count(&total).Error; err != nil {
-		return 0, fmt.Errorf("查询总数失败: %w", err)
-	}
-
-	if total == 0 {
-		return 0, nil
-	}
-
-	// 再查分页数据
-	offset := (page - 1) * pageSize
-	if err := db.Offset(offset).Limit(pageSize).Find(dest).Error; err != nil {
-		return 0, fmt.Errorf("查询分页数据失败: %w", err)
-	}
-
-	return total, nil
 }

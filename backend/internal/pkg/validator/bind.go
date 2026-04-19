@@ -1,7 +1,7 @@
 // bind.go
-// 请求参数绑定与校验辅助工具
-// 统一处理 handler 层的参数绑定、校验错误格式化
-// 所有 handler 必须通过此包绑定参数，禁止直接调用 c.ShouldBind
+// 该文件为 handler 层提供统一的参数绑定与校验入口，负责把 JSON、Query、Path 参数解析
+// 成 DTO，并把校验错误转成符合接口规范的错误响应。它的目标是统一 handler 的输入处理
+// 方式，避免各接口自己拼错误信息或直接暴露框架原始报错。
 
 package validator
 

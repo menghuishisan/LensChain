@@ -243,6 +243,33 @@
 
 **查询参数：** `alert_type`, `level`, `is_enabled`, `page`, `page_size`
 
+#### GET /api/v1/system/alert-rules/:id — 告警规则详情
+
+**成功响应：**
+```json
+{
+  "code": 200,
+  "data": {
+    "id": "1950000000001",
+    "name": "CPU使用率过高",
+    "description": "K8s节点CPU使用率超过80%持续5分钟",
+    "alert_type": 1,
+    "alert_type_text": "阈值告警",
+    "level": 3,
+    "level_text": "严重",
+    "condition": {
+      "metric": "cpu_usage",
+      "operator": ">",
+      "value": 80,
+      "duration": 300
+    },
+    "silence_period": 1800,
+    "is_enabled": true,
+    "created_at": "2026-04-09T10:00:00Z"
+  }
+}
+```
+
 #### PATCH /api/v1/system/alert-rules/:id/toggle — 启用/禁用规则
 
 **请求体：**
@@ -286,6 +313,37 @@
     ],
     "pagination": { "page": 1, "page_size": 20, "total": 15, "total_pages": 1 },
     "status_counts": { "pending": 3, "handled": 10, "ignored": 2 }
+  }
+}
+```
+
+#### GET /api/v1/system/alert-events/:id — 告警事件详情
+
+**成功响应：**
+```json
+{
+  "code": 200,
+  "data": {
+    "id": "1950000000100",
+    "rule_id": "1950000000001",
+    "rule_name": "CPU使用率过高",
+    "level": 3,
+    "level_text": "严重",
+    "title": "K8s节点 k8s-node-01 CPU使用率 92.5%",
+    "detail": {
+      "metric": "cpu_usage",
+      "current_value": 92.5,
+      "threshold": 80,
+      "duration_seconds": 320,
+      "node": "k8s-node-01"
+    },
+    "status": 2,
+    "status_text": "已处理",
+    "handled_by": "1780000000001",
+    "handled_by_name": "超级管理员",
+    "handled_at": "2026-04-09T10:05:00Z",
+    "handle_note": "已扩容K8s节点，CPU使用率已恢复正常。",
+    "triggered_at": "2026-04-09T10:00:00Z"
   }
 }
 ```
@@ -405,6 +463,35 @@
       { "date": "2026-03-10", "value": 280 },
       { "date": "2026-03-11", "value": 310 },
       { "date": "2026-03-12", "value": 295 }
+    ]
+  }
+}
+```
+
+#### GET /api/v1/system/statistics/schools — 学校活跃度排行
+
+**成功响应：**
+```json
+{
+  "code": 200,
+  "data": {
+    "list": [
+      {
+        "rank": 1,
+        "school_id": "1780000000001",
+        "school_name": "XX大学",
+        "active_users": 320,
+        "total_users": 500,
+        "activity_score": 86.4
+      },
+      {
+        "rank": 2,
+        "school_id": "1780000000002",
+        "school_name": "YY大学",
+        "active_users": 280,
+        "total_users": 460,
+        "activity_score": 79.5
+      }
     ]
   }
 }

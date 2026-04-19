@@ -22,7 +22,7 @@ type CreateInstanceReq struct {
 // CreateInstanceResp 启动实验环境响应
 type CreateInstanceResp struct {
 	InstanceID            *string `json:"instance_id"`
-	Status                int     `json:"status"`
+	Status                int16   `json:"status"`
 	StatusText            string  `json:"status_text"`
 	AttemptNo             int     `json:"attempt_no,omitempty"`
 	EstimatedReadySeconds *int    `json:"estimated_ready_seconds,omitempty"`
@@ -36,7 +36,7 @@ type InstanceDetailResp struct {
 	ID           string                   `json:"id"`
 	Template     InstanceTemplateBrief    `json:"template"`
 	Student      InstanceStudentBrief     `json:"student"`
-	Status       int                      `json:"status"`
+	Status       int16                    `json:"status"`
 	StatusText   string                   `json:"status_text"`
 	AttemptNo    int                      `json:"attempt_no"`
 	AccessURL    *string                  `json:"access_url"`
@@ -52,8 +52,8 @@ type InstanceDetailResp struct {
 type InstanceTemplateBrief struct {
 	ID           string  `json:"id"`
 	Title        string  `json:"title"`
-	TopologyMode int     `json:"topology_mode"`
-	JudgeMode    int     `json:"judge_mode"`
+	TopologyMode int16   `json:"topology_mode"`
+	JudgeMode    int16   `json:"judge_mode"`
 	Instructions *string `json:"instructions"`
 	MaxDuration  int     `json:"max_duration"`
 	IdleTimeout  int     `json:"idle_timeout"`
@@ -73,7 +73,7 @@ type InstanceContainerItem struct {
 	ContainerName string  `json:"container_name"`
 	ImageName     string  `json:"image_name"`
 	ImageVersion  string  `json:"image_version"`
-	Status        int     `json:"status"`
+	Status        int16   `json:"status"`
 	StatusText    string  `json:"status_text"`
 	InternalIP    *string `json:"internal_ip"`
 	CPUUsage      *string `json:"cpu_usage"`
@@ -84,7 +84,7 @@ type InstanceContainerItem struct {
 type InstanceCheckpointItem struct {
 	CheckpointID string                    `json:"checkpoint_id"`
 	Title        string                    `json:"title"`
-	CheckType    int                       `json:"check_type"`
+	CheckType    int16                     `json:"check_type"`
 	Score        float64                   `json:"score"`
 	Result       *InstanceCheckpointResult `json:"result"`
 }
@@ -110,7 +110,7 @@ type InstanceListReq struct {
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	TemplateID string `form:"template_id"`
 	CourseID   string `form:"course_id"`
-	Status     int    `form:"status"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5 6 7 8 9 10"`
 	SortBy     string `form:"sort_by"`
 	SortOrder  string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
@@ -122,7 +122,7 @@ type InstanceListItem struct {
 	TemplateTitle string   `json:"template_title"`
 	CourseID      *string  `json:"course_id"`
 	CourseTitle   *string  `json:"course_title"`
-	Status        int      `json:"status"`
+	Status        int16    `json:"status"`
 	StatusText    string   `json:"status_text"`
 	AttemptNo     int      `json:"attempt_no"`
 	TotalScore    *float64 `json:"total_score"`
@@ -131,13 +131,20 @@ type InstanceListItem struct {
 	CreatedAt     string   `json:"created_at"`
 }
 
+// InstanceListResp 我的实验实例列表响应
+// GET /api/v1/experiment-instances
+type InstanceListResp struct {
+	List       []InstanceListItem `json:"list"`
+	Pagination PaginationResp     `json:"pagination"`
+}
+
 // ========== 暂停 / 恢复 / 提交 / 销毁 / 重启 DTO ==========
 
 // PauseInstanceResp 暂停实验响应
 // POST /api/v1/experiment-instances/:id/pause
 type PauseInstanceResp struct {
 	InstanceID string `json:"instance_id"`
-	Status     int    `json:"status"`
+	Status     int16  `json:"status"`
 	StatusText string `json:"status_text"`
 	SnapshotID string `json:"snapshot_id"`
 	PausedAt   string `json:"paused_at"`
@@ -152,7 +159,7 @@ type ResumeInstanceReq struct {
 // ResumeInstanceResp 恢复实验响应
 type ResumeInstanceResp struct {
 	InstanceID            string `json:"instance_id"`
-	Status                int    `json:"status"`
+	Status                int16  `json:"status"`
 	StatusText            string `json:"status_text"`
 	EstimatedReadySeconds int    `json:"estimated_ready_seconds"`
 }
@@ -161,7 +168,7 @@ type ResumeInstanceResp struct {
 // POST /api/v1/experiment-instances/:id/submit
 type SubmitInstanceResp struct {
 	InstanceID  string           `json:"instance_id"`
-	Status      int              `json:"status"`
+	Status      int16            `json:"status"`
 	StatusText  string           `json:"status_text"`
 	Scores      SubmitScoresInfo `json:"scores"`
 	CompletedAt string           `json:"completed_at"`
@@ -181,7 +188,7 @@ type SubmitScoresInfo struct {
 type SubmitScoreDetail struct {
 	CheckpointID string   `json:"checkpoint_id"`
 	Title        string   `json:"title"`
-	CheckType    int      `json:"check_type"`
+	CheckType    int16    `json:"check_type"`
 	IsPassed     *bool    `json:"is_passed,omitempty"`
 	Score        *float64 `json:"score,omitempty"`
 	MaxScore     float64  `json:"max_score"`
@@ -198,9 +205,9 @@ type HeartbeatReq struct {
 
 // HeartbeatResp 心跳上报响应
 type HeartbeatResp struct {
-	Status           int  `json:"status"`
-	RemainingMinutes int  `json:"remaining_minutes"`
-	IdleWarning      bool `json:"idle_warning"`
+	Status           int16 `json:"status"`
+	RemainingMinutes int   `json:"remaining_minutes"`
+	IdleWarning      bool  `json:"idle_warning"`
 }
 
 // ========== 检查点验证 / 评分 DTO ==========
@@ -268,7 +275,7 @@ type CreateSnapshotReq struct {
 type SnapshotResp struct {
 	ID               string          `json:"id"`
 	InstanceID       string          `json:"instance_id"`
-	SnapshotType     int             `json:"snapshot_type"`
+	SnapshotType     int16           `json:"snapshot_type"`
 	SnapshotTypeText string          `json:"snapshot_type_text"`
 	SnapshotDataURL  string          `json:"snapshot_data_url"`
 	ContainerStates  json.RawMessage `json:"container_states"`
@@ -293,11 +300,16 @@ type InstanceOpLogItem struct {
 	ID              string          `json:"id"`
 	Action          string          `json:"action"`
 	TargetContainer *string         `json:"target_container"`
-	TargetScene     *string         `json:"target_scene"`
 	Command         *string         `json:"command"`
 	Detail          json.RawMessage `json:"detail"`
-	ClientIP        *string         `json:"client_ip"`
 	CreatedAt       string          `json:"created_at"`
+}
+
+// InstanceOpLogListResp 实例操作日志列表响应
+// GET /api/v1/experiment-instances/:id/operation-logs
+type InstanceOpLogListResp struct {
+	List       []InstanceOpLogItem `json:"list"`
+	Pagination PaginationResp      `json:"pagination"`
 }
 
 // ========== 实验报告 DTO ==========
@@ -324,7 +336,6 @@ type UpdateReportReq struct {
 type ReportResp struct {
 	ID         string  `json:"id"`
 	InstanceID string  `json:"instance_id"`
-	StudentID  string  `json:"student_id"`
 	Content    *string `json:"content"`
 	FileURL    *string `json:"file_url"`
 	FileName   *string `json:"file_name"`
@@ -340,7 +351,7 @@ type ReportResp struct {
 type CreateGroupReq struct {
 	TemplateID  string         `json:"template_id" binding:"required"`
 	CourseID    string         `json:"course_id" binding:"required"`
-	GroupMethod int            `json:"group_method" binding:"required,oneof=1 2 3"`
+	GroupMethod int16          `json:"group_method" binding:"required,oneof=1 2 3"`
 	Groups      []GroupItemReq `json:"groups" binding:"required,min=1,dive"`
 }
 
@@ -362,7 +373,7 @@ type MemberItemReq struct {
 type UpdateGroupReq struct {
 	GroupName  *string `json:"group_name" binding:"omitempty,max=100"`
 	MaxMembers *int    `json:"max_members" binding:"omitempty,min=1"`
-	Status     *int    `json:"status" binding:"omitempty,oneof=1 2 3 4"`
+	Status     *int16  `json:"status" binding:"omitempty,oneof=1 2 3 4"`
 }
 
 // GroupListReq 分组列表查询参数
@@ -372,7 +383,7 @@ type GroupListReq struct {
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	TemplateID string `form:"template_id"`
 	CourseID   string `form:"course_id"`
-	Status     int    `form:"status"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4"`
 }
 
 // GroupResp 分组详情响应
@@ -381,14 +392,20 @@ type GroupResp struct {
 	TemplateID  string            `json:"template_id"`
 	CourseID    string            `json:"course_id"`
 	GroupName   string            `json:"group_name"`
-	GroupMethod int               `json:"group_method"`
+	GroupMethod int16             `json:"group_method"`
 	MaxMembers  int               `json:"max_members"`
-	Status      int               `json:"status"`
+	Status      int16             `json:"status"`
 	StatusText  string            `json:"status_text"`
 	Namespace   *string           `json:"namespace"`
 	Members     []GroupMemberResp `json:"members,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
+}
+
+// CreateGroupResp 创建实验分组响应
+// POST /api/v1/experiment-groups
+type CreateGroupResp struct {
+	Groups []GroupListItem `json:"groups"`
 }
 
 // GroupListItem 分组列表条目
@@ -397,8 +414,15 @@ type GroupListItem struct {
 	GroupName   string `json:"group_name"`
 	MemberCount int    `json:"member_count"`
 	MaxMembers  int    `json:"max_members"`
-	Status      int    `json:"status"`
+	Status      int16  `json:"status"`
 	StatusText  string `json:"status_text"`
+}
+
+// GroupListResp 分组列表响应
+// GET /api/v1/experiment-groups
+type GroupListResp struct {
+	List       []GroupListItem `json:"list"`
+	Pagination PaginationResp  `json:"pagination"`
 }
 
 // GroupMemberResp 分组成员响应
@@ -411,6 +435,12 @@ type GroupMemberResp struct {
 	RoleName    *string `json:"role_name"`
 	InstanceID  *string `json:"instance_id"`
 	JoinedAt    string  `json:"joined_at"`
+}
+
+// GroupMemberListResp 组员列表响应
+// GET /api/v1/experiment-groups/:id/members
+type GroupMemberListResp struct {
+	Members []GroupMemberResp `json:"members"`
 }
 
 // JoinGroupReq 学生加入分组请求
@@ -470,8 +500,15 @@ type GroupMessageItem struct {
 	SenderID    string `json:"sender_id"`
 	SenderName  string `json:"sender_name"`
 	Content     string `json:"content"`
-	MessageType int    `json:"message_type"`
+	MessageType int16  `json:"message_type"`
 	CreatedAt   string `json:"created_at"`
+}
+
+// GroupMessageListResp 组内消息历史响应
+// GET /api/v1/experiment-groups/:id/messages
+type GroupMessageListResp struct {
+	List       []GroupMessageItem `json:"list"`
+	Pagination PaginationResp     `json:"pagination"`
 }
 
 // ========== 组内进度同步 DTO ==========
@@ -481,7 +518,7 @@ type GroupMessageItem struct {
 type GroupProgressResp struct {
 	GroupID          string                    `json:"group_id"`
 	GroupName        string                    `json:"group_name"`
-	GroupStatus      int                       `json:"group_status"`
+	GroupStatus      int16                     `json:"group_status"`
 	GroupStatusText  string                    `json:"group_status_text"`
 	Members          []GroupMemberProgressItem `json:"members"`
 	GroupCheckpoints []GroupCheckpointItem     `json:"group_checkpoints"`
@@ -493,7 +530,7 @@ type GroupMemberProgressItem struct {
 	StudentName        string   `json:"student_name"`
 	RoleName           string   `json:"role_name"`
 	InstanceID         *string  `json:"instance_id"`
-	InstanceStatus     *int     `json:"instance_status"`
+	InstanceStatus     *int16   `json:"instance_status"`
 	InstanceStatusText *string  `json:"instance_status_text"`
 	CheckpointsPassed  int      `json:"checkpoints_passed"`
 	CheckpointsTotal   int      `json:"checkpoints_total"`
@@ -504,7 +541,7 @@ type GroupMemberProgressItem struct {
 type GroupCheckpointItem struct {
 	CheckpointID string  `json:"checkpoint_id"`
 	Title        string  `json:"title"`
-	Scope        int     `json:"scope"`
+	Scope        int16   `json:"scope"`
 	IsPassed     bool    `json:"is_passed"`
 	CheckedAt    *string `json:"checked_at"`
 }
@@ -515,7 +552,7 @@ type GroupCheckpointItem struct {
 // GET /api/v1/courses/:id/experiment-monitor
 type MonitorPanelReq struct {
 	TemplateID string `form:"template_id"`
-	Status     int    `form:"status"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5 6 7 8 9 10"`
 }
 
 // MonitorPanelResp 课程实验监控面板响应
@@ -549,7 +586,7 @@ type MonitorStudentItem struct {
 	StudentName       string  `json:"student_name"`
 	StudentNo         string  `json:"student_no"`
 	InstanceID        *string `json:"instance_id"`
-	Status            *int    `json:"status"`
+	Status            *int16  `json:"status"`
 	StatusText        *string `json:"status_text"`
 	CheckpointsPassed int     `json:"checkpoints_passed"`
 	CheckpointsTotal  int     `json:"checkpoints_total"`
@@ -624,14 +661,14 @@ type ScoreDistribution struct {
 // CreateQuotaReq 创建资源配额请求
 // POST /api/v1/resource-quotas
 type CreateQuotaReq struct {
-	QuotaLevel     int     `json:"quota_level" binding:"required,oneof=1 2"`
+	QuotaLevel     int16   `json:"quota_level" binding:"required,oneof=1 2"`
 	SchoolID       string  `json:"school_id" binding:"required"`
 	CourseID       *string `json:"course_id"`
-	MaxCPU         string  `json:"max_cpu" binding:"omitempty,max=20"`
-	MaxMemory      string  `json:"max_memory" binding:"omitempty,max=20"`
-	MaxStorage     string  `json:"max_storage" binding:"omitempty,max=20"`
-	MaxConcurrency int     `json:"max_concurrency" binding:"omitempty,min=0"`
-	MaxPerStudent  int     `json:"max_per_student" binding:"omitempty,min=1"`
+	MaxCPU         *string `json:"max_cpu" binding:"omitempty,max=20"`
+	MaxMemory      *string `json:"max_memory" binding:"omitempty,max=20"`
+	MaxStorage     *string `json:"max_storage" binding:"omitempty,max=20"`
+	MaxConcurrency *int    `json:"max_concurrency" binding:"omitempty,min=0"`
+	MaxPerStudent  *int    `json:"max_per_student" binding:"omitempty,min=1"`
 }
 
 // UpdateQuotaReq 编辑资源配额请求
@@ -649,14 +686,14 @@ type UpdateQuotaReq struct {
 type QuotaListReq struct {
 	Page       int    `form:"page" binding:"omitempty,min=1"`
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	QuotaLevel int    `form:"quota_level" binding:"omitempty,oneof=1 2"`
+	QuotaLevel int16  `form:"quota_level" binding:"omitempty,oneof=1 2"`
 	SchoolID   string `form:"school_id"`
 }
 
 // QuotaResp 资源配额响应
 type QuotaResp struct {
 	ID              string  `json:"id"`
-	QuotaLevel      int     `json:"quota_level"`
+	QuotaLevel      int16   `json:"quota_level"`
 	QuotaLevelText  string  `json:"quota_level_text"`
 	SchoolID        string  `json:"school_id"`
 	SchoolName      string  `json:"school_name"`
@@ -673,6 +710,13 @@ type QuotaResp struct {
 	UsedConcurrency int     `json:"used_concurrency"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
+}
+
+// QuotaListResp 资源配额列表响应
+// GET /api/v1/resource-quotas
+type QuotaListResp struct {
+	List       []QuotaResp    `json:"list"`
+	Pagination PaginationResp `json:"pagination"`
 }
 
 // ========== 学校资源使用 DTO ==========
@@ -759,10 +803,17 @@ type AdminInstanceListReq struct {
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	SchoolID   string `form:"school_id"`
 	TemplateID string `form:"template_id"`
-	Status     int    `form:"status"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5 6 7 8 9 10"`
 	StudentID  string `form:"student_id"`
 	SortBy     string `form:"sort_by"`
 	SortOrder  string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
+}
+
+// AdminInstanceListResp 全平台实验实例列表响应
+// GET /api/v1/admin/experiment-instances
+type AdminInstanceListResp struct {
+	List       []InstanceListItem `json:"list"`
+	Pagination PaginationResp     `json:"pagination"`
 }
 
 // ContainerResourceResp 全平台容器资源监控响应
@@ -812,71 +863,6 @@ type K8sNodeStatus struct {
 	PodCapacity    int    `json:"pod_capacity"`
 }
 
-// ========== 镜像预拉取 DTO ==========
-
-// ImagePullStatusReq 镜像预拉取状态查询参数
-// GET /api/v1/admin/image-pull-status
-type ImagePullStatusReq struct {
-	Page      int    `form:"page" binding:"omitempty,min=1"`
-	PageSize  int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	NodeName  string `form:"node_name"`
-	ImageName string `form:"image_name"`
-	Status    int    `form:"status" binding:"omitempty,oneof=1 2 3 4"`
-}
-
-// ImagePullStatusResp 镜像预拉取状态响应
-type ImagePullStatusResp struct {
-	Summary PullSummary      `json:"summary"`
-	Items   []PullStatusItem `json:"items"`
-}
-
-// PullSummary 预拉取汇总信息
-type PullSummary struct {
-	TotalImages     int     `json:"total_images"`
-	TotalNodes      int     `json:"total_nodes"`
-	FullyPulled     int     `json:"fully_pulled"`
-	PartiallyPulled int     `json:"partially_pulled"`
-	NotPulled       int     `json:"not_pulled"`
-	CompletionRate  float64 `json:"completion_rate"`
-}
-
-// PullStatusItem 预拉取状态条目
-type PullStatusItem struct {
-	ImageName      string           `json:"image_name"`
-	ImageVersion   string           `json:"image_version"`
-	RegistryURL    string           `json:"registry_url"`
-	SourceType     int              `json:"source_type"`
-	SourceTypeText string           `json:"source_type_text"`
-	Nodes          []NodePullStatus `json:"nodes"`
-}
-
-// NodePullStatus 节点拉取状态
-type NodePullStatus struct {
-	NodeName      string  `json:"node_name"`
-	Status        int     `json:"status"`
-	StatusText    string  `json:"status_text"`
-	PulledAt      *string `json:"pulled_at"`
-	NodeCacheSize string  `json:"node_cache_size"`
-}
-
-// ImagePullReq 触发镜像预拉取请求
-// POST /api/v1/admin/image-pull
-type ImagePullReq struct {
-	ImageIDs    []string `json:"image_ids"`
-	TargetNodes []string `json:"target_nodes"`
-	Force       bool     `json:"force"`
-}
-
-// ImagePullResp 触发镜像预拉取响应
-type ImagePullResp struct {
-	TaskID      string   `json:"task_id"`
-	TotalJobs   int      `json:"total_jobs"`
-	Images      []string `json:"images"`
-	TargetNodes []string `json:"target_nodes"`
-	Status      string   `json:"status"`
-	CreatedAt   string   `json:"created_at"`
-}
-
 // ========== 共享实验库 DTO ==========
 
 // SharedTemplateListReq 共享实验模板列表查询参数
@@ -891,6 +877,13 @@ type SharedTemplateListReq struct {
 	SortOrder string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
+// SharedTemplateListResp 共享实验模板列表响应
+// GET /api/v1/shared-experiment-templates
+type SharedTemplateListResp struct {
+	List       []TemplateListItem `json:"list"`
+	Pagination PaginationResp     `json:"pagination"`
+}
+
 // ========== 学校管理员视角 DTO ==========
 
 // SchoolImageListReq 本校镜像列表查询参数
@@ -900,7 +893,14 @@ type SchoolImageListReq struct {
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword    string `form:"keyword"`
 	CategoryID string `form:"category_id"`
-	Status     int    `form:"status"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4"`
+}
+
+// SchoolImageListResp 本校镜像列表响应
+// GET /api/v1/school/images
+type SchoolImageListResp struct {
+	List       []ImageListItem `json:"list"`
+	Pagination PaginationResp  `json:"pagination"`
 }
 
 // SchoolMonitorResp 本校实验监控响应

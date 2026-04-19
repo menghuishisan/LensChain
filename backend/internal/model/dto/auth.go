@@ -55,6 +55,15 @@ type RefreshTokenResp struct {
 	TokenType    string `json:"token_type"`
 }
 
+// SSOCallbackReq SSO回调查询参数。
+// CAS 与 OAuth2 回调参数不同，因此这里只表达平台明确消费的公共参数和两类协议的标准凭证。
+type SSOCallbackReq struct {
+	SchoolID string `form:"school_id" binding:"required"`
+	Ticket   string `form:"ticket"`
+	Code     string `form:"code"`
+	State    string `form:"state"`
+}
+
 // ========== 密码接口 DTO ==========
 
 // ChangePasswordReq 修改密码请求
@@ -78,30 +87,36 @@ type UserListReq struct {
 	Page           int    `form:"page" binding:"omitempty,min=1"`
 	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword        string `form:"keyword"`
-	Status         int    `form:"status" binding:"omitempty,oneof=1 2 3"`
+	Status         int16  `form:"status" binding:"omitempty,oneof=1 2 3"`
 	Role           string `form:"role" binding:"omitempty,oneof=teacher student"`
 	College        string `form:"college"`
-	EducationLevel int    `form:"education_level" binding:"omitempty,oneof=1 2 3"`
+	EducationLevel int16  `form:"education_level" binding:"omitempty,oneof=1 2 3 4"`
 	SortBy         string `form:"sort_by" binding:"omitempty"`
 	SortOrder      string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
 // UserListItem 用户列表项
 type UserListItem struct {
-	ID                 string  `json:"id"`
-	Phone              string  `json:"phone"`
-	Name               string  `json:"name"`
-	StudentNo          *string `json:"student_no"`
-	Status             int     `json:"status"`
-	StatusText         string  `json:"status_text"`
+	ID                 string   `json:"id"`
+	Phone              string   `json:"phone"`
+	Name               string   `json:"name"`
+	StudentNo          *string  `json:"student_no"`
+	Status             int16    `json:"status"`
+	StatusText         string   `json:"status_text"`
 	Roles              []string `json:"roles"`
-	College            *string `json:"college"`
-	Major              *string `json:"major"`
-	ClassName          *string `json:"class_name"`
-	EducationLevel     *int    `json:"education_level"`
-	EducationLevelText *string `json:"education_level_text"`
-	LastLoginAt        *string `json:"last_login_at"`
-	CreatedAt          string  `json:"created_at"`
+	College            *string  `json:"college"`
+	Major              *string  `json:"major"`
+	ClassName          *string  `json:"class_name"`
+	EducationLevel     *int16   `json:"education_level"`
+	EducationLevelText *string  `json:"education_level_text"`
+	LastLoginAt        *string  `json:"last_login_at"`
+	CreatedAt          string   `json:"created_at"`
+}
+
+// UserListResp 用户列表响应。
+type UserListResp struct {
+	List       []UserListItem `json:"list"`
+	Pagination PaginationResp `json:"pagination"`
 }
 
 // CreateUserReq 创建用户请求
@@ -115,7 +130,7 @@ type CreateUserReq struct {
 	College        *string `json:"college" binding:"omitempty,max=100"`
 	Major          *string `json:"major" binding:"omitempty,max=100"`
 	ClassName      *string `json:"class_name" binding:"omitempty,max=50"`
-	EducationLevel *int    `json:"education_level" binding:"omitempty,oneof=1 2 3"`
+	EducationLevel *int16  `json:"education_level" binding:"omitempty,oneof=1 2 3 4"`
 	Email          *string `json:"email" binding:"omitempty,email"`
 	Remark         *string `json:"remark"`
 }
@@ -128,29 +143,29 @@ type CreateUserResp struct {
 // UserDetailResp 用户详情响应
 // GET /api/v1/users/:id
 type UserDetailResp struct {
-	ID             string  `json:"id"`
-	Phone          string  `json:"phone"`
-	Name           string  `json:"name"`
-	StudentNo      *string `json:"student_no"`
-	Status         int     `json:"status"`
-	StatusText     string  `json:"status_text"`
-	IsFirstLogin   bool    `json:"is_first_login"`
-	IsSchoolAdmin  bool    `json:"is_school_admin"`
-	SchoolID       string  `json:"school_id"`
-	Roles          []string `json:"roles"`
-	AvatarURL      *string `json:"avatar_url"`
-	Nickname       *string `json:"nickname"`
-	Email          *string `json:"email"`
-	College        *string `json:"college"`
-	Major          *string `json:"major"`
-	ClassName      *string `json:"class_name"`
-	EnrollmentYear *int    `json:"enrollment_year"`
-	EducationLevel *int    `json:"education_level"`
-	EducationLevelText *string `json:"education_level_text"`
-	Grade          *int    `json:"grade"`
-	Remark         *string `json:"remark"`
-	LastLoginAt    *string `json:"last_login_at"`
-	CreatedAt      string  `json:"created_at"`
+	ID                 string   `json:"id"`
+	Phone              string   `json:"phone"`
+	Name               string   `json:"name"`
+	StudentNo          *string  `json:"student_no"`
+	Status             int16    `json:"status"`
+	StatusText         string   `json:"status_text"`
+	IsFirstLogin       bool     `json:"is_first_login"`
+	IsSchoolAdmin      bool     `json:"is_school_admin"`
+	SchoolID           string   `json:"school_id"`
+	Roles              []string `json:"roles"`
+	AvatarURL          *string  `json:"avatar_url"`
+	Nickname           *string  `json:"nickname"`
+	Email              *string  `json:"email"`
+	College            *string  `json:"college"`
+	Major              *string  `json:"major"`
+	ClassName          *string  `json:"class_name"`
+	EnrollmentYear     *int16   `json:"enrollment_year"`
+	EducationLevel     *int16   `json:"education_level"`
+	EducationLevelText *string  `json:"education_level_text"`
+	Grade              *int16   `json:"grade"`
+	Remark             *string  `json:"remark"`
+	LastLoginAt        *string  `json:"last_login_at"`
+	CreatedAt          string   `json:"created_at"`
 }
 
 // UpdateUserReq 更新用户请求
@@ -161,9 +176,9 @@ type UpdateUserReq struct {
 	College        *string `json:"college" binding:"omitempty,max=100"`
 	Major          *string `json:"major" binding:"omitempty,max=100"`
 	ClassName      *string `json:"class_name" binding:"omitempty,max=50"`
-	EnrollmentYear *int    `json:"enrollment_year"`
-	EducationLevel *int    `json:"education_level" binding:"omitempty,oneof=1 2 3"`
-	Grade          *int    `json:"grade"`
+	EnrollmentYear *int16  `json:"enrollment_year"`
+	EducationLevel *int16  `json:"education_level" binding:"omitempty,oneof=1 2 3 4"`
+	Grade          *int16  `json:"grade"`
 	Email          *string `json:"email" binding:"omitempty,email"`
 	Remark         *string `json:"remark"`
 }
@@ -171,7 +186,7 @@ type UpdateUserReq struct {
 // UpdateStatusReq 变更账号状态请求
 // PATCH /api/v1/users/:id/status
 type UpdateStatusReq struct {
-	Status int    `json:"status" binding:"required,oneof=1 2 3"`
+	Status int16  `json:"status" binding:"required,oneof=1 2 3"`
 	Reason string `json:"reason" binding:"omitempty,max=200"`
 }
 
@@ -188,6 +203,18 @@ type BatchDeleteReq struct {
 }
 
 // ========== 用户导入接口 DTO ==========
+
+// ImportTemplateReq 用户导入模板下载查询参数。
+// type 决定生成学生模板还是教师模板，模板文件本身由文件下载响应承载。
+type ImportTemplateReq struct {
+	Type string `form:"type" binding:"required,oneof=student teacher"`
+}
+
+// ImportPreviewReq 用户导入预览表单参数。
+// 上传文件由 multipart 文件流承载，DTO 只表达接口文档中的业务表单字段。
+type ImportPreviewReq struct {
+	Type string `form:"type" binding:"required,oneof=student teacher"`
+}
 
 // ImportPreviewResp 导入预览响应
 // POST /api/v1/user-imports/preview
@@ -261,7 +288,7 @@ type ProfileResp struct {
 	College            *string          `json:"college"`
 	Major              *string          `json:"major"`
 	ClassName          *string          `json:"class_name"`
-	EducationLevel     *int             `json:"education_level"`
+	EducationLevel     *int16           `json:"education_level"`
 	EducationLevelText *string          `json:"education_level_text"`
 	Roles              []string         `json:"roles"`
 	LearningOverview   LearningOverview `json:"learning_overview"`
@@ -288,29 +315,29 @@ type UpdateProfileReq struct {
 // SecurityPolicyResp 安全策略响应
 // GET /api/v1/security-policies
 type SecurityPolicyResp struct {
-	LoginFailMaxCount        int  `json:"login_fail_max_count"`
-	LoginLockDurationMinutes int  `json:"login_lock_duration_minutes"`
-	PasswordMinLength        int  `json:"password_min_length"`
-	PasswordRequireUppercase bool `json:"password_require_uppercase"`
-	PasswordRequireLowercase bool `json:"password_require_lowercase"`
-	PasswordRequireDigit     bool `json:"password_require_digit"`
+	LoginFailMaxCount          int  `json:"login_fail_max_count"`
+	LoginLockDurationMinutes   int  `json:"login_lock_duration_minutes"`
+	PasswordMinLength          int  `json:"password_min_length"`
+	PasswordRequireUppercase   bool `json:"password_require_uppercase"`
+	PasswordRequireLowercase   bool `json:"password_require_lowercase"`
+	PasswordRequireDigit       bool `json:"password_require_digit"`
 	PasswordRequireSpecialChar bool `json:"password_require_special_char"`
-	AccessTokenExpireMinutes int  `json:"access_token_expire_minutes"`
-	RefreshTokenExpireDays   int  `json:"refresh_token_expire_days"`
+	AccessTokenExpireMinutes   int  `json:"access_token_expire_minutes"`
+	RefreshTokenExpireDays     int  `json:"refresh_token_expire_days"`
 }
 
 // UpdateSecurityPolicyReq 更新安全策略请求
 // PUT /api/v1/security-policies（支持部分更新）
 type UpdateSecurityPolicyReq struct {
-	LoginFailMaxCount        *int  `json:"login_fail_max_count" binding:"omitempty,min=1,max=20"`
-	LoginLockDurationMinutes *int  `json:"login_lock_duration_minutes" binding:"omitempty,min=1,max=1440"`
-	PasswordMinLength        *int  `json:"password_min_length" binding:"omitempty,min=6,max=32"`
-	PasswordRequireUppercase *bool `json:"password_require_uppercase"`
-	PasswordRequireLowercase *bool `json:"password_require_lowercase"`
-	PasswordRequireDigit     *bool `json:"password_require_digit"`
+	LoginFailMaxCount          *int  `json:"login_fail_max_count" binding:"omitempty,min=1,max=20"`
+	LoginLockDurationMinutes   *int  `json:"login_lock_duration_minutes" binding:"omitempty,min=1,max=1440"`
+	PasswordMinLength          *int  `json:"password_min_length" binding:"omitempty,min=6,max=32"`
+	PasswordRequireUppercase   *bool `json:"password_require_uppercase"`
+	PasswordRequireLowercase   *bool `json:"password_require_lowercase"`
+	PasswordRequireDigit       *bool `json:"password_require_digit"`
 	PasswordRequireSpecialChar *bool `json:"password_require_special_char"`
-	AccessTokenExpireMinutes *int  `json:"access_token_expire_minutes" binding:"omitempty,min=5,max=1440"`
-	RefreshTokenExpireDays   *int  `json:"refresh_token_expire_days" binding:"omitempty,min=1,max=30"`
+	AccessTokenExpireMinutes   *int  `json:"access_token_expire_minutes" binding:"omitempty,min=5,max=1440"`
+	RefreshTokenExpireDays     *int  `json:"refresh_token_expire_days" binding:"omitempty,min=1,max=30"`
 }
 
 // ========== 日志接口 DTO ==========
@@ -321,7 +348,7 @@ type LoginLogListReq struct {
 	Page        int    `form:"page" binding:"omitempty,min=1"`
 	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	UserID      string `form:"user_id"`
-	Action      int    `form:"action" binding:"omitempty,oneof=1 2 3 4 5"`
+	Action      int16  `form:"action" binding:"omitempty,oneof=1 2 3 4 5"`
 	CreatedFrom string `form:"created_from"`
 	CreatedTo   string `form:"created_to"`
 }
@@ -331,14 +358,20 @@ type LoginLogItem struct {
 	ID              string  `json:"id"`
 	UserID          string  `json:"user_id"`
 	UserName        string  `json:"user_name"`
-	Action          int     `json:"action"`
+	Action          int16   `json:"action"`
 	ActionText      string  `json:"action_text"`
-	LoginMethod     *int    `json:"login_method"`
+	LoginMethod     *int16  `json:"login_method"`
 	LoginMethodText *string `json:"login_method_text"`
 	IP              string  `json:"ip"`
 	UserAgent       *string `json:"user_agent"`
 	FailReason      *string `json:"fail_reason"`
 	CreatedAt       string  `json:"created_at"`
+}
+
+// LoginLogListResp 登录日志列表响应。
+type LoginLogListResp struct {
+	List       []LoginLogItem `json:"list"`
+	Pagination PaginationResp `json:"pagination"`
 }
 
 // OperationLogListReq 操作日志列表查询参数
@@ -364,4 +397,10 @@ type OperationLogItem struct {
 	Detail       *string `json:"detail"`
 	IP           string  `json:"ip"`
 	CreatedAt    string  `json:"created_at"`
+}
+
+// OperationLogListResp 操作日志列表响应。
+type OperationLogListResp struct {
+	List       []OperationLogItem `json:"list"`
+	Pagination PaginationResp     `json:"pagination"`
 }

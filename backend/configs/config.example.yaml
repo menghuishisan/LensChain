@@ -1,79 +1,139 @@
-# config.yaml
-# 链镜平台后端默认配置文件
-# 环境变量覆盖前缀：LENSCHAIN_（如 LENSCHAIN_DATABASE_HOST）
+# config.example.yaml
+# 链镜平台后端示例配置文件
+# 用途：
+# 1. 作为本地开发、测试、部署时的配置模板
+# 2. 所有字段名必须与 internal/config/config.go 中的 mapstructure 标签保持一致
+# 3. 支持使用环境变量覆盖，前缀为 LENSCHAIN_（例如 LENSCHAIN_DATABASE_HOST）
 
 server:
+  # host: HTTP 服务监听地址；本地开发一般使用 0.0.0.0，生产可按部署环境调整
   host: "0.0.0.0"
+  # port: HTTP 服务监听端口
   port: 3000
-  mode: "debug"                      # debug / release / test
-  read_timeout: 10s
-  write_timeout: 10s
-  max_header_bytes: 1048576          # 1MB
+  # mode: Gin 运行模式，可选 debug / release / test
+  mode: "debug"
+  # read_timeout: HTTP 请求读取超时时间
+  read_timeout: "10s"
+  # write_timeout: HTTP 响应写入超时时间
+  write_timeout: "10s"
+  # max_header_bytes: HTTP 请求头最大字节数
+  max_header_bytes: 1048576
 
 database:
+  # host: PostgreSQL 主机地址
   host: "localhost"
+  # port: PostgreSQL 端口
   port: 5432
+  # user: PostgreSQL 用户名
   user: "lenschain"
-  password: "lenschain"
+  # password: PostgreSQL 密码
+  password: "please-change-me"
+  # dbname: PostgreSQL 数据库名
   dbname: "lenschain"
+  # sslmode: PostgreSQL SSL 模式，常用 disable / require
   sslmode: "disable"
+  # max_idle_conns: 数据库连接池最大空闲连接数
   max_idle_conns: 10
+  # max_open_conns: 数据库连接池最大打开连接数
   max_open_conns: 100
+  # conn_max_lifetime: 单个数据库连接最大复用时长
   conn_max_lifetime: "1h"
-  log_level: "warn"                  # silent / error / warn / info
+  # log_level: GORM 日志级别，可选 silent / error / warn / info
+  log_level: "warn"
 
 redis:
+  # host: Redis 主机地址
   host: "localhost"
+  # port: Redis 端口
   port: 6379
+  # password: Redis 密码；未启用密码时留空
   password: ""
+  # db: Redis 逻辑库编号
   db: 0
+  # pool_size: Redis 连接池大小
   pool_size: 100
+  # min_idle_conns: Redis 最小空闲连接数
   min_idle_conns: 10
 
 jwt:
-  access_secret: "lenschain-access-secret-change-in-production"
-  refresh_secret: "lenschain-refresh-secret-change-in-production"
-  access_expire: "30m"               # Access Token 30分钟
-  refresh_expire: "168h"             # Refresh Token 7天
-  temp_expire: "5m"                  # 临时Token 5分钟（首次登录改密）
+  # access_secret: Access Token 签名密钥；生产环境必须替换为高强度随机值
+  access_secret: "please-change-access-secret-in-production"
+  # refresh_secret: Refresh Token 签名密钥；生产环境必须替换为高强度随机值
+  refresh_secret: "please-change-refresh-secret-in-production"
+  # access_expire: Access Token 有效期
+  access_expire: "30m"
+  # refresh_expire: Refresh Token 有效期
+  refresh_expire: "168h"
+  # temp_expire: 临时 Token 有效期，例如首次登录改密场景
+  temp_expire: "5m"
+  # issuer: JWT 签发者标识
   issuer: "lenschain"
 
 minio:
+  # endpoint: MinIO 访问地址，格式一般为 host:port
   endpoint: "localhost:9000"
+  # access_key: MinIO Access Key
   access_key: "minioadmin"
+  # secret_key: MinIO Secret Key
   secret_key: "minioadmin"
+  # use_ssl: 是否通过 HTTPS 访问 MinIO
   use_ssl: false
+  # bucket: 默认对象存储桶名称
   bucket: "lenschain"
+  # region: MinIO / S3 区域标识
   region: "us-east-1"
 
 nats:
+  # url: NATS 服务连接地址
   url: "nats://localhost:4222"
+  # max_reconnects: 最大重连次数
   max_reconnects: 60
+  # reconnect_wait: 每次重连等待时间
   reconnect_wait: "2s"
 
 snowflake:
+  # node_id: 雪花 ID 节点编号；分布式部署时不同实例必须唯一
   node_id: 1
 
 log:
-  level: "info"                      # debug / info / warn / error
-  format: "json"                     # json / console
-  output: "stdout"                   # stdout / file
+  # level: 日志级别，可选 debug / info / warn / error
+  level: "info"
+  # format: 日志格式，可选 json / console
+  format: "json"
+  # output: 日志输出目标，可选 stdout / file
+  output: "stdout"
+  # file_path: output=file 时的日志文件路径
   file_path: "logs/app.log"
-  max_size: 100                      # MB
+  # max_size: 单个日志文件最大大小，单位 MB
+  max_size: 100
+  # max_backups: 日志文件最大保留份数
   max_backups: 30
-  max_age: 7                         # 天
+  # max_age: 日志文件最大保留天数
+  max_age: 7
+  # compress: 是否压缩历史日志
   compress: true
 
 sms:
-  provider: "mock"                   # mock / aliyun / tencent
+  # provider: 短信服务提供商，可选 mock / aliyun / tencent
+  provider: "mock"
+  # access_key: 短信服务 Access Key
   access_key: ""
+  # secret_key: 短信服务 Secret Key
   secret_key: ""
+  # sign_name: 短信签名
   sign_name: "链镜平台"
+  # region: 短信服务区域标识
   region: ""
+  # endpoint: 短信服务 API 地址；为空时使用 provider 默认公网地址
+  endpoint: ""
+  # sdk_app_id: 腾讯云短信应用 ID，仅 provider=tencent 时必填
+  sdk_app_id: ""
 
 cors:
+  # allowed_origins: 允许跨域访问的来源列表
   allowed_origins:
     - "http://localhost:3000"
+  # allowed_methods: 允许的 HTTP 方法列表
   allowed_methods:
     - "GET"
     - "POST"
@@ -81,12 +141,45 @@ cors:
     - "PATCH"
     - "DELETE"
     - "OPTIONS"
+  # allowed_headers: 允许的请求头列表
   allowed_headers:
     - "Authorization"
     - "Content-Type"
+  # max_age: 预检请求缓存时长
   max_age: "12h"
 
 rate_limit:
+  # enabled: 是否启用全局限流
   enabled: true
+  # requests_per_second: 每秒允许通过的请求数
   requests_per_second: 100
+  # burst: 突发流量桶容量
   burst: 200
+
+k8s:
+  # in_cluster: 是否使用集群内配置；true 表示运行在 K8s 集群内
+  in_cluster: false
+  # kubeconfig_path: 集群外模式使用的 kubeconfig 路径；为空时走默认路径
+  kubeconfig_path: ""
+  # namespace_prefix: 实验环境命名空间前缀
+  namespace_prefix: "lenschain-exp"
+  # default_cpu: K8s 默认 CPU 配额
+  default_cpu: "500m"
+  # default_memory: K8s 默认内存配额
+  default_memory: "512Mi"
+  # collector_image_template: 混合实验采集器镜像模板，通常使用 %s 作为占位符
+  collector_image_template: "registry.lianjing.com/collector-agents/%s:latest"
+  # timeout: 调用 K8s API 的超时时间
+  timeout: "30s"
+
+sim_engine:
+  # grpc_addr: SimEngine Core 的 gRPC 服务地址
+  grpc_addr: "localhost:50051"
+  # timeout: SimEngine gRPC 调用超时时间
+  timeout: "10s"
+  # max_retries: SimEngine 调用失败后的最大重试次数
+  max_retries: 3
+  # tls_enabled: 是否启用 gRPC TLS
+  tls_enabled: false
+  # cert_file: TLS 证书文件路径；tls_enabled=true 时需要配置
+  cert_file: ""

@@ -1,8 +1,7 @@
 // jwt.go
-// JWT Token 工具
-// 实现双Token机制：Access Token（30分钟）+ Refresh Token（7天）
-// 支持临时Token（首次登录强制改密，5分钟有效）
-// Token 中的 JTI 用于黑名单机制（踢人下线）
+// 该文件集中实现平台的 JWT 令牌签发与解析规则，包括 Access Token、Refresh Token、
+// 首次登录改密用的临时 Token，以及实验仿真 WebSocket 会话令牌。认证模块和需要做
+// WebSocket query token 鉴权的场景，都应复用这里而不是自行拼装 claims。
 
 package jwt
 

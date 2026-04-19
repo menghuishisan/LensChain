@@ -24,7 +24,7 @@ type SubmitApplicationReq struct {
 // SubmitApplicationResp 提交入驻申请响应
 type SubmitApplicationResp struct {
 	ApplicationID string `json:"application_id"`
-	Status        int    `json:"status"`
+	Status        int16  `json:"status"`
 	StatusText    string `json:"status_text"`
 	Tip           string `json:"tip"`
 }
@@ -51,7 +51,7 @@ type QueryApplicationResp struct {
 type ApplicationStatusItem struct {
 	ApplicationID string  `json:"application_id"`
 	SchoolName    string  `json:"school_name"`
-	Status        int     `json:"status"`
+	Status        int16   `json:"status"`
 	StatusText    string  `json:"status_text"`
 	CreatedAt     string  `json:"created_at"`
 	ReviewedAt    *string `json:"reviewed_at"`
@@ -65,8 +65,8 @@ type ReapplyReq struct {
 	SchoolName    string  `json:"school_name" binding:"required,max=100"`
 	SchoolCode    string  `json:"school_code" binding:"required,max=50"`
 	SchoolAddress *string `json:"school_address" binding:"omitempty,max=200"`
-	SchoolWebsite *string `json:"school_website" binding:"omitempty,max=200"`
-	SchoolLogoURL *string `json:"school_logo_url" binding:"omitempty,max=500"`
+	SchoolWebsite *string `json:"school_website" binding:"omitempty,max=200,url"`
+	SchoolLogoURL *string `json:"school_logo_url" binding:"omitempty,max=500,url"`
 	ContactName   string  `json:"contact_name" binding:"required,max=50"`
 	ContactPhone  string  `json:"contact_phone" binding:"required,phone"`
 	ContactEmail  *string `json:"contact_email" binding:"omitempty,email,max=100"`
@@ -80,7 +80,7 @@ type ReapplyReq struct {
 type ApplicationListReq struct {
 	Page      int    `form:"page" binding:"omitempty,min=1"`
 	PageSize  int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	Status    int    `form:"status" binding:"omitempty,oneof=1 2 3"`
+	Status    int16  `form:"status" binding:"omitempty,oneof=1 2 3"`
 	Keyword   string `form:"keyword"`
 	SortBy    string `form:"sort_by" binding:"omitempty"`
 	SortOrder string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
@@ -93,10 +93,16 @@ type ApplicationListItem struct {
 	SchoolCode   string  `json:"school_code"`
 	ContactName  string  `json:"contact_name"`
 	ContactPhone string  `json:"contact_phone"`
-	Status       int     `json:"status"`
+	Status       int16   `json:"status"`
 	StatusText   string  `json:"status_text"`
 	CreatedAt    string  `json:"created_at"`
 	ReviewedAt   *string `json:"reviewed_at"`
+}
+
+// ApplicationListResp 申请列表响应。
+type ApplicationListResp struct {
+	List       []ApplicationListItem `json:"list"`
+	Pagination PaginationResp        `json:"pagination"`
 }
 
 // ApplicationDetailResp 申请详情响应
@@ -111,7 +117,7 @@ type ApplicationDetailResp struct {
 	ContactPhone          string  `json:"contact_phone"`
 	ContactEmail          *string `json:"contact_email"`
 	ContactTitle          *string `json:"contact_title"`
-	Status                int     `json:"status"`
+	Status                int16   `json:"status"`
 	StatusText            string  `json:"status_text"`
 	ReviewerID            *string `json:"reviewer_id"`
 	ReviewedAt            *string `json:"reviewed_at"`
@@ -149,7 +155,7 @@ type SchoolListReq struct {
 	Page            int    `form:"page" binding:"omitempty,min=1"`
 	PageSize        int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword         string `form:"keyword"`
-	Status          int    `form:"status" binding:"omitempty,oneof=1 2 3 4 5 6"`
+	Status          int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5 6"`
 	LicenseExpiring bool   `form:"license_expiring"`
 	SortBy          string `form:"sort_by" binding:"omitempty"`
 	SortOrder       string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
@@ -161,7 +167,7 @@ type SchoolListItem struct {
 	Name                 string  `json:"name"`
 	Code                 string  `json:"code"`
 	LogoURL              *string `json:"logo_url"`
-	Status               int     `json:"status"`
+	Status               int16   `json:"status"`
 	StatusText           string  `json:"status_text"`
 	LicenseStartAt       *string `json:"license_start_at"`
 	LicenseEndAt         *string `json:"license_end_at"`
@@ -169,6 +175,12 @@ type SchoolListItem struct {
 	ContactName          string  `json:"contact_name"`
 	ContactPhone         string  `json:"contact_phone"`
 	CreatedAt            string  `json:"created_at"`
+}
+
+// SchoolListResp 学校列表响应。
+type SchoolListResp struct {
+	List       []SchoolListItem `json:"list"`
+	Pagination PaginationResp   `json:"pagination"`
 }
 
 // SchoolDetailResp 学校详情响应
@@ -180,7 +192,7 @@ type SchoolDetailResp struct {
 	Address        *string `json:"address"`
 	Website        *string `json:"website"`
 	Description    *string `json:"description"`
-	Status         int     `json:"status"`
+	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
 	LicenseStartAt *string `json:"license_start_at"`
 	LicenseEndAt   *string `json:"license_end_at"`
@@ -200,8 +212,8 @@ type CreateSchoolReq struct {
 	Name           string  `json:"name" binding:"required,max=100"`
 	Code           string  `json:"code" binding:"required,max=50"`
 	Address        *string `json:"address" binding:"omitempty,max=200"`
-	Website        *string `json:"website" binding:"omitempty,max=200"`
-	LogoURL        *string `json:"logo_url" binding:"omitempty,max=500"`
+	Website        *string `json:"website" binding:"omitempty,max=200,url"`
+	LogoURL        *string `json:"logo_url" binding:"omitempty,max=500,url"`
 	Description    *string `json:"description"`
 	LicenseStartAt string  `json:"license_start_at" binding:"required"`
 	LicenseEndAt   string  `json:"license_end_at" binding:"required"`
@@ -225,8 +237,8 @@ type UpdateSchoolReq struct {
 	Name         *string `json:"name" binding:"omitempty,max=100"`
 	Code         *string `json:"code" binding:"omitempty,max=50"`
 	Address      *string `json:"address" binding:"omitempty,max=200"`
-	Website      *string `json:"website" binding:"omitempty,max=200"`
-	LogoURL      *string `json:"logo_url" binding:"omitempty,max=500"`
+	Website      *string `json:"website" binding:"omitempty,max=200,url"`
+	LogoURL      *string `json:"logo_url" binding:"omitempty,max=500,url"`
 	Description  *string `json:"description"`
 	ContactName  *string `json:"contact_name" binding:"omitempty,max=50"`
 	ContactPhone *string `json:"contact_phone" binding:"omitempty,phone"`
@@ -264,34 +276,50 @@ type SchoolProfileResp struct {
 	Address     *string `json:"address"`
 	Website     *string `json:"website"`
 	Description *string `json:"description"`
-	Status      int     `json:"status"`
+	Status      int16   `json:"status"`
 	StatusText  string  `json:"status_text"`
 }
 
 // UpdateSchoolProfileReq 编辑本校信息请求（校管仅可修改部分字段）
 // PUT /api/v1/school/profile
 type UpdateSchoolProfileReq struct {
-	LogoURL     *string `json:"logo_url" binding:"omitempty,max=500"`
+	LogoURL     *string `json:"logo_url" binding:"omitempty,max=500,url"`
 	Description *string `json:"description"`
 	Address     *string `json:"address" binding:"omitempty,max=200"`
-	Website     *string `json:"website" binding:"omitempty,max=200"`
+	Website     *string `json:"website" binding:"omitempty,max=200,url"`
 }
 
 // SSOConfigResp SSO配置响应
 // GET /api/v1/school/sso-config
 type SSOConfigResp struct {
-	Provider  string                 `json:"provider"`
-	IsEnabled bool                   `json:"is_enabled"`
-	IsTested  bool                   `json:"is_tested"`
-	TestedAt  *string                `json:"tested_at"`
-	Config    map[string]interface{} `json:"config"`
+	Provider  string     `json:"provider"`
+	IsEnabled bool       `json:"is_enabled"`
+	IsTested  bool       `json:"is_tested"`
+	TestedAt  *string    `json:"tested_at"`
+	Config    *SSOConfig `json:"config"`
+}
+
+// SSOConfig SSO协议配置参数。
+// 同一结构承载 CAS 与 OAuth2 的配置字段，具体必填项由 provider 决定并在 service 层按协议校验。
+type SSOConfig struct {
+	CASServerURL    *string `json:"cas_server_url,omitempty" binding:"omitempty,url,max=500"`
+	CASServiceURL   *string `json:"cas_service_url,omitempty" binding:"omitempty,url,max=500"`
+	CASVersion      *string `json:"cas_version,omitempty" binding:"omitempty,oneof=2.0 3.0"`
+	AuthorizeURL    *string `json:"authorize_url,omitempty" binding:"omitempty,url,max=500"`
+	TokenURL        *string `json:"token_url,omitempty" binding:"omitempty,url,max=500"`
+	UserinfoURL     *string `json:"userinfo_url,omitempty" binding:"omitempty,url,max=500"`
+	ClientID        *string `json:"client_id,omitempty" binding:"omitempty,max=200"`
+	ClientSecret    *string `json:"client_secret,omitempty" binding:"omitempty,max=500"`
+	RedirectURI     *string `json:"redirect_uri,omitempty" binding:"omitempty,url,max=500"`
+	Scope           *string `json:"scope,omitempty" binding:"omitempty,max=200"`
+	UserIDAttribute string  `json:"user_id_attribute" binding:"required,max=100"`
 }
 
 // UpdateSSOConfigReq 更新SSO配置请求
 // PUT /api/v1/school/sso-config
 type UpdateSSOConfigReq struct {
-	Provider string                 `json:"provider" binding:"required,oneof=cas oauth2"`
-	Config   map[string]interface{} `json:"config" binding:"required"`
+	Provider string     `json:"provider" binding:"required,oneof=cas oauth2"`
+	Config   *SSOConfig `json:"config" binding:"required"`
 }
 
 // ToggleSSOEnableReq 切换SSO启用状态请求
@@ -314,7 +342,7 @@ type LicenseStatusResp struct {
 	LicenseStartAt *string `json:"license_start_at"`
 	LicenseEndAt   *string `json:"license_end_at"`
 	RemainingDays  int     `json:"remaining_days"`
-	Status         int     `json:"status"`
+	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
 	IsExpiringSoon bool    `json:"is_expiring_soon"`
 }
@@ -327,4 +355,9 @@ type SSOSchoolItem struct {
 	ID      string  `json:"id"`
 	Name    string  `json:"name"`
 	LogoURL *string `json:"logo_url"`
+}
+
+// SSOSchoolListResp 可用 SSO 学校列表响应。
+type SSOSchoolListResp struct {
+	List []SSOSchoolItem `json:"list"`
 }

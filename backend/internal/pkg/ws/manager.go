@@ -1,8 +1,7 @@
 // manager.go
-// WebSocket 连接管理器
-// 用于实时通信：实验环境状态推送（模块04）、CTF排行榜/公告（模块05）、通知推送（模块07）
-// 支持按用户ID、房间（竞赛/课程/实验组）进行消息推送
-// 支持同一用户多设备连接（每个连接独立管理）
+// 该文件实现平台通用的 WebSocket 连接管理器，负责维护在线连接、房间订阅、按用户推送和
+// 心跳保活。模块04实验实时状态、模块05竞赛推送和模块07通知推送都基于这里的连接管理
+// 能力实现，但各模块自己的消息协议和鉴权规则不应直接塞进这个文件。
 
 package ws
 
@@ -16,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 
+	"github.com/lenschain/backend/internal/config"
 	"github.com/lenschain/backend/internal/pkg/logger"
 )
 
@@ -24,7 +24,21 @@ var Upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 生产环境应限制来源
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+
+		cfg := config.Get()
+		if cfg == nil {
+			return false
+		}
+		for _, allowed := range cfg.CORS.AllowedOrigins {
+			if allowed == "*" || allowed == origin {
+				return true
+			}
+		}
+		return false
 	},
 }
 
@@ -43,16 +57,16 @@ type Client struct {
 	UserID int64           // 用户ID
 	ConnID uint64          // 连接唯一ID（区分同一用户多设备）
 	Conn   *websocket.Conn // WebSocket 连接
-	Send   chan []byte      // 发送消息通道
-	Rooms  map[string]bool  // 已加入的房间
+	Send   chan []byte     // 发送消息通道
+	Rooms  map[string]bool // 已加入的房间
 	mu     sync.Mutex
 }
 
 // Manager WebSocket 连接管理器
 type Manager struct {
-	clients    map[uint64]*Client              // 连接ID -> 客户端
-	userConns  map[int64]map[uint64]*Client     // 用户ID -> 连接ID集合（支持多设备）
-	rooms      map[string]map[uint64]*Client    // 房间名 -> 客户端集合
+	clients    map[uint64]*Client            // 连接ID -> 客户端
+	userConns  map[int64]map[uint64]*Client  // 用户ID -> 连接ID集合（支持多设备）
+	rooms      map[string]map[uint64]*Client // 房间名 -> 客户端集合
 	register   chan *Client
 	unregister chan *Client
 	broadcast  chan *RoomMessage
@@ -92,6 +106,7 @@ func (m *Manager) run() {
 	for {
 		select {
 		case client := <-m.register:
+			// 注册阶段统一维护全局连接索引和按用户聚合索引，方便后续按用户推送。
 			m.mu.Lock()
 			m.clients[client.ConnID] = client
 			if _, ok := m.userConns[client.UserID]; !ok {
@@ -105,27 +120,9 @@ func (m *Manager) run() {
 			)
 
 		case client := <-m.unregister:
+			// 注销阶段负责把连接从所有索引中一次性摘除，避免房间和在线状态残留脏数据。
 			m.mu.Lock()
-			if _, ok := m.clients[client.ConnID]; ok {
-				// 从所有房间移除
-				for room := range client.Rooms {
-					if roomClients, ok := m.rooms[room]; ok {
-						delete(roomClients, client.ConnID)
-						if len(roomClients) == 0 {
-							delete(m.rooms, room)
-						}
-					}
-				}
-				// 从用户连接集合移除
-				if conns, ok := m.userConns[client.UserID]; ok {
-					delete(conns, client.ConnID)
-					if len(conns) == 0 {
-						delete(m.userConns, client.UserID)
-					}
-				}
-				delete(m.clients, client.ConnID)
-				close(client.Send)
-			}
+			m.removeClientLocked(client)
 			m.mu.Unlock()
 			logger.L.Debug("WebSocket客户端已断开",
 				zap.Int64("user_id", client.UserID),
@@ -133,35 +130,74 @@ func (m *Manager) run() {
 			)
 
 		case msg := <-m.broadcast:
-			m.mu.RLock()
+			// 房间广播由管理器串行处理，确保异常连接在广播路径上也能被及时清理。
+			m.mu.Lock()
 			if roomClients, ok := m.rooms[msg.Room]; ok {
 				for connID, client := range roomClients {
 					select {
 					case client.Send <- msg.Message:
 					default:
-						// 发送缓冲区满，关闭连接
-						close(client.Send)
-						delete(roomClients, connID)
+						// 发送缓冲区满，移除异常连接，避免长期堆积。
+						_ = connID
+						m.removeClientLocked(client)
 					}
 				}
 			}
-			m.mu.RUnlock()
+			m.mu.Unlock()
 		}
 	}
 }
 
+// removeClientLocked 在持有写锁时移除客户端连接。
+func (m *Manager) removeClientLocked(client *Client) {
+	if client == nil {
+		return
+	}
+	if _, ok := m.clients[client.ConnID]; !ok {
+		return
+	}
+
+	for room := range client.Rooms {
+		if roomClients, ok := m.rooms[room]; ok {
+			delete(roomClients, client.ConnID)
+			if len(roomClients) == 0 {
+				delete(m.rooms, room)
+			}
+		}
+	}
+
+	if conns, ok := m.userConns[client.UserID]; ok {
+		delete(conns, client.ConnID)
+		if len(conns) == 0 {
+			delete(m.userConns, client.UserID)
+		}
+	}
+
+	delete(m.clients, client.ConnID)
+	close(client.Send)
+}
+
 // Register 注册客户端
 func (m *Manager) Register(client *Client) {
+	if m == nil || client == nil {
+		return
+	}
 	m.register <- client
 }
 
 // Unregister 注销客户端
 func (m *Manager) Unregister(client *Client) {
+	if m == nil || client == nil {
+		return
+	}
 	m.unregister <- client
 }
 
 // JoinRoom 加入房间
 func (m *Manager) JoinRoom(client *Client, room string) {
+	if m == nil || client == nil || room == "" {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -169,6 +205,7 @@ func (m *Manager) JoinRoom(client *Client, room string) {
 		m.rooms[room] = make(map[uint64]*Client)
 	}
 	m.rooms[room][client.ConnID] = client
+	// 客户端侧也保留已加入房间索引，便于断开时快速反向清理。
 	client.mu.Lock()
 	client.Rooms[room] = true
 	client.mu.Unlock()
@@ -176,6 +213,9 @@ func (m *Manager) JoinRoom(client *Client, room string) {
 
 // LeaveRoom 离开房间
 func (m *Manager) LeaveRoom(client *Client, room string) {
+	if m == nil || client == nil || room == "" {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -192,6 +232,9 @@ func (m *Manager) LeaveRoom(client *Client, room string) {
 
 // SendToUser 向指定用户的所有连接发送消息
 func (m *Manager) SendToUser(userID int64, msg *Message) error {
+	if m == nil {
+		return nil
+	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -215,6 +258,9 @@ func (m *Manager) SendToUser(userID int64, msg *Message) error {
 
 // BroadcastToRoom 向房间广播消息
 func (m *Manager) BroadcastToRoom(room string, msg *Message) error {
+	if m == nil {
+		return nil
+	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -226,6 +272,9 @@ func (m *Manager) BroadcastToRoom(room string, msg *Message) error {
 
 // GetOnlineUserCount 获取在线用户数
 func (m *Manager) GetOnlineUserCount() int {
+	if m == nil {
+		return 0
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.userConns)
@@ -233,6 +282,9 @@ func (m *Manager) GetOnlineUserCount() int {
 
 // IsUserOnline 检查用户是否在线
 func (m *Manager) IsUserOnline(userID int64) bool {
+	if m == nil {
+		return false
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	conns, ok := m.userConns[userID]
@@ -259,6 +311,7 @@ func (c *Client) WritePump() {
 				return
 			}
 		case <-ticker.C:
+			// 定期发送 Ping，帮助及时发现已经断开的连接。
 			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
@@ -277,6 +330,7 @@ func (c *Client) ReadPump(m *Manager) {
 	c.Conn.SetReadLimit(4096)
 	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
+		// 收到 Pong 后延长读超时，维持连接活性判断。
 		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})

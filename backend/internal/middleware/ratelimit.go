@@ -1,8 +1,7 @@
 // ratelimit.go
-// 限流中间件
-// 基于令牌桶算法（golang.org/x/time/rate）
-// 全局限流 + 按IP限流，防止接口被恶意刷取
-// IP限流器带 LRU 淘汰机制，防止内存泄漏
+// 该文件实现平台级 HTTP 限流中间件，负责按照统一配置执行全局限流和按来源 IP 的基础限流，
+// 防止单个客户端或突发流量冲垮接口。它解决的是通用请求保护问题，接口级的业务限流规则
+// 仍应由对应模块在自己的 service 或专用能力里实现。
 
 package middleware
 
@@ -24,10 +23,10 @@ type ipEntry struct {
 	lastSeen time.Time
 }
 
-// ipLimiters 按IP限流器缓存
 var (
-	ipLimiters = make(map[string]*ipEntry)
-	ipMu       sync.Mutex
+	ipLimiters          = make(map[string]*ipEntry)
+	ipMu                sync.Mutex
+	rateLimiterInitOnce sync.Once
 )
 
 // maxIPEntries IP限流器最大缓存数量
@@ -51,8 +50,10 @@ func RateLimit() gin.HandlerFunc {
 	// 全局限流器
 	globalLimiter := rate.NewLimiter(rate.Limit(cfg.RequestsPerSecond), cfg.Burst)
 
-	// 启动后台清理协程
-	go cleanupIPLimiters()
+	// 只在首次启用时启动一次后台清理协程，避免重复构建路由时产生协程泄漏。
+	rateLimiterInitOnce.Do(func() {
+		go cleanupIPLimiters()
+	})
 
 	return func(c *gin.Context) {
 		// 全局限流检查
@@ -61,9 +62,9 @@ func RateLimit() gin.HandlerFunc {
 			return
 		}
 
-		// 按IP限流检查（每个IP每秒10个请求）
+		// 按 IP 限流检查，避免单个来源独占全局配额。
 		ip := c.ClientIP()
-		limiter := getIPLimiter(ip)
+		limiter := getIPLimiter(ip, cfg)
 		if !limiter.Allow() {
 			response.Abort(c, errcode.New(42901, 429, "您的请求过于频繁，请稍后再试"))
 			return
@@ -74,7 +75,7 @@ func RateLimit() gin.HandlerFunc {
 }
 
 // getIPLimiter 获取或创建IP限流器
-func getIPLimiter(ip string) *rate.Limiter {
+func getIPLimiter(ip string, cfg config.RateLimitConfig) *rate.Limiter {
 	ipMu.Lock()
 	defer ipMu.Unlock()
 
@@ -88,8 +89,17 @@ func getIPLimiter(ip string) *rate.Limiter {
 		evictOldestIPEntries()
 	}
 
-	// 每个IP每秒10个请求，突发20个
-	limiter := rate.NewLimiter(10, 20)
+	// 单 IP 配额按全局限流配置收敛，避免硬编码与配置脱节。
+	perIPRPS := cfg.RequestsPerSecond
+	if perIPRPS <= 0 || perIPRPS > 10 {
+		perIPRPS = 10
+	}
+	perIPBurst := cfg.Burst
+	if perIPBurst <= 0 || perIPBurst > 20 {
+		perIPBurst = 20
+	}
+
+	limiter := rate.NewLimiter(rate.Limit(perIPRPS), perIPBurst)
 	ipLimiters[ip] = &ipEntry{
 		limiter:  limiter,
 		lastSeen: time.Now(),

@@ -1,7 +1,7 @@
 // response.go
-// 统一响应封装
-// 严格遵循 API 规范：{ "code": 200, "message": "success", "data": {}, "timestamp": "..." }
-// 所有 API 响应必须通过此包返回，禁止直接使用 c.JSON()
+// 该文件封装所有 HTTP 接口必须使用的统一响应结构，负责把成功、分页、校验错误和业务
+// 错误按 API 规范输出为同一 JSON 形态。它的职责是统一“怎么返回”，而不是判断“该返回
+// 什么业务结果”。
 
 package response
 
@@ -78,6 +78,9 @@ func Created(c *gin.Context, data interface{}) {
 
 // Paginated 分页响应
 func Paginated(c *gin.Context, list interface{}, total int64, page, pageSize int) {
+	if pageSize <= 0 {
+		pageSize = 20
+	}
 	totalPage := int(total) / pageSize
 	if int(total)%pageSize > 0 {
 		totalPage++
@@ -131,6 +134,9 @@ func ValidationError(c *gin.Context, errors interface{}) {
 
 // Abort 中止请求并返回错误（用于中间件）
 func Abort(c *gin.Context, err *errcode.AppError) {
+	if err == nil {
+		err = errcode.ErrInternal
+	}
 	c.AbortWithStatusJSON(err.HTTPStatus, Response{
 		Code:      err.Code,
 		Message:   err.Message,

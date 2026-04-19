@@ -1,8 +1,8 @@
 // context.go
-// 服务层上下文
-// 用于 handler → service 层的参数传递
-// service 层不依赖 *gin.Context，通过 ServiceContext 获取用户信息
-// 遵循分层架构规范：service 层不引用任何 HTTP 相关类型
+// 该文件定义 service 层内部使用的服务上下文对象，用来承接 handler 从 HTTP 请求中提取出的
+// 用户身份、租户信息和客户端来源。它的目的不是替代标准 context.Context，而是把 service
+// 层真正需要的业务身份信息从 Gin 上下文中剥离出来，保证 service 不依赖任何 HTTP 类型，
+// 同时又能拿到当前操作者与租户边界。
 
 package context
 

@@ -11,20 +11,20 @@ import "encoding/json"
 // CreateImageReq 创建/上传镜像请求
 // POST /api/v1/images
 type CreateImageReq struct {
-	CategoryID             string          `json:"category_id" binding:"required"`
-	Name                   string          `json:"name" binding:"required,max=100"`
-	DisplayName            string          `json:"display_name" binding:"required,max=100"`
-	Description            *string         `json:"description"`
-	IconURL                *string         `json:"icon_url" binding:"omitempty,url,max=500"`
-	Ecosystem              *string         `json:"ecosystem" binding:"omitempty,max=50"`
-	DefaultPorts           json.RawMessage `json:"default_ports"`
-	DefaultEnvVars         json.RawMessage `json:"default_env_vars"`
-	DefaultVolumes         json.RawMessage `json:"default_volumes"`
-	TypicalCompanions      json.RawMessage `json:"typical_companions"`
-	RequiredDependencies   json.RawMessage `json:"required_dependencies"`
-	ResourceRecommendation json.RawMessage `json:"resource_recommendation"`
-	DocumentationURL       *string         `json:"documentation_url" binding:"omitempty,max=500"`
-	Versions               []CreateImageVersionInlineReq `json:"versions"`
+	CategoryID             string                        `json:"category_id" binding:"required"`
+	Name                   string                        `json:"name" binding:"required,max=100"`
+	DisplayName            string                        `json:"display_name" binding:"required,max=100"`
+	Description            *string                       `json:"description"`
+	IconURL                *string                       `json:"icon_url" binding:"omitempty,url,max=500"`
+	Ecosystem              *string                       `json:"ecosystem" binding:"omitempty,max=50"`
+	DefaultPorts           []ImagePortItem               `json:"default_ports"`
+	DefaultEnvVars         []ImageEnvVarItem             `json:"default_env_vars"`
+	DefaultVolumes         []ImageVolumeItem             `json:"default_volumes"`
+	TypicalCompanions      ImageTypicalCompanions        `json:"typical_companions"`
+	RequiredDependencies   []ImageDependencyItem         `json:"required_dependencies"`
+	ResourceRecommendation ImageResourceRecommendation   `json:"resource_recommendation"`
+	DocumentationURL       *string                       `json:"documentation_url" binding:"omitempty,max=500"`
+	Versions               []CreateImageVersionInlineReq `json:"versions" binding:"required,min=1,dive"`
 }
 
 // CreateImageVersionInlineReq 创建镜像时内联的版本信息
@@ -40,17 +40,17 @@ type CreateImageVersionInlineReq struct {
 // UpdateImageReq 编辑镜像信息请求
 // PUT /api/v1/images/:id
 type UpdateImageReq struct {
-	DisplayName            *string         `json:"display_name" binding:"omitempty,max=100"`
-	Description            *string         `json:"description"`
-	IconURL                *string         `json:"icon_url" binding:"omitempty,url,max=500"`
-	Ecosystem              *string         `json:"ecosystem" binding:"omitempty,max=50"`
-	DefaultPorts           json.RawMessage `json:"default_ports"`
-	DefaultEnvVars         json.RawMessage `json:"default_env_vars"`
-	DefaultVolumes         json.RawMessage `json:"default_volumes"`
-	TypicalCompanions      json.RawMessage `json:"typical_companions"`
-	RequiredDependencies   json.RawMessage `json:"required_dependencies"`
-	ResourceRecommendation json.RawMessage `json:"resource_recommendation"`
-	DocumentationURL       *string         `json:"documentation_url" binding:"omitempty,max=500"`
+	DisplayName            *string                      `json:"display_name" binding:"omitempty,max=100"`
+	Description            *string                      `json:"description"`
+	IconURL                *string                      `json:"icon_url" binding:"omitempty,url,max=500"`
+	Ecosystem              *string                      `json:"ecosystem" binding:"omitempty,max=50"`
+	DefaultPorts           []ImagePortItem              `json:"default_ports"`
+	DefaultEnvVars         []ImageEnvVarItem            `json:"default_env_vars"`
+	DefaultVolumes         []ImageVolumeItem            `json:"default_volumes"`
+	TypicalCompanions      *ImageTypicalCompanions      `json:"typical_companions"`
+	RequiredDependencies   []ImageDependencyItem        `json:"required_dependencies"`
+	ResourceRecommendation *ImageResourceRecommendation `json:"resource_recommendation"`
+	DocumentationURL       *string                      `json:"documentation_url" binding:"omitempty,max=500"`
 }
 
 // ReviewImageReq 审核镜像请求
@@ -68,40 +68,95 @@ type ImageListReq struct {
 	Keyword    string `form:"keyword"`
 	CategoryID string `form:"category_id"`
 	Ecosystem  string `form:"ecosystem"`
-	SourceType int    `form:"source_type" binding:"omitempty,oneof=1 2"`
-	Status     int    `form:"status" binding:"omitempty,oneof=1 2 3 4"`
+	SourceType int16  `form:"source_type" binding:"omitempty,oneof=1 2"`
+	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4"`
 	SortBy     string `form:"sort_by"`
 	SortOrder  string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
 // ImageResp 镜像详情响应
 type ImageResp struct {
-	ID                     string          `json:"id"`
-	CategoryID             string          `json:"category_id"`
-	CategoryName           string          `json:"category_name"`
-	Name                   string          `json:"name"`
-	DisplayName            string          `json:"display_name"`
-	Description            *string         `json:"description"`
-	IconURL                *string         `json:"icon_url"`
-	Ecosystem              *string         `json:"ecosystem"`
-	SourceType             int             `json:"source_type"`
-	SourceTypeText         string          `json:"source_type_text"`
-	UploadedBy             *string         `json:"uploaded_by"`
-	UploaderName           *string         `json:"uploader_name"`
-	Status                 int             `json:"status"`
-	StatusText             string          `json:"status_text"`
-	ReviewComment          *string         `json:"review_comment"`
-	DefaultPorts           json.RawMessage `json:"default_ports"`
-	DefaultEnvVars         json.RawMessage `json:"default_env_vars"`
-	DefaultVolumes         json.RawMessage `json:"default_volumes"`
-	TypicalCompanions      json.RawMessage `json:"typical_companions"`
-	RequiredDependencies   json.RawMessage `json:"required_dependencies"`
-	ResourceRecommendation json.RawMessage `json:"resource_recommendation"`
-	DocumentationURL       *string         `json:"documentation_url"`
-	UsageCount             int             `json:"usage_count"`
-	Versions               []ImageVersionResp `json:"versions"`
-	CreatedAt              string          `json:"created_at"`
-	UpdatedAt              string          `json:"updated_at"`
+	ID                     string                      `json:"id"`
+	CategoryID             string                      `json:"category_id"`
+	CategoryName           string                      `json:"category_name"`
+	Name                   string                      `json:"name"`
+	DisplayName            string                      `json:"display_name"`
+	Description            *string                     `json:"description"`
+	IconURL                *string                     `json:"icon_url"`
+	Ecosystem              *string                     `json:"ecosystem"`
+	SourceType             int16                       `json:"source_type"`
+	SourceTypeText         string                      `json:"source_type_text"`
+	UploadedBy             *string                     `json:"uploaded_by"`
+	UploaderName           *string                     `json:"uploader_name"`
+	Status                 int16                       `json:"status"`
+	StatusText             string                      `json:"status_text"`
+	ReviewComment          *string                     `json:"review_comment"`
+	DefaultPorts           []ImagePortItem             `json:"default_ports"`
+	DefaultEnvVars         []ImageEnvVarItem           `json:"default_env_vars"`
+	DefaultVolumes         []ImageVolumeItem           `json:"default_volumes"`
+	TypicalCompanions      ImageTypicalCompanions      `json:"typical_companions"`
+	RequiredDependencies   []ImageDependencyItem       `json:"required_dependencies"`
+	ResourceRecommendation ImageResourceRecommendation `json:"resource_recommendation"`
+	DocumentationURL       *string                     `json:"documentation_url"`
+	UsageCount             int                         `json:"usage_count"`
+	Versions               []ImageVersionResp          `json:"versions"`
+	CreatedAt              string                      `json:"created_at"`
+	UpdatedAt              string                      `json:"updated_at"`
+}
+
+// ImagePortItem 镜像默认端口项
+type ImagePortItem struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	Name     string `json:"name"`
+}
+
+// ImageEnvVarItem 镜像默认环境变量项。
+// 条件变量示例由 Conditions 描述，普通变量该字段为空。
+type ImageEnvVarItem struct {
+	Key        string                 `json:"key"`
+	Value      string                 `json:"value"`
+	Desc       *string                `json:"desc,omitempty"`
+	Conditions []ImageEnvVarCondition `json:"conditions"`
+}
+
+// ImageEnvVarCondition 条件环境变量规则
+type ImageEnvVarCondition struct {
+	When       string           `json:"when"`
+	Value      string           `json:"value"`
+	InjectVars []ImageInjectVar `json:"inject_vars"`
+}
+
+// ImageInjectVar 条件命中后附加注入的环境变量
+type ImageInjectVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ImageVolumeItem 镜像默认数据卷项
+type ImageVolumeItem struct {
+	Path string  `json:"path"`
+	Desc *string `json:"desc,omitempty"`
+}
+
+// ImageTypicalCompanions 镜像典型搭配建议
+type ImageTypicalCompanions struct {
+	Required    []ImageDependencyItem `json:"required"`
+	Recommended []ImageDependencyItem `json:"recommended"`
+	Optional    []ImageDependencyItem `json:"optional"`
+}
+
+// ImageDependencyItem 镜像依赖或搭配项
+type ImageDependencyItem struct {
+	Image  string `json:"image"`
+	Reason string `json:"reason"`
+}
+
+// ImageResourceRecommendation 镜像资源建议
+type ImageResourceRecommendation struct {
+	CPU    string `json:"cpu"`
+	Memory string `json:"memory"`
+	Disk   string `json:"disk"`
 }
 
 // ImageListItem 镜像列表项
@@ -112,9 +167,9 @@ type ImageListItem struct {
 	IconURL        *string `json:"icon_url"`
 	Ecosystem      *string `json:"ecosystem"`
 	CategoryName   string  `json:"category_name"`
-	SourceType     int     `json:"source_type"`
+	SourceType     int16   `json:"source_type"`
 	SourceTypeText string  `json:"source_type_text"`
-	Status         int     `json:"status"`
+	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
 	VersionCount   int     `json:"version_count"`
 	UsageCount     int     `json:"usage_count"`
@@ -123,12 +178,12 @@ type ImageListItem struct {
 
 // CreateImageResp 创建镜像响应
 type CreateImageResp struct {
-	ID          string               `json:"id"`
-	Name        string               `json:"name"`
-	DisplayName string               `json:"display_name"`
-	Status      int                  `json:"status"`
-	StatusText  string               `json:"status_text"`
-	Versions    []ImageVersionBrief  `json:"versions"`
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	DisplayName string              `json:"display_name"`
+	Status      int16               `json:"status"`
+	StatusText  string              `json:"status_text"`
+	Versions    []ImageVersionBrief `json:"versions"`
 }
 
 // ImageVersionBrief 镜像版本简要信息（创建响应用）
@@ -164,21 +219,21 @@ type UpdateImageVersionReq struct {
 
 // ImageVersionResp 镜像版本详情响应
 type ImageVersionResp struct {
-	ID          string         `json:"id"`
-	ImageID     string         `json:"image_id"`
-	Version     string         `json:"version"`
-	RegistryURL string         `json:"registry_url"`
-	ImageSize   *int64         `json:"image_size"`
-	Digest      *string        `json:"digest"`
-	MinCPU      *string        `json:"min_cpu"`
-	MinMemory   *string        `json:"min_memory"`
-	MinDisk     *string        `json:"min_disk"`
-	IsDefault   bool           `json:"is_default"`
-	Status      int            `json:"status"`
-	StatusText  string         `json:"status_text"`
+	ID          string          `json:"id"`
+	ImageID     string          `json:"image_id"`
+	Version     string          `json:"version"`
+	RegistryURL string          `json:"registry_url"`
+	ImageSize   *int64          `json:"image_size"`
+	Digest      *string         `json:"digest"`
+	MinCPU      *string         `json:"min_cpu"`
+	MinMemory   *string         `json:"min_memory"`
+	MinDisk     *string         `json:"min_disk"`
+	IsDefault   bool            `json:"is_default"`
+	Status      int16           `json:"status"`
+	StatusText  string          `json:"status_text"`
 	ScanResult  json.RawMessage `json:"scan_result"`
-	ScannedAt   *string        `json:"scanned_at"`
-	CreatedAt   string         `json:"created_at"`
+	ScannedAt   *string         `json:"scanned_at"`
+	CreatedAt   string          `json:"created_at"`
 }
 
 // ========== 镜像分类 DTO ==========
@@ -215,37 +270,45 @@ type ImageCategoryResp struct {
 // ImageConfigTemplateResp 镜像配置模板响应
 // GET /api/v1/images/:id/config-template
 type ImageConfigTemplateResp struct {
-	ImageID                string          `json:"image_id"`
-	Name                   string          `json:"name"`
-	DisplayName            string          `json:"display_name"`
-	Ecosystem              *string         `json:"ecosystem"`
-	DefaultPorts           json.RawMessage `json:"default_ports"`
-	DefaultEnvVars         json.RawMessage `json:"default_env_vars"`
-	DefaultVolumes         json.RawMessage `json:"default_volumes"`
-	TypicalCompanions      json.RawMessage `json:"typical_companions"`
-	RequiredDependencies   json.RawMessage `json:"required_dependencies"`
-	ResourceRecommendation json.RawMessage `json:"resource_recommendation"`
-	ConditionalEnvVars     json.RawMessage `json:"conditional_env_vars_example"`
+	ImageID                string                      `json:"image_id"`
+	Name                   string                      `json:"name"`
+	DisplayName            string                      `json:"display_name"`
+	Ecosystem              *string                     `json:"ecosystem"`
+	DefaultPorts           []ImagePortItem             `json:"default_ports"`
+	DefaultEnvVars         []ImageEnvVarItem           `json:"default_env_vars"`
+	DefaultVolumes         []ImageVolumeItem           `json:"default_volumes"`
+	TypicalCompanions      ImageTypicalCompanions      `json:"typical_companions"`
+	RequiredDependencies   []ImageDependencyItem       `json:"required_dependencies"`
+	ResourceRecommendation ImageResourceRecommendation `json:"resource_recommendation"`
+	ConditionalEnvVars     []ConditionalEnvVarExample  `json:"conditional_env_vars_example"`
+}
+
+// ConditionalEnvVarExample 条件环境变量示例
+type ConditionalEnvVarExample struct {
+	Key          string                 `json:"key"`
+	DefaultValue string                 `json:"default_value"`
+	Conditions   []ImageEnvVarCondition `json:"conditions"`
+	Description  string                 `json:"description"`
 }
 
 // ImageDocumentationResp 镜像结构化文档响应
 // GET /api/v1/images/:id/documentation
 type ImageDocumentationResp struct {
-	ImageID     string                    `json:"image_id"`
-	Name        string                    `json:"name"`
-	DisplayName string                    `json:"display_name"`
+	ImageID     string                     `json:"image_id"`
+	Name        string                     `json:"name"`
+	DisplayName string                     `json:"display_name"`
 	Sections    ImageDocumentationSections `json:"sections"`
 }
 
 // ImageDocumentationSections 镜像文档各章节
 type ImageDocumentationSections struct {
-	Overview           string `json:"overview"`
-	VersionNotes       string `json:"version_notes"`
-	DefaultConfig      string `json:"default_config"`
-	TypicalCompanions  string `json:"typical_companions"`
-	EnvVarsReference   string `json:"env_vars_reference"`
-	UsageExamples      string `json:"usage_examples"`
-	Notes              string `json:"notes"`
+	Overview          string `json:"overview"`
+	VersionNotes      string `json:"version_notes"`
+	DefaultConfig     string `json:"default_config"`
+	TypicalCompanions string `json:"typical_companions"`
+	EnvVarsReference  string `json:"env_vars_reference"`
+	UsageExamples     string `json:"usage_examples"`
+	Notes             string `json:"notes"`
 }
 
 // ========== 实验模板 DTO ==========
@@ -253,45 +316,45 @@ type ImageDocumentationSections struct {
 // CreateTemplateReq 创建实验模板请求
 // POST /api/v1/experiment-templates
 type CreateTemplateReq struct {
-	Title          string   `json:"title" binding:"required,max=200"`
-	Description    *string  `json:"description"`
-	Objectives     *string  `json:"objectives"`
-	Instructions   *string  `json:"instructions"`
-	References     *string  `json:"references"`
-	ExperimentType int      `json:"experiment_type" binding:"required,oneof=1 2 3"`
-	TopologyMode   int      `json:"topology_mode" binding:"required,oneof=1 2 3 4"`
-	JudgeMode      int      `json:"judge_mode" binding:"required,oneof=1 2 3"`
-	AutoWeight     *float64 `json:"auto_weight" binding:"omitempty,min=0,max=100"`
-	ManualWeight   *float64 `json:"manual_weight" binding:"omitempty,min=0,max=100"`
-	TotalScore     int      `json:"total_score" binding:"required,min=1,max=1000"`
-	MaxDuration    int      `json:"max_duration" binding:"required,min=1"`
-	IdleTimeout    *int     `json:"idle_timeout" binding:"omitempty,min=1"`
-	CPULimit       *string  `json:"cpu_limit"`
-	MemoryLimit    *string  `json:"memory_limit"`
-	DiskLimit      *string  `json:"disk_limit"`
-	ScoreStrategy  int      `json:"score_strategy" binding:"required,oneof=1 2"`
+	Title              string   `json:"title" binding:"required,max=200"`
+	Description        *string  `json:"description"`
+	Objectives         *string  `json:"objectives"`
+	Instructions       *string  `json:"instructions"`
+	ReferenceMaterials *string  `json:"reference_materials"`
+	ExperimentType     int16    `json:"experiment_type" binding:"required,oneof=1 2 3"`
+	TopologyMode       int16    `json:"topology_mode" binding:"required,oneof=1 2 3 4"`
+	JudgeMode          int16    `json:"judge_mode" binding:"required,oneof=1 2 3"`
+	AutoWeight         *float64 `json:"auto_weight" binding:"omitempty,min=0,max=100"`
+	ManualWeight       *float64 `json:"manual_weight" binding:"omitempty,min=0,max=100"`
+	TotalScore         int      `json:"total_score" binding:"required,min=1,max=1000"`
+	MaxDuration        int      `json:"max_duration" binding:"required,min=1"`
+	IdleTimeout        *int     `json:"idle_timeout" binding:"omitempty,min=1"`
+	CPULimit           *string  `json:"cpu_limit"`
+	MemoryLimit        *string  `json:"memory_limit"`
+	DiskLimit          *string  `json:"disk_limit"`
+	ScoreStrategy      int16    `json:"score_strategy" binding:"required,oneof=1 2"`
 }
 
 // UpdateTemplateReq 编辑实验模板请求
 // PUT /api/v1/experiment-templates/:id
 type UpdateTemplateReq struct {
-	Title          *string  `json:"title" binding:"omitempty,max=200"`
-	Description    *string  `json:"description"`
-	Objectives     *string  `json:"objectives"`
-	Instructions   *string  `json:"instructions"`
-	References     *string  `json:"references"`
-	ExperimentType *int     `json:"experiment_type" binding:"omitempty,oneof=1 2 3"`
-	TopologyMode   *int     `json:"topology_mode" binding:"omitempty,oneof=1 2 3 4"`
-	JudgeMode      *int     `json:"judge_mode" binding:"omitempty,oneof=1 2 3"`
-	AutoWeight     *float64 `json:"auto_weight" binding:"omitempty,min=0,max=100"`
-	ManualWeight   *float64 `json:"manual_weight" binding:"omitempty,min=0,max=100"`
-	TotalScore     *int     `json:"total_score" binding:"omitempty,min=1,max=1000"`
-	MaxDuration    *int     `json:"max_duration" binding:"omitempty,min=1"`
-	IdleTimeout    *int     `json:"idle_timeout" binding:"omitempty,min=1"`
-	CPULimit       *string  `json:"cpu_limit"`
-	MemoryLimit    *string  `json:"memory_limit"`
-	DiskLimit      *string  `json:"disk_limit"`
-	ScoreStrategy  *int     `json:"score_strategy" binding:"omitempty,oneof=1 2"`
+	Title              *string  `json:"title" binding:"omitempty,max=200"`
+	Description        *string  `json:"description"`
+	Objectives         *string  `json:"objectives"`
+	Instructions       *string  `json:"instructions"`
+	ReferenceMaterials *string  `json:"reference_materials"`
+	ExperimentType     *int16   `json:"experiment_type" binding:"omitempty,oneof=1 2 3"`
+	TopologyMode       *int16   `json:"topology_mode" binding:"omitempty,oneof=1 2 3 4"`
+	JudgeMode          *int16   `json:"judge_mode" binding:"omitempty,oneof=1 2 3"`
+	AutoWeight         *float64 `json:"auto_weight" binding:"omitempty,min=0,max=100"`
+	ManualWeight       *float64 `json:"manual_weight" binding:"omitempty,min=0,max=100"`
+	TotalScore         *int     `json:"total_score" binding:"omitempty,min=1,max=1000"`
+	MaxDuration        *int     `json:"max_duration" binding:"omitempty,min=1"`
+	IdleTimeout        *int     `json:"idle_timeout" binding:"omitempty,min=1"`
+	CPULimit           *string  `json:"cpu_limit"`
+	MemoryLimit        *string  `json:"memory_limit"`
+	DiskLimit          *string  `json:"disk_limit"`
+	ScoreStrategy      *int16   `json:"score_strategy" binding:"omitempty,oneof=1 2"`
 }
 
 // TemplateListReq 实验模板列表查询参数
@@ -300,8 +363,8 @@ type TemplateListReq struct {
 	Page           int    `form:"page" binding:"omitempty,min=1"`
 	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword        string `form:"keyword"`
-	ExperimentType int    `form:"experiment_type" binding:"omitempty,oneof=1 2 3"`
-	Status         int    `form:"status" binding:"omitempty,oneof=1 2 3"`
+	ExperimentType int16  `form:"experiment_type" binding:"omitempty,oneof=1 2 3"`
+	Status         int16  `form:"status" binding:"omitempty,oneof=1 2 3"`
 	TagID          string `form:"tag_id"`
 	SortBy         string `form:"sort_by"`
 	SortOrder      string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
@@ -327,40 +390,40 @@ type ValidateTemplateReq struct {
 
 // TemplateResp 实验模板详情响应
 type TemplateResp struct {
-	ID               string                `json:"id"`
-	Title            string                `json:"title"`
-	Description      *string               `json:"description"`
-	Objectives       *string               `json:"objectives"`
-	Instructions     *string               `json:"instructions"`
-	References       *string               `json:"references"`
-	ExperimentType   int                   `json:"experiment_type"`
-	ExperimentTypeText string              `json:"experiment_type_text"`
-	TopologyMode     int                   `json:"topology_mode"`
-	TopologyModeText string                `json:"topology_mode_text"`
-	JudgeMode        int                   `json:"judge_mode"`
-	JudgeModeText    string                `json:"judge_mode_text"`
-	AutoWeight       *float64              `json:"auto_weight"`
-	ManualWeight     *float64              `json:"manual_weight"`
-	TotalScore       int                   `json:"total_score"`
-	MaxDuration      int                   `json:"max_duration"`
-	IdleTimeout      *int                  `json:"idle_timeout"`
-	CPULimit         *string               `json:"cpu_limit"`
-	MemoryLimit      *string               `json:"memory_limit"`
-	DiskLimit        *string               `json:"disk_limit"`
-	ScoreStrategy    int                   `json:"score_strategy"`
-	IsShared         bool                  `json:"is_shared"`
-	Status           int                   `json:"status"`
-	StatusText       string                `json:"status_text"`
-	Teacher          *SimpleUserResp       `json:"teacher"`
-	Containers       []ContainerResp       `json:"containers"`
-	Checkpoints      []CheckpointResp      `json:"checkpoints"`
-	InitScripts      []InitScriptResp      `json:"init_scripts"`
-	SimScenes        []TemplateSimSceneResp `json:"sim_scenes"`
-	Tags             []TagResp             `json:"tags"`
-	Roles            []RoleResp            `json:"roles"`
-	K8sConfig        json.RawMessage       `json:"k8s_config,omitempty"`
-	CreatedAt        string                `json:"created_at"`
-	UpdatedAt        string                `json:"updated_at"`
+	ID                 string                 `json:"id"`
+	Title              string                 `json:"title"`
+	Description        *string                `json:"description"`
+	Objectives         *string                `json:"objectives"`
+	Instructions       *string                `json:"instructions"`
+	ReferenceMaterials *string                `json:"reference_materials"`
+	ExperimentType     int16                  `json:"experiment_type"`
+	ExperimentTypeText string                 `json:"experiment_type_text"`
+	TopologyMode       int16                  `json:"topology_mode"`
+	TopologyModeText   string                 `json:"topology_mode_text"`
+	JudgeMode          int16                  `json:"judge_mode"`
+	JudgeModeText      string                 `json:"judge_mode_text"`
+	AutoWeight         *float64               `json:"auto_weight"`
+	ManualWeight       *float64               `json:"manual_weight"`
+	TotalScore         int                    `json:"total_score"`
+	MaxDuration        int                    `json:"max_duration"`
+	IdleTimeout        *int                   `json:"idle_timeout"`
+	CPULimit           *string                `json:"cpu_limit"`
+	MemoryLimit        *string                `json:"memory_limit"`
+	DiskLimit          *string                `json:"disk_limit"`
+	ScoreStrategy      int16                  `json:"score_strategy"`
+	IsShared           bool                   `json:"is_shared"`
+	Status             int16                  `json:"status"`
+	StatusText         string                 `json:"status_text"`
+	Teacher            *SimpleUserResp        `json:"teacher"`
+	Containers         []ContainerResp        `json:"containers"`
+	Checkpoints        []CheckpointResp       `json:"checkpoints"`
+	InitScripts        []InitScriptResp       `json:"init_scripts"`
+	SimScenes          []TemplateSimSceneResp `json:"sim_scenes"`
+	Tags               []TagResp              `json:"tags"`
+	Roles              []RoleResp             `json:"roles"`
+	K8sConfig          json.RawMessage        `json:"k8s_config,omitempty"`
+	CreatedAt          string                 `json:"created_at"`
+	UpdatedAt          string                 `json:"updated_at"`
 }
 
 // SimpleUserResp 简要用户信息（嵌套用）
@@ -371,37 +434,37 @@ type SimpleUserResp struct {
 
 // TemplateListItem 实验模板列表项
 type TemplateListItem struct {
-	ID                 string  `json:"id"`
-	Title              string  `json:"title"`
-	ExperimentType     int     `json:"experiment_type"`
-	ExperimentTypeText string  `json:"experiment_type_text"`
-	TopologyMode       int     `json:"topology_mode"`
-	TopologyModeText   string  `json:"topology_mode_text"`
-	JudgeMode          int     `json:"judge_mode"`
-	JudgeModeText      string  `json:"judge_mode_text"`
-	TotalScore         int     `json:"total_score"`
-	MaxDuration        int     `json:"max_duration"`
-	IsShared           bool    `json:"is_shared"`
-	Status             int     `json:"status"`
-	StatusText         string  `json:"status_text"`
-	ContainerCount     int     `json:"container_count"`
-	CheckpointCount    int     `json:"checkpoint_count"`
+	ID                 string    `json:"id"`
+	Title              string    `json:"title"`
+	ExperimentType     int16     `json:"experiment_type"`
+	ExperimentTypeText string    `json:"experiment_type_text"`
+	TopologyMode       int16     `json:"topology_mode"`
+	TopologyModeText   string    `json:"topology_mode_text"`
+	JudgeMode          int16     `json:"judge_mode"`
+	JudgeModeText      string    `json:"judge_mode_text"`
+	TotalScore         int       `json:"total_score"`
+	MaxDuration        int       `json:"max_duration"`
+	IsShared           bool      `json:"is_shared"`
+	Status             int16     `json:"status"`
+	StatusText         string    `json:"status_text"`
+	ContainerCount     int       `json:"container_count"`
+	CheckpointCount    int       `json:"checkpoint_count"`
 	Tags               []TagResp `json:"tags"`
-	CreatedAt          string  `json:"created_at"`
-	UpdatedAt          string  `json:"updated_at"`
+	CreatedAt          string    `json:"created_at"`
+	UpdatedAt          string    `json:"updated_at"`
 }
 
 // CreateTemplateResp 创建实验模板响应
 type CreateTemplateResp struct {
 	ID                 string `json:"id"`
 	Title              string `json:"title"`
-	ExperimentType     int    `json:"experiment_type"`
+	ExperimentType     int16  `json:"experiment_type"`
 	ExperimentTypeText string `json:"experiment_type_text"`
-	Status             int    `json:"status"`
+	Status             int16  `json:"status"`
 	StatusText         string `json:"status_text"`
-	TopologyMode       int    `json:"topology_mode"`
+	TopologyMode       int16  `json:"topology_mode"`
 	TopologyModeText   string `json:"topology_mode_text"`
-	JudgeMode          int    `json:"judge_mode"`
+	JudgeMode          int16  `json:"judge_mode"`
 	JudgeModeText      string `json:"judge_mode_text"`
 }
 
@@ -415,10 +478,10 @@ type K8sConfigResp struct {
 // ValidateTemplateResp 模板配置验证响应
 // POST /api/v1/experiment-templates/:id/validate
 type ValidateTemplateResp struct {
-	TemplateID    string                   `json:"template_id"`
-	IsPublishable bool                     `json:"is_publishable"`
-	Summary       ValidationSummary        `json:"summary"`
-	Results       []ValidationLevelResult  `json:"results"`
+	TemplateID    string                  `json:"template_id"`
+	IsPublishable bool                    `json:"is_publishable"`
+	Summary       ValidationSummary       `json:"summary"`
+	Results       []ValidationLevelResult `json:"results"`
 }
 
 // ValidationSummary 验证结果汇总
@@ -440,9 +503,23 @@ type ValidationLevelResult struct {
 
 // ValidationIssue 验证问题项
 type ValidationIssue struct {
-	Code    string          `json:"code"`
-	Message string          `json:"message"`
-	Detail  json.RawMessage `json:"detail,omitempty"`
+	Code              string                `json:"code"`
+	Message           string                `json:"message"`
+	SourceContainer   *string               `json:"source_container,omitempty"`
+	MissingDependency *string               `json:"missing_dependency,omitempty"`
+	Suggestion        *ValidationSuggestion `json:"suggestion,omitempty"`
+	CurrentTotalCPU   *string               `json:"current_total_cpu,omitempty"`
+	QuotaLimitCPU     *string               `json:"quota_limit_cpu,omitempty"`
+	ToolImage         *string               `json:"tool_image,omitempty"`
+	ExpectedEcosystem *string               `json:"expected_ecosystem,omitempty"`
+	CurrentEcosystems []string              `json:"current_ecosystems,omitempty"`
+}
+
+// ValidationSuggestion 模板验证问题的建议修复动作
+type ValidationSuggestion struct {
+	Action string `json:"action"`
+	Image  string `json:"image"`
+	Reason string `json:"reason"`
 }
 
 // ========== 模板容器配置 DTO ==========
@@ -450,51 +527,69 @@ type ValidationIssue struct {
 // CreateContainerReq 添加容器配置请求
 // POST /api/v1/experiment-templates/:id/containers
 type CreateContainerReq struct {
-	ImageVersionID string          `json:"image_version_id" binding:"required"`
-	ContainerName  string          `json:"container_name" binding:"required,max=100"`
-	RoleID         *string         `json:"role_id"`
-	EnvVars        json.RawMessage `json:"env_vars"`
-	Ports          json.RawMessage `json:"ports"`
-	Volumes        json.RawMessage `json:"volumes"`
-	CPULimit       *string         `json:"cpu_limit"`
-	MemoryLimit    *string         `json:"memory_limit"`
-	DependsOn      json.RawMessage `json:"depends_on"`
-	StartupOrder   int             `json:"startup_order"`
-	IsPrimary      bool            `json:"is_primary"`
+	ImageVersionID string                `json:"image_version_id" binding:"required"`
+	ContainerName  string                `json:"container_name" binding:"required,max=100"`
+	RoleID         *string               `json:"role_id"`
+	EnvVars        []ContainerEnvVarItem `json:"env_vars"`
+	Ports          []ContainerPortItem   `json:"ports"`
+	Volumes        []ContainerVolumeItem `json:"volumes"`
+	CPULimit       *string               `json:"cpu_limit"`
+	MemoryLimit    *string               `json:"memory_limit"`
+	DependsOn      []string              `json:"depends_on"`
+	StartupOrder   int                   `json:"startup_order"`
+	IsPrimary      bool                  `json:"is_primary"`
 }
 
 // UpdateContainerReq 编辑容器配置请求
 // PUT /api/v1/template-containers/:id
 type UpdateContainerReq struct {
-	ImageVersionID *string         `json:"image_version_id"`
-	ContainerName  *string         `json:"container_name" binding:"omitempty,max=100"`
-	RoleID         *string         `json:"role_id"`
-	EnvVars        json.RawMessage `json:"env_vars"`
-	Ports          json.RawMessage `json:"ports"`
-	Volumes        json.RawMessage `json:"volumes"`
-	CPULimit       *string         `json:"cpu_limit"`
-	MemoryLimit    *string         `json:"memory_limit"`
-	DependsOn      json.RawMessage `json:"depends_on"`
-	StartupOrder   *int            `json:"startup_order"`
-	IsPrimary      *bool           `json:"is_primary"`
+	ImageVersionID *string               `json:"image_version_id"`
+	ContainerName  *string               `json:"container_name" binding:"omitempty,max=100"`
+	RoleID         *string               `json:"role_id"`
+	EnvVars        []ContainerEnvVarItem `json:"env_vars"`
+	Ports          []ContainerPortItem   `json:"ports"`
+	Volumes        []ContainerVolumeItem `json:"volumes"`
+	CPULimit       *string               `json:"cpu_limit"`
+	MemoryLimit    *string               `json:"memory_limit"`
+	DependsOn      []string              `json:"depends_on"`
+	StartupOrder   *int                  `json:"startup_order"`
+	IsPrimary      *bool                 `json:"is_primary"`
 }
 
 // ContainerResp 容器配置响应
 type ContainerResp struct {
-	ID             string          `json:"id"`
-	TemplateID     string          `json:"template_id"`
-	ImageVersionID string          `json:"image_version_id"`
+	ID             string                     `json:"id"`
+	TemplateID     string                     `json:"template_id"`
+	ImageVersionID string                     `json:"image_version_id"`
 	ImageVersion   *ContainerImageVersionResp `json:"image_version,omitempty"`
-	ContainerName  string          `json:"container_name"`
-	RoleID         *string         `json:"role_id"`
-	EnvVars        json.RawMessage `json:"env_vars"`
-	Ports          json.RawMessage `json:"ports"`
-	Volumes        json.RawMessage `json:"volumes"`
-	CPULimit       *string         `json:"cpu_limit"`
-	MemoryLimit    *string         `json:"memory_limit"`
-	DependsOn      json.RawMessage `json:"depends_on"`
-	StartupOrder   int             `json:"startup_order"`
-	IsPrimary      bool            `json:"is_primary"`
+	ContainerName  string                     `json:"container_name"`
+	RoleID         *string                    `json:"role_id"`
+	EnvVars        []ContainerEnvVarItem      `json:"env_vars"`
+	Ports          []ContainerPortItem        `json:"ports"`
+	Volumes        []ContainerVolumeItem      `json:"volumes"`
+	CPULimit       *string                    `json:"cpu_limit"`
+	MemoryLimit    *string                    `json:"memory_limit"`
+	DependsOn      []string                   `json:"depends_on"`
+	StartupOrder   int                        `json:"startup_order"`
+	IsPrimary      bool                       `json:"is_primary"`
+}
+
+// ContainerEnvVarItem 模板容器环境变量项
+type ContainerEnvVarItem struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ContainerPortItem 模板容器端口映射项
+type ContainerPortItem struct {
+	Container int    `json:"container"`
+	Protocol  string `json:"protocol"`
+}
+
+// ContainerVolumeItem 模板容器挂载卷项
+type ContainerVolumeItem struct {
+	HostPath      string `json:"host_path"`
+	ContainerPath string `json:"container_path"`
 }
 
 // ContainerImageVersionResp 容器关联的镜像版本信息
@@ -513,13 +608,13 @@ type ContainerImageVersionResp struct {
 type CreateCheckpointReq struct {
 	Title           string          `json:"title" binding:"required,max=200"`
 	Description     *string         `json:"description"`
-	CheckType       int             `json:"check_type" binding:"required,oneof=1 2 3"`
+	CheckType       int16           `json:"check_type" binding:"required,oneof=1 2 3"`
 	ScriptContent   *string         `json:"script_content"`
 	ScriptLanguage  *string         `json:"script_language" binding:"omitempty,max=20"`
 	TargetContainer *string         `json:"target_container" binding:"omitempty,max=100"`
 	AssertionConfig json.RawMessage `json:"assertion_config"`
 	Score           float64         `json:"score" binding:"required,min=0"`
-	Scope           int             `json:"scope" binding:"required,oneof=1 2"`
+	Scope           int16           `json:"scope" binding:"required,oneof=1 2"`
 	SortOrder       int             `json:"sort_order"`
 }
 
@@ -528,13 +623,13 @@ type CreateCheckpointReq struct {
 type UpdateCheckpointReq struct {
 	Title           *string         `json:"title" binding:"omitempty,max=200"`
 	Description     *string         `json:"description"`
-	CheckType       *int            `json:"check_type" binding:"omitempty,oneof=1 2 3"`
+	CheckType       *int16          `json:"check_type" binding:"omitempty,oneof=1 2 3"`
 	ScriptContent   *string         `json:"script_content"`
 	ScriptLanguage  *string         `json:"script_language" binding:"omitempty,max=20"`
 	TargetContainer *string         `json:"target_container" binding:"omitempty,max=100"`
 	AssertionConfig json.RawMessage `json:"assertion_config"`
 	Score           *float64        `json:"score" binding:"omitempty,min=0"`
-	Scope           *int            `json:"scope" binding:"omitempty,oneof=1 2"`
+	Scope           *int16          `json:"scope" binding:"omitempty,oneof=1 2"`
 	SortOrder       *int            `json:"sort_order"`
 }
 
@@ -544,14 +639,14 @@ type CheckpointResp struct {
 	TemplateID      string          `json:"template_id"`
 	Title           string          `json:"title"`
 	Description     *string         `json:"description"`
-	CheckType       int             `json:"check_type"`
+	CheckType       int16           `json:"check_type"`
 	CheckTypeText   string          `json:"check_type_text"`
 	ScriptContent   *string         `json:"script_content"`
 	ScriptLanguage  *string         `json:"script_language"`
 	TargetContainer *string         `json:"target_container"`
 	AssertionConfig json.RawMessage `json:"assertion_config"`
 	Score           float64         `json:"score"`
-	Scope           int             `json:"scope"`
+	Scope           int16           `json:"scope"`
 	ScopeText       string          `json:"scope_text"`
 	SortOrder       int             `json:"sort_order"`
 }
@@ -650,8 +745,8 @@ type ScenarioListReq struct {
 	Keyword         string `form:"keyword"`
 	Category        string `form:"category"`
 	Ecosystem       string `form:"ecosystem"`
-	SourceType      int    `form:"source_type" binding:"omitempty,oneof=1 2"`
-	Status          int    `form:"status" binding:"omitempty,oneof=1 2 3 4"`
+	SourceType      int16  `form:"source_type" binding:"omitempty,oneof=1 2"`
+	Status          int16  `form:"status" binding:"omitempty,oneof=1 2 3 4"`
 	TimeControlMode string `form:"time_control_mode" binding:"omitempty,oneof=process reactive continuous"`
 	SortBy          string `form:"sort_by"`
 	SortOrder       string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
@@ -666,11 +761,11 @@ type ScenarioResp struct {
 	Category            string          `json:"category"`
 	CategoryText        string          `json:"category_text"`
 	Ecosystem           *string         `json:"ecosystem"`
-	SourceType          int             `json:"source_type"`
+	SourceType          int16           `json:"source_type"`
 	SourceTypeText      string          `json:"source_type_text"`
 	UploadedBy          *string         `json:"uploaded_by"`
 	UploaderName        *string         `json:"uploader_name"`
-	Status              int             `json:"status"`
+	Status              int16           `json:"status"`
 	StatusText          string          `json:"status_text"`
 	TimeControlMode     string          `json:"time_control_mode"`
 	ContainerImageURL   string          `json:"container_image_url"`
@@ -697,9 +792,9 @@ type ScenarioListItem struct {
 	Category        string  `json:"category"`
 	CategoryText    string  `json:"category_text"`
 	Ecosystem       *string `json:"ecosystem"`
-	SourceType      int     `json:"source_type"`
+	SourceType      int16   `json:"source_type"`
 	SourceTypeText  string  `json:"source_type_text"`
-	Status          int     `json:"status"`
+	Status          int16   `json:"status"`
 	StatusText      string  `json:"status_text"`
 	TimeControlMode string  `json:"time_control_mode"`
 	UsageCount      int     `json:"usage_count"`
@@ -745,7 +840,7 @@ type CreateTemplateSimSceneReq struct {
 	LinkGroupID      *string         `json:"link_group_id"`
 	SceneParams      json.RawMessage `json:"scene_params"`
 	InitialState     json.RawMessage `json:"initial_state"`
-	DataSourceMode   int             `json:"data_source_mode" binding:"required,oneof=1 2 3"`
+	DataSourceMode   int16           `json:"data_source_mode" binding:"required,oneof=1 2 3"`
 	DataSourceConfig json.RawMessage `json:"data_source_config"`
 	LayoutPosition   json.RawMessage `json:"layout_position"`
 }
@@ -755,7 +850,7 @@ type CreateTemplateSimSceneReq struct {
 type UpdateTemplateSimSceneReq struct {
 	SceneParams      json.RawMessage `json:"scene_params"`
 	InitialState     json.RawMessage `json:"initial_state"`
-	DataSourceMode   *int            `json:"data_source_mode" binding:"omitempty,oneof=1 2 3"`
+	DataSourceMode   *int16          `json:"data_source_mode" binding:"omitempty,oneof=1 2 3"`
 	DataSourceConfig json.RawMessage `json:"data_source_config"`
 	LayoutPosition   json.RawMessage `json:"layout_position"`
 }
@@ -774,17 +869,17 @@ type SimSceneLayoutItem struct {
 
 // TemplateSimSceneResp 模板仿真场景配置响应
 type TemplateSimSceneResp struct {
-	ID               string          `json:"id"`
-	TemplateID       string          `json:"template_id"`
-	Scenario         *ScenarioBrief  `json:"scenario"`
-	LinkGroupID      *string         `json:"link_group_id"`
-	LinkGroupName    *string         `json:"link_group_name"`
-	SceneParams      json.RawMessage `json:"scene_params"`
-	InitialState     json.RawMessage `json:"initial_state"`
-	DataSourceMode   int             `json:"data_source_mode"`
-	DataSourceModeText string        `json:"data_source_mode_text"`
-	DataSourceConfig json.RawMessage `json:"data_source_config"`
-	LayoutPosition   json.RawMessage `json:"layout_position"`
+	ID                 string          `json:"id"`
+	TemplateID         string          `json:"template_id"`
+	Scenario           *ScenarioBrief  `json:"scenario"`
+	LinkGroupID        *string         `json:"link_group_id"`
+	LinkGroupName      *string         `json:"link_group_name"`
+	SceneParams        json.RawMessage `json:"scene_params"`
+	InitialState       json.RawMessage `json:"initial_state"`
+	DataSourceMode     int16           `json:"data_source_mode"`
+	DataSourceModeText string          `json:"data_source_mode_text"`
+	DataSourceConfig   json.RawMessage `json:"data_source_config"`
+	LayoutPosition     json.RawMessage `json:"layout_position"`
 }
 
 // ScenarioBrief 场景简要信息（嵌套用）
@@ -856,4 +951,80 @@ type RoleResp struct {
 	Description *string         `json:"description"`
 	MaxMembers  int             `json:"max_members"`
 	Permissions json.RawMessage `json:"permissions"`
+}
+
+// ========== 镜像预拉取管理 DTO ==========
+
+// ImagePullStatusListReq 镜像预拉取状态列表查询参数
+// GET /api/v1/admin/image-pull-status
+type ImagePullStatusListReq struct {
+	NodeName  string `form:"node_name"`
+	ImageName string `form:"image_name"`
+	Status    int16  `form:"status" binding:"omitempty,oneof=1 2 3 4"`
+	Page      int    `form:"page" binding:"omitempty,min=1"`
+	PageSize  int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+}
+
+// ImagePullStatusListResp 镜像预拉取状态列表响应
+// GET /api/v1/admin/image-pull-status
+type ImagePullStatusListResp struct {
+	Summary    ImagePullStatusSummary `json:"summary"`
+	Items      []ImagePullStatusItem  `json:"items"`
+	Pagination ListPagination         `json:"pagination"`
+}
+
+// ImagePullStatusSummary 镜像预拉取状态汇总
+type ImagePullStatusSummary struct {
+	TotalImages     int     `json:"total_images"`
+	TotalNodes      int     `json:"total_nodes"`
+	FullyPulled     int     `json:"fully_pulled"`
+	PartiallyPulled int     `json:"partially_pulled"`
+	NotPulled       int     `json:"not_pulled"`
+	CompletionRate  float64 `json:"completion_rate"`
+}
+
+// ImagePullStatusItem 单个镜像版本的预拉取状态
+type ImagePullStatusItem struct {
+	ImageName      string                `json:"image_name"`
+	ImageVersion   string                `json:"image_version"`
+	RegistryURL    string                `json:"registry_url"`
+	SourceType     int16                 `json:"source_type"`
+	SourceTypeText string                `json:"source_type_text"`
+	Nodes          []ImagePullNodeStatus `json:"nodes"`
+}
+
+// ImagePullNodeStatus 单个节点上的镜像拉取状态
+type ImagePullNodeStatus struct {
+	NodeName      string  `json:"node_name"`
+	Status        int16   `json:"status"`
+	StatusText    string  `json:"status_text"`
+	PulledAt      *string `json:"pulled_at"`
+	NodeCacheSize string  `json:"node_cache_size"`
+}
+
+// ListPagination 列表分页信息。
+// 该结构仅表达当前接口文档定义的分页字段，不扩展额外元数据。
+type ListPagination struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+	Total    int `json:"total"`
+}
+
+// TriggerImagePullReq 触发镜像预拉取请求
+// POST /api/v1/admin/image-pull
+type TriggerImagePullReq struct {
+	ImageIDs    []string `json:"image_ids"`
+	TargetNodes []string `json:"target_nodes"`
+	Force       bool     `json:"force"`
+}
+
+// TriggerImagePullResp 触发镜像预拉取响应
+// POST /api/v1/admin/image-pull
+type TriggerImagePullResp struct {
+	TaskID      string   `json:"task_id"`
+	TotalJobs   int      `json:"total_jobs"`
+	Images      []string `json:"images"`
+	TargetNodes []string `json:"target_nodes"`
+	Status      string   `json:"status"`
+	CreatedAt   string   `json:"created_at"`
 }

@@ -1,12 +1,14 @@
 // redis.go
-// Redis 连接与客户端封装
-// 基于 go-redis/v9，用于会话管理、Token黑名单、缓存、计数器等
-// 42个 Redis Key 的统一前缀管理
+// 该文件封装后端使用的 Redis 连接、通用读写方法和全项目 Redis Key 前缀规范。它的职责
+// 是给上层提供稳定一致的缓存入口，避免各模块直接散落地创建 Redis 客户端或随意定义键名。
+// 模块里的验证码、令牌黑名单、限流计数、排行榜、系统健康状态等缓存能力都应复用这里的
+// 连接与键前缀约定，而不是重新实现一套缓存访问逻辑。
 
 package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +21,8 @@ import (
 
 // 全局 Redis 客户端
 var rdb *redis.Client
+
+var errRedisNotInitialized = errors.New("Redis客户端未初始化")
 
 // Init 初始化 Redis 连接
 func Init(cfg *config.RedisConfig) error {
@@ -62,33 +66,51 @@ func Close() error {
 
 // Set 设置键值对
 func Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
+	if rdb == nil {
+		return errRedisNotInitialized
+	}
 	return rdb.Set(ctx, key, value, expiration).Err()
 }
 
 // GetString 获取字符串值
 func GetString(ctx context.Context, key string) (string, error) {
+	if rdb == nil {
+		return "", errRedisNotInitialized
+	}
 	return rdb.Get(ctx, key).Result()
 }
 
 // Del 删除键
 func Del(ctx context.Context, keys ...string) error {
+	if rdb == nil {
+		return errRedisNotInitialized
+	}
 	return rdb.Del(ctx, keys...).Err()
 }
 
 // Exists 检查键是否存在
 func Exists(ctx context.Context, key string) (bool, error) {
+	if rdb == nil {
+		return false, errRedisNotInitialized
+	}
 	n, err := rdb.Exists(ctx, key).Result()
 	return n > 0, err
 }
 
 // Incr 自增计数器
 func Incr(ctx context.Context, key string) (int64, error) {
+	if rdb == nil {
+		return 0, errRedisNotInitialized
+	}
 	return rdb.Incr(ctx, key).Result()
 }
 
 // IncrWithExpire 自增计数器并设置过期时间（原子操作）
 // 使用 Lua 脚本保证 INCR + EXPIRE 的原子性，避免竞态条件
 func IncrWithExpire(ctx context.Context, key string, expiration time.Duration) (int64, error) {
+	if rdb == nil {
+		return 0, errRedisNotInitialized
+	}
 	script := redis.NewScript(`
 		local val = redis.call('INCR', KEYS[1])
 		if val == 1 then
@@ -105,6 +127,9 @@ func IncrWithExpire(ctx context.Context, key string, expiration time.Duration) (
 
 // SetNX 仅在键不存在时设置（用于分布式锁等场景）
 func SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) (bool, error) {
+	if rdb == nil {
+		return false, errRedisNotInitialized
+	}
 	return rdb.SetNX(ctx, key, value, expiration).Result()
 }
 

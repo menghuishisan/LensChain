@@ -1,11 +1,13 @@
 // scheduler.go
-// 定时任务调度器
-// 基于 robfig/cron/v3 封装
-// 管理文档中定义的 12+ 定时任务
+// 该文件封装平台统一的定时任务调度器，负责把文档中定义的周期任务集中注册、启动和停止。
+// 例如学校授权检查、告警检测、服务健康巡检、自动备份和过期数据清理等后台任务，都应该
+// 通过这里接入，避免各模块私自启动 goroutine 导致生命周期无法管理。
 
 package cron
 
 import (
+	"fmt"
+
 	cronlib "github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 
@@ -36,6 +38,9 @@ func GetScheduler() *cronlib.Cron {
 // name 为任务名称（用于日志）
 // fn 为任务函数
 func AddTask(spec, name string, fn func()) (cronlib.EntryID, error) {
+	if scheduler == nil {
+		return 0, fmt.Errorf("定时任务调度器未初始化")
+	}
 	id, err := scheduler.AddFunc(spec, func() {
 		logger.L.Info("定时任务开始执行", zap.String("task", name))
 		fn()
@@ -59,6 +64,10 @@ func AddTask(spec, name string, fn func()) (cronlib.EntryID, error) {
 
 // Start 启动调度器
 func Start() {
+	if scheduler == nil {
+		logger.L.Warn("定时任务调度器未初始化，跳过启动")
+		return
+	}
 	scheduler.Start()
 	logger.L.Info("定时任务调度器已启动")
 }

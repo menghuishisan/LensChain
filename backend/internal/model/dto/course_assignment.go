@@ -12,11 +12,11 @@ type CreateAssignmentReq struct {
 	Title               string   `json:"title" binding:"required,max=200"`
 	Description         *string  `json:"description"`
 	ChapterID           *string  `json:"chapter_id"`
-	AssignmentType      int      `json:"assignment_type" binding:"required,oneof=1 2"`
+	AssignmentType      int16    `json:"assignment_type" binding:"required,oneof=1 2"`
 	TotalScore          float64  `json:"total_score" binding:"required,min=1"`
 	DeadlineAt          *string  `json:"deadline_at" binding:"required"`
 	MaxSubmissions      *int     `json:"max_submissions" binding:"omitempty,min=1"`
-	LatePolicy          int      `json:"late_policy" binding:"required,oneof=1 2 3"`
+	LatePolicy          int16    `json:"late_policy" binding:"required,oneof=1 2 3"`
 	LateDeductionPerDay *float64 `json:"late_deduction_per_day" binding:"omitempty,min=0,max=100"`
 }
 
@@ -26,27 +26,27 @@ type UpdateAssignmentReq struct {
 	Title               *string  `json:"title" binding:"omitempty,max=200"`
 	Description         *string  `json:"description"`
 	ChapterID           *string  `json:"chapter_id"`
-	AssignmentType      *int     `json:"assignment_type" binding:"omitempty,oneof=1 2"`
+	AssignmentType      *int16   `json:"assignment_type" binding:"omitempty,oneof=1 2"`
 	TotalScore          *float64 `json:"total_score" binding:"omitempty,min=1"`
 	DeadlineAt          *string  `json:"deadline_at"`
 	MaxSubmissions      *int     `json:"max_submissions" binding:"omitempty,min=1"`
-	LatePolicy          *int     `json:"late_policy" binding:"omitempty,oneof=1 2 3"`
+	LatePolicy          *int16   `json:"late_policy" binding:"omitempty,oneof=1 2 3"`
 	LateDeductionPerDay *float64 `json:"late_deduction_per_day" binding:"omitempty,min=0,max=100"`
 }
 
 // AssignmentListReq 作业列表查询参数
 // GET /api/v1/courses/:id/assignments
 type AssignmentListReq struct {
-	Page           int `form:"page" binding:"omitempty,min=1"`
-	PageSize       int `form:"page_size" binding:"omitempty,min=1,max=100"`
-	AssignmentType int `form:"assignment_type" binding:"omitempty,oneof=1 2"`
+	Page           int   `form:"page" binding:"omitempty,min=1"`
+	PageSize       int   `form:"page_size" binding:"omitempty,min=1,max=100"`
+	AssignmentType int16 `form:"assignment_type" binding:"omitempty,oneof=1 2"`
 }
 
 // AssignmentListItem 作业列表项
 type AssignmentListItem struct {
 	ID                 string  `json:"id"`
 	Title              string  `json:"title"`
-	AssignmentType     int     `json:"assignment_type"`
+	AssignmentType     int16   `json:"assignment_type"`
 	AssignmentTypeText string  `json:"assignment_type_text"`
 	TotalScore         float64 `json:"total_score"`
 	DeadlineAt         *string `json:"deadline_at"`
@@ -64,12 +64,12 @@ type AssignmentDetailResp struct {
 	ChapterID           *string              `json:"chapter_id"`
 	Title               string               `json:"title"`
 	Description         *string              `json:"description"`
-	AssignmentType      int                  `json:"assignment_type"`
+	AssignmentType      int16                `json:"assignment_type"`
 	AssignmentTypeText  string               `json:"assignment_type_text"`
 	TotalScore          float64              `json:"total_score"`
 	DeadlineAt          *string              `json:"deadline_at"`
 	MaxSubmissions      int                  `json:"max_submissions"`
-	LatePolicy          int                  `json:"late_policy"`
+	LatePolicy          int16                `json:"late_policy"`
 	LatePolicyText      string               `json:"late_policy_text"`
 	LateDeductionPerDay *float64             `json:"late_deduction_per_day"`
 	IsPublished         bool                 `json:"is_published"`
@@ -81,7 +81,7 @@ type AssignmentDetailResp struct {
 // AddQuestionReq 添加题目请求
 // POST /api/v1/assignments/:id/questions
 type AddQuestionReq struct {
-	QuestionType    int     `json:"question_type" binding:"required,oneof=1 2 3 4 5 6 7"`
+	QuestionType    int16   `json:"question_type" binding:"required,oneof=1 2 3 4 5 6 7"`
 	Title           string  `json:"title" binding:"required"`
 	Options         *string `json:"options"`
 	CorrectAnswer   *string `json:"correct_answer"`
@@ -93,7 +93,7 @@ type AddQuestionReq struct {
 // UpdateQuestionReq 编辑题目请求
 // PUT /api/v1/assignment-questions/:id
 type UpdateQuestionReq struct {
-	QuestionType    *int     `json:"question_type" binding:"omitempty,oneof=1 2 3 4 5 6 7"`
+	QuestionType    *int16   `json:"question_type" binding:"omitempty,oneof=1 2 3 4 5 6 7"`
 	Title           *string  `json:"title"`
 	Options         *string  `json:"options"`
 	CorrectAnswer   *string  `json:"correct_answer"`
@@ -105,7 +105,7 @@ type UpdateQuestionReq struct {
 // QuestionDetailItem 题目详情项
 type QuestionDetailItem struct {
 	ID               string  `json:"id"`
-	QuestionType     int     `json:"question_type"`
+	QuestionType     int16   `json:"question_type"`
 	QuestionTypeText string  `json:"question_type_text"`
 	Title            string  `json:"title"`
 	Options          *string `json:"options"`
@@ -161,7 +161,7 @@ type SubmitFeedbackDetail struct {
 type SubmissionListReq struct {
 	Page     int    `form:"page" binding:"omitempty,min=1"`
 	PageSize int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	Status   int    `form:"status" binding:"omitempty,oneof=1 2 3"`
+	Status   int16  `form:"status" binding:"omitempty,oneof=1 2 3"`
 	Keyword  string `form:"keyword"`
 }
 
@@ -172,7 +172,7 @@ type SubmissionListItem struct {
 	StudentName  string   `json:"student_name"`
 	StudentNo    *string  `json:"student_no"`
 	SubmissionNo int      `json:"submission_no"`
-	Status       int      `json:"status"`
+	Status       int16    `json:"status"`
 	StatusText   string   `json:"status_text"`
 	TotalScore   *float64 `json:"total_score"`
 	IsLate       bool     `json:"is_late"`
@@ -187,7 +187,7 @@ type SubmissionDetailResp struct {
 	StudentID            string                 `json:"student_id"`
 	StudentName          string                 `json:"student_name"`
 	SubmissionNo         int                    `json:"submission_no"`
-	Status               int                    `json:"status"`
+	Status               int16                  `json:"status"`
 	StatusText           string                 `json:"status_text"`
 	TotalScore           *float64               `json:"total_score"`
 	IsLate               bool                   `json:"is_late"`
@@ -205,7 +205,7 @@ type SubmissionAnswerItem struct {
 	ID              string   `json:"id"`
 	QuestionID      string   `json:"question_id"`
 	QuestionTitle   string   `json:"question_title"`
-	QuestionType    int      `json:"question_type"`
+	QuestionType    int16    `json:"question_type"`
 	AnswerContent   *string  `json:"answer_content"`
 	AnswerFileURL   *string  `json:"answer_file_url"`
 	IsCorrect       *bool    `json:"is_correct"`
@@ -238,7 +238,7 @@ type MySubmissionsResp struct {
 type MySubmissionItem struct {
 	ID           string   `json:"id"`
 	SubmissionNo int      `json:"submission_no"`
-	Status       int      `json:"status"`
+	Status       int16    `json:"status"`
 	StatusText   string   `json:"status_text"`
 	TotalScore   *float64 `json:"total_score"`
 	IsLate       bool     `json:"is_late"`
@@ -410,8 +410,7 @@ type GradeConfigItem struct {
 // GradeConfigResp 成绩权重配置响应
 // GET /api/v1/courses/:id/grade-config
 type GradeConfigResp struct {
-	Items       []GradeConfigItem `json:"items"`
-	TotalWeight float64           `json:"total_weight"`
+	Items []GradeConfigItem `json:"items"`
 }
 
 // GradeSummaryReq 成绩汇总查询参数
@@ -424,23 +423,23 @@ type GradeSummaryReq struct {
 	SortOrder string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
-// GradeSummaryItem 成绩汇总项
-type GradeSummaryItem struct {
-	StudentID        string                `json:"student_id"`
-	StudentName      string                `json:"student_name"`
-	StudentNo        *string               `json:"student_no"`
-	AssignmentScores []AssignmentScoreItem `json:"assignment_scores"`
-	WeightedTotal    float64               `json:"weighted_total"`
-	FinalScore       float64               `json:"final_score"`
-	IsAdjusted       bool                  `json:"is_adjusted"`
+// GradeSummaryResp 成绩汇总响应
+// GET /api/v1/courses/:id/grades
+type GradeSummaryResp struct {
+	GradeConfig GradeConfigResp    `json:"grade_config"`
+	Students    []GradeSummaryItem `json:"students"`
 }
 
-// AssignmentScoreItem 作业成绩项
-type AssignmentScoreItem struct {
-	AssignmentID string   `json:"assignment_id"`
-	Name         string   `json:"name"`
-	Score        *float64 `json:"score"`
-	Weight       float64  `json:"weight"`
+// GradeSummaryItem 成绩汇总项
+type GradeSummaryItem struct {
+	StudentID   string  `json:"student_id"`
+	StudentName string  `json:"student_name"`
+	StudentNo   *string `json:"student_no"`
+	// Scores 的 key 为 assignment_id，value 为该作业最终得分。
+	Scores        map[string]float64 `json:"scores"`
+	WeightedTotal float64            `json:"weighted_total"`
+	FinalScore    float64            `json:"final_score"`
+	IsAdjusted    bool               `json:"is_adjusted"`
 }
 
 // AdjustGradeReq 手动调整成绩请求
@@ -453,8 +452,10 @@ type AdjustGradeReq struct {
 // MyGradesResp 我的成绩响应
 // GET /api/v1/courses/:id/my-grades
 type MyGradesResp struct {
-	AssignmentScores []AssignmentScoreItem `json:"assignment_scores"`
-	WeightedTotal    float64               `json:"weighted_total"`
-	FinalScore       float64               `json:"final_score"`
-	IsAdjusted       bool                  `json:"is_adjusted"`
+	GradeConfig GradeConfigResp `json:"grade_config"`
+	// Scores 的 key 为 assignment_id，value 为当前学生该作业最终得分。
+	Scores        map[string]float64 `json:"scores"`
+	WeightedTotal float64            `json:"weighted_total"`
+	FinalScore    float64            `json:"final_score"`
+	IsAdjusted    bool               `json:"is_adjusted"`
 }

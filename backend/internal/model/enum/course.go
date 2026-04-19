@@ -17,7 +17,7 @@ const (
 )
 
 // CourseStatusText 课程状态文本映射
-var CourseStatusText = map[int]string{
+var CourseStatusText = map[int16]string{
 	CourseStatusDraft:     "草稿",
 	CourseStatusPublished: "已发布",
 	CourseStatusActive:    "进行中",
@@ -26,7 +26,7 @@ var CourseStatusText = map[int]string{
 }
 
 // GetCourseStatusText 获取课程状态文本
-func GetCourseStatusText(status int) string {
+func GetCourseStatusText(status int16) string {
 	if text, ok := CourseStatusText[status]; ok {
 		return text
 	}
@@ -34,7 +34,7 @@ func GetCourseStatusText(status int) string {
 }
 
 // IsValidCourseStatus 校验课程状态是否合法
-func IsValidCourseStatus(status int) bool {
+func IsValidCourseStatus(status int16) bool {
 	_, ok := CourseStatusText[status]
 	return ok
 }
@@ -49,7 +49,7 @@ const (
 )
 
 // CourseTypeText 课程类型文本映射
-var CourseTypeText = map[int]string{
+var CourseTypeText = map[int16]string{
 	CourseTypeTheory:  "理论课",
 	CourseTypeLab:     "实验课",
 	CourseTypeMixed:   "混合课",
@@ -57,7 +57,7 @@ var CourseTypeText = map[int]string{
 }
 
 // GetCourseTypeText 获取课程类型文本
-func GetCourseTypeText(t int) string {
+func GetCourseTypeText(t int16) string {
 	if text, ok := CourseTypeText[t]; ok {
 		return text
 	}
@@ -65,7 +65,7 @@ func GetCourseTypeText(t int) string {
 }
 
 // IsValidCourseType 校验课程类型是否合法
-func IsValidCourseType(t int) bool {
+func IsValidCourseType(t int16) bool {
 	_, ok := CourseTypeText[t]
 	return ok
 }
@@ -80,7 +80,7 @@ const (
 )
 
 // DifficultyText 课程难度文本映射
-var DifficultyText = map[int]string{
+var DifficultyText = map[int16]string{
 	DifficultyBeginner:     "入门",
 	DifficultyIntermediate: "进阶",
 	DifficultyAdvanced:     "高级",
@@ -88,7 +88,7 @@ var DifficultyText = map[int]string{
 }
 
 // GetDifficultyText 获取课程难度文本
-func GetDifficultyText(d int) string {
+func GetDifficultyText(d int16) string {
 	if text, ok := DifficultyText[d]; ok {
 		return text
 	}
@@ -96,7 +96,7 @@ func GetDifficultyText(d int) string {
 }
 
 // IsValidDifficulty 校验课程难度是否合法
-func IsValidDifficulty(d int) bool {
+func IsValidDifficulty(d int16) bool {
 	_, ok := DifficultyText[d]
 	return ok
 }
@@ -111,7 +111,7 @@ const (
 )
 
 // ContentTypeText 课时内容类型文本映射
-var ContentTypeText = map[int]string{
+var ContentTypeText = map[int16]string{
 	ContentTypeVideo:      "视频",
 	ContentTypeRichText:   "图文",
 	ContentTypeAttachment: "附件",
@@ -119,7 +119,7 @@ var ContentTypeText = map[int]string{
 }
 
 // GetContentTypeText 获取课时内容类型文本
-func GetContentTypeText(t int) string {
+func GetContentTypeText(t int16) string {
 	if text, ok := ContentTypeText[t]; ok {
 		return text
 	}
@@ -127,7 +127,7 @@ func GetContentTypeText(t int) string {
 }
 
 // IsValidContentType 校验课时内容类型是否合法
-func IsValidContentType(t int) bool {
+func IsValidContentType(t int16) bool {
 	_, ok := ContentTypeText[t]
 	return ok
 }
@@ -135,22 +135,28 @@ func IsValidContentType(t int) bool {
 // ========== 加入方式（course_enrollments.join_method） ==========
 
 const (
-	JoinMethodTeacher = 1 // 教师添加
+	JoinMethodTeacher = 1 // 教师指定
 	JoinMethodInvite  = 2 // 邀请码加入
 )
 
 // JoinMethodText 加入方式文本映射
-var JoinMethodText = map[int]string{
-	JoinMethodTeacher: "教师添加",
+var JoinMethodText = map[int16]string{
+	JoinMethodTeacher: "教师指定",
 	JoinMethodInvite:  "邀请码加入",
 }
 
 // GetJoinMethodText 获取加入方式文本
-func GetJoinMethodText(m int) string {
+func GetJoinMethodText(m int16) string {
 	if text, ok := JoinMethodText[m]; ok {
 		return text
 	}
 	return "未知"
+}
+
+// IsValidJoinMethod 校验加入方式是否合法
+func IsValidJoinMethod(m int16) bool {
+	_, ok := JoinMethodText[m]
+	return ok
 }
 
 // ========== 作业类型（assignments.assignment_type） ==========
@@ -161,13 +167,13 @@ const (
 )
 
 // AssignmentTypeText 作业类型文本映射
-var AssignmentTypeText = map[int]string{
+var AssignmentTypeText = map[int16]string{
 	AssignmentTypeHomework: "作业",
 	AssignmentTypeQuiz:     "测验",
 }
 
 // GetAssignmentTypeText 获取作业类型文本
-func GetAssignmentTypeText(t int) string {
+func GetAssignmentTypeText(t int16) string {
 	if text, ok := AssignmentTypeText[t]; ok {
 		return text
 	}
@@ -175,7 +181,7 @@ func GetAssignmentTypeText(t int) string {
 }
 
 // IsValidAssignmentType 校验作业类型是否合法
-func IsValidAssignmentType(t int) bool {
+func IsValidAssignmentType(t int16) bool {
 	_, ok := AssignmentTypeText[t]
 	return ok
 }
@@ -193,7 +199,7 @@ const (
 )
 
 // QuestionTypeText 题目类型文本映射
-var QuestionTypeText = map[int]string{
+var QuestionTypeText = map[int16]string{
 	QuestionTypeSingleChoice: "单选题",
 	QuestionTypeMultiChoice:  "多选题",
 	QuestionTypeTrueFalse:    "判断题",
@@ -204,7 +210,7 @@ var QuestionTypeText = map[int]string{
 }
 
 // GetQuestionTypeText 获取题目类型文本
-func GetQuestionTypeText(t int) string {
+func GetQuestionTypeText(t int16) string {
 	if text, ok := QuestionTypeText[t]; ok {
 		return text
 	}
@@ -212,13 +218,13 @@ func GetQuestionTypeText(t int) string {
 }
 
 // IsValidQuestionType 校验题目类型是否合法
-func IsValidQuestionType(t int) bool {
+func IsValidQuestionType(t int16) bool {
 	_, ok := QuestionTypeText[t]
 	return ok
 }
 
 // IsObjectiveQuestion 判断是否为客观题（可自动批改）
-func IsObjectiveQuestion(t int) bool {
+func IsObjectiveQuestion(t int16) bool {
 	return t == QuestionTypeSingleChoice ||
 		t == QuestionTypeMultiChoice ||
 		t == QuestionTypeTrueFalse ||
@@ -229,42 +235,48 @@ func IsObjectiveQuestion(t int) bool {
 
 const (
 	SubmissionStatusSubmitted = 1 // 已提交
-	SubmissionStatusReviewing = 2 // 批改中
+	SubmissionStatusReviewing = 2 // 待批改
 	SubmissionStatusGraded    = 3 // 已批改
 )
 
 // SubmissionStatusText 提交状态文本映射
-var SubmissionStatusText = map[int]string{
+var SubmissionStatusText = map[int16]string{
 	SubmissionStatusSubmitted: "已提交",
-	SubmissionStatusReviewing: "批改中",
+	SubmissionStatusReviewing: "待批改",
 	SubmissionStatusGraded:    "已批改",
 }
 
 // GetSubmissionStatusText 获取提交状态文本
-func GetSubmissionStatusText(s int) string {
+func GetSubmissionStatusText(s int16) string {
 	if text, ok := SubmissionStatusText[s]; ok {
 		return text
 	}
 	return "未知"
 }
 
+// IsValidSubmissionStatus 校验提交状态是否合法
+func IsValidSubmissionStatus(s int16) bool {
+	_, ok := SubmissionStatusText[s]
+	return ok
+}
+
 // ========== 迟交策略（assignments.late_policy） ==========
 
 const (
-	LatePolicyNotAllowed     = 1 // 不允许迟交
-	LatePolicyWithDeduction  = 2 // 允许迟交（扣分）
-	LatePolicyNoDeduction    = 3 // 允许迟交（不扣分）
+	LatePolicyNotAllowed    = 1 // 不允许迟交
+	LatePolicyWithDeduction = 2 // 允许迟交（扣分）
+	LatePolicyNoDeduction   = 3 // 允许迟交（不扣分）
 )
 
 // LatePolicyText 迟交策略文本映射
-var LatePolicyText = map[int]string{
+var LatePolicyText = map[int16]string{
 	LatePolicyNotAllowed:    "不允许迟交",
 	LatePolicyWithDeduction: "允许迟交（扣分）",
 	LatePolicyNoDeduction:   "允许迟交（不扣分）",
 }
 
 // GetLatePolicyText 获取迟交策略文本
-func GetLatePolicyText(p int) string {
+func GetLatePolicyText(p int16) string {
 	if text, ok := LatePolicyText[p]; ok {
 		return text
 	}
@@ -272,7 +284,7 @@ func GetLatePolicyText(p int) string {
 }
 
 // IsValidLatePolicy 校验迟交策略是否合法
-func IsValidLatePolicy(p int) bool {
+func IsValidLatePolicy(p int16) bool {
 	_, ok := LatePolicyText[p]
 	return ok
 }
@@ -281,21 +293,27 @@ func IsValidLatePolicy(p int) bool {
 
 const (
 	LearningStatusNotStarted = 1 // 未开始
-	LearningStatusInProgress = 2 // 学习中
+	LearningStatusInProgress = 2 // 进行中
 	LearningStatusCompleted  = 3 // 已完成
 )
 
 // LearningStatusText 学习进度状态文本映射
-var LearningStatusText = map[int]string{
+var LearningStatusText = map[int16]string{
 	LearningStatusNotStarted: "未开始",
-	LearningStatusInProgress: "学习中",
+	LearningStatusInProgress: "进行中",
 	LearningStatusCompleted:  "已完成",
 }
 
 // GetLearningStatusText 获取学习进度状态文本
-func GetLearningStatusText(s int) string {
+func GetLearningStatusText(s int16) string {
 	if text, ok := LearningStatusText[s]; ok {
 		return text
 	}
 	return "未知"
+}
+
+// IsValidLearningStatus 校验学习进度状态是否合法
+func IsValidLearningStatus(s int16) bool {
+	_, ok := LearningStatusText[s]
+	return ok
 }

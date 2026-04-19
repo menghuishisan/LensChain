@@ -1,7 +1,7 @@
 // pagination.go
-// 通用分页封装
-// 遵循 API 规范：page 从1开始，page_size 默认20，最大100
-// 支持 sort_by 和 sort_order 排序参数
+// 该文件提供与 API 规范对齐的统一分页能力，负责处理页码归一化、偏移量计算、排序白名单
+// 应用和分页结果结构构造。列表接口若需要分页与排序，应优先复用这里的规则，避免各模块
+// 对 `page` 和 `page_size` 的解释不一致。
 
 package pagination
 
@@ -102,6 +102,7 @@ type Info struct {
 
 // NewResult 创建分页结果
 func NewResult(list interface{}, total int64, page, pageSize int) *Result {
+	page, pageSize = NormalizeValues(page, pageSize)
 	totalPage := int(total) / pageSize
 	if int(total)%pageSize > 0 {
 		totalPage++

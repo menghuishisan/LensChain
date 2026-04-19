@@ -1,15 +1,16 @@
 // handlerctx.go
-// Handler 公共上下文辅助工具
-// 统一从 gin.Context 构建 service 层上下文并处理业务错误响应
+// 该文件是 handler 层与 service 层之间的公共桥接工具，负责把 Gin 请求上下文转换成
+// service 可用的服务上下文，并把业务错误统一映射成标准 HTTP 响应。它解决的是 handler
+// 层反复写“取用户信息、转错误码、返回统一响应”的重复劳动。
 
 package handlerctx
 
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/lenschain/backend/internal/middleware"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/requestctx"
 	"github.com/lenschain/backend/internal/pkg/response"
 )
 
@@ -18,9 +19,9 @@ import (
 func BuildServiceContext(c *gin.Context) *svcctx.ServiceContext {
 	return svcctx.NewServiceContext(
 		c.Request.Context(),
-		middleware.GetUserID(c),
-		middleware.GetSchoolID(c),
-		middleware.GetRoles(c),
+		requestctx.GetUserID(c),
+		requestctx.GetSchoolID(c),
+		requestctx.GetRoles(c),
 	).WithClientIP(c.ClientIP())
 }
 

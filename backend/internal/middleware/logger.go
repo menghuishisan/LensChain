@@ -1,7 +1,6 @@
 // logger.go
-// 请求日志中间件
-// 记录每个 HTTP 请求的方法、路径、状态码、耗时、客户端IP等信息
-// 使用 Zap 结构化日志
+// 该文件提供 HTTP 请求日志中间件，负责把一次请求的路径、方法、耗时、状态码、客户端 IP
+// 和已识别出的用户身份写入结构化日志。它用于运维排查和访问审计，不参与业务处理本身。
 
 package middleware
 
@@ -12,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/lenschain/backend/internal/pkg/logger"
+	"github.com/lenschain/backend/internal/pkg/requestctx"
 )
 
 // RequestLogger 请求日志中间件
@@ -41,7 +41,7 @@ func RequestLogger() gin.HandlerFunc {
 		}
 
 		// 如果有用户ID，记录到日志
-		if userID := GetUserID(c); userID > 0 {
+		if userID := requestctx.GetUserID(c); userID > 0 {
 			fields = append(fields, zap.Int64("user_id", userID))
 		}
 

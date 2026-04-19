@@ -1,7 +1,7 @@
 // database.go
-// 数据库连接与 GORM 封装
-// PostgreSQL 连接池管理、软删除基类、GORM 日志级别配置
-// 所有表统一使用雪花ID主键、软删除、时间戳字段
+// 该文件负责初始化全局 PostgreSQL 连接、配置 GORM 行为，并提供全项目共享的基础模型与
+// 常用查询作用域。它解决的是“数据库怎么连、模型基类长什么样、常见筛选如何统一写”的
+// 基础问题，供 repository 层直接复用；业务判断和 SQL 组合策略不应该写在这里。
 
 package database
 
@@ -166,7 +166,8 @@ func escapeLike(s string) string {
 }
 
 // WithStatus 状态过滤
-func WithStatus(status int) func(db *gorm.DB) *gorm.DB {
+// 项目状态枚举统一使用 SMALLINT，对应 Go 的 int16。
+func WithStatus(status int16) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		if status > 0 {
 			return db.Where("status = ?", status)
