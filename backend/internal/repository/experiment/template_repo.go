@@ -7,7 +7,6 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
@@ -22,13 +21,13 @@ import (
 type TemplateRepository interface {
 	Create(ctx context.Context, template *entity.ExperimentTemplate) error
 	GetByID(ctx context.Context, id int64) (*entity.ExperimentTemplate, error)
-	GetByIDWithAll(ctx context.Context, id int64) (*entity.ExperimentTemplate, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	SoftDelete(ctx context.Context, id int64) error
 	List(ctx context.Context, params *TemplateListParams) ([]*entity.ExperimentTemplate, int64, error)
 	ListShared(ctx context.Context, params *SharedTemplateListParams) ([]*entity.ExperimentTemplate, int64, error)
 	CountByTeacherID(ctx context.Context, teacherID int64) (int64, error)
 	HasInstances(ctx context.Context, templateID int64) (bool, error)
+	HasCourseReferences(ctx context.Context, templateID int64) (bool, error)
 }
 
 // TemplateListParams 模板列表查询参数
@@ -36,8 +35,8 @@ type TemplateListParams struct {
 	SchoolID       int64
 	TeacherID      int64
 	Keyword        string
-	Status         int
-	ExperimentType int
+	Status         int16
+	ExperimentType int16
 	Ecosystem      string
 	TagID          int64
 	SortBy         string
@@ -79,33 +78,6 @@ func (r *templateRepository) Create(ctx context.Context, template *entity.Experi
 func (r *templateRepository) GetByID(ctx context.Context, id int64) (*entity.ExperimentTemplate, error) {
 	var template entity.ExperimentTemplate
 	err := r.db.WithContext(ctx).First(&template, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &template, nil
-}
-
-// GetByIDWithAll 根据ID获取实验模板（含所有关联：容器、检查点、初始化脚本、仿真场景、标签、角色）
-func (r *templateRepository) GetByIDWithAll(ctx context.Context, id int64) (*entity.ExperimentTemplate, error) {
-	var template entity.ExperimentTemplate
-	err := r.db.WithContext(ctx).
-		Preload("Containers", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc, startup_order asc")
-		}).
-		Preload("Checkpoints", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
-		Preload("InitScripts", func(db *gorm.DB) *gorm.DB {
-			return db.Order("execution_order asc")
-		}).
-		Preload("SimScenes", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
-		Preload("Tags").
-		Preload("Roles", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
-		First(&template, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -177,30 +149,25 @@ func (r *templateRepository) List(ctx context.Context, params *TemplateListParam
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at": "created_at",
 		"title":      "title",
 		"status":     "status",
 		"updated_at": "updated_at",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
-	// 分页
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
-
-	// 预加载标签
 	var templates []*entity.ExperimentTemplate
-	if err := query.Preload("Tags").Find(&templates).Error; err != nil {
+	if err := query.Find(&templates).Error; err != nil {
 		return nil, 0, err
 	}
 	return templates, total, nil
@@ -238,27 +205,23 @@ func (r *templateRepository) ListShared(ctx context.Context, params *SharedTempl
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
-		"created_at":  "created_at",
-		"title":       "title",
-		"usage_count": "usage_count",
+		"created_at": "created_at",
+		"title":      "title",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var templates []*entity.ExperimentTemplate
-	if err := query.Preload("Tags").Find(&templates).Error; err != nil {
+	if err := query.Find(&templates).Error; err != nil {
 		return nil, 0, err
 	}
 	return templates, total, nil
@@ -280,4 +243,26 @@ func (r *templateRepository) HasInstances(ctx context.Context, templateID int64)
 		Where("template_id = ?", templateID).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// HasCourseReferences 检查模板是否被课时或课程独立实验引用。
+// 模板编辑/删除规则以“是否被课程侧引用”为准，不能只检查运行实例。
+func (r *templateRepository) HasCourseReferences(ctx context.Context, templateID int64) (bool, error) {
+	var lessonCount int64
+	if err := r.db.WithContext(ctx).
+		Table("lessons").
+		Where("experiment_id = ? AND deleted_at IS NULL", templateID).
+		Count(&lessonCount).Error; err != nil {
+		return false, err
+	}
+	if lessonCount > 0 {
+		return true, nil
+	}
+
+	var courseExperimentCount int64
+	err := r.db.WithContext(ctx).
+		Table("course_experiments").
+		Where("experiment_id = ?", templateID).
+		Count(&courseExperimentCount).Error
+	return courseExperimentCount > 0, err
 }

@@ -17,14 +17,14 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 	images := rg.Group("/images")
 	images.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		images.GET("", eh.TemplateHandler.ListImages)
+		images.GET("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.ListImages)
 		images.POST("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.CreateImage)
-		images.GET("/:id", eh.TemplateHandler.GetImage)
-		images.PUT("/:id", eh.TemplateHandler.UpdateImage)
+		images.GET("/:id", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.GetImage)
+		images.PUT("/:id", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.UpdateImage)
 		images.DELETE("/:id", middleware.RequireSuperAdmin(), eh.TemplateHandler.DeleteImage)
 		images.POST("/:id/review", middleware.RequireSuperAdmin(), eh.TemplateHandler.ReviewImage)
-		images.GET("/:id/versions", eh.TemplateHandler.ListImageVersions)
-		images.POST("/:id/versions", eh.TemplateHandler.CreateImageVersion)
+		images.GET("/:id/versions", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.ListImageVersions)
+		images.POST("/:id/versions", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.CreateImageVersion)
 		images.GET("/:id/config-template", middleware.RequireTeacher(), eh.TemplateHandler.GetImageConfigTemplate)
 		images.GET("/:id/documentation", middleware.RequireTeacher(), eh.TemplateHandler.GetImageDocumentation)
 	}
@@ -32,11 +32,11 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 	imageCategories := rg.Group("/image-categories")
 	imageCategories.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		imageCategories.GET("", eh.TemplateHandler.ListImageCategories)
+		imageCategories.GET("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.ListImageCategories)
 	}
 
 	imageVersions := rg.Group("/image-versions")
-	imageVersions.Use(middleware.JWTAuth(), middleware.TenantIsolation())
+	imageVersions.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireAdminOrTeacher())
 	{
 		imageVersions.PUT("/:id", eh.TemplateHandler.UpdateImageVersion)
 		imageVersions.DELETE("/:id", middleware.RequireSuperAdmin(), eh.TemplateHandler.DeleteImageVersion)
@@ -114,10 +114,10 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 	simScenarios := rg.Group("/sim-scenarios")
 	simScenarios.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		simScenarios.GET("", eh.TemplateHandler.ListScenarios)
+		simScenarios.GET("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.ListScenarios)
 		simScenarios.POST("", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.CreateScenario)
-		simScenarios.GET("/:id", eh.TemplateHandler.GetScenario)
-		simScenarios.PUT("/:id", eh.TemplateHandler.UpdateScenario)
+		simScenarios.GET("/:id", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.GetScenario)
+		simScenarios.PUT("/:id", middleware.RequireAdminOrTeacher(), eh.TemplateHandler.UpdateScenario)
 		simScenarios.DELETE("/:id", middleware.RequireSuperAdmin(), eh.TemplateHandler.DeleteScenario)
 		simScenarios.POST("/:id/review", middleware.RequireSuperAdmin(), eh.TemplateHandler.ReviewScenario)
 	}

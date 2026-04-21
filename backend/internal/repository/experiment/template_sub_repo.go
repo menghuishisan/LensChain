@@ -22,11 +22,14 @@ import (
 type ContainerRepository interface {
 	Create(ctx context.Context, container *entity.TemplateContainer) error
 	GetByID(ctx context.Context, id int64) (*entity.TemplateContainer, error)
+	GetByTemplateAndName(ctx context.Context, templateID int64, name string) (*entity.TemplateContainer, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByTemplateID(ctx context.Context, templateID int64) ([]*entity.TemplateContainer, error)
+	ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateContainer, error)
 	DeleteByTemplateID(ctx context.Context, templateID int64) error
 	BatchCreate(ctx context.Context, containers []*entity.TemplateContainer) error
+	BatchUpdateSortOrders(ctx context.Context, sortOrders map[int64]int) error
 	CountByTemplateID(ctx context.Context, templateID int64) (int64, error)
 }
 
@@ -58,6 +61,18 @@ func (r *containerRepository) GetByID(ctx context.Context, id int64) (*entity.Te
 	return &container, nil
 }
 
+// GetByTemplateAndName 根据模板ID和容器名称获取容器，供同一模板内名称唯一性校验。
+func (r *containerRepository) GetByTemplateAndName(ctx context.Context, templateID int64, name string) (*entity.TemplateContainer, error) {
+	var container entity.TemplateContainer
+	err := r.db.WithContext(ctx).
+		Where("template_id = ? AND container_name = ?", templateID, name).
+		First(&container).Error
+	if err != nil {
+		return nil, err
+	}
+	return &container, nil
+}
+
 // UpdateFields 更新模板容器指定字段
 func (r *containerRepository) UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error {
 	return r.db.WithContext(ctx).Model(&entity.TemplateContainer{}).Where("id = ?", id).Updates(fields).Error
@@ -78,6 +93,19 @@ func (r *containerRepository) ListByTemplateID(ctx context.Context, templateID i
 	return containers, err
 }
 
+// ListByTemplateIDs 批量获取多个模板的容器配置，供模板列表/详情聚合时统一组装。
+func (r *containerRepository) ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateContainer, error) {
+	if len(templateIDs) == 0 {
+		return []*entity.TemplateContainer{}, nil
+	}
+	var containers []*entity.TemplateContainer
+	err := r.db.WithContext(ctx).
+		Where("template_id IN ?", templateIDs).
+		Order("template_id asc, sort_order asc, startup_order asc").
+		Find(&containers).Error
+	return containers, err
+}
+
 // DeleteByTemplateID 删除模板的所有容器配置
 func (r *containerRepository) DeleteByTemplateID(ctx context.Context, templateID int64) error {
 	return r.db.WithContext(ctx).Where("template_id = ?", templateID).Delete(&entity.TemplateContainer{}).Error
@@ -85,12 +113,32 @@ func (r *containerRepository) DeleteByTemplateID(ctx context.Context, templateID
 
 // BatchCreate 批量创建模板容器
 func (r *containerRepository) BatchCreate(ctx context.Context, containers []*entity.TemplateContainer) error {
+	if len(containers) == 0 {
+		return nil
+	}
 	for i := range containers {
 		if containers[i].ID == 0 {
 			containers[i].ID = snowflake.Generate()
 		}
 	}
 	return r.db.WithContext(ctx).CreateInBatches(containers, 50).Error
+}
+
+// BatchUpdateSortOrders 批量更新容器排序，用于容器编排画布的拖拽排序保存。
+func (r *containerRepository) BatchUpdateSortOrders(ctx context.Context, sortOrders map[int64]int) error {
+	if len(sortOrders) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for id, sortOrder := range sortOrders {
+			if err := tx.Model(&entity.TemplateContainer{}).
+				Where("id = ?", id).
+				Update("sort_order", sortOrder).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // CountByTemplateID 统计模板容器数量
@@ -113,8 +161,10 @@ type CheckpointRepository interface {
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByTemplateID(ctx context.Context, templateID int64) ([]*entity.TemplateCheckpoint, error)
+	ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateCheckpoint, error)
 	DeleteByTemplateID(ctx context.Context, templateID int64) error
 	BatchCreate(ctx context.Context, checkpoints []*entity.TemplateCheckpoint) error
+	BatchUpdateSortOrders(ctx context.Context, sortOrders map[int64]int) error
 	SumScoreByTemplateID(ctx context.Context, templateID int64) (float64, error)
 }
 
@@ -166,6 +216,19 @@ func (r *checkpointRepository) ListByTemplateID(ctx context.Context, templateID 
 	return checkpoints, err
 }
 
+// ListByTemplateIDs 批量获取多个模板的检查点，供模板详情与批量校验统一组装。
+func (r *checkpointRepository) ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateCheckpoint, error) {
+	if len(templateIDs) == 0 {
+		return []*entity.TemplateCheckpoint{}, nil
+	}
+	var checkpoints []*entity.TemplateCheckpoint
+	err := r.db.WithContext(ctx).
+		Where("template_id IN ?", templateIDs).
+		Order("template_id asc, sort_order asc").
+		Find(&checkpoints).Error
+	return checkpoints, err
+}
+
 // DeleteByTemplateID 删除模板的所有检查点
 func (r *checkpointRepository) DeleteByTemplateID(ctx context.Context, templateID int64) error {
 	return r.db.WithContext(ctx).Where("template_id = ?", templateID).Delete(&entity.TemplateCheckpoint{}).Error
@@ -173,12 +236,32 @@ func (r *checkpointRepository) DeleteByTemplateID(ctx context.Context, templateI
 
 // BatchCreate 批量创建检查点
 func (r *checkpointRepository) BatchCreate(ctx context.Context, checkpoints []*entity.TemplateCheckpoint) error {
+	if len(checkpoints) == 0 {
+		return nil
+	}
 	for i := range checkpoints {
 		if checkpoints[i].ID == 0 {
 			checkpoints[i].ID = snowflake.Generate()
 		}
 	}
 	return r.db.WithContext(ctx).CreateInBatches(checkpoints, 50).Error
+}
+
+// BatchUpdateSortOrders 批量更新检查点排序，确保检查点列表和验证顺序一致。
+func (r *checkpointRepository) BatchUpdateSortOrders(ctx context.Context, sortOrders map[int64]int) error {
+	if len(sortOrders) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for id, sortOrder := range sortOrders {
+			if err := tx.Model(&entity.TemplateCheckpoint{}).
+				Where("id = ?", id).
+				Update("sort_order", sortOrder).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // SumScoreByTemplateID 统计模板检查点总分
@@ -202,6 +285,7 @@ type InitScriptRepository interface {
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByTemplateID(ctx context.Context, templateID int64) ([]*entity.TemplateInitScript, error)
+	ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateInitScript, error)
 	DeleteByTemplateID(ctx context.Context, templateID int64) error
 	BatchCreate(ctx context.Context, scripts []*entity.TemplateInitScript) error
 }
@@ -254,6 +338,19 @@ func (r *initScriptRepository) ListByTemplateID(ctx context.Context, templateID 
 	return scripts, err
 }
 
+// ListByTemplateIDs 批量获取多个模板的初始化脚本。
+func (r *initScriptRepository) ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateInitScript, error) {
+	if len(templateIDs) == 0 {
+		return []*entity.TemplateInitScript{}, nil
+	}
+	var scripts []*entity.TemplateInitScript
+	err := r.db.WithContext(ctx).
+		Where("template_id IN ?", templateIDs).
+		Order("template_id asc, execution_order asc").
+		Find(&scripts).Error
+	return scripts, err
+}
+
 // DeleteByTemplateID 删除模板的所有初始化脚本
 func (r *initScriptRepository) DeleteByTemplateID(ctx context.Context, templateID int64) error {
 	return r.db.WithContext(ctx).Where("template_id = ?", templateID).Delete(&entity.TemplateInitScript{}).Error
@@ -261,6 +358,9 @@ func (r *initScriptRepository) DeleteByTemplateID(ctx context.Context, templateI
 
 // BatchCreate 批量创建初始化脚本
 func (r *initScriptRepository) BatchCreate(ctx context.Context, scripts []*entity.TemplateInitScript) error {
+	if len(scripts) == 0 {
+		return nil
+	}
 	for i := range scripts {
 		if scripts[i].ID == 0 {
 			scripts[i].ID = snowflake.Generate()
@@ -280,8 +380,17 @@ type SimSceneRepository interface {
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByTemplateID(ctx context.Context, templateID int64) ([]*entity.TemplateSimScene, error)
+	ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateSimScene, error)
 	DeleteByTemplateID(ctx context.Context, templateID int64) error
 	BatchCreate(ctx context.Context, scenes []*entity.TemplateSimScene) error
+	BatchUpdateLayouts(ctx context.Context, layouts map[int64]SceneLayoutUpdate) error
+	CountByTemplateID(ctx context.Context, templateID int64) (int64, error)
+}
+
+// SceneLayoutUpdate 仿真场景布局与排序更新参数。
+type SceneLayoutUpdate struct {
+	LayoutPosition interface{}
+	SortOrder      int
 }
 
 // simSceneRepository 模板仿真场景配置数据访问实现
@@ -332,6 +441,19 @@ func (r *simSceneRepository) ListByTemplateID(ctx context.Context, templateID in
 	return scenes, err
 }
 
+// ListByTemplateIDs 批量获取多个模板的仿真场景配置。
+func (r *simSceneRepository) ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateSimScene, error) {
+	if len(templateIDs) == 0 {
+		return []*entity.TemplateSimScene{}, nil
+	}
+	var scenes []*entity.TemplateSimScene
+	err := r.db.WithContext(ctx).
+		Where("template_id IN ?", templateIDs).
+		Order("template_id asc, sort_order asc").
+		Find(&scenes).Error
+	return scenes, err
+}
+
 // DeleteByTemplateID 删除模板的所有仿真场景配置
 func (r *simSceneRepository) DeleteByTemplateID(ctx context.Context, templateID int64) error {
 	return r.db.WithContext(ctx).Where("template_id = ?", templateID).Delete(&entity.TemplateSimScene{}).Error
@@ -339,12 +461,45 @@ func (r *simSceneRepository) DeleteByTemplateID(ctx context.Context, templateID 
 
 // BatchCreate 批量创建模板仿真场景配置
 func (r *simSceneRepository) BatchCreate(ctx context.Context, scenes []*entity.TemplateSimScene) error {
+	if len(scenes) == 0 {
+		return nil
+	}
 	for i := range scenes {
 		if scenes[i].ID == 0 {
 			scenes[i].ID = snowflake.Generate()
 		}
 	}
 	return r.db.WithContext(ctx).CreateInBatches(scenes, 50).Error
+}
+
+// BatchUpdateLayouts 批量更新仿真场景布局和排序，用于 SimEngine 面板布局保存。
+func (r *simSceneRepository) BatchUpdateLayouts(ctx context.Context, layouts map[int64]SceneLayoutUpdate) error {
+	if len(layouts) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for id, layout := range layouts {
+			fields := map[string]interface{}{
+				"layout_position": layout.LayoutPosition,
+				"sort_order":      layout.SortOrder,
+			}
+			if err := tx.Model(&entity.TemplateSimScene{}).
+				Where("id = ?", id).
+				Updates(fields).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// CountByTemplateID 统计模板仿真场景数量，供发布前校验模板是否至少包含容器或仿真场景。
+func (r *simSceneRepository) CountByTemplateID(ctx context.Context, templateID int64) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&entity.TemplateSimScene{}).
+		Where("template_id = ?", templateID).
+		Count(&count).Error
+	return count, err
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +514,7 @@ type TagRepository interface {
 	Delete(ctx context.Context, id int64) error
 	ListAll(ctx context.Context) ([]*entity.Tag, error)
 	ListByCategory(ctx context.Context, category string) ([]*entity.Tag, error)
+	ListByIDs(ctx context.Context, ids []int64) ([]*entity.Tag, error)
 	GetByName(ctx context.Context, name string) (*entity.Tag, error)
 	IsTagInUse(ctx context.Context, tagID int64) (bool, error)
 }
@@ -370,6 +526,7 @@ type TemplateTagRepository interface {
 	DeleteByTemplateID(ctx context.Context, templateID int64) error
 	DeleteByTemplateAndTag(ctx context.Context, templateID, tagID int64) error
 	ListByTemplateID(ctx context.Context, templateID int64) ([]*entity.TemplateTag, error)
+	ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateTag, error)
 	BatchCreate(ctx context.Context, tags []*entity.TemplateTag) error
 }
 
@@ -422,6 +579,19 @@ func (r *tagRepository) ListAll(ctx context.Context) ([]*entity.Tag, error) {
 func (r *tagRepository) ListByCategory(ctx context.Context, category string) ([]*entity.Tag, error) {
 	var tags []*entity.Tag
 	err := r.db.WithContext(ctx).Where("category = ?", category).Order("name asc").Find(&tags).Error
+	return tags, err
+}
+
+// ListByIDs 批量获取标签，供设置模板标签前校验标签存在性。
+func (r *tagRepository) ListByIDs(ctx context.Context, ids []int64) ([]*entity.Tag, error) {
+	if len(ids) == 0 {
+		return []*entity.Tag{}, nil
+	}
+	var tags []*entity.Tag
+	err := r.db.WithContext(ctx).
+		Where("id IN ?", ids).
+		Order("category asc, name asc").
+		Find(&tags).Error
 	return tags, err
 }
 
@@ -486,8 +656,24 @@ func (r *templateTagRepository) ListByTemplateID(ctx context.Context, templateID
 	return tags, err
 }
 
+// ListByTemplateIDs 批量获取多个模板的标签关联。
+func (r *templateTagRepository) ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateTag, error) {
+	if len(templateIDs) == 0 {
+		return []*entity.TemplateTag{}, nil
+	}
+	var tags []*entity.TemplateTag
+	err := r.db.WithContext(ctx).
+		Where("template_id IN ?", templateIDs).
+		Order("template_id asc, created_at asc").
+		Find(&tags).Error
+	return tags, err
+}
+
 // BatchCreate 批量创建模板标签关联
 func (r *templateTagRepository) BatchCreate(ctx context.Context, tags []*entity.TemplateTag) error {
+	if len(tags) == 0 {
+		return nil
+	}
 	for i := range tags {
 		if tags[i].ID == 0 {
 			tags[i].ID = snowflake.Generate()
@@ -507,8 +693,10 @@ type RoleRepository interface {
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByTemplateID(ctx context.Context, templateID int64) ([]*entity.TemplateRole, error)
+	ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateRole, error)
 	DeleteByTemplateID(ctx context.Context, templateID int64) error
 	BatchCreate(ctx context.Context, roles []*entity.TemplateRole) error
+	HasReferences(ctx context.Context, roleID int64) (bool, error)
 }
 
 // roleRepository 模板角色数据访问实现
@@ -559,6 +747,19 @@ func (r *roleRepository) ListByTemplateID(ctx context.Context, templateID int64)
 	return roles, err
 }
 
+// ListByTemplateIDs 批量获取多个模板的协作角色配置。
+func (r *roleRepository) ListByTemplateIDs(ctx context.Context, templateIDs []int64) ([]*entity.TemplateRole, error) {
+	if len(templateIDs) == 0 {
+		return []*entity.TemplateRole{}, nil
+	}
+	var roles []*entity.TemplateRole
+	err := r.db.WithContext(ctx).
+		Where("template_id IN ?", templateIDs).
+		Order("template_id asc, sort_order asc").
+		Find(&roles).Error
+	return roles, err
+}
+
 // DeleteByTemplateID 删除模板的所有角色
 func (r *roleRepository) DeleteByTemplateID(ctx context.Context, templateID int64) error {
 	return r.db.WithContext(ctx).Where("template_id = ?", templateID).Delete(&entity.TemplateRole{}).Error
@@ -566,10 +767,32 @@ func (r *roleRepository) DeleteByTemplateID(ctx context.Context, templateID int6
 
 // BatchCreate 批量创建模板角色
 func (r *roleRepository) BatchCreate(ctx context.Context, roles []*entity.TemplateRole) error {
+	if len(roles) == 0 {
+		return nil
+	}
 	for i := range roles {
 		if roles[i].ID == 0 {
 			roles[i].ID = snowflake.Generate()
 		}
 	}
 	return r.db.WithContext(ctx).CreateInBatches(roles, 50).Error
+}
+
+// HasReferences 检查角色是否被模板容器或分组成员引用，避免删除后产生孤儿配置。
+func (r *roleRepository) HasReferences(ctx context.Context, roleID int64) (bool, error) {
+	var containerCount int64
+	if err := r.db.WithContext(ctx).Model(&entity.TemplateContainer{}).
+		Where("role_id = ?", roleID).
+		Count(&containerCount).Error; err != nil {
+		return false, err
+	}
+	if containerCount > 0 {
+		return true, nil
+	}
+
+	var memberCount int64
+	err := r.db.WithContext(ctx).Model(&entity.GroupMember{}).
+		Where("role_id = ?", roleID).
+		Count(&memberCount).Error
+	return memberCount > 0, err
 }

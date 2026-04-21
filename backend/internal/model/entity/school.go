@@ -89,7 +89,7 @@ func (SchoolSSOConfig) TableName() string {
 }
 
 // SchoolNotification 表示 school_notifications 表。
-// 该实体记录到期提醒、冻结通知和审核通知等发送流水。
+// 该实体只记录已有学校租户的生命周期通知发送流水，如到期提醒、缓冲期、冻结和审核通过。
 type SchoolNotification struct {
 	ID          int64      `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
 	SchoolID    int64      `gorm:"column:school_id;not null;index" json:"school_id,string"`

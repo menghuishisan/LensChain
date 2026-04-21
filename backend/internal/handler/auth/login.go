@@ -6,14 +6,14 @@
 package auth
 
 import (
-	"github.com/lenschain/backend/internal/pkg/handlerctx"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/lenschain/backend/internal/middleware"
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/requestctx"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
 	svc "github.com/lenschain/backend/internal/service/auth"
@@ -61,8 +61,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // POST /api/v1/auth/logout
 // 将当前 Access Token 加入黑名单，删除 Session
 func (h *AuthHandler) Logout(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	jti := middleware.GetJTI(c)
+	userID := requestctx.GetUserID(c)
+	jti := requestctx.GetJTI(c)
 	ip := c.ClientIP()
 	userAgent := c.GetHeader("User-Agent")
 
@@ -101,7 +101,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	userID := middleware.GetUserID(c)
+	userID := requestctx.GetUserID(c)
 	ip := c.ClientIP()
 
 	if err := h.authService.ChangePassword(c.Request.Context(), userID, req.OldPassword, req.NewPassword, ip); err != nil {
@@ -121,7 +121,7 @@ func (h *AuthHandler) ForceChangePassword(c *gin.Context) {
 		return
 	}
 
-	userID := middleware.GetUserID(c)
+	userID := requestctx.GetUserID(c)
 	ip := c.ClientIP()
 
 	result, err := h.authService.ForceChangePassword(c.Request.Context(), userID, req.NewPassword, ip)
@@ -155,10 +155,19 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 // GET /api/v1/auth/sso/callback
 // 处理SSO系统回调，验证ticket/code，完成登录
 func (h *AuthHandler) SSOCallback(c *gin.Context) {
-	schoolID := validator.ParseQueryInt64(c, "school_id", 0)
-	if schoolID <= 0 {
-		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("缺少学校ID"))
+	var req dto.SSOCallbackReq
+	if !validator.BindQuery(c, &req) {
 		return
+	}
+
+	var schoolID int64
+	if req.SchoolID != "" {
+		parsedID, err := validator.ParseSnowflakeID(req.SchoolID)
+		if err != nil || parsedID <= 0 {
+			handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("school_id 格式不正确"))
+			return
+		}
+		schoolID = parsedID
 	}
 
 	query := make(map[string]string)

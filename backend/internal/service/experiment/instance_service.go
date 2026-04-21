@@ -7,6 +7,7 @@ package experiment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -68,28 +69,34 @@ type InstanceService interface {
 
 // instanceService 实验实例服务实现
 type instanceService struct {
-	db                *gorm.DB
-	instanceRepo      experimentrepo.InstanceRepository
-	containerRepo     experimentrepo.InstanceContainerRepository
-	templateRepo      experimentrepo.TemplateRepository
-	imageRepo         experimentrepo.ImageRepository
-	imageVersionRepo  experimentrepo.ImageVersionRepository
-	checkpointRepo    experimentrepo.CheckpointRepository
-	checkResultRepo   experimentrepo.CheckpointResultRepository
-	groupMemberRepo   experimentrepo.GroupMemberRepository
-	snapshotRepo      experimentrepo.SnapshotRepository
-	opLogRepo         experimentrepo.OperationLogRepository
-	reportRepo        experimentrepo.ReportRepository
-	quotaRepo         experimentrepo.QuotaRepository
-	simSceneRepo      experimentrepo.SimSceneRepository
-	scenarioRepo      experimentrepo.ScenarioRepository
-	linkGroupRepo     experimentrepo.LinkGroupRepository
-	k8sSvc            K8sService
-	simEngineSvc      SimEngineService
-	userNameQuerier   UserNameQuerier
-	courseQuerier     CourseQuerier
-	courseGradeSyncer CourseGradeSyncer
-	enrollmentChecker EnrollmentChecker
+	db                    *gorm.DB
+	instanceRepo          experimentrepo.InstanceRepository
+	containerRepo         experimentrepo.InstanceContainerRepository
+	templateRepo          experimentrepo.TemplateRepository
+	templateContainerRepo experimentrepo.ContainerRepository
+	imageRepo             experimentrepo.ImageRepository
+	imageVersionRepo      experimentrepo.ImageVersionRepository
+	checkpointRepo        experimentrepo.CheckpointRepository
+	checkResultRepo       experimentrepo.CheckpointResultRepository
+	groupRepo             experimentrepo.GroupRepository
+	groupMemberRepo       experimentrepo.GroupMemberRepository
+	snapshotRepo          experimentrepo.SnapshotRepository
+	opLogRepo             experimentrepo.OperationLogRepository
+	reportRepo            experimentrepo.ReportRepository
+	quotaRepo             experimentrepo.QuotaRepository
+	initScriptRepo        experimentrepo.InitScriptRepository
+	simSceneRepo          experimentrepo.SimSceneRepository
+	scenarioRepo          experimentrepo.ScenarioRepository
+	linkGroupRepo         experimentrepo.LinkGroupRepository
+	linkGroupSceneRepo    experimentrepo.LinkGroupSceneRepository
+	k8sSvc                K8sService
+	simEngineSvc          SimEngineService
+	userNameQuerier       UserNameQuerier
+	userSummaryQuerier    UserSummaryQuerier
+	schoolNameQuerier     SchoolNameQuerier
+	courseQuerier         CourseQuerier
+	courseGradeSyncer     CourseGradeSyncer
+	enrollmentChecker     EnrollmentChecker
 }
 
 // NewInstanceService 创建实验实例服务实例
@@ -98,48 +105,60 @@ func NewInstanceService(
 	instanceRepo experimentrepo.InstanceRepository,
 	containerRepo experimentrepo.InstanceContainerRepository,
 	templateRepo experimentrepo.TemplateRepository,
+	templateContainerRepo experimentrepo.ContainerRepository,
 	imageRepo experimentrepo.ImageRepository,
 	imageVersionRepo experimentrepo.ImageVersionRepository,
 	checkpointRepo experimentrepo.CheckpointRepository,
 	checkResultRepo experimentrepo.CheckpointResultRepository,
+	groupRepo experimentrepo.GroupRepository,
 	groupMemberRepo experimentrepo.GroupMemberRepository,
 	snapshotRepo experimentrepo.SnapshotRepository,
 	opLogRepo experimentrepo.OperationLogRepository,
 	reportRepo experimentrepo.ReportRepository,
 	quotaRepo experimentrepo.QuotaRepository,
+	initScriptRepo experimentrepo.InitScriptRepository,
 	simSceneRepo experimentrepo.SimSceneRepository,
 	scenarioRepo experimentrepo.ScenarioRepository,
 	linkGroupRepo experimentrepo.LinkGroupRepository,
+	linkGroupSceneRepo experimentrepo.LinkGroupSceneRepository,
 	k8sSvc K8sService,
 	simEngineSvc SimEngineService,
 	userNameQuerier UserNameQuerier,
+	userSummaryQuerier UserSummaryQuerier,
+	schoolNameQuerier SchoolNameQuerier,
 	courseQuerier CourseQuerier,
 	courseGradeSyncer CourseGradeSyncer,
 	enrollmentChecker EnrollmentChecker,
 ) InstanceService {
 	return &instanceService{
-		db:                db,
-		instanceRepo:      instanceRepo,
-		containerRepo:     containerRepo,
-		templateRepo:      templateRepo,
-		imageRepo:         imageRepo,
-		imageVersionRepo:  imageVersionRepo,
-		checkpointRepo:    checkpointRepo,
-		checkResultRepo:   checkResultRepo,
-		groupMemberRepo:   groupMemberRepo,
-		snapshotRepo:      snapshotRepo,
-		opLogRepo:         opLogRepo,
-		reportRepo:        reportRepo,
-		quotaRepo:         quotaRepo,
-		simSceneRepo:      simSceneRepo,
-		scenarioRepo:      scenarioRepo,
-		linkGroupRepo:     linkGroupRepo,
-		k8sSvc:            k8sSvc,
-		simEngineSvc:      simEngineSvc,
-		userNameQuerier:   userNameQuerier,
-		courseQuerier:     courseQuerier,
-		courseGradeSyncer: courseGradeSyncer,
-		enrollmentChecker: enrollmentChecker,
+		db:                    db,
+		instanceRepo:          instanceRepo,
+		containerRepo:         containerRepo,
+		templateRepo:          templateRepo,
+		templateContainerRepo: templateContainerRepo,
+		imageRepo:             imageRepo,
+		imageVersionRepo:      imageVersionRepo,
+		checkpointRepo:        checkpointRepo,
+		checkResultRepo:       checkResultRepo,
+		groupRepo:             groupRepo,
+		groupMemberRepo:       groupMemberRepo,
+		snapshotRepo:          snapshotRepo,
+		opLogRepo:             opLogRepo,
+		reportRepo:            reportRepo,
+		quotaRepo:             quotaRepo,
+		initScriptRepo:        initScriptRepo,
+		simSceneRepo:          simSceneRepo,
+		scenarioRepo:          scenarioRepo,
+		linkGroupRepo:         linkGroupRepo,
+		linkGroupSceneRepo:    linkGroupSceneRepo,
+		k8sSvc:                k8sSvc,
+		simEngineSvc:          simEngineSvc,
+		userNameQuerier:       userNameQuerier,
+		userSummaryQuerier:    userSummaryQuerier,
+		schoolNameQuerier:     schoolNameQuerier,
+		courseQuerier:         courseQuerier,
+		courseGradeSyncer:     courseGradeSyncer,
+		enrollmentChecker:     enrollmentChecker,
 	}
 }
 
@@ -155,15 +174,30 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	if err != nil {
 		return nil, errcode.ErrTemplateNotFound
 	}
-
-	// 获取模板（含完整配置）
-	template, err := s.templateRepo.GetByIDWithAll(ctx, templateID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errcode.ErrTemplateNotFound
-		}
+	if err := s.normalizeSnapshotCreateRequest(ctx, sc, templateID, req); err != nil {
 		return nil, err
 	}
+	if err := s.normalizeGroupCreateRequest(ctx, sc, templateID, req); err != nil {
+		return nil, err
+	}
+
+	// 获取模板（含完整配置）
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.templateContainerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		nil,
+		nil,
+		nil,
+		templateID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	template := templateAggregate.Template
 
 	// 模板必须已发布
 	if template.Status != enum.TemplateStatusPublished {
@@ -229,9 +263,9 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	}
 
 	// 学校并发限制
-	if schoolQuota != nil && schoolQuota.MaxConcurrency > 0 {
+	if schoolQuota != nil && schoolQuota.MaxConcurrency != nil && *schoolQuota.MaxConcurrency > 0 {
 		schoolRunning, _ := s.instanceRepo.CountRunningBySchool(ctx, sc.SchoolID)
-		if schoolRunning >= int64(schoolQuota.MaxConcurrency) {
+		if schoolRunning >= int64(*schoolQuota.MaxConcurrency) {
 			return nil, errcode.ErrResourceQuotaExceeded
 		}
 	}
@@ -241,9 +275,9 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 		courseID, _ := snowflake.ParseString(*req.CourseID)
 		if courseID > 0 {
 			courseQuota, _ := s.quotaRepo.GetByCourseID(ctx, courseID)
-			if courseQuota != nil && courseQuota.MaxConcurrency > 0 {
+			if courseQuota != nil && courseQuota.MaxConcurrency != nil && *courseQuota.MaxConcurrency > 0 {
 				courseRunning, _ := s.instanceRepo.CountRunningByCourse(ctx, courseID)
-				if courseRunning >= int64(courseQuota.MaxConcurrency) {
+				if courseRunning >= int64(*courseQuota.MaxConcurrency) {
 					return s.createQueuedInstance(ctx, sc, template, req, maxAttempt+1)
 				}
 			}
@@ -257,7 +291,7 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 		TemplateID:     templateID,
 		StudentID:      sc.UserID,
 		SchoolID:       sc.SchoolID,
-		ExperimentType: template.ExpType,
+		ExperimentType: template.ExperimentType,
 		Status:         enum.InstanceStatusCreating,
 		AttemptNo:      maxAttempt + 1,
 		StartedAt:      &now,
@@ -285,17 +319,28 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	if err := s.instanceRepo.Create(ctx, instance); err != nil {
 		return nil, err
 	}
+	if instance.GroupID != nil {
+		member, err := s.groupMemberRepo.GetByGroupAndStudent(ctx, *instance.GroupID, sc.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.groupMemberRepo.UpdateFields(ctx, member.ID, map[string]interface{}{
+			"instance_id": instance.ID,
+		}); err != nil {
+			return nil, err
+		}
+	}
 
 	// 异步创建环境（根据实验类型）
 	snapshotID := ""
 	if req.SnapshotID != nil {
 		snapshotID = *req.SnapshotID
 	}
-	go s.provisionEnvironment(context.Background(), instance, template, snapshotID, true)
+	go s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, snapshotID, true)
 
 	// 记录操作日志
-	s.recordOpLog(ctx, instance.ID, sc.UserID, enum.ActionStart, nil, nil, nil, nil, nil, nil)
-	s.pushCourseMonitorStatusChange(instance, 0, instance.Status)
+	s.recordOpLog(ctx, instance.ID, sc.UserID, enum.ActionStart, nil, nil, nil, nil, nil)
+	s.pushCourseMonitorStatusChange(instance, 0, int(instance.Status))
 
 	// 更新配额已用并发
 	_ = s.quotaRepo.IncrUsedConcurrency(ctx, sc.SchoolID, 1)
@@ -312,8 +357,115 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	return resp, nil
 }
 
+// normalizeGroupCreateRequest 规范化多人实验启动请求，统一校验分组归属、课程归属与成员身份。
+func (s *instanceService) normalizeGroupCreateRequest(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateInstanceReq) error {
+	template, err := s.templateRepo.GetByID(ctx, templateID)
+	if err != nil {
+		return errcode.ErrTemplateNotFound
+	}
+	isCollaborative := template.TopologyMode != nil && *template.TopologyMode == enum.TopologyModeCollaborate
+
+	if req.GroupID == nil || strings.TrimSpace(*req.GroupID) == "" {
+		if isCollaborative {
+			return errcode.ErrInvalidParams.WithMessage("多人协作实验必须指定分组ID")
+		}
+		return nil
+	}
+	if !isCollaborative {
+		return errcode.ErrInvalidParams.WithMessage("仅多人协作实验允许指定分组ID")
+	}
+
+	groupID, err := snowflake.ParseString(*req.GroupID)
+	if err != nil {
+		return errcode.ErrGroupNotFound
+	}
+	group, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return errcode.ErrGroupNotFound
+	}
+	if group.TemplateID != templateID {
+		return errcode.ErrInvalidParams.WithMessage("分组不属于当前实验模板")
+	}
+
+	member, err := s.groupMemberRepo.GetByGroupAndStudent(ctx, groupID, sc.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrForbidden.WithMessage("您不在该实验分组中")
+		}
+		return err
+	}
+	if member.RoleID == nil {
+		return errcode.ErrInvalidParams.WithMessage("分组成员尚未分配角色")
+	}
+
+	if group.Status == enum.GroupStatusForming {
+		return errcode.ErrGroupNotJoinable.WithMessage("分组尚未组建完成")
+	}
+
+	groupCourseID := strconv.FormatInt(group.CourseID, 10)
+	if req.CourseID != nil && strings.TrimSpace(*req.CourseID) != "" {
+		courseID, err := snowflake.ParseString(*req.CourseID)
+		if err != nil {
+			return errcode.ErrInvalidParams.WithMessage("课程ID无效")
+		}
+		if courseID != group.CourseID {
+			return errcode.ErrInvalidParams.WithMessage("分组不属于当前课程")
+		}
+	} else {
+		req.CourseID = &groupCourseID
+	}
+
+	return nil
+}
+
+// normalizeSnapshotCreateRequest 规范化从快照恢复启动的请求，并回填历史实例上下文。
+func (s *instanceService) normalizeSnapshotCreateRequest(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateInstanceReq) error {
+	if req.SnapshotID == nil || strings.TrimSpace(*req.SnapshotID) == "" {
+		return nil
+	}
+
+	snapshotID, err := snowflake.ParseString(*req.SnapshotID)
+	if err != nil {
+		return errcode.ErrSnapshotNotFound
+	}
+	snapshot, err := s.snapshotRepo.GetByID(ctx, snapshotID)
+	if err != nil {
+		return errcode.ErrSnapshotNotFound
+	}
+
+	sourceInstance, err := s.instanceRepo.GetByID(ctx, snapshot.InstanceID)
+	if err != nil {
+		return err
+	}
+	if sourceInstance.StudentID != sc.UserID {
+		return errcode.ErrForbidden.WithMessage("快照不属于当前学生")
+	}
+	if sourceInstance.TemplateID != templateID {
+		return errcode.ErrInvalidParams.WithMessage("快照不属于当前实验模板")
+	}
+
+	if req.CourseID == nil && sourceInstance.CourseID != nil {
+		value := strconv.FormatInt(*sourceInstance.CourseID, 10)
+		req.CourseID = &value
+	}
+	if req.LessonID == nil && sourceInstance.LessonID != nil {
+		value := strconv.FormatInt(*sourceInstance.LessonID, 10)
+		req.LessonID = &value
+	}
+	if req.AssignmentID == nil && sourceInstance.AssignmentID != nil {
+		value := strconv.FormatInt(*sourceInstance.AssignmentID, 10)
+		req.AssignmentID = &value
+	}
+	if req.GroupID == nil && sourceInstance.GroupID != nil {
+		value := strconv.FormatInt(*sourceInstance.GroupID, 10)
+		req.GroupID = &value
+	}
+
+	return nil
+}
+
 // provisionEnvironment 异步创建实验环境（K8s 容器 + SimEngine 会话）
-func (s *instanceService) provisionEnvironment(ctx context.Context, instance *entity.ExperimentInstance, template *entity.ExperimentTemplate, snapshotID string, releaseConcurrencyOnError bool) {
+func (s *instanceService) provisionEnvironment(ctx context.Context, instance *entity.ExperimentInstance, template *TemplateAggregate, snapshotID string, releaseConcurrencyOnError bool) {
 	var accessURL string
 	var errMsg string
 	oldStatus := instance.Status
@@ -336,14 +488,20 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 		// 缓存实例状态到 Redis
 		_ = cache.Set(ctx, fmt.Sprintf("%s:%d", cache.KeyExpInstanceStatus, instance.ID),
 			fmt.Sprintf("%d", fields["status"]), 24*time.Hour)
-		newStatus, _ := fields["status"].(int)
-		s.pushCourseMonitorStatusChange(instance, oldStatus, newStatus)
+		newStatus := int(enum.InstanceStatusRunning)
+		if statusValue, ok := fields["status"].(int16); ok {
+			newStatus = int(statusValue)
+		}
+		s.pushCourseMonitorStatusChange(instance, int(oldStatus), newStatus)
 		if errMsg != "" && releaseConcurrencyOnError {
 			_ = s.quotaRepo.DecrUsedConcurrency(ctx, instance.SchoolID, 1)
 			if instance.CourseID != nil {
 				s.activateNextQueuedInstance(ctx, *instance.CourseID)
 			}
 			s.pushCourseMonitorInstanceError(instance, errMsg)
+		}
+		if instance.GroupID != nil {
+			s.refreshGroupStatus(ctx, *instance.GroupID)
 		}
 	}()
 
@@ -354,14 +512,14 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 			return
 		}
 		restoreSnapshot, _ = s.snapshotRepo.GetByID(ctx, snapID)
-		if restoreSnapshot == nil || restoreSnapshot.InstanceID != instance.ID {
+		if restoreSnapshot == nil {
 			errMsg = "恢复快照不存在"
 			return
 		}
 	}
 
 	// 1. 纯仿真 / 混合实验 → 创建 SimEngine 会话
-	if template.ExpType == enum.ExperimentTypeSimulation || template.ExpType == enum.ExperimentTypeMixed {
+	if template.Template.ExperimentType == enum.ExperimentTypeSimulation || template.Template.ExperimentType == enum.ExperimentTypeMixed {
 		simReq, err := s.buildSimSessionRequest(ctx, instance, template)
 		if err != nil {
 			errMsg = fmt.Sprintf("构建仿真会话请求失败: %v", err)
@@ -385,21 +543,31 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 	}
 
 	// 2. 真实环境 / 混合实验 → 部署 K8s 容器
-	if template.ExpType == enum.ExperimentTypeReal || template.ExpType == enum.ExperimentTypeMixed {
+	if template.Template.ExperimentType == enum.ExperimentTypeReal || template.Template.ExperimentType == enum.ExperimentTypeMixed {
+		containerPlan, err := s.resolveRuntimeContainerPlan(ctx, instance, template)
+		if err != nil {
+			errMsg = err.Error()
+			return
+		}
 		nsName := fmt.Sprintf("exp-%d", instance.ID)
 		ns := nsName
 		_ = s.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{"namespace": ns})
 
 		// 创建命名空间
 		labels := buildInstanceNamespaceLabels(instance)
-		if err := s.k8sSvc.CreateNamespace(ctx, nsName, labels, buildNamespaceResourceSpec(template)); err != nil {
+		if err := s.k8sSvc.CreateNamespace(ctx, nsName, labels, buildNamespaceResourceSpec(template.Template)); err != nil {
 			errMsg = fmt.Sprintf("创建命名空间失败: %v", err)
 			return
 		}
 
 		// 部署容器
-		for _, tc := range template.Containers {
-			containerSpec, collectorSpec, err := s.buildContainerSpec(ctx, tc, template)
+		for _, tc := range containerPlan.Containers {
+			containerSpec, collectorSpec, err := s.buildContainerSpecWithServiceDiscovery(
+				ctx,
+				tc,
+				template,
+				containerPlan.ServiceDiscoveryEnvs,
+			)
 			if err != nil {
 				errMsg = fmt.Sprintf("构建容器 %s 规格失败: %v", tc.ContainerName, err)
 				return
@@ -448,6 +616,9 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 		// 新建环境执行初始化脚本；从快照恢复时跳过，避免覆盖恢复态数据。
 		if restoreSnapshot == nil {
 			for _, script := range template.InitScripts {
+				if _, ok := containerPlan.ContainerNameSet[script.TargetContainer]; !ok {
+					continue
+				}
 				podName := fmt.Sprintf("%s-%s", nsName, script.TargetContainer)
 				scriptCtx := ctx
 				cancel := func() {}
@@ -477,7 +648,7 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 	}
 
 	// 4. 混合实验 → 启动数据采集
-	if template.ExpType == enum.ExperimentTypeMixed {
+	if template.Template.ExperimentType == enum.ExperimentTypeMixed {
 		if simSessionID == "" && instance.SimSessionID != nil {
 			simSessionID = *instance.SimSessionID
 		}
@@ -491,8 +662,39 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 	}
 }
 
+// refreshGroupStatus 刷新多人实验分组的聚合状态。
+func (s *instanceService) refreshGroupStatus(ctx context.Context, groupID int64) {
+	group, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return
+	}
+	members, err := s.groupMemberRepo.ListByGroupID(ctx, groupID)
+	if err != nil {
+		return
+	}
+	instances, err := s.instanceRepo.ListByGroupID(ctx, groupID)
+	if err != nil {
+		return
+	}
+	status := deriveGroupAggregateStatus(group, members, buildLatestInstanceByStudent(instances))
+	if status == group.Status {
+		return
+	}
+	_ = s.groupRepo.UpdateFields(ctx, groupID, map[string]interface{}{"status": status})
+}
+
 // buildContainerSpec 根据模板容器配置构建 K8s ContainerSpec
-func (s *instanceService) buildContainerSpec(ctx context.Context, tc entity.TemplateContainer, template *entity.ExperimentTemplate) (ContainerSpec, *CollectorSidecarSpec, error) {
+func (s *instanceService) buildContainerSpec(ctx context.Context, tc entity.TemplateContainer, template *TemplateAggregate) (ContainerSpec, *CollectorSidecarSpec, error) {
+	return s.buildContainerSpecWithServiceDiscovery(ctx, tc, template, nil)
+}
+
+// buildContainerSpecWithServiceDiscovery 根据模板容器配置和运行时服务发现信息构建 K8s ContainerSpec。
+func (s *instanceService) buildContainerSpecWithServiceDiscovery(
+	ctx context.Context,
+	tc entity.TemplateContainer,
+	template *TemplateAggregate,
+	serviceDiscoveryEnvs map[string]string,
+) (ContainerSpec, *CollectorSidecarSpec, error) {
 	version, err := s.imageVersionRepo.GetByID(ctx, tc.ImageVersionID)
 	if err != nil {
 		return ContainerSpec{}, nil, errcode.ErrImageVersionNotFound
@@ -501,7 +703,14 @@ func (s *instanceService) buildContainerSpec(ctx context.Context, tc entity.Temp
 	if err != nil {
 		return ContainerSpec{}, nil, errcode.ErrImageNotFound
 	}
-	spec, err := mergeContainerConfig(tc, image, version, template.Containers)
+	allContainers := make([]entity.TemplateContainer, 0, len(template.Containers))
+	for _, container := range template.Containers {
+		allContainers = append(allContainers, *container)
+	}
+	if serviceDiscoveryEnvs == nil {
+		serviceDiscoveryEnvs = buildServiceDiscoveryEnvVars(allContainers)
+	}
+	spec, err := mergeContainerConfigWithServiceDiscovery(tc, image, version, allContainers, serviceDiscoveryEnvs)
 	if err != nil {
 		return ContainerSpec{}, nil, err
 	}
@@ -517,7 +726,7 @@ func buildCollectorWebSocketURL(simWebSocketURL string) string {
 }
 
 // buildSimSessionRequest 根据模板仿真场景构建 SimEngine 会话请求
-func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *entity.ExperimentInstance, template *entity.ExperimentTemplate) (*CreateSimSessionRequest, error) {
+func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *entity.ExperimentInstance, template *TemplateAggregate) (*CreateSimSessionRequest, error) {
 	req := &CreateSimSessionRequest{
 		InstanceID: instance.ID,
 		StudentID:  instance.StudentID,
@@ -532,28 +741,27 @@ func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *
 			continue
 		}
 
+		sceneCfg := decodeSimSceneConfig(json.RawMessage(ts.Config))
+
 		sc := SimSceneConfig{
 			SceneCode:        scenario.Code,
 			ScenarioID:       strconv.FormatInt(ts.ScenarioID, 10),
-			Params:           ts.Config,
-			LayoutPosition:   ts.LayoutPosition,
-			DataSourceConfig: ts.DataSourceConfig,
+			Params:           sceneCfg.SceneParams,
+			InitialState:     sceneCfg.InitialState,
+			LayoutPosition:   json.RawMessage(ts.LayoutPosition),
+			DataSourceConfig: json.RawMessage(ts.DataSourceConfig),
+			DataSourceMode:   toSimSceneDataSourceMode(sceneCfg.DataSourceMode, scenario.DataSourceMode),
 		}
 
 		// 联动组
 		if ts.LinkGroupID != nil {
 			sc.LinkGroupID = strconv.FormatInt(*ts.LinkGroupID, 10)
-			linkGroup, err := s.linkGroupRepo.GetByIDWithScenes(ctx, *ts.LinkGroupID)
+			linkGroup, err := s.linkGroupRepo.GetByID(ctx, *ts.LinkGroupID)
 			if err == nil {
 				sc.LinkGroupCode = linkGroup.Code
-				sc.SharedState = linkGroup.SharedStateSchema
+				sc.SharedState = json.RawMessage(linkGroup.SharedStateSchema)
 				hasLinkGroup = true
 			}
-		}
-
-		// 初始状态
-		if scenario.InteractionSchema != nil {
-			sc.InitialState = scenario.InteractionSchema
 		}
 
 		scenes = append(scenes, sc)
@@ -565,6 +773,22 @@ func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *
 	return req, nil
 }
 
+// toSimSceneDataSourceMode 将模板场景配置中的数据源模式映射为 SimEngine 请求使用的字符串编码。
+func toSimSceneDataSourceMode(templateMode int16, scenarioDefault int16) string {
+	mode := templateMode
+	if !enum.IsValidDataSourceMode(mode) {
+		mode = scenarioDefault
+	}
+	switch mode {
+	case enum.DataSourceModeCollect:
+		return "collection"
+	case enum.DataSourceModeDual:
+		return "dual"
+	default:
+		return "simulation"
+	}
+}
+
 // findReusableInstance 查找同一学生在同一模板下可直接复用的活动实例。
 func (s *instanceService) findReusableInstance(ctx context.Context, templateID, studentID int64) (*entity.ExperimentInstance, error) {
 	instances, err := s.instanceRepo.ListByTemplateAndStudent(ctx, templateID, studentID)
@@ -573,7 +797,7 @@ func (s *instanceService) findReusableInstance(ctx context.Context, templateID, 
 	}
 	for _, instance := range instances {
 		switch instance.Status {
-		case enum.InstanceStatusCreating, enum.InstanceStatusRunning, enum.InstanceStatusQueued, enum.InstanceStatusRestoring:
+		case enum.InstanceStatusCreating, enum.InstanceStatusInitializing, enum.InstanceStatusRunning, enum.InstanceStatusQueued:
 			return instance, nil
 		}
 	}
@@ -594,7 +818,7 @@ func (s *instanceService) createQueuedInstance(
 		TemplateID:     template.ID,
 		StudentID:      sc.UserID,
 		SchoolID:       sc.SchoolID,
-		ExperimentType: template.ExpType,
+		ExperimentType: template.ExperimentType,
 		Status:         enum.InstanceStatusQueued,
 		AttemptNo:      attemptNo,
 		StartedAt:      &now,
@@ -625,6 +849,10 @@ func (s *instanceService) createQueuedInstance(
 		queueKey := fmt.Sprintf("%s:%d", cache.KeyExpQueue, *instance.CourseID)
 		if length, err := cache.Get().RPush(ctx, queueKey, strconv.FormatInt(instance.ID, 10)).Result(); err == nil {
 			queuePosition = int(length)
+		}
+		if req.SnapshotID != nil && strings.TrimSpace(*req.SnapshotID) != "" {
+			snapshotKey := fmt.Sprintf("%s%d", cache.KeyExpQueueSnapshot, instance.ID)
+			_ = cache.Set(ctx, snapshotKey, *req.SnapshotID, 24*time.Hour)
 		}
 	}
 
@@ -675,16 +903,25 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 	if err != nil {
 		return nil, err
 	}
-	instance, err = s.instanceRepo.GetByIDWithAll(ctx, instance.ID)
+	instanceAggregate, err := loadInstanceAggregate(ctx, s.instanceRepo, s.containerRepo, s.checkResultRepo, instance.ID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errcode.ErrInstanceNotFound
-		}
 		return nil, err
 	}
+	instance = instanceAggregate.Instance
 
 	// 获取模板信息
-	template, _ := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, _ := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.templateContainerRepo,
+		s.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 
 	resp := &dto.InstanceDetailResp{
 		ID:         strconv.FormatInt(instance.ID, 10),
@@ -705,7 +942,8 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 模板摘要
-	if template != nil {
+	if templateAggregate != nil && templateAggregate.Template != nil {
+		template := templateAggregate.Template
 		resp.Template = dto.InstanceTemplateBrief{
 			ID:          strconv.FormatInt(template.ID, 10),
 			Title:       template.Title,
@@ -725,31 +963,24 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 学生摘要
-	studentName := s.userNameQuerier.GetUserName(ctx, instance.StudentID)
+	studentSummary := s.getInstanceUserSummary(ctx, instance.StudentID)
 	resp.Student = dto.InstanceStudentBrief{
-		ID:   strconv.FormatInt(instance.StudentID, 10),
-		Name: studentName,
+		ID:        strconv.FormatInt(instance.StudentID, 10),
+		Name:      studentSummary.Name,
+		StudentNo: studentSummary.StudentNo,
 	}
 
 	// 容器列表
-	containers := make([]dto.InstanceContainerItem, 0, len(instance.Containers))
-	for _, c := range instance.Containers {
-		containers = append(containers, dto.InstanceContainerItem{
-			ID:            strconv.FormatInt(c.ID, 10),
-			ContainerName: c.ContainerName,
-			Status:        c.Status,
-			StatusText:    enum.GetContainerStatusText(c.Status),
-			InternalIP:    c.InternalIP,
-			CPUUsage:      c.CPUUsage,
-			MemoryUsage:   c.MemoryUsage,
-		})
+	templateContainers := []*entity.TemplateContainer(nil)
+	if templateAggregate != nil {
+		templateContainers = templateAggregate.Containers
 	}
-	resp.Containers = containers
+	resp.Containers = s.buildInstanceContainerItems(ctx, instanceAggregate.Containers, templateContainers)
 
 	// 检查点列表
-	if template != nil {
-		checkpoints := make([]dto.InstanceCheckpointItem, 0, len(template.Checkpoints))
-		for _, cp := range template.Checkpoints {
+	if templateAggregate != nil {
+		checkpoints := make([]dto.InstanceCheckpointItem, 0, len(templateAggregate.Checkpoints))
+		for _, cp := range templateAggregate.Checkpoints {
 			item := dto.InstanceCheckpointItem{
 				CheckpointID: strconv.FormatInt(cp.ID, 10),
 				Title:        cp.Title,
@@ -757,14 +988,18 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 				Score:        cp.Score,
 			}
 			// 查找结果
-			for _, cr := range instance.CheckpointResults {
+			for _, cr := range instanceAggregate.CheckpointResults {
 				if cr.CheckpointID == cp.ID {
 					score := float64(0)
 					if cr.Score != nil {
 						score = *cr.Score
 					}
+					passed := false
+					if cr.IsPassed != nil {
+						passed = *cr.IsPassed
+					}
 					item.Result = &dto.InstanceCheckpointResult{
-						IsPassed:  cr.IsPassed,
+						IsPassed:  passed,
 						Score:     score,
 						CheckedAt: cr.CheckedAt.UTC().Format(time.RFC3339),
 					}

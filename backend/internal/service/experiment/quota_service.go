@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
@@ -94,11 +95,11 @@ func (s *quotaService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 		QuotaLevel:     req.QuotaLevel,
 		SchoolID:       schoolID,
 		CourseID:       courseID,
-		MaxCPU:         quotaString(req.MaxCPU),
-		MaxMemory:      quotaString(req.MaxMemory),
-		MaxStorage:     quotaString(req.MaxStorage),
+		MaxCPU:         quotaStringPtr(req.MaxCPU),
+		MaxMemory:      quotaStringPtr(req.MaxMemory),
+		MaxStorage:     quotaStringPtr(req.MaxStorage),
 		MaxConcurrency: req.MaxConcurrency,
-		MaxPerStudent:  req.MaxPerStudent,
+		MaxPerStudent:  quotaMaxPerStudent(req.MaxPerStudent),
 	}
 	if err := s.quotaRepo.Create(ctx, quota); err != nil {
 		return nil, err
@@ -166,12 +167,12 @@ func (s *quotaService) Update(ctx context.Context, sc *svcctx.ServiceContext, id
 	targetConcurrency := quota.MaxConcurrency
 	targetPerStudent := quota.MaxPerStudent
 	if req.MaxConcurrency != nil {
-		targetConcurrency = *req.MaxConcurrency
+		targetConcurrency = req.MaxConcurrency
 	}
 	if req.MaxPerStudent != nil {
 		targetPerStudent = *req.MaxPerStudent
 	}
-	if err := s.validateQuotaWithinSchool(ctx, quota.SchoolID, quota.CourseID, targetConcurrency, targetPerStudent); err != nil {
+	if err := s.validateQuotaWithinSchool(ctx, quota.SchoolID, quota.CourseID, targetConcurrency, &targetPerStudent); err != nil {
 		return nil, err
 	}
 
@@ -228,8 +229,8 @@ func (s *quotaService) GetSchoolUsage(ctx context.Context, sc *svcctx.ServiceCon
 		breakdown = append(breakdown, dto.CourseBreakdownItem{
 			CourseID:           strconv.FormatInt(*quota.CourseID, 10),
 			CourseTitle:        s.courseQuerier.GetCourseTitle(ctx, *quota.CourseID),
-			CurrentConcurrency: quota.UsedConcurrency,
-			MaxConcurrency:     quota.MaxConcurrency,
+			CurrentConcurrency: quota.CurrentConcurrency,
+			MaxConcurrency:     quotaMaxConcurrency(quota.MaxConcurrency),
 			CPUUsed:            quota.UsedCPU,
 			MemoryUsed:         quota.UsedMemory,
 		})
@@ -239,20 +240,20 @@ func (s *quotaService) GetSchoolUsage(ctx context.Context, sc *svcctx.ServiceCon
 		SchoolID:   strconv.FormatInt(schoolID, 10),
 		SchoolName: s.schoolNameQuerier.GetSchoolName(ctx, schoolID),
 		Quota: dto.ResourceQuotaInfo{
-			MaxCPU:         schoolQuota.MaxCPU,
-			MaxMemory:      schoolQuota.MaxMemory,
-			MaxStorage:     schoolQuota.MaxStorage,
-			MaxConcurrency: schoolQuota.MaxConcurrency,
+			MaxCPU:         quotaString(derefString(schoolQuota.MaxCPU)),
+			MaxMemory:      quotaString(derefString(schoolQuota.MaxMemory)),
+			MaxStorage:     quotaString(derefString(schoolQuota.MaxStorage)),
+			MaxConcurrency: quotaMaxConcurrency(schoolQuota.MaxConcurrency),
 		},
 		Usage: dto.ResourceUsageInfo{
 			UsedCPU:                 schoolQuota.UsedCPU,
 			UsedMemory:              schoolQuota.UsedMemory,
 			UsedStorage:             schoolQuota.UsedStorage,
-			CurrentConcurrency:      schoolQuota.UsedConcurrency,
-			CPUUsagePercent:         percentString(schoolQuota.UsedCPU, schoolQuota.MaxCPU),
-			MemoryUsagePercent:      percentString(schoolQuota.UsedMemory, schoolQuota.MaxMemory),
-			StorageUsagePercent:     percentString(schoolQuota.UsedStorage, schoolQuota.MaxStorage),
-			ConcurrencyUsagePercent: percentInt(schoolQuota.UsedConcurrency, schoolQuota.MaxConcurrency),
+			CurrentConcurrency:      schoolQuota.CurrentConcurrency,
+			CPUUsagePercent:         percentString(schoolQuota.UsedCPU, derefString(schoolQuota.MaxCPU)),
+			MemoryUsagePercent:      percentString(schoolQuota.UsedMemory, derefString(schoolQuota.MaxMemory)),
+			StorageUsagePercent:     percentString(schoolQuota.UsedStorage, derefString(schoolQuota.MaxStorage)),
+			ConcurrencyUsagePercent: percentInt(schoolQuota.CurrentConcurrency, quotaMaxConcurrency(schoolQuota.MaxConcurrency)),
 		},
 		CourseBreakdown: breakdown,
 	}, nil
@@ -272,7 +273,7 @@ func (s *quotaService) AssignCourseQuota(ctx context.Context, sc *svcctx.Service
 		return nil, errcode.ErrForbidden
 	}
 
-	if err := s.validateQuotaWithinSchool(ctx, courseSchoolID, &courseID, req.MaxConcurrency, req.MaxPerStudent); err != nil {
+	if err := s.validateQuotaWithinSchool(ctx, courseSchoolID, &courseID, intPtr(req.MaxConcurrency), intPtr(req.MaxPerStudent)); err != nil {
 		return nil, err
 	}
 
@@ -293,7 +294,7 @@ func (s *quotaService) AssignCourseQuota(ctx context.Context, sc *svcctx.Service
 			MaxCPU:         schoolQuota.MaxCPU,
 			MaxMemory:      schoolQuota.MaxMemory,
 			MaxStorage:     schoolQuota.MaxStorage,
-			MaxConcurrency: req.MaxConcurrency,
+			MaxConcurrency: intPtr(req.MaxConcurrency),
 			MaxPerStudent:  req.MaxPerStudent,
 		}
 		if createErr := s.quotaRepo.Create(ctx, quota); createErr != nil {
@@ -324,15 +325,15 @@ func (s *quotaService) buildQuotaResp(ctx context.Context, quota *entity.Resourc
 		QuotaLevelText:  enum.GetQuotaLevelText(quota.QuotaLevel),
 		SchoolID:        strconv.FormatInt(quota.SchoolID, 10),
 		SchoolName:      s.schoolNameQuerier.GetSchoolName(ctx, quota.SchoolID),
-		MaxCPU:          quota.MaxCPU,
-		MaxMemory:       quota.MaxMemory,
-		MaxStorage:      quota.MaxStorage,
-		MaxConcurrency:  quota.MaxConcurrency,
+		MaxCPU:          quotaString(derefString(quota.MaxCPU)),
+		MaxMemory:       quotaString(derefString(quota.MaxMemory)),
+		MaxStorage:      quotaString(derefString(quota.MaxStorage)),
+		MaxConcurrency:  quotaMaxConcurrency(quota.MaxConcurrency),
 		MaxPerStudent:   quota.MaxPerStudent,
 		UsedCPU:         quota.UsedCPU,
 		UsedMemory:      quota.UsedMemory,
 		UsedStorage:     quota.UsedStorage,
-		UsedConcurrency: quota.UsedConcurrency,
+		UsedConcurrency: quota.CurrentConcurrency,
 		CreatedAt:       quota.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:       quota.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -348,7 +349,7 @@ func (s *quotaService) buildQuotaResp(ctx context.Context, quota *entity.Resourc
 }
 
 // validateQuotaWithinSchool 校验课程级配额是否超过学校级配额。
-func (s *quotaService) validateQuotaWithinSchool(ctx context.Context, schoolID int64, courseID *int64, maxConcurrency, maxPerStudent int) error {
+func (s *quotaService) validateQuotaWithinSchool(ctx context.Context, schoolID int64, courseID *int64, maxConcurrency *int, maxPerStudent *int) error {
 	if courseID == nil {
 		return nil
 	}
@@ -363,13 +364,40 @@ func (s *quotaService) validateQuotaWithinSchool(ctx context.Context, schoolID i
 	if err != nil {
 		return err
 	}
-	if maxConcurrency > calculateRemainingConcurrency(schoolQuota.MaxConcurrency, quotas, courseID) {
+	if quotaMaxConcurrency(maxConcurrency) > calculateRemainingConcurrency(schoolQuota.MaxConcurrency, quotas, courseID) {
 		return errcode.ErrInvalidParams.WithMessage("课程配额不能超过学校剩余可分配量")
 	}
-	if maxPerStudent > schoolQuota.MaxPerStudent {
+	if quotaMaxPerStudent(maxPerStudent) > schoolQuota.MaxPerStudent {
 		return errcode.ErrInvalidParams.WithMessage("课程单学生配额不能超过学校级限制")
 	}
 	return nil
+}
+
+// quotaStringPtr 将可空字符串配额归一化为非空指针，避免写入空值语义不一致。
+func quotaStringPtr(value *string) *string {
+	normalized := quotaString(derefString(value))
+	return &normalized
+}
+
+// quotaMaxConcurrency 读取并发配额；空值按 0 处理，便于统一校验和响应构造。
+func quotaMaxConcurrency(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+// quotaMaxPerStudent 读取单学生配额；空值回退到文档约定的默认值 2。
+func quotaMaxPerStudent(value *int) int {
+	if value == nil {
+		return 2
+	}
+	return *value
+}
+
+// intPtr 返回整数指针，便于实体构造时显式表达可空字段。
+func intPtr(value int) *int {
+	return &value
 }
 
 // quotaString 将空字符串资源值规范化为 0，避免数据库出现空值语义分歧。
@@ -382,12 +410,27 @@ func quotaString(value string) string {
 
 // percentString 计算字符串数值表示的资源使用百分比。
 func percentString(used, total string) float64 {
-	usedValue, usedErr := strconv.ParseFloat(used, 64)
-	totalValue, totalErr := strconv.ParseFloat(total, 64)
-	if usedErr != nil || totalErr != nil || totalValue <= 0 {
+	usedValue, usedOK := parseQuotaAmount(used)
+	totalValue, totalOK := parseQuotaAmount(total)
+	if !usedOK || !totalOK || totalValue <= 0 {
 		return 0
 	}
 	return usedValue / totalValue * 100
+}
+
+// parseQuotaAmount 解析资源配额数值，兼容纯数字和 Kubernetes Quantity 表达。
+func parseQuotaAmount(value string) (float64, bool) {
+	if value == "" {
+		return 0, false
+	}
+	if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+		return parsed, true
+	}
+	quantity, err := resource.ParseQuantity(value)
+	if err != nil {
+		return 0, false
+	}
+	return quantity.AsApproximateFloat64(), true
 }
 
 // percentInt 计算整数配额的使用百分比。

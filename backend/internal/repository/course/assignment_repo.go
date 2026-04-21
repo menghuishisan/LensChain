@@ -7,13 +7,14 @@ package courserepo
 
 import (
 	"context"
-	"fmt"
-	"github.com/lenschain/backend/internal/pkg/pagination"
+	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
@@ -21,7 +22,6 @@ import (
 type AssignmentRepository interface {
 	Create(ctx context.Context, assignment *entity.Assignment) error
 	GetByID(ctx context.Context, id int64) (*entity.Assignment, error)
-	GetByIDWithQuestions(ctx context.Context, id int64) (*entity.Assignment, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	SoftDelete(ctx context.Context, id int64) error
 	ListByCourseID(ctx context.Context, params *AssignmentListParams) ([]*entity.Assignment, int64, error)
@@ -36,32 +36,41 @@ type QuestionRepository interface {
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByAssignmentID(ctx context.Context, assignmentID int64) ([]*entity.AssignmentQuestion, error)
+	ListByAssignmentIDs(ctx context.Context, assignmentIDs []int64) ([]*entity.AssignmentQuestion, error)
 }
 
 // SubmissionRepository 提交数据访问接口
 type SubmissionRepository interface {
 	Create(ctx context.Context, submission *entity.AssignmentSubmission) error
 	GetByID(ctx context.Context, id int64) (*entity.AssignmentSubmission, error)
-	GetByIDWithAnswers(ctx context.Context, id int64) (*entity.AssignmentSubmission, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	CountByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) (int, error)
 	ListByAssignment(ctx context.Context, params *SubmissionListParams) ([]*entity.AssignmentSubmission, int64, error)
 	ListByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) ([]*entity.AssignmentSubmission, error)
 	CountByAssignment(ctx context.Context, assignmentID int64) (int, error)
 	GetLatestByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) (*entity.AssignmentSubmission, error)
+	ListLatestByAssignments(ctx context.Context, assignmentIDs []int64) ([]*entity.AssignmentSubmission, error)
+}
+
+// DraftRepository 作答草稿数据访问接口
+type DraftRepository interface {
+	Upsert(ctx context.Context, draft *entity.AssignmentDraft) error
+	GetByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) (*entity.AssignmentDraft, error)
+	DeleteByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) error
 }
 
 // AnswerRepository 答案数据访问接口
 type AnswerRepository interface {
 	BatchCreate(ctx context.Context, answers []*entity.SubmissionAnswer) error
 	ListBySubmissionID(ctx context.Context, submissionID int64) ([]*entity.SubmissionAnswer, error)
+	ListBySubmissionIDs(ctx context.Context, submissionIDs []int64) ([]*entity.SubmissionAnswer, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 }
 
 // AssignmentListParams 作业列表查询参数
 type AssignmentListParams struct {
 	CourseID       int64
-	AssignmentType int
+	AssignmentType int16
 	OnlyPublished  bool
 	Page           int
 	PageSize       int
@@ -70,7 +79,7 @@ type AssignmentListParams struct {
 // SubmissionListParams 提交列表查询参数
 type SubmissionListParams struct {
 	AssignmentID int64
-	Status       int
+	Status       int16
 	Keyword      string
 	Page         int
 	PageSize     int
@@ -99,20 +108,6 @@ func (r *assignmentRepository) Create(ctx context.Context, assignment *entity.As
 func (r *assignmentRepository) GetByID(ctx context.Context, id int64) (*entity.Assignment, error) {
 	var assignment entity.Assignment
 	err := r.db.WithContext(ctx).First(&assignment, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &assignment, nil
-}
-
-// GetByIDWithQuestions 获取作业（含题目列表）
-func (r *assignmentRepository) GetByIDWithQuestions(ctx context.Context, id int64) (*entity.Assignment, error) {
-	var assignment entity.Assignment
-	err := r.db.WithContext(ctx).
-		Preload("Questions", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc, created_at asc")
-		}).
-		First(&assignment, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +217,19 @@ func (r *questionRepository) ListByAssignmentID(ctx context.Context, assignmentI
 	return questions, err
 }
 
+// ListByAssignmentIDs 批量获取多个作业下的题目
+func (r *questionRepository) ListByAssignmentIDs(ctx context.Context, assignmentIDs []int64) ([]*entity.AssignmentQuestion, error) {
+	if len(assignmentIDs) == 0 {
+		return []*entity.AssignmentQuestion{}, nil
+	}
+	var questions []*entity.AssignmentQuestion
+	err := r.db.WithContext(ctx).
+		Where("assignment_id IN ?", assignmentIDs).
+		Order("assignment_id asc, sort_order asc, created_at asc").
+		Find(&questions).Error
+	return questions, err
+}
+
 // ========== Submission 实现 ==========
 
 type submissionRepository struct {
@@ -245,18 +253,6 @@ func (r *submissionRepository) Create(ctx context.Context, submission *entity.As
 func (r *submissionRepository) GetByID(ctx context.Context, id int64) (*entity.AssignmentSubmission, error) {
 	var submission entity.AssignmentSubmission
 	err := r.db.WithContext(ctx).First(&submission, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &submission, nil
-}
-
-// GetByIDWithAnswers 获取提交记录（含答案）
-func (r *submissionRepository) GetByIDWithAnswers(ctx context.Context, id int64) (*entity.AssignmentSubmission, error) {
-	var submission entity.AssignmentSubmission
-	err := r.db.WithContext(ctx).
-		Preload("Answers").
-		First(&submission, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -335,12 +331,80 @@ func (r *submissionRepository) GetLatestByStudentAndAssignment(ctx context.Conte
 	var submission entity.AssignmentSubmission
 	err := r.db.WithContext(ctx).
 		Where("student_id = ? AND assignment_id = ?", studentID, assignmentID).
-		Order(fmt.Sprintf("submission_no desc")).
+		Order("submission_no desc").
 		First(&submission).Error
 	if err != nil {
 		return nil, err
 	}
 	return &submission, nil
+}
+
+// ListLatestByAssignments 批量获取多个作业下每个学生的最新提交
+// PostgreSQL DISTINCT ON 与 submission_no 倒序配合，保证成绩汇总使用每个学生最后一次提交。
+func (r *submissionRepository) ListLatestByAssignments(ctx context.Context, assignmentIDs []int64) ([]*entity.AssignmentSubmission, error) {
+	if len(assignmentIDs) == 0 {
+		return []*entity.AssignmentSubmission{}, nil
+	}
+	var submissions []*entity.AssignmentSubmission
+	err := r.db.WithContext(ctx).Model(&entity.AssignmentSubmission{}).
+		Select("DISTINCT ON (assignment_id, student_id) *").
+		Where("assignment_id IN ?", assignmentIDs).
+		Order("assignment_id asc, student_id asc, submission_no desc").
+		Find(&submissions).Error
+	return submissions, err
+}
+
+// ========== Draft 实现 ==========
+
+type draftRepository struct {
+	db *gorm.DB
+}
+
+// NewDraftRepository 创建作答草稿数据访问实例
+func NewDraftRepository(db *gorm.DB) DraftRepository {
+	return &draftRepository{db: db}
+}
+
+// Upsert 创建或覆盖当前学生在作业下的最新草稿
+func (r *draftRepository) Upsert(ctx context.Context, draft *entity.AssignmentDraft) error {
+	if draft.ID == 0 {
+		draft.ID = snowflake.Generate()
+	}
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "assignment_id"},
+				{Name: "student_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"answers":    draft.Answers,
+				"saved_at":   draft.SavedAt,
+				"updated_at": draft.UpdatedAt,
+			}),
+		}).
+		Create(draft).Error
+}
+
+// GetByStudentAndAssignment 获取学生在指定作业下的当前草稿
+func (r *draftRepository) GetByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) (*entity.AssignmentDraft, error) {
+	var draft entity.AssignmentDraft
+	err := r.db.WithContext(ctx).
+		Where("student_id = ? AND assignment_id = ?", studentID, assignmentID).
+		First(&draft).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &draft, nil
+}
+
+// DeleteByStudentAndAssignment 删除学生在指定作业下的草稿
+func (r *draftRepository) DeleteByStudentAndAssignment(ctx context.Context, studentID, assignmentID int64) error {
+	return r.db.WithContext(ctx).
+		Where("student_id = ? AND assignment_id = ?", studentID, assignmentID).
+		Delete(&entity.AssignmentDraft{}).Error
 }
 
 // ========== Answer 实现 ==========
@@ -356,12 +420,15 @@ func NewAnswerRepository(db *gorm.DB) AnswerRepository {
 
 // BatchCreate 批量创建答案
 func (r *answerRepository) BatchCreate(ctx context.Context, answers []*entity.SubmissionAnswer) error {
+	if len(answers) == 0 {
+		return nil
+	}
 	for i := range answers {
 		if answers[i].ID == 0 {
 			answers[i].ID = snowflake.Generate()
 		}
 	}
-	return r.db.WithContext(ctx).CreateInBatches(answers, 100).Error
+	return r.db.WithContext(ctx).CreateInBatches(answers, courseRepositoryBatchSize).Error
 }
 
 // ListBySubmissionID 获取提交下所有答案
@@ -369,6 +436,19 @@ func (r *answerRepository) ListBySubmissionID(ctx context.Context, submissionID 
 	var answers []*entity.SubmissionAnswer
 	err := r.db.WithContext(ctx).
 		Where("submission_id = ?", submissionID).
+		Find(&answers).Error
+	return answers, err
+}
+
+// ListBySubmissionIDs 批量获取多个提交下的答案
+func (r *answerRepository) ListBySubmissionIDs(ctx context.Context, submissionIDs []int64) ([]*entity.SubmissionAnswer, error) {
+	if len(submissionIDs) == 0 {
+		return []*entity.SubmissionAnswer{}, nil
+	}
+	var answers []*entity.SubmissionAnswer
+	err := r.db.WithContext(ctx).
+		Where("submission_id IN ?", submissionIDs).
+		Order("submission_id asc, created_at asc").
 		Find(&answers).Error
 	return answers, err
 }

@@ -17,6 +17,7 @@ import (
 type ProfileRepository interface {
 	Create(ctx context.Context, profile *entity.UserProfile) error
 	GetByUserID(ctx context.Context, userID int64) (*entity.UserProfile, error)
+	GetByUserIDs(ctx context.Context, userIDs []int64) ([]*entity.UserProfile, error)
 	Update(ctx context.Context, profile *entity.UserProfile) error
 	UpdateFields(ctx context.Context, userID int64, fields map[string]interface{}) error
 	BatchCreate(ctx context.Context, profiles []*entity.UserProfile) error
@@ -51,6 +52,20 @@ func (r *profileRepository) GetByUserID(ctx context.Context, userID int64) (*ent
 	return &profile, nil
 }
 
+// GetByUserIDs 根据用户ID列表批量获取扩展信息
+// 用于用户列表、个人信息等场景统一补齐 profile 数据，避免上层逐条查询。
+func (r *profileRepository) GetByUserIDs(ctx context.Context, userIDs []int64) ([]*entity.UserProfile, error) {
+	if len(userIDs) == 0 {
+		return []*entity.UserProfile{}, nil
+	}
+
+	var profiles []*entity.UserProfile
+	err := r.db.WithContext(ctx).
+		Where("user_id IN ?", userIDs).
+		Find(&profiles).Error
+	return profiles, err
+}
+
 // Update 更新用户扩展信息
 func (r *profileRepository) Update(ctx context.Context, profile *entity.UserProfile) error {
 	return r.db.WithContext(ctx).Save(profile).Error
@@ -66,7 +81,11 @@ func (r *profileRepository) UpdateFields(ctx context.Context, userID int64, fiel
 
 // BatchCreate 批量创建用户扩展信息
 func (r *profileRepository) BatchCreate(ctx context.Context, profiles []*entity.UserProfile) error {
-	return r.db.WithContext(ctx).CreateInBatches(profiles, 100).Error
+	if len(profiles) == 0 {
+		return nil
+	}
+
+	return r.db.WithContext(ctx).CreateInBatches(profiles, repositoryBatchSize).Error
 }
 
 // DeleteByUserID 根据用户ID删除扩展信息

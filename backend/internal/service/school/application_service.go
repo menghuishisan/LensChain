@@ -8,7 +8,7 @@ package school
 import (
 	"context"
 	"encoding/json"
-	"github.com/lenschain/backend/internal/pkg/database"
+	"errors"
 	"strconv"
 	"time"
 
@@ -21,11 +21,11 @@ import (
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/mask"
 	"github.com/lenschain/backend/internal/pkg/sms"
-	"github.com/lenschain/backend/internal/pkg/snowflake"
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
@@ -53,7 +53,7 @@ type applicationService struct {
 // AdminCreator 跨模块接口：创建首个校管账号
 // 由模块01的实现注入，解耦跨模块依赖
 type AdminCreator interface {
-	CreateSchoolAdmin(ctx context.Context, tx *gorm.DB, schoolID int64, phone, name string, createdBy int64) (userID int64, password string, err error)
+	CreateSchoolAdmin(ctx context.Context, schoolID int64, phone, name string, createdBy int64) (userID int64, password string, err error)
 }
 
 // NewApplicationService 创建入驻申请服务实例
@@ -80,17 +80,26 @@ func (s *applicationService) Submit(ctx context.Context, req *dto.SubmitApplicat
 	if err == nil && existing != nil {
 		return nil, errcode.ErrDuplicateApplication
 	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验待审核申请失败")
+	}
 
 	// 检查学校名称唯一性
 	existingSchool, err := s.schoolRepo.GetByName(ctx, req.SchoolName)
 	if err == nil && existingSchool != nil {
 		return nil, errcode.ErrDuplicateSchoolName
 	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校名称失败")
+	}
 
 	// 检查学校编码唯一性
 	existingByCode, err := s.schoolRepo.GetByCode(ctx, req.SchoolCode)
 	if err == nil && existingByCode != nil {
 		return nil, errcode.ErrDuplicateSchoolCode
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校编码失败")
 	}
 
 	// 创建申请记录
@@ -179,14 +188,25 @@ func (s *applicationService) Reapply(ctx context.Context, previousID int64, req 
 		return nil, errcode.ErrForbidden.WithMessage("手机号与原申请不一致")
 	}
 
+	// 与首次提交保持一致：同一手机号不能同时存在待审核申请。
+	if existingPending, err := s.appRepo.GetPendingByPhone(ctx, req.ContactPhone); err == nil && existingPending != nil {
+		return nil, errcode.ErrDuplicateApplication
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验待审核申请失败")
+	}
+
 	// 检查学校名称唯一性（与 Submit 保持一致）
 	if existingSchool, err := s.schoolRepo.GetByName(ctx, req.SchoolName); err == nil && existingSchool != nil {
 		return nil, errcode.ErrDuplicateSchoolName
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校名称失败")
 	}
 
 	// 检查学校编码唯一性（与 Submit 保持一致）
 	if existingByCode, err := s.schoolRepo.GetByCode(ctx, req.SchoolCode); err == nil && existingByCode != nil {
 		return nil, errcode.ErrDuplicateSchoolCode
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校编码失败")
 	}
 
 	// 创建新申请记录，关联上一次申请
@@ -280,11 +300,15 @@ func (s *applicationService) Approve(ctx context.Context, sc *svcctx.ServiceCont
 	}
 
 	// 再次检查学校名称/编码唯一性
-	if existing, _ := s.schoolRepo.GetByName(ctx, app.SchoolName); existing != nil {
+	if existing, err := s.schoolRepo.GetByName(ctx, app.SchoolName); err == nil && existing != nil {
 		return nil, errcode.ErrDuplicateSchoolName
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校名称失败")
 	}
-	if existing, _ := s.schoolRepo.GetByCode(ctx, app.SchoolCode); existing != nil {
+	if existing, err := s.schoolRepo.GetByCode(ctx, app.SchoolCode); err == nil && existing != nil {
 		return nil, errcode.ErrDuplicateSchoolCode
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校编码失败")
 	}
 
 	var schoolID, adminUserID int64
@@ -293,10 +317,12 @@ func (s *applicationService) Approve(ctx context.Context, sc *svcctx.ServiceCont
 
 	// 事务：创建学校 + 更新申请 + 创建校管
 	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txCtx := database.WithTxContext(ctx, tx)
+		txSchoolRepo := schoolrepo.NewSchoolRepository(tx)
+		txAppRepo := schoolrepo.NewApplicationRepository(tx)
+
 		// 1. 创建学校
-		schoolID = snowflake.Generate()
 		schoolEntity := &entity.School{
-			ID:             schoolID,
 			Name:           app.SchoolName,
 			Code:           app.SchoolCode,
 			LogoURL:        app.SchoolLogoURL,
@@ -311,33 +337,50 @@ func (s *applicationService) Approve(ctx context.Context, sc *svcctx.ServiceCont
 			ContactTitle:   app.ContactTitle,
 			CreatedBy:      &sc.UserID,
 		}
-		if err := tx.Create(schoolEntity).Error; err != nil {
+		if err := txSchoolRepo.Create(ctx, schoolEntity); err != nil {
 			return err
 		}
+		schoolID = schoolEntity.ID
 
 		// 2. 更新申请状态
 		reviewedAt := time.Now()
-		if err := tx.Model(&entity.SchoolApplication{}).Where("id = ?", id).Updates(map[string]interface{}{
+		if err := txAppRepo.UpdateFields(ctx, id, map[string]interface{}{
 			"status":      enum.ApplicationStatusApproved,
 			"reviewer_id": sc.UserID,
 			"reviewed_at": reviewedAt,
 			"school_id":   schoolID,
-		}).Error; err != nil {
+		}); err != nil {
 			return err
 		}
 
 		// 3. 创建首个校管账号（跨模块调用）
 		var createErr error
-		adminUserID, adminPassword, createErr = s.adminCreator.CreateSchoolAdmin(ctx, tx, schoolID, app.ContactPhone, app.ContactName, sc.UserID)
+		adminUserID, adminPassword, createErr = s.adminCreator.CreateSchoolAdmin(txCtx, schoolID, app.ContactPhone, app.ContactName, sc.UserID)
 		return createErr
 	})
 	if err != nil {
+		if appErr, ok := errcode.IsAppError(err); ok {
+			return nil, appErr
+		}
 		logger.L.Error("审核通过处理失败", zap.Error(err))
 		return nil, errcode.ErrInternal.WithMessage("审核通过处理失败")
 	}
 
 	// 刷新学校状态缓存
 	refreshSchoolStatusCache(ctx, schoolID, enum.SchoolStatusActive, &licenseEnd)
+
+	// 记录学校通知，保留审核通过的发送流水。
+	if err := s.notifyRepo.Create(ctx, &entity.SchoolNotification{
+		SchoolID:    schoolID,
+		Type:        enum.SchoolNotifyApproved,
+		Title:       enum.GetSchoolNotifyText(enum.SchoolNotifyApproved),
+		Content:     "学校入驻申请已审核通过，首个校管账号已创建",
+		IsSent:      true,
+		SentAt:      &now,
+		TargetPhone: &app.ContactPhone,
+	}); err != nil {
+		logger.L.Error("创建审核通过通知记录失败", zap.Int64("school_id", schoolID), zap.Error(err))
+	}
 
 	// 异步发送短信通知
 	smsSent := true
@@ -409,9 +452,9 @@ func (s *applicationService) Reject(ctx context.Context, sc *svcctx.ServiceConte
 
 // refreshSchoolStatusCache 刷新学校状态缓存
 // 缓存 JSON 结构与 tenant.go 中间件读取的结构一致
-func refreshSchoolStatusCache(ctx context.Context, schoolID int64, status int, licenseEndAt *time.Time) {
+func refreshSchoolStatusCache(ctx context.Context, schoolID int64, status int16, licenseEndAt *time.Time) {
 	data := struct {
-		Status       int    `json:"status"`
+		Status       int16  `json:"status"`
 		LicenseEndAt string `json:"license_end_at,omitempty"`
 	}{
 		Status: status,

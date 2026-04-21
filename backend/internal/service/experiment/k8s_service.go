@@ -1,7 +1,7 @@
 // k8s_service.go
-// 模块04 — 实验环境：K8s 编排接口
-// 定义 K8s 容器编排操作的接口和数据结构
-// 由真实 K8s 客户端实现注入
+// 模块04 — 实验环境：K8s 编排适配契约
+// 定义模块04调用 Kubernetes 所需的最小接口和数据结构，供 service 层做实例生命周期与监控编排
+// 该文件只声明外部系统适配契约，不承载实验业务规则，也不替代 internal/pkg 基础能力
 
 package experiment
 
@@ -154,19 +154,21 @@ type ResourceUsage struct {
 
 // NodeStatus 节点状态
 type NodeStatus struct {
-	Name           string
-	Status         string
-	KubeletVersion string
-	CPUUsed        string
-	CPUTotal       string
-	CPUAllocatable string
-	MemUsed        string
-	MemTotal       string
-	MemAllocatable string
-	DiskUsed       string
-	DiskTotal      string
-	PodCount       int
-	PodCapacity    int
+	Name              string
+	Status            string
+	KubeletVersion    string
+	CPUUsed           string
+	CPUTotal          string
+	CPUAllocatable    string
+	MemUsed           string
+	MemTotal          string
+	MemAllocatable    string
+	DiskUsed          string
+	DiskTotal         string
+	PodCount          int
+	ContainerCount    int
+	RunningContainers int
+	PodCapacity       int
 }
 
 // ClusterStatus 集群状态

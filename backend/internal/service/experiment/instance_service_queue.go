@@ -6,6 +6,7 @@ package experiment
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -36,7 +37,18 @@ func (s *instanceService) activateNextQueuedInstance(ctx context.Context, course
 			continue
 		}
 
-		template, templateErr := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+		templateAggregate, templateErr := loadTemplateAggregate(
+			ctx,
+			s.templateRepo,
+			s.templateContainerRepo,
+			s.checkpointRepo,
+			s.initScriptRepo,
+			s.simSceneRepo,
+			nil,
+			nil,
+			nil,
+			instance.TemplateID,
+		)
 		if templateErr != nil {
 			_ = s.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{
 				"status":        enum.InstanceStatusError,
@@ -70,8 +82,16 @@ func (s *instanceService) activateNextQueuedInstance(ctx context.Context, course
 			return
 		}
 
-		s.pushCourseMonitorStatusChange(instance, enum.InstanceStatusQueued, enum.InstanceStatusCreating)
-		go s.provisionEnvironment(context.Background(), instance, template, "", true)
+		s.pushCourseMonitorStatusChange(instance, int(enum.InstanceStatusQueued), int(enum.InstanceStatusCreating))
+		snapshotID := ""
+		if cache.Get() != nil {
+			snapshotKey := fmt.Sprintf("%s%d", cache.KeyExpQueueSnapshot, instance.ID)
+			if value, getErr := cache.Get().Get(ctx, snapshotKey).Result(); getErr == nil {
+				snapshotID = value
+				_ = cache.Del(ctx, snapshotKey)
+			}
+		}
+		go s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, snapshotID, true)
 		return
 	}
 }

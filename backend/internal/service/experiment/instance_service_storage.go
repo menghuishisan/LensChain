@@ -46,7 +46,7 @@ func (s *instanceService) uploadSnapshotArchive(ctx context.Context, snapshot *e
 	payload := snapshotArchivePayload{
 		SnapshotID:      snapshot.ID,
 		InstanceID:      snapshot.InstanceID,
-		SnapshotType:    snapshot.SnapshotType,
+		SnapshotType:    int(snapshot.SnapshotType),
 		ContainerStates: containerStates,
 		SimEngineState:  simEngineState,
 		Description:     snapshot.Description,

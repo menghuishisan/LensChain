@@ -58,7 +58,7 @@ type RefreshTokenResp struct {
 // SSOCallbackReq SSO回调查询参数。
 // CAS 与 OAuth2 回调参数不同，因此这里只表达平台明确消费的公共参数和两类协议的标准凭证。
 type SSOCallbackReq struct {
-	SchoolID string `form:"school_id" binding:"required"`
+	SchoolID string `form:"school_id"`
 	Ticket   string `form:"ticket"`
 	Code     string `form:"code"`
 	State    string `form:"state"`

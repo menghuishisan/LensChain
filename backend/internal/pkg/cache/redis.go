@@ -97,6 +97,15 @@ func Exists(ctx context.Context, key string) (bool, error) {
 	return n > 0, err
 }
 
+// TTL 获取键的剩余有效期。
+// 用于向上层返回锁定剩余时长、临时状态剩余有效期等业务提示信息。
+func TTL(ctx context.Context, key string) (time.Duration, error) {
+	if rdb == nil {
+		return 0, errRedisNotInitialized
+	}
+	return rdb.TTL(ctx, key).Result()
+}
+
 // Incr 自增计数器
 func Incr(ctx context.Context, key string) (int64, error) {
 	if rdb == nil {
@@ -160,6 +169,7 @@ const (
 	KeyExpStudentRunning = "exp:student:"              // exp:student:{id}:running_count
 	KeyExpCourseConcur   = "exp:course:"               // exp:course:{id}:concurrency
 	KeyExpQueue          = "exp:queue:"                // exp:queue:{course_id}
+	KeyExpQueueSnapshot  = "exp:queue:snapshot:"       // exp:queue:snapshot:{instance_id}
 	KeyExpHeartbeat      = "exp:heartbeat:"            // exp:heartbeat:{instance_id}
 	KeyExpMonitor        = "exp:monitor:"              // exp:monitor:{course_id}:{template_id}
 	KeyExpSimState       = "exp:sim:"                  // exp:sim:{instance_id}:state

@@ -116,6 +116,12 @@ func (s *groupService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 	if !allowed {
 		return nil, errcode.ErrForbidden
 	}
+	if err := s.ensureCollaborativeGroupTemplate(template); err != nil {
+		return nil, err
+	}
+	if err := s.validateCreateGroupRequest(ctx, templateID, req); err != nil {
+		return nil, err
+	}
 	courseStudents, err := s.courseRoster.ListCourseStudents(ctx, courseID)
 	if err != nil {
 		return nil, err
@@ -137,20 +143,17 @@ func (s *groupService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 				ID:          snowflake.Generate(),
 				TemplateID:  templateID,
 				CourseID:    courseID,
-				SchoolID:    sc.SchoolID,
 				GroupName:   item.GroupName,
 				GroupMethod: req.GroupMethod,
 				MaxMembers:  item.MaxMembers,
-				Status:      enum.GroupStatusForming,
-			}
-			if len(item.Members) > 0 && len(item.Members) >= item.MaxMembers {
-				group.Status = enum.GroupStatusReady
+				Status:      deriveGroupMembershipStatus(item.MaxMembers, len(item.Members)),
 			}
 			if err := groupRepo.Create(ctx, group); err != nil {
 				return err
 			}
 
 			members := make([]*entity.GroupMember, 0, len(item.Members))
+			roleUsage := make(map[int64]int)
 			for _, memberItem := range item.Members {
 				studentID, parseErr := snowflake.ParseString(memberItem.StudentID)
 				if parseErr != nil {
@@ -183,6 +186,17 @@ func (s *groupService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 					if roleErr != nil {
 						return errcode.ErrInvalidParams.WithMessage("角色ID无效")
 					}
+					role, roleErr := s.roleRepo.GetByID(ctx, roleID)
+					if roleErr != nil {
+						return errcode.ErrRoleNotFound
+					}
+					if role.TemplateID != templateID {
+						return errcode.ErrInvalidParams.WithMessage("角色不属于当前实验模板")
+					}
+					if roleUsage[roleID] >= role.MaxMembers {
+						return errcode.ErrInvalidParams.WithMessage("分组角色人数超过上限")
+					}
+					roleUsage[roleID]++
 					member.RoleID = &roleID
 				}
 				members = append(members, member)
@@ -248,6 +262,15 @@ func (s *groupService) List(ctx context.Context, sc *svcctx.ServiceContext, req 
 		}
 	}
 
+	groupIDs := make([]int64, 0, len(visibleGroups))
+	for _, group := range visibleGroups {
+		groupIDs = append(groupIDs, group.ID)
+	}
+	memberCounts, err := s.groupRepo.CountMembersByGroupIDs(ctx, groupIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	total = int64(len(visibleGroups))
 	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	start := pagination.Offset(page, pageSize)
@@ -264,7 +287,7 @@ func (s *groupService) List(ctx context.Context, sc *svcctx.ServiceContext, req 
 		items = append(items, &dto.GroupListItem{
 			ID:          strconv.FormatInt(group.ID, 10),
 			GroupName:   group.GroupName,
-			MemberCount: len(group.Members),
+			MemberCount: int(memberCounts[group.ID]),
 			MaxMembers:  group.MaxMembers,
 			Status:      group.Status,
 			StatusText:  enum.GetGroupStatusText(group.Status),
@@ -275,7 +298,7 @@ func (s *groupService) List(ctx context.Context, sc *svcctx.ServiceContext, req 
 
 // GetByID 获取分组详情
 func (s *groupService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.GroupResp, error) {
-	group, err := s.groupRepo.GetByIDWithMembers(ctx, id)
+	group, err := s.groupRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errcode.ErrGroupNotFound
@@ -289,7 +312,11 @@ func (s *groupService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, i
 	if !allowed {
 		return nil, errcode.ErrForbidden
 	}
-	members, err := s.buildGroupMembers(ctx, groupMembersToPointers(group.Members))
+	groupMembers, err := s.memberRepo.ListByGroupID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	members, err := s.buildGroupMembers(ctx, groupMembers)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +329,6 @@ func (s *groupService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, i
 		MaxMembers:  group.MaxMembers,
 		Status:      group.Status,
 		StatusText:  enum.GetGroupStatusText(group.Status),
-		Namespace:   group.Namespace,
 		Members:     members,
 		CreatedAt:   group.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:   group.UpdatedAt.UTC().Format(time.RFC3339),
@@ -387,6 +413,13 @@ func (s *groupService) AutoAssign(ctx context.Context, sc *svcctx.ServiceContext
 	if !allowed {
 		return nil, errcode.ErrForbidden
 	}
+	template, err := s.templateRepo.GetByID(ctx, templateID)
+	if err != nil {
+		return nil, errcode.ErrTemplateNotFound
+	}
+	if err := s.ensureCollaborativeGroupTemplate(template); err != nil {
+		return nil, err
+	}
 
 	students, err := s.courseRoster.ListCourseStudents(ctx, courseID)
 	if err != nil {
@@ -395,6 +428,9 @@ func (s *groupService) AutoAssign(ctx context.Context, sc *svcctx.ServiceContext
 	roles, err := s.roleRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
+	}
+	if len(roles) == 0 {
+		return nil, errcode.ErrInvalidParams.WithMessage("多人协作实验模板必须先定义角色")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -410,16 +446,19 @@ func (s *groupService) AutoAssign(ctx context.Context, sc *svcctx.ServiceContext
 			end = len(students)
 		}
 		chunk := students[start:end]
+		rolePlan, planErr := buildRandomGroupRolePlan(roles, len(chunk), rng)
+		if planErr != nil {
+			return nil, planErr
+		}
 		memberReqs := make([]dto.MemberItemReq, 0, len(chunk))
 		respMembers := make([]dto.AutoAssignMemberItem, 0, len(chunk))
 		for i, student := range chunk {
 			var roleID *string
 			roleName := ""
-			if len(roles) > 0 {
-				role := roles[i%len(roles)]
-				roleIDStr := strconv.FormatInt(role.ID, 10)
+			if i < len(rolePlan) && rolePlan[i] != nil {
+				roleIDStr := strconv.FormatInt(rolePlan[i].ID, 10)
 				roleID = &roleIDStr
-				roleName = role.RoleName
+				roleName = rolePlan[i].RoleName
 			}
 			memberReqs = append(memberReqs, dto.MemberItemReq{
 				StudentID: strconv.FormatInt(student.StudentID, 10),
@@ -466,7 +505,7 @@ func (s *groupService) AutoAssign(ctx context.Context, sc *svcctx.ServiceContext
 
 // Join 学生加入分组
 func (s *groupService) Join(ctx context.Context, sc *svcctx.ServiceContext, groupID int64, req *dto.JoinGroupReq) error {
-	group, err := s.groupRepo.GetByIDWithMembers(ctx, groupID)
+	group, err := s.groupRepo.GetByID(ctx, groupID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errcode.ErrGroupNotFound
@@ -480,10 +519,21 @@ func (s *groupService) Join(ctx context.Context, sc *svcctx.ServiceContext, grou
 	if !allowed {
 		return errcode.ErrForbidden
 	}
+	template, err := s.templateRepo.GetByID(ctx, group.TemplateID)
+	if err != nil {
+		return errcode.ErrTemplateNotFound
+	}
+	if err := s.ensureCollaborativeGroupTemplate(template); err != nil {
+		return err
+	}
 	if group.Status != enum.GroupStatusForming {
 		return errcode.ErrGroupNotJoinable
 	}
-	if len(group.Members) >= group.MaxMembers {
+	memberCount, err := s.groupRepo.CountMembersByGroupID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if int(memberCount) >= group.MaxMembers {
 		return errcode.ErrGroupFull
 	}
 
@@ -510,14 +560,15 @@ func (s *groupService) Join(ctx context.Context, sc *svcctx.ServiceContext, grou
 		if roleErr != nil {
 			return errcode.ErrRoleNotFound
 		}
-		usedCount := 0
-		for _, existed := range group.Members {
-			if existed.RoleID != nil && *existed.RoleID == roleID {
-				usedCount++
-			}
+		if role.TemplateID != group.TemplateID {
+			return errcode.ErrInvalidParams.WithMessage("角色不属于当前实验模板")
 		}
-		if usedCount >= role.MaxMembers {
-			return errcode.ErrGroupFull.WithMessage("该角色已被占满")
+		usedCount, countErr := s.memberRepo.CountByGroupAndRole(ctx, groupID, roleID)
+		if countErr != nil {
+			return countErr
+		}
+		if int(usedCount) >= role.MaxMembers {
+			return errcode.ErrGroupFull.WithMessage("该角色已被占用")
 		}
 		member.RoleID = &roleID
 	}
@@ -525,10 +576,108 @@ func (s *groupService) Join(ctx context.Context, sc *svcctx.ServiceContext, grou
 	if err := s.memberRepo.Create(ctx, member); err != nil {
 		return err
 	}
-	if len(group.Members)+1 >= group.MaxMembers {
-		return s.groupRepo.UpdateFields(ctx, groupID, map[string]interface{}{"status": enum.GroupStatusReady})
+	status := deriveGroupMembershipStatus(group.MaxMembers, int(memberCount)+1)
+	if status == group.Status {
+		return nil
+	}
+	return s.groupRepo.UpdateFields(ctx, groupID, map[string]interface{}{"status": status})
+}
+
+// validateCreateGroupRequest 校验实验分组创建请求的业务规则。
+func (s *groupService) validateCreateGroupRequest(ctx context.Context, templateID int64, req *dto.CreateGroupReq) error {
+	template, err := s.templateRepo.GetByID(ctx, templateID)
+	if err != nil {
+		return errcode.ErrTemplateNotFound
+	}
+	if err := s.ensureCollaborativeGroupTemplate(template); err != nil {
+		return err
+	}
+
+	switch req.GroupMethod {
+	case enum.GroupMethodManual:
+		for _, group := range req.Groups {
+			if len(group.Members) == 0 {
+				return errcode.ErrInvalidParams.WithMessage("教师手动分组必须指定组员")
+			}
+			if len(group.Members) > group.MaxMembers {
+				return errcode.ErrInvalidParams.WithMessage("分组成员数量不能超过最大人数")
+			}
+		}
+	case enum.GroupMethodSelf:
+		for _, group := range req.Groups {
+			if len(group.Members) > 0 {
+				return errcode.ErrInvalidParams.WithMessage("学生自选分组创建时不能预分配组员")
+			}
+		}
+	case enum.GroupMethodRandom:
+		return errcode.ErrInvalidParams.WithMessage("系统随机分组请使用自动分组接口")
+	default:
+		return errcode.ErrInvalidParams.WithMessage("分组方式无效")
+	}
+
+	for _, group := range req.Groups {
+		seenRoleMembers := make(map[int64]int)
+		for _, member := range group.Members {
+			if member.RoleID == nil {
+				continue
+			}
+			roleID, err := snowflake.ParseString(*member.RoleID)
+			if err != nil {
+				return errcode.ErrInvalidParams.WithMessage("角色ID无效")
+			}
+			role, err := s.roleRepo.GetByID(ctx, roleID)
+			if err != nil {
+				return errcode.ErrRoleNotFound
+			}
+			if role.TemplateID != templateID {
+				return errcode.ErrInvalidParams.WithMessage("角色不属于当前实验模板")
+			}
+			seenRoleMembers[roleID]++
+			if seenRoleMembers[roleID] > role.MaxMembers {
+				return errcode.ErrInvalidParams.WithMessage("分组角色人数超过上限")
+			}
+		}
+	}
+
+	return nil
+}
+
+// ensureCollaborativeGroupTemplate 校验分组相关接口仅用于多人协作组网模板。
+func (s *groupService) ensureCollaborativeGroupTemplate(template *entity.ExperimentTemplate) error {
+	if template == nil {
+		return errcode.ErrTemplateNotFound
+	}
+	if template.TopologyMode == nil || *template.TopologyMode != enum.TopologyModeCollaborate {
+		return errcode.ErrInvalidParams.WithMessage("仅多人协作组网模板支持实验分组")
 	}
 	return nil
+}
+
+// buildRandomGroupRolePlan 为单个随机分组生成角色分配方案。
+// 角色槽位按照 max_members 展开后随机打散，保证单组内的角色分配不超过各角色容量。
+func buildRandomGroupRolePlan(roles []*entity.TemplateRole, groupSize int, rng *rand.Rand) ([]*entity.TemplateRole, error) {
+	if groupSize <= 0 {
+		return []*entity.TemplateRole{}, nil
+	}
+
+	roleSlots := make([]*entity.TemplateRole, 0)
+	for _, role := range roles {
+		if role == nil || role.MaxMembers <= 0 {
+			continue
+		}
+		for i := 0; i < role.MaxMembers; i++ {
+			roleSlots = append(roleSlots, role)
+		}
+	}
+	if len(roleSlots) < groupSize {
+		return nil, errcode.ErrInvalidParams.WithMessage("分组人数超过角色容量上限，请先调整角色人数或分组人数")
+	}
+	if rng != nil {
+		rng.Shuffle(len(roleSlots), func(i, j int) {
+			roleSlots[i], roleSlots[j] = roleSlots[j], roleSlots[i]
+		})
+	}
+	return roleSlots[:groupSize], nil
 }
 
 // RemoveMember 移除组员
@@ -554,10 +703,15 @@ func (s *groupService) RemoveMember(ctx context.Context, sc *svcctx.ServiceConte
 		}
 		return err
 	}
+	memberCount, err := s.groupRepo.CountMembersByGroupID(ctx, groupID)
+	if err != nil {
+		return err
+	}
 	if err := s.memberRepo.Delete(ctx, member.ID); err != nil {
 		return err
 	}
-	return s.groupRepo.UpdateFields(ctx, groupID, map[string]interface{}{"status": enum.GroupStatusForming})
+	status := deriveGroupMembershipStatus(group.MaxMembers, int(memberCount)-1)
+	return s.groupRepo.UpdateFields(ctx, groupID, map[string]interface{}{"status": status})
 }
 
 // ListMembers 获取组员列表
@@ -585,7 +739,7 @@ func (s *groupService) ListMembers(ctx context.Context, sc *svcctx.ServiceContex
 
 // GetProgress 获取组内进度
 func (s *groupService) GetProgress(ctx context.Context, sc *svcctx.ServiceContext, groupID int64) (*dto.GroupProgressResp, error) {
-	group, err := s.groupRepo.GetByIDWithMembers(ctx, groupID)
+	group, err := s.groupRepo.GetByID(ctx, groupID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errcode.ErrGroupNotFound
@@ -599,6 +753,10 @@ func (s *groupService) GetProgress(ctx context.Context, sc *svcctx.ServiceContex
 	if !allowed {
 		return nil, errcode.ErrForbidden
 	}
+	groupMembers, err := s.memberRepo.ListByGroupID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
 
 	templateCheckpoints, err := s.checkpointRepo.ListByTemplateID(ctx, group.TemplateID)
 	if err != nil {
@@ -608,24 +766,18 @@ func (s *groupService) GetProgress(ctx context.Context, sc *svcctx.ServiceContex
 	if err != nil {
 		return nil, err
 	}
-	instanceByStudent := make(map[int64]*entity.ExperimentInstance)
-	for _, instance := range instances {
-		current := instanceByStudent[instance.StudentID]
-		if current == nil || instance.AttemptNo > current.AttemptNo || instance.CreatedAt.After(current.CreatedAt) {
-			instanceByStudent[instance.StudentID] = instance
-		}
-	}
+	instanceByStudent := buildLatestInstanceByStudent(instances)
 
 	roleNames, err := s.loadRoleNames(ctx, group.TemplateID)
 	if err != nil {
 		return nil, err
 	}
 
-	memberItems := make([]dto.GroupMemberProgressItem, 0, len(group.Members))
+	memberItems := make([]dto.GroupMemberProgressItem, 0, len(groupMembers))
 	groupCheckpointItems := make([]dto.GroupCheckpointItem, 0)
 	groupCheckpointMap := make(map[int64]dto.GroupCheckpointItem)
 
-	for _, member := range group.Members {
+	for _, member := range groupMembers {
 		summary := s.getUserSummary(ctx, member.StudentID)
 		memberItem := dto.GroupMemberProgressItem{
 			StudentID:   strconv.FormatInt(member.StudentID, 10),
@@ -656,7 +808,9 @@ func (s *groupService) GetProgress(ctx context.Context, sc *svcctx.ServiceContex
 					item.Scope = cp.Scope
 					for _, res := range results {
 						if res.CheckpointID == cp.ID {
-							item.IsPassed = item.IsPassed || res.IsPassed
+							if res.IsPassed != nil && *res.IsPassed {
+								item.IsPassed = true
+							}
 							if res.CheckedAt.IsZero() {
 								continue
 							}
@@ -670,7 +824,7 @@ func (s *groupService) GetProgress(ctx context.Context, sc *svcctx.ServiceContex
 				memberItem.CheckpointsTotal++
 				for _, res := range results {
 					if res.CheckpointID == cp.ID {
-						if res.IsPassed {
+						if res.IsPassed != nil && *res.IsPassed {
 							memberItem.CheckpointsPassed++
 						}
 						if res.Score != nil {
@@ -735,7 +889,7 @@ func (s *groupService) SendMessage(ctx context.Context, sc *svcctx.ServiceContex
 		GroupID:     groupID,
 		SenderID:    sc.UserID,
 		Content:     req.Content,
-		MessageType: enum.MessageTypeText,
+		MessageType: enum.GroupMessageTypeText,
 	}
 	if err := s.messageRepo.Create(ctx, message); err != nil {
 		return err
@@ -868,16 +1022,6 @@ func (s *groupService) loadRoleNamesFromMembers(ctx context.Context, members []*
 	return roleNames, nil
 }
 
-// groupMembersToPointers 将值切片转换为指针切片，便于复用统一的成员装配逻辑。
-func groupMembersToPointers(members []entity.GroupMember) []*entity.GroupMember {
-	result := make([]*entity.GroupMember, 0, len(members))
-	for i := range members {
-		member := members[i]
-		result = append(result, &member)
-	}
-	return result
-}
-
 // getUserSummary 获取实验模块需要的用户摘要
 func (s *groupService) getUserSummary(ctx context.Context, userID int64) ExperimentUserSummary {
 	if s.userSummaryQuerier == nil {
@@ -932,7 +1076,11 @@ func (s *groupService) canViewGroup(ctx context.Context, sc *svcctx.ServiceConte
 	if sc.IsSuperAdmin() {
 		return true, nil
 	}
-	if group.SchoolID != sc.SchoolID {
+	schoolID, err := s.courseQuerier.GetCourseSchoolID(ctx, group.CourseID)
+	if err != nil {
+		return false, err
+	}
+	if schoolID != sc.SchoolID {
 		return false, nil
 	}
 	if sc.IsTeacher() {
@@ -949,7 +1097,11 @@ func (s *groupService) canManageGroup(ctx context.Context, sc *svcctx.ServiceCon
 	if group == nil {
 		return false, nil
 	}
-	if group.SchoolID != sc.SchoolID && !sc.IsSuperAdmin() {
+	schoolID, err := s.courseQuerier.GetCourseSchoolID(ctx, group.CourseID)
+	if err != nil {
+		return false, err
+	}
+	if schoolID != sc.SchoolID && !sc.IsSuperAdmin() {
 		return false, nil
 	}
 	return s.canManageCourseGroups(ctx, sc, group.CourseID)
@@ -960,7 +1112,11 @@ func (s *groupService) canJoinGroup(ctx context.Context, sc *svcctx.ServiceConte
 	if group == nil || !sc.IsStudent() {
 		return false, nil
 	}
-	if group.SchoolID != sc.SchoolID && !sc.IsSuperAdmin() {
+	schoolID, err := s.courseQuerier.GetCourseSchoolID(ctx, group.CourseID)
+	if err != nil {
+		return false, err
+	}
+	if schoolID != sc.SchoolID && !sc.IsSuperAdmin() {
 		return false, nil
 	}
 	if s.courseRoster == nil {
@@ -983,7 +1139,11 @@ func (s *groupService) canSendGroupMessage(ctx context.Context, sc *svcctx.Servi
 	if group == nil || !sc.IsStudent() {
 		return false, nil
 	}
-	if group.SchoolID != sc.SchoolID && !sc.IsSuperAdmin() {
+	schoolID, err := s.courseQuerier.GetCourseSchoolID(ctx, group.CourseID)
+	if err != nil {
+		return false, err
+	}
+	if schoolID != sc.SchoolID && !sc.IsSuperAdmin() {
 		return false, nil
 	}
 	return s.isGroupMember(ctx, group.ID, sc.UserID)

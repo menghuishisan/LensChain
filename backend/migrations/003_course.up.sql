@@ -181,6 +181,22 @@ CREATE INDEX idx_submissions_student_id ON assignment_submissions(student_id);
 CREATE UNIQUE INDEX uk_submissions_assignment_student_no ON assignment_submissions(assignment_id, student_id, submission_no);
 CREATE INDEX idx_submissions_status ON assignment_submissions(status);
 
+-- assignment_drafts：学生作答草稿表。
+CREATE TABLE assignment_drafts (
+    id BIGINT PRIMARY KEY,
+    assignment_id BIGINT NOT NULL,
+    student_id BIGINT NOT NULL,
+    answers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    saved_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_assignment_drafts_assignment_id FOREIGN KEY (assignment_id) REFERENCES assignments(id),
+    CONSTRAINT fk_assignment_drafts_student_id FOREIGN KEY (student_id) REFERENCES users(id)
+);
+CREATE UNIQUE INDEX uk_assignment_drafts_assignment_student ON assignment_drafts(assignment_id, student_id);
+CREATE INDEX idx_assignment_drafts_student_id ON assignment_drafts(student_id);
+CREATE INDEX idx_assignment_drafts_saved_at ON assignment_drafts(saved_at);
+
 -- submission_answers：答题记录表。
 CREATE TABLE submission_answers (
     id BIGINT PRIMARY KEY,

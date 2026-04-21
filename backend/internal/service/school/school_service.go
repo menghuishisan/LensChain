@@ -8,7 +8,7 @@ package school
 
 import (
 	"context"
-	"github.com/lenschain/backend/internal/pkg/database"
+	"errors"
 	"math"
 	"strconv"
 	"time"
@@ -21,10 +21,10 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/sms"
-	"github.com/lenschain/backend/internal/pkg/snowflake"
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
@@ -51,6 +51,7 @@ type schoolService struct {
 	schoolRepo    schoolrepo.SchoolRepository
 	adminCreator  AdminCreator
 	sessionKicker SessionKicker
+	userLifecycle SchoolUserLifecycleManager
 }
 
 // SessionKicker 跨模块接口：踢出学校所有用户的Session
@@ -64,12 +65,14 @@ func NewSchoolService(
 	schoolRepo schoolrepo.SchoolRepository,
 	adminCreator AdminCreator,
 	sessionKicker SessionKicker,
+	userLifecycle SchoolUserLifecycleManager,
 ) SchoolService {
 	return &schoolService{
 		db:            db,
 		schoolRepo:    schoolRepo,
 		adminCreator:  adminCreator,
 		sessionKicker: sessionKicker,
+		userLifecycle: userLifecycle,
 	}
 }
 
@@ -100,7 +103,8 @@ func (s *schoolService) List(ctx context.Context, sc *svcctx.ServiceContext, req
 
 // GetByID 学校详情
 func (s *schoolService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.SchoolDetailResp, error) {
-	sch, err := s.schoolRepo.GetByID(ctx, id)
+	// 超管详情页需要能够查看已注销学校，便于后续执行恢复操作。
+	sch, err := s.schoolRepo.GetByIDIncludingDeleted(ctx, id)
 	if err != nil {
 		return nil, errcode.ErrSchoolNotFound
 	}
@@ -110,11 +114,15 @@ func (s *schoolService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, 
 // Create 后台直接创建学校
 func (s *schoolService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateSchoolReq) (*dto.CreateSchoolResp, error) {
 	// 唯一性校验
-	if existing, _ := s.schoolRepo.GetByName(ctx, req.Name); existing != nil {
+	if existing, err := s.schoolRepo.GetByName(ctx, req.Name); err == nil && existing != nil {
 		return nil, errcode.ErrDuplicateSchoolName
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校名称失败")
 	}
-	if existing, _ := s.schoolRepo.GetByCode(ctx, req.Code); existing != nil {
+	if existing, err := s.schoolRepo.GetByCode(ctx, req.Code); err == nil && existing != nil {
 		return nil, errcode.ErrDuplicateSchoolCode
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验学校编码失败")
 	}
 
 	licenseStart, err := time.Parse(time.RFC3339, req.LicenseStartAt)
@@ -130,9 +138,9 @@ func (s *schoolService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 	var adminPassword string
 
 	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
-		schoolID = snowflake.Generate()
+		txCtx := database.WithTxContext(ctx, tx)
+		txSchoolRepo := schoolrepo.NewSchoolRepository(tx)
 		schoolEntity := &entity.School{
-			ID:             schoolID,
 			Name:           req.Name,
 			Code:           req.Code,
 			LogoURL:        req.LogoURL,
@@ -148,15 +156,19 @@ func (s *schoolService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 			ContactTitle:   req.ContactTitle,
 			CreatedBy:      &sc.UserID,
 		}
-		if err := tx.Create(schoolEntity).Error; err != nil {
+		if err := txSchoolRepo.Create(ctx, schoolEntity); err != nil {
 			return err
 		}
+		schoolID = schoolEntity.ID
 
 		var createErr error
-		adminUserID, adminPassword, createErr = s.adminCreator.CreateSchoolAdmin(ctx, tx, schoolID, req.ContactPhone, req.ContactName, sc.UserID)
+		adminUserID, adminPassword, createErr = s.adminCreator.CreateSchoolAdmin(txCtx, schoolID, req.ContactPhone, req.ContactName, sc.UserID)
 		return createErr
 	})
 	if err != nil {
+		if appErr, ok := errcode.IsAppError(err); ok {
+			return nil, appErr
+		}
 		logger.L.Error("创建学校失败", zap.Error(err))
 		return nil, errcode.ErrInternal.WithMessage("创建学校失败")
 	}
@@ -195,13 +207,17 @@ func (s *schoolService) Update(ctx context.Context, sc *svcctx.ServiceContext, i
 
 	// 唯一性校验
 	if req.Name != nil && *req.Name != sch.Name {
-		if existing, _ := s.schoolRepo.GetByName(ctx, *req.Name); existing != nil {
+		if existing, err := s.schoolRepo.GetByName(ctx, *req.Name); err == nil && existing != nil {
 			return errcode.ErrDuplicateSchoolName
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrInternal.WithMessage("校验学校名称失败")
 		}
 	}
 	if req.Code != nil && *req.Code != sch.Code {
-		if existing, _ := s.schoolRepo.GetByCode(ctx, *req.Code); existing != nil {
+		if existing, err := s.schoolRepo.GetByCode(ctx, *req.Code); err == nil && existing != nil {
 			return errcode.ErrDuplicateSchoolCode
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrInternal.WithMessage("校验学校编码失败")
 		}
 	}
 

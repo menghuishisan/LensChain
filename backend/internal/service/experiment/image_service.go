@@ -15,15 +15,19 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
+	"go.uber.org/zap"
 )
 
 // ImageService 镜像管理服务接口
@@ -54,8 +58,8 @@ type ImageService interface {
 	// 配置模板与文档
 	GetConfigTemplate(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ImageConfigTemplateResp, error)
 	GetDocumentation(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ImageDocumentationResp, error)
-	GetImagePullStatus(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullStatusReq) (*dto.ImagePullStatusResp, int64, error)
-	TriggerImagePull(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullReq) (*dto.ImagePullResp, error)
+	GetImagePullStatus(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullStatusListReq) (*dto.ImagePullStatusListResp, int64, error)
+	TriggerImagePull(ctx context.Context, sc *svcctx.ServiceContext, req *dto.TriggerImagePullReq) (*dto.TriggerImagePullResp, error)
 }
 
 // imageService 镜像管理服务实现
@@ -91,6 +95,9 @@ func NewImageService(
 
 // ListCategories 获取所有镜像分类
 func (s *imageService) ListCategories(ctx context.Context, sc *svcctx.ServiceContext) ([]*dto.ImageCategoryResp, error) {
+	if err := ensureImageCatalogAccess(sc); err != nil {
+		return nil, err
+	}
 	categories, err := s.categoryRepo.ListAll(ctx)
 	if err != nil {
 		return nil, err
@@ -167,6 +174,31 @@ func (s *imageService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 		return "", errcode.ErrImageCategoryNotFound
 	}
 
+	defaultPorts, err := marshalImageJSON(req.DefaultPorts, "默认端口配置格式错误")
+	if err != nil {
+		return "", err
+	}
+	defaultEnvVars, err := marshalImageJSON(req.DefaultEnvVars, "默认环境变量配置格式错误")
+	if err != nil {
+		return "", err
+	}
+	defaultVolumes, err := marshalImageJSON(req.DefaultVolumes, "默认挂载卷配置格式错误")
+	if err != nil {
+		return "", err
+	}
+	typicalCompanions, err := marshalImageJSON(req.TypicalCompanions, "典型搭配配置格式错误")
+	if err != nil {
+		return "", err
+	}
+	requiredDependencies, err := marshalImageJSON(req.RequiredDependencies, "依赖镜像配置格式错误")
+	if err != nil {
+		return "", err
+	}
+	resourceRecommendation, err := marshalImageJSON(req.ResourceRecommendation, "资源建议配置格式错误")
+	if err != nil {
+		return "", err
+	}
+
 	image := &entity.Image{
 		ID:                     snowflake.Generate(),
 		CategoryID:             categoryID,
@@ -175,12 +207,12 @@ func (s *imageService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 		Description:            req.Description,
 		IconURL:                req.IconURL,
 		Ecosystem:              req.Ecosystem,
-		DefaultPorts:           req.DefaultPorts,
-		DefaultEnvVars:         req.DefaultEnvVars,
-		DefaultVolumes:         req.DefaultVolumes,
-		TypicalCompanions:      req.TypicalCompanions,
-		RequiredDependencies:   req.RequiredDependencies,
-		ResourceRecommendation: req.ResourceRecommendation,
+		DefaultPorts:           defaultPorts,
+		DefaultEnvVars:         defaultEnvVars,
+		DefaultVolumes:         defaultVolumes,
+		TypicalCompanions:      typicalCompanions,
+		RequiredDependencies:   requiredDependencies,
+		ResourceRecommendation: resourceRecommendation,
 		DocumentationURL:       req.DocumentationURL,
 		SourceType:             enum.ImageSourceTypeOfficial,
 		Status:                 enum.ImageStatusNormal,
@@ -196,11 +228,10 @@ func (s *imageService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 		image.Status = enum.ImageStatusPending
 	}
 
-	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if image.ID == 0 {
-			image.ID = snowflake.Generate()
-		}
-		if err := tx.Create(image).Error; err != nil {
+	if err := database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txImageRepo := experimentrepo.NewImageRepository(tx)
+		txVersionRepo := experimentrepo.NewImageVersionRepository(tx)
+		if err := txImageRepo.Create(ctx, image); err != nil {
 			return err
 		}
 		hasDefault := false
@@ -222,7 +253,7 @@ func (s *imageService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 				IsDefault:   item.IsDefault || (!hasDefault && index == 0),
 				Status:      enum.ImageVersionStatusNormal,
 			}
-			if err := tx.Create(version).Error; err != nil {
+			if err := txVersionRepo.Create(ctx, version); err != nil {
 				return err
 			}
 		}
@@ -235,18 +266,24 @@ func (s *imageService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 
 // GetByID 获取镜像详情
 func (s *imageService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ImageResp, error) {
-	image, err := s.imageRepo.GetByIDWithVersions(ctx, id)
-	if err != nil {
-		return nil, errcode.ErrImageNotFound
+	if err := ensureImageCatalogAccess(sc); err != nil {
+		return nil, err
 	}
-	return s.toImageResp(ctx, image), nil
+	image, versions, err := s.getImageWithVersions(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.toImageResp(ctx, image, versions), nil
 }
 
 // Update 更新镜像
 func (s *imageService) Update(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateImageReq) error {
-	_, err := s.imageRepo.GetByID(ctx, id)
+	image, err := s.imageRepo.GetByID(ctx, id)
 	if err != nil {
 		return errcode.ErrImageNotFound
+	}
+	if err := ensureImageWriteAccess(sc, image); err != nil {
+		return err
 	}
 
 	fields := make(map[string]interface{})
@@ -263,22 +300,46 @@ func (s *imageService) Update(ctx context.Context, sc *svcctx.ServiceContext, id
 		fields["ecosystem"] = *req.Ecosystem
 	}
 	if req.DefaultPorts != nil {
-		fields["default_ports"] = req.DefaultPorts
+		defaultPorts, err := marshalImageJSON(req.DefaultPorts, "默认端口配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["default_ports"] = defaultPorts
 	}
 	if req.DefaultEnvVars != nil {
-		fields["default_env_vars"] = req.DefaultEnvVars
+		defaultEnvVars, err := marshalImageJSON(req.DefaultEnvVars, "默认环境变量配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["default_env_vars"] = defaultEnvVars
 	}
 	if req.DefaultVolumes != nil {
-		fields["default_volumes"] = req.DefaultVolumes
+		defaultVolumes, err := marshalImageJSON(req.DefaultVolumes, "默认挂载卷配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["default_volumes"] = defaultVolumes
 	}
 	if req.TypicalCompanions != nil {
-		fields["typical_companions"] = req.TypicalCompanions
+		typicalCompanions, err := marshalImageJSON(req.TypicalCompanions, "典型搭配配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["typical_companions"] = typicalCompanions
 	}
 	if req.RequiredDependencies != nil {
-		fields["required_dependencies"] = req.RequiredDependencies
+		requiredDependencies, err := marshalImageJSON(req.RequiredDependencies, "依赖镜像配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["required_dependencies"] = requiredDependencies
 	}
 	if req.ResourceRecommendation != nil {
-		fields["resource_recommendation"] = req.ResourceRecommendation
+		resourceRecommendation, err := marshalImageJSON(req.ResourceRecommendation, "资源建议配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["resource_recommendation"] = resourceRecommendation
 	}
 	if req.DocumentationURL != nil {
 		fields["documentation_url"] = *req.DocumentationURL
@@ -296,25 +357,27 @@ func (s *imageService) Delete(ctx context.Context, sc *svcctx.ServiceContext, id
 	if err != nil {
 		return errcode.ErrImageNotFound
 	}
-	// 检查是否有版本被引用
-	versions, err := s.versionRepo.ListByImageID(ctx, image.ID)
+	referenceCount, err := s.imageRepo.CountTemplateReferences(ctx, image.ID)
 	if err != nil {
 		return err
 	}
-	for _, v := range versions {
-		inUse, err := s.versionRepo.IsVersionInUse(ctx, v.ID)
-		if err != nil {
-			return err
-		}
-		if inUse {
-			return errcode.ErrImageHasReferences
-		}
+	if referenceCount > 0 {
+		return errcode.ErrInvalidParams.WithMessage(fmt.Sprintf("该镜像被%d个实验模板引用，不可下架", referenceCount))
 	}
-	return s.imageRepo.SoftDelete(ctx, id)
+	if image.Status == enum.ImageStatusOffShelf {
+		return nil
+	}
+	return s.imageRepo.UpdateFields(ctx, id, map[string]interface{}{
+		"status":     enum.ImageStatusOffShelf,
+		"updated_at": time.Now(),
+	})
 }
 
 // List 镜像列表
 func (s *imageService) List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImageListReq) ([]*dto.ImageListItem, int64, error) {
+	if err := ensureImageCatalogAccess(sc); err != nil {
+		return nil, 0, err
+	}
 	categoryID, _ := snowflake.ParseString(req.CategoryID)
 	params := &experimentrepo.ImageListParams{
 		Keyword:    req.Keyword,
@@ -370,19 +433,42 @@ func (s *imageService) Review(ctx context.Context, sc *svcctx.ServiceContext, id
 	if req.Action != "approve" {
 		return nil
 	}
-	versions, err := s.versionRepo.ListByImageID(ctx, image.ID)
+
+	// 审核通过后只负责触发异步预拉取，不把节点侧拉取结果并入审核事务。
+	// 这样可以保持“镜像状态变为正常”和“预拉取任务后台执行”两个业务节点语义清晰，
+	// 也与模块04关于状态页查询进度、离线节点后续补拉的文档约束一致。
+	go s.enqueueApprovedImagePrePull(detachContext(ctx), image.ID)
+	return nil
+}
+
+// enqueueApprovedImagePrePull 在自定义镜像审核通过后异步触发各版本预拉取。
+// 失败只记录日志，由预拉取状态页与定时对账任务继续收口，不回滚已完成的审核状态流转。
+func (s *imageService) enqueueApprovedImagePrePull(ctx context.Context, imageID int64) {
+	if s.versionRepo == nil || s.k8sSvc == nil || imageID == 0 {
+		return
+	}
+
+	versions, err := s.versionRepo.ListByImageID(ctx, imageID)
 	if err != nil {
-		return err
+		logger.L.Warn("审核通过后触发镜像预拉取失败：查询版本列表失败",
+			zap.Int64("image_id", imageID),
+			zap.Error(err),
+		)
+		return
 	}
 	for _, version := range versions {
-		if version.RegistryURL == "" {
+		if version == nil || version.RegistryURL == "" {
 			continue
 		}
 		if err := s.k8sSvc.PrePullImage(ctx, version.RegistryURL, nil); err != nil {
-			return err
+			logger.L.Warn("审核通过后触发镜像预拉取失败",
+				zap.Int64("image_id", imageID),
+				zap.Int64("version_id", version.ID),
+				zap.String("registry_url", version.RegistryURL),
+				zap.Error(err),
+			)
 		}
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -391,9 +477,12 @@ func (s *imageService) Review(ctx context.Context, sc *svcctx.ServiceContext, id
 
 // CreateVersion 创建镜像版本
 func (s *imageService) CreateVersion(ctx context.Context, sc *svcctx.ServiceContext, imageID int64, req *dto.CreateImageVersionReq) (string, error) {
-	_, err := s.imageRepo.GetByID(ctx, imageID)
+	image, err := s.imageRepo.GetByID(ctx, imageID)
 	if err != nil {
 		return "", errcode.ErrImageNotFound
+	}
+	if err := ensureImageWriteAccess(sc, image); err != nil {
+		return "", err
 	}
 
 	version := &entity.ImageVersion{
@@ -425,9 +514,16 @@ func (s *imageService) CreateVersion(ctx context.Context, sc *svcctx.ServiceCont
 
 // UpdateVersion 编辑镜像版本。
 func (s *imageService) UpdateVersion(ctx context.Context, sc *svcctx.ServiceContext, versionID int64, req *dto.UpdateImageVersionReq) error {
-	_, err := s.versionRepo.GetByID(ctx, versionID)
+	version, err := s.versionRepo.GetByID(ctx, versionID)
 	if err != nil {
 		return errcode.ErrImageVersionNotFound
+	}
+	image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+	if err != nil {
+		return errcode.ErrImageNotFound
+	}
+	if err := ensureImageWriteAccess(sc, image); err != nil {
+		return err
 	}
 
 	fields := make(map[string]interface{})
@@ -471,6 +567,13 @@ func (s *imageService) SetDefaultVersion(ctx context.Context, sc *svcctx.Service
 	if err != nil {
 		return errcode.ErrImageVersionNotFound
 	}
+	image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+	if err != nil {
+		return errcode.ErrImageNotFound
+	}
+	if err := ensureImageWriteAccess(sc, image); err != nil {
+		return err
+	}
 	if err := s.versionRepo.ClearDefault(ctx, version.ImageID); err != nil {
 		return err
 	}
@@ -483,20 +586,48 @@ func (s *imageService) SetDefaultVersion(ctx context.Context, sc *svcctx.Service
 
 // GetConfigTemplate 获取镜像配置模板
 func (s *imageService) GetConfigTemplate(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ImageConfigTemplateResp, error) {
-	image, err := s.imageRepo.GetByIDWithVersions(ctx, id)
+	if err := ensureTeacherScopeAccess(sc); err != nil {
+		return nil, err
+	}
+	image, _, err := s.getImageWithVersions(ctx, id)
 	if err != nil {
-		return nil, errcode.ErrImageNotFound
+		return nil, err
+	}
+	defaultPorts, err := unmarshalImageJSON[[]dto.ImagePortItem](image.DefaultPorts, "默认端口配置数据损坏")
+	if err != nil {
+		return nil, err
+	}
+	defaultEnvVars, err := unmarshalImageJSON[[]dto.ImageEnvVarItem](image.DefaultEnvVars, "默认环境变量配置数据损坏")
+	if err != nil {
+		return nil, err
+	}
+	defaultVolumes, err := unmarshalImageJSON[[]dto.ImageVolumeItem](image.DefaultVolumes, "默认挂载卷配置数据损坏")
+	if err != nil {
+		return nil, err
+	}
+	typicalCompanions, err := unmarshalImageJSON[dto.ImageTypicalCompanions](image.TypicalCompanions, "典型搭配配置数据损坏")
+	if err != nil {
+		return nil, err
+	}
+	requiredDependencies, err := unmarshalImageJSON[[]dto.ImageDependencyItem](image.RequiredDependencies, "依赖镜像配置数据损坏")
+	if err != nil {
+		return nil, err
+	}
+	resourceRecommendation, err := unmarshalImageJSON[dto.ImageResourceRecommendation](image.ResourceRecommendation, "资源建议配置数据损坏")
+	if err != nil {
+		return nil, err
 	}
 	resp := &dto.ImageConfigTemplateResp{
 		ImageID:                strconv.FormatInt(image.ID, 10),
 		Name:                   image.Name,
 		DisplayName:            image.DisplayName,
-		DefaultPorts:           image.DefaultPorts,
-		DefaultEnvVars:         image.DefaultEnvVars,
-		DefaultVolumes:         image.DefaultVolumes,
-		TypicalCompanions:      image.TypicalCompanions,
-		RequiredDependencies:   image.RequiredDependencies,
-		ResourceRecommendation: image.ResourceRecommendation,
+		DefaultPorts:           defaultPorts,
+		DefaultEnvVars:         defaultEnvVars,
+		DefaultVolumes:         defaultVolumes,
+		TypicalCompanions:      typicalCompanions,
+		RequiredDependencies:   requiredDependencies,
+		ResourceRecommendation: resourceRecommendation,
+		ConditionalEnvVars:     buildConditionalEnvVarExamples(json.RawMessage(image.DefaultEnvVars)),
 	}
 	if image.Ecosystem != nil {
 		resp.Ecosystem = image.Ecosystem
@@ -506,9 +637,12 @@ func (s *imageService) GetConfigTemplate(ctx context.Context, sc *svcctx.Service
 
 // GetDocumentation 获取镜像文档
 func (s *imageService) GetDocumentation(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ImageDocumentationResp, error) {
-	image, err := s.imageRepo.GetByIDWithVersions(ctx, id)
+	if err := ensureTeacherScopeAccess(sc); err != nil {
+		return nil, err
+	}
+	image, versions, err := s.getImageWithVersions(ctx, id)
 	if err != nil {
-		return nil, errcode.ErrImageNotFound
+		return nil, err
 	}
 	resp := &dto.ImageDocumentationResp{
 		ImageID:     strconv.FormatInt(image.ID, 10),
@@ -517,7 +651,7 @@ func (s *imageService) GetDocumentation(ctx context.Context, sc *svcctx.ServiceC
 	}
 	sections := dto.ImageDocumentationSections{
 		Overview:          strings.TrimSpace(derefString(image.Description)),
-		VersionNotes:      s.buildImageVersionNotes(image.Versions),
+		VersionNotes:      s.buildImageVersionNotes(versions),
 		DefaultConfig:     s.buildImageDefaultConfig(image),
 		TypicalCompanions: s.buildImageCompanionDoc(image.TypicalCompanions),
 		EnvVarsReference:  s.buildImageEnvVarReference(image.DefaultEnvVars),
@@ -529,12 +663,12 @@ func (s *imageService) GetDocumentation(ctx context.Context, sc *svcctx.ServiceC
 }
 
 // buildImageVersionNotes 构建镜像版本章节说明。
-func (s *imageService) buildImageVersionNotes(versions []entity.ImageVersion) string {
+func (s *imageService) buildImageVersionNotes(versions []*entity.ImageVersion) string {
 	if len(versions) == 0 {
 		return "暂无版本说明。"
 	}
 
-	sorted := make([]entity.ImageVersion, len(versions))
+	sorted := make([]*entity.ImageVersion, len(versions))
 	copy(sorted, versions)
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].IsDefault == sorted[j].IsDefault {
@@ -579,7 +713,7 @@ func (s *imageService) buildImageDefaultConfig(image *entity.Image) string {
 }
 
 // buildImageCompanionDoc 构建典型搭配章节。
-func (s *imageService) buildImageCompanionDoc(payload json.RawMessage) string {
+func (s *imageService) buildImageCompanionDoc(payload datatypes.JSON) string {
 	text := formatJSONDoc("", payload)
 	if text == "" {
 		return "暂无典型搭配说明。"
@@ -588,7 +722,7 @@ func (s *imageService) buildImageCompanionDoc(payload json.RawMessage) string {
 }
 
 // buildImageEnvVarReference 构建环境变量参考章节。
-func (s *imageService) buildImageEnvVarReference(payload json.RawMessage) string {
+func (s *imageService) buildImageEnvVarReference(payload datatypes.JSON) string {
 	text := formatJSONDoc("", payload)
 	if text == "" {
 		return "暂无环境变量参考。"
@@ -621,7 +755,7 @@ func (s *imageService) buildImageNotes(image *entity.Image) string {
 		notes = append(notes, "详细文档请参考: "+*image.DocumentationURL)
 	}
 	if image.SourceType == enum.ImageSourceTypeCustom {
-		notes = append(notes, "该镜像为教师自定义镜像，使用前请关注审核状态与版本兼容性。")
+		notes = append(notes, "该镜像为教师自定义镜像，使用前请关注审核状态与版本适配要求。")
 	}
 	if len(notes) == 0 {
 		return "暂无额外注意事项。"
@@ -629,8 +763,81 @@ func (s *imageService) buildImageNotes(image *entity.Image) string {
 	return strings.Join(notes, "\n")
 }
 
+// getImageWithVersions 获取镜像主表与版本列表，并在 service 层完成聚合。
+func (s *imageService) getImageWithVersions(ctx context.Context, id int64) (*entity.Image, []*entity.ImageVersion, error) {
+	image, err := s.imageRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, nil, errcode.ErrImageNotFound
+	}
+	versions, err := s.versionRepo.ListByImageID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return image, versions, nil
+}
+
+// ensureImageCatalogAccess 校验镜像库查询权限。
+func ensureImageCatalogAccess(sc *svcctx.ServiceContext) error {
+	if sc == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() || sc.IsSchoolAdmin() || sc.IsTeacher() {
+		return nil
+	}
+	return errcode.ErrForbidden
+}
+
+// ensureTeacherScopeAccess 校验教师及以上访问权限。
+func ensureTeacherScopeAccess(sc *svcctx.ServiceContext) error {
+	if sc == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() || sc.IsTeacher() {
+		return nil
+	}
+	return errcode.ErrForbidden
+}
+
+// ensureImageWriteAccess 校验镜像上传者或超级管理员的写权限。
+func ensureImageWriteAccess(sc *svcctx.ServiceContext, image *entity.Image) error {
+	if sc == nil || image == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() {
+		return nil
+	}
+	if image.UploadedBy != nil && *image.UploadedBy == sc.UserID {
+		return nil
+	}
+	return errcode.ErrForbidden
+}
+
+// marshalImageJSON 将镜像 DTO 字段编码为 JSONB，统一由 service 层承担模型转换职责。
+func marshalImageJSON(value interface{}, message string) (datatypes.JSON, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, errcode.ErrInvalidParams.WithMessage(message)
+	}
+	if string(payload) == "null" {
+		return datatypes.JSON(nil), nil
+	}
+	return datatypes.JSON(payload), nil
+}
+
+// unmarshalImageJSON 将镜像实体中的 JSONB 字段解码为 DTO 字段，避免 handler 直接处理持久化格式。
+func unmarshalImageJSON[T any](payload datatypes.JSON, message string) (T, error) {
+	var result T
+	if len(payload) == 0 || string(payload) == "null" {
+		return result, nil
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return result, errcode.ErrInternal.WithMessage(message)
+	}
+	return result, nil
+}
+
 // formatJSONDoc 将 JSON 元数据格式化为 Markdown 代码块说明。
-func formatJSONDoc(title string, payload json.RawMessage) string {
+func formatJSONDoc(title string, payload datatypes.JSON) string {
 	if len(payload) == 0 || string(payload) == "null" {
 		return ""
 	}
@@ -703,7 +910,14 @@ func (s *imageService) toImageListItem(ctx context.Context, img *entity.Image) *
 }
 
 // toImageResp 转换镜像为详情响应
-func (s *imageService) toImageResp(ctx context.Context, img *entity.Image) *dto.ImageResp {
+func (s *imageService) toImageResp(ctx context.Context, img *entity.Image, versions []*entity.ImageVersion) *dto.ImageResp {
+	defaultPorts, _ := unmarshalImageJSON[[]dto.ImagePortItem](img.DefaultPorts, "默认端口配置数据损坏")
+	defaultEnvVars, _ := unmarshalImageJSON[[]dto.ImageEnvVarItem](img.DefaultEnvVars, "默认环境变量配置数据损坏")
+	defaultVolumes, _ := unmarshalImageJSON[[]dto.ImageVolumeItem](img.DefaultVolumes, "默认挂载卷配置数据损坏")
+	typicalCompanions, _ := unmarshalImageJSON[dto.ImageTypicalCompanions](img.TypicalCompanions, "典型搭配配置数据损坏")
+	requiredDependencies, _ := unmarshalImageJSON[[]dto.ImageDependencyItem](img.RequiredDependencies, "依赖镜像配置数据损坏")
+	resourceRecommendation, _ := unmarshalImageJSON[dto.ImageResourceRecommendation](img.ResourceRecommendation, "资源建议配置数据损坏")
+
 	resp := &dto.ImageResp{
 		ID:                     strconv.FormatInt(img.ID, 10),
 		CategoryID:             strconv.FormatInt(img.CategoryID, 10),
@@ -717,16 +931,19 @@ func (s *imageService) toImageResp(ctx context.Context, img *entity.Image) *dto.
 		Status:                 img.Status,
 		StatusText:             enum.GetImageStatusText(img.Status),
 		ReviewComment:          img.ReviewComment,
-		DefaultPorts:           img.DefaultPorts,
-		DefaultEnvVars:         img.DefaultEnvVars,
-		DefaultVolumes:         img.DefaultVolumes,
-		TypicalCompanions:      img.TypicalCompanions,
-		RequiredDependencies:   img.RequiredDependencies,
-		ResourceRecommendation: img.ResourceRecommendation,
+		DefaultPorts:           defaultPorts,
+		DefaultEnvVars:         defaultEnvVars,
+		DefaultVolumes:         defaultVolumes,
+		TypicalCompanions:      typicalCompanions,
+		RequiredDependencies:   requiredDependencies,
+		ResourceRecommendation: resourceRecommendation,
 		DocumentationURL:       img.DocumentationURL,
 		UsageCount:             img.UsageCount,
 		CreatedAt:              img.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:              img.UpdatedAt.Format(time.RFC3339),
+	}
+	if category, err := s.categoryRepo.GetByID(ctx, img.CategoryID); err == nil && category != nil {
+		resp.CategoryName = category.Name
 	}
 	if img.UploadedBy != nil {
 		uploadedBy := strconv.FormatInt(*img.UploadedBy, 10)
@@ -736,10 +953,10 @@ func (s *imageService) toImageResp(ctx context.Context, img *entity.Image) *dto.
 	}
 
 	// 版本列表
-	if len(img.Versions) > 0 {
-		resp.Versions = make([]dto.ImageVersionResp, 0, len(img.Versions))
-		for _, v := range img.Versions {
-			resp.Versions = append(resp.Versions, s.toVersionResp(&v))
+	if len(versions) > 0 {
+		resp.Versions = make([]dto.ImageVersionResp, 0, len(versions))
+		for _, version := range versions {
+			resp.Versions = append(resp.Versions, s.toVersionResp(version))
 		}
 	}
 	return resp
@@ -760,7 +977,7 @@ func (s *imageService) toVersionResp(v *entity.ImageVersion) dto.ImageVersionRes
 		IsDefault:   v.IsDefault,
 		Status:      v.Status,
 		StatusText:  enum.GetImageVersionStatusText(v.Status),
-		ScanResult:  v.ScanResult,
+		ScanResult:  json.RawMessage(v.ScanResult),
 		CreatedAt:   v.CreatedAt.Format(time.RFC3339),
 	}
 	if v.ScannedAt != nil {

@@ -7,7 +7,6 @@ package courserepo
 
 import (
 	"context"
-	"github.com/lenschain/backend/internal/pkg/database"
 
 	"gorm.io/gorm"
 
@@ -30,10 +29,10 @@ type ChapterRepository interface {
 type LessonRepository interface {
 	Create(ctx context.Context, lesson *entity.Lesson) error
 	GetByID(ctx context.Context, id int64) (*entity.Lesson, error)
-	GetByIDWithAttachments(ctx context.Context, id int64) (*entity.Lesson, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	SoftDelete(ctx context.Context, id int64) error
 	ListByChapterID(ctx context.Context, chapterID int64) ([]*entity.Lesson, error)
+	ListByChapterIDs(ctx context.Context, chapterIDs []int64) ([]*entity.Lesson, error)
 	ListByCourseID(ctx context.Context, courseID int64) ([]*entity.Lesson, error)
 	UpdateSortOrders(ctx context.Context, items []SortItem) error
 	CountByCourseID(ctx context.Context, courseID int64) (int, error)
@@ -45,6 +44,7 @@ type AttachmentRepository interface {
 	GetByID(ctx context.Context, id int64) (*entity.LessonAttachment, error)
 	Delete(ctx context.Context, id int64) error
 	ListByLessonID(ctx context.Context, lessonID int64) ([]*entity.LessonAttachment, error)
+	ListByLessonIDs(ctx context.Context, lessonIDs []int64) ([]*entity.LessonAttachment, error)
 }
 
 // SortItem 排序项
@@ -98,25 +98,22 @@ func (r *chapterRepository) ListByCourseID(ctx context.Context, courseID int64) 
 	err := r.db.WithContext(ctx).
 		Where("course_id = ?", courseID).
 		Order("sort_order asc, created_at asc").
-		Preload("Lessons", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc, created_at asc")
-		}).
 		Find(&chapters).Error
 	return chapters, err
 }
 
 // UpdateSortOrders 批量更新章节排序
+// 事务边界由 service 层统一编排；这里仅执行当前 DB 上的批量字段更新。
 func (r *chapterRepository) UpdateSortOrders(ctx context.Context, items []SortItem) error {
-	return database.TransactionWithDB(ctx, r.db, func(tx *gorm.DB) error {
-		for _, item := range items {
-			if err := tx.Model(&entity.Chapter{}).
-				Where("id = ?", item.ID).
-				Update("sort_order", item.SortOrder).Error; err != nil {
-				return err
-			}
+	db := r.db.WithContext(ctx)
+	for _, item := range items {
+		if err := db.Model(&entity.Chapter{}).
+			Where("id = ?", item.ID).
+			Update("sort_order", item.SortOrder).Error; err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // CountByCourseID 统计课程下章节数
@@ -156,20 +153,6 @@ func (r *lessonRepository) GetByID(ctx context.Context, id int64) (*entity.Lesso
 	return &lesson, nil
 }
 
-// GetByIDWithAttachments 获取课时（含附件）
-func (r *lessonRepository) GetByIDWithAttachments(ctx context.Context, id int64) (*entity.Lesson, error) {
-	var lesson entity.Lesson
-	err := r.db.WithContext(ctx).
-		Preload("Attachments", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
-		First(&lesson, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &lesson, nil
-}
-
 // UpdateFields 更新课时指定字段
 func (r *lessonRepository) UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error {
 	return r.db.WithContext(ctx).Model(&entity.Lesson{}).Where("id = ?", id).Updates(fields).Error
@@ -190,6 +173,19 @@ func (r *lessonRepository) ListByChapterID(ctx context.Context, chapterID int64)
 	return lessons, err
 }
 
+// ListByChapterIDs 批量获取多个章节下的课时
+func (r *lessonRepository) ListByChapterIDs(ctx context.Context, chapterIDs []int64) ([]*entity.Lesson, error) {
+	if len(chapterIDs) == 0 {
+		return []*entity.Lesson{}, nil
+	}
+	var lessons []*entity.Lesson
+	err := r.db.WithContext(ctx).
+		Where("chapter_id IN ?", chapterIDs).
+		Order("chapter_id asc, sort_order asc, created_at asc").
+		Find(&lessons).Error
+	return lessons, err
+}
+
 // ListByCourseID 获取课程下所有课时
 func (r *lessonRepository) ListByCourseID(ctx context.Context, courseID int64) ([]*entity.Lesson, error) {
 	var lessons []*entity.Lesson
@@ -201,17 +197,17 @@ func (r *lessonRepository) ListByCourseID(ctx context.Context, courseID int64) (
 }
 
 // UpdateSortOrders 批量更新课时排序
+// 事务边界由 service 层统一编排；这里仅执行当前 DB 上的批量字段更新。
 func (r *lessonRepository) UpdateSortOrders(ctx context.Context, items []SortItem) error {
-	return database.TransactionWithDB(ctx, r.db, func(tx *gorm.DB) error {
-		for _, item := range items {
-			if err := tx.Model(&entity.Lesson{}).
-				Where("id = ?", item.ID).
-				Update("sort_order", item.SortOrder).Error; err != nil {
-				return err
-			}
+	db := r.db.WithContext(ctx)
+	for _, item := range items {
+		if err := db.Model(&entity.Lesson{}).
+			Where("id = ?", item.ID).
+			Update("sort_order", item.SortOrder).Error; err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // CountByCourseID 统计课程下课时数
@@ -262,6 +258,19 @@ func (r *attachmentRepository) ListByLessonID(ctx context.Context, lessonID int6
 	err := r.db.WithContext(ctx).
 		Where("lesson_id = ?", lessonID).
 		Order("sort_order asc, created_at asc").
+		Find(&attachments).Error
+	return attachments, err
+}
+
+// ListByLessonIDs 批量获取多个课时下的附件
+func (r *attachmentRepository) ListByLessonIDs(ctx context.Context, lessonIDs []int64) ([]*entity.LessonAttachment, error) {
+	if len(lessonIDs) == 0 {
+		return []*entity.LessonAttachment{}, nil
+	}
+	var attachments []*entity.LessonAttachment
+	err := r.db.WithContext(ctx).
+		Where("lesson_id IN ?", lessonIDs).
+		Order("lesson_id asc, sort_order asc, created_at asc").
 		Find(&attachments).Error
 	return attachments, err
 }

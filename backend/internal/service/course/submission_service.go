@@ -7,6 +7,7 @@ package course
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"strconv"
@@ -21,6 +22,96 @@ import (
 	courserepo "github.com/lenschain/backend/internal/repository/course"
 )
 
+// SaveDraft 保存学生当前作答草稿。
+// 草稿与正式提交分离建模，不计入提交次数，也不参与批改与成绩统计。
+func (s *assignmentService) SaveDraft(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64, req *dto.SaveAssignmentDraftReq) (*dto.SaveAssignmentDraftResp, error) {
+	assignment, err := s.assignmentRepo.GetByID(ctx, assignmentID)
+	if err != nil {
+		return nil, errcode.ErrAssignmentNotFound
+	}
+	course, err := ensureCourseStudent(ctx, sc, s.courseRepo, s.enrollmentRepo, assignment.CourseID)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureCourseSubmissionAllowed(course); err != nil {
+		return nil, err
+	}
+	if !assignment.IsPublished {
+		return nil, errcode.ErrInvalidParams.WithMessage("作业未发布")
+	}
+	if err := ensureDraftWritable(assignment, time.Now()); err != nil {
+		return nil, err
+	}
+	if err := validateAssignmentAnswers(ctx, req.Answers, assignmentID, s.questionRepo); err != nil {
+		return nil, err
+	}
+
+	answerBytes, err := json.Marshal(req.Answers)
+	if err != nil {
+		return nil, errcode.ErrInternal
+	}
+	now := time.Now()
+	draft := &entity.AssignmentDraft{
+		AssignmentID: assignmentID,
+		StudentID:    sc.UserID,
+		Answers:      answerBytes,
+		SavedAt:      now,
+		UpdatedAt:    now,
+	}
+	if err := s.draftRepo.Upsert(ctx, draft); err != nil {
+		return nil, err
+	}
+	return &dto.SaveAssignmentDraftResp{
+		AssignmentID: strconv.FormatInt(assignmentID, 10),
+		SavedAt:      now.UTC().Format(time.RFC3339),
+		AnswerCount:  len(req.Answers),
+	}, nil
+}
+
+// ensureDraftWritable 校验当前作业是否仍允许写入新的服务端草稿。
+// 与正式提交不同，草稿仅在文档允许的时间窗口内可写入。
+func ensureDraftWritable(assignment *entity.Assignment, now time.Time) error {
+	if !assignment.DeadlineAt.IsZero() && now.After(assignment.DeadlineAt) && assignment.LatePolicy == enum.LatePolicyNotAllowed {
+		return errcode.ErrAssignmentDeadline.WithMessage("作业已截止且不允许迟交")
+	}
+	return nil
+}
+
+// GetDraft 获取学生当前作答草稿。
+// 无草稿时返回 nil，由上层统一输出 data = null。
+func (s *assignmentService) GetDraft(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64) (*dto.AssignmentDraftResp, error) {
+	assignment, err := s.assignmentRepo.GetByID(ctx, assignmentID)
+	if err != nil {
+		return nil, errcode.ErrAssignmentNotFound
+	}
+	if _, err := ensureCourseStudent(ctx, sc, s.courseRepo, s.enrollmentRepo, assignment.CourseID); err != nil {
+		return nil, err
+	}
+	if !assignment.IsPublished {
+		return nil, errcode.ErrAssignmentNotFound
+	}
+
+	draft, err := s.draftRepo.GetByStudentAndAssignment(ctx, sc.UserID, assignmentID)
+	if err != nil {
+		return nil, err
+	}
+	if draft == nil {
+		return nil, nil
+	}
+
+	answers := make([]dto.SubmitAnswerReq, 0)
+	if len(draft.Answers) > 0 {
+		if err := json.Unmarshal(draft.Answers, &answers); err != nil {
+			return nil, errcode.ErrInternal
+		}
+	}
+	return &dto.AssignmentDraftResp{
+		AssignmentID: strconv.FormatInt(assignmentID, 10),
+		SavedAt:      draft.SavedAt.UTC().Format(time.RFC3339),
+		Answers:      answers,
+	}, nil
+}
+
 // Submit 学生提交作业（含客观题自动批改）
 func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64, req *dto.SubmitAssignmentReq) (*dto.SubmitAssignmentResp, error) {
 	assignment, err := s.assignmentRepo.GetByID(ctx, assignmentID)
@@ -31,15 +122,18 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 	if err != nil {
 		return nil, err
 	}
-	if course.Status == enum.CourseStatusEnded || course.Status == enum.CourseStatusArchived {
-		return nil, errcode.ErrInvalidParams.WithMessage("课程已结束，无法提交作业")
+	if err := ensureCourseSubmissionAllowed(course); err != nil {
+		return nil, err
 	}
 	if !assignment.IsPublished {
 		return nil, errcode.ErrInvalidParams.WithMessage("作业未发布")
 	}
 
 	// 检查提交次数
-	count, _ := s.submissionRepo.CountByStudentAndAssignment(ctx, sc.UserID, assignmentID)
+	count, err := s.submissionRepo.CountByStudentAndAssignment(ctx, sc.UserID, assignmentID)
+	if err != nil {
+		return nil, err
+	}
 	if count >= assignment.MaxSubmissions {
 		return nil, errcode.ErrSubmissionExceedMax.WithMessage("已达最大提交次数")
 	}
@@ -48,19 +142,26 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 	now := time.Now()
 	isLate := false
 	lateDays := 0
-	if assignment.DeadlineAt != nil && now.After(*assignment.DeadlineAt) {
+	if !assignment.DeadlineAt.IsZero() && now.After(assignment.DeadlineAt) {
 		if assignment.LatePolicy == enum.LatePolicyNotAllowed {
 			return nil, errcode.ErrAssignmentDeadline.WithMessage("作业已截止且不允许迟交")
 		}
 		isLate = true
-		lateDays = int(math.Ceil(now.Sub(*assignment.DeadlineAt).Hours() / 24))
+		lateDays = int(math.Ceil(now.Sub(assignment.DeadlineAt).Hours() / 24))
 	}
 
 	// 获取题目列表用于自动批改
-	questions, _ := s.questionRepo.ListByAssignmentID(ctx, assignmentID)
+	questions, err := s.questionRepo.ListByAssignmentID(ctx, assignmentID)
+	if err != nil {
+		return nil, err
+	}
 	questionMap := make(map[int64]*entity.AssignmentQuestion)
 	for _, q := range questions {
 		questionMap[q.ID] = q
+	}
+	parsedAnswers, err := normalizeAssignmentAnswers(req.Answers, questionMap)
+	if err != nil {
+		return nil, err
 	}
 
 	// 创建提交记录
@@ -78,26 +179,23 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 	}
 
 	// 创建答案并自动批改客观题
-	answers := make([]*entity.SubmissionAnswer, 0, len(req.Answers))
+	answers := make([]*entity.SubmissionAnswer, 0, len(parsedAnswers))
 	var totalScore float64
 	var totalObjectiveScore float64
 	allObjective := true
-	feedbackDetails := make([]dto.SubmitFeedbackDetail, 0, len(req.Answers))
+	feedbackDetails := make([]dto.SubmitFeedbackDetail, 0, len(parsedAnswers))
 
-	for _, a := range req.Answers {
-		qID, err := snowflake.ParseString(a.QuestionID)
-		if err != nil {
-			continue
-		}
+	for _, a := range parsedAnswers {
+		qID := a.QuestionID
 		answer := &entity.SubmissionAnswer{
 			SubmissionID: submission.ID, QuestionID: qID,
-			AnswerContent: a.AnswerContent, AnswerFileURL: a.AnswerFileURL,
+			AnswerContent: a.Answer.AnswerContent, AnswerFileURL: a.Answer.AnswerFileURL,
 		}
 
 		// 客观题自动批改
 		if q, ok := questionMap[qID]; ok && enum.IsObjectiveQuestion(q.QuestionType) {
 			totalObjectiveScore += q.Score
-			correct := a.AnswerContent != nil && q.CorrectAnswer != nil && *a.AnswerContent == *q.CorrectAnswer
+			correct := a.Answer.AnswerContent != nil && q.CorrectAnswer != nil && *a.Answer.AnswerContent == *q.CorrectAnswer
 			answer.IsCorrect = &correct
 			if correct {
 				answer.Score = &q.Score
@@ -107,7 +205,7 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 				answer.Score = &zero
 			}
 			feedbackDetails = append(feedbackDetails, dto.SubmitFeedbackDetail{
-				QuestionID: a.QuestionID,
+				QuestionID: a.Answer.QuestionID,
 				IsCorrect:  answer.IsCorrect,
 				Score:      answer.Score,
 			})
@@ -118,7 +216,7 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 				status = "judging"
 			}
 			feedbackDetails = append(feedbackDetails, dto.SubmitFeedbackDetail{
-				QuestionID: a.QuestionID,
+				QuestionID: a.Answer.QuestionID,
 				Status:     status,
 			})
 		}
@@ -131,7 +229,12 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 
 	// 如果全部为客观题，直接标记为已批改
 	if allObjective {
-		s.autoGradeSubmission(ctx, submission.ID, totalScore, isLate, lateDays, assignment)
+		if err := s.autoGradeSubmission(ctx, submission.ID, totalScore, isLate, lateDays, assignment); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.draftRepo.DeleteByStudentAndAssignment(ctx, sc.UserID, assignmentID); err != nil {
+		return nil, err
 	}
 
 	return &dto.SubmitAssignmentResp{
@@ -147,8 +250,51 @@ func (s *assignmentService) Submit(ctx context.Context, sc *svcctx.ServiceContex
 	}, nil
 }
 
+type parsedAssignmentAnswer struct {
+	QuestionID int64
+	Answer     dto.SubmitAnswerReq
+}
+
+// validateAssignmentAnswers 校验草稿或提交中的答题项，确保题目ID合法且属于当前作业。
+func validateAssignmentAnswers(ctx context.Context, answers []dto.SubmitAnswerReq, assignmentID int64, questionRepo courserepo.QuestionRepository) error {
+	questions, err := questionRepo.ListByAssignmentID(ctx, assignmentID)
+	if err != nil {
+		return err
+	}
+	questionMap := make(map[int64]*entity.AssignmentQuestion, len(questions))
+	for _, q := range questions {
+		questionMap[q.ID] = q
+	}
+	_, err = normalizeAssignmentAnswers(answers, questionMap)
+	return err
+}
+
+// normalizeAssignmentAnswers 统一解析并校验题目ID，避免提交和草稿写入出现非法题目或重复题目。
+func normalizeAssignmentAnswers(answers []dto.SubmitAnswerReq, questionMap map[int64]*entity.AssignmentQuestion) ([]parsedAssignmentAnswer, error) {
+	normalized := make([]parsedAssignmentAnswer, 0, len(answers))
+	seen := make(map[int64]struct{}, len(answers))
+	for _, answer := range answers {
+		questionID, err := snowflake.ParseString(answer.QuestionID)
+		if err != nil {
+			return nil, errcode.ErrInvalidParams.WithMessage("题目ID格式错误")
+		}
+		if _, ok := questionMap[questionID]; !ok {
+			return nil, errcode.ErrInvalidParams.WithMessage("题目不存在或不属于当前作业")
+		}
+		if _, ok := seen[questionID]; ok {
+			return nil, errcode.ErrInvalidParams.WithMessage("题目不可重复作答")
+		}
+		seen[questionID] = struct{}{}
+		normalized = append(normalized, parsedAssignmentAnswer{
+			QuestionID: questionID,
+			Answer:     answer,
+		})
+	}
+	return normalized, nil
+}
+
 // autoGradeSubmission 全客观题自动批改（含迟交扣分）
-func (s *assignmentService) autoGradeSubmission(ctx context.Context, submissionID int64, totalScore float64, isLate bool, lateDays int, assignment *entity.Assignment) {
+func (s *assignmentService) autoGradeSubmission(ctx context.Context, submissionID int64, totalScore float64, isLate bool, lateDays int, assignment *entity.Assignment) error {
 	now := time.Now()
 	fields := map[string]interface{}{
 		"status": enum.SubmissionStatusGraded, "total_score": totalScore,
@@ -163,14 +309,18 @@ func (s *assignmentService) autoGradeSubmission(ctx context.Context, submissionI
 	} else {
 		fields["score_after_deduction"] = totalScore
 	}
-	_ = s.submissionRepo.UpdateFields(ctx, submissionID, fields)
+	return s.submissionRepo.UpdateFields(ctx, submissionID, fields)
 }
 
 // GetSubmission 获取提交详情
 func (s *assignmentService) GetSubmission(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.SubmissionDetailResp, error) {
-	submission, err := s.submissionRepo.GetByIDWithAnswers(ctx, id)
+	submission, err := s.submissionRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, errcode.ErrSubmissionNotFound
+	}
+	answers, err := s.answerRepo.ListBySubmissionID(ctx, submission.ID)
+	if err != nil {
+		return nil, err
 	}
 	assignment, err := s.assignmentRepo.GetByID(ctx, submission.AssignmentID)
 	if err != nil {
@@ -187,10 +337,16 @@ func (s *assignmentService) GetSubmission(ctx context.Context, sc *svcctx.Servic
 		if _, err := ensureCourseStudent(ctx, sc, s.courseRepo, s.enrollmentRepo, assignment.CourseID); err != nil {
 			return nil, err
 		}
+		if !assignment.IsPublished {
+			return nil, errcode.ErrAssignmentNotFound
+		}
 	}
 
 	studentName := s.userNameQuerier.GetUserName(ctx, submission.StudentID)
-	questions, _ := s.questionRepo.ListByAssignmentID(ctx, submission.AssignmentID)
+	questions, err := s.questionRepo.ListByAssignmentID(ctx, submission.AssignmentID)
+	if err != nil {
+		return nil, err
+	}
 	questionMap := make(map[int64]*entity.AssignmentQuestion)
 	for _, q := range questions {
 		questionMap[q.ID] = q
@@ -214,14 +370,14 @@ func (s *assignmentService) GetSubmission(ctx context.Context, sc *svcctx.Servic
 		resp.GradedAt = &g
 	}
 
-	resp.Answers = make([]dto.SubmissionAnswerItem, 0, len(submission.Answers))
-	for _, a := range submission.Answers {
+	resp.Answers = make([]dto.SubmissionAnswerItem, 0, len(answers))
+	for _, a := range answers {
 		item := dto.SubmissionAnswerItem{
 			ID:            strconv.FormatInt(a.ID, 10),
 			QuestionID:    strconv.FormatInt(a.QuestionID, 10),
 			AnswerContent: a.AnswerContent, AnswerFileURL: a.AnswerFileURL,
 			IsCorrect: a.IsCorrect, Score: a.Score,
-			TeacherComment: a.TeacherComment, AutoJudgeResult: a.AutoJudgeResult,
+			TeacherComment: a.TeacherComment, AutoJudgeResult: stringifyOptionalJSON(a.AutoJudgeResult),
 		}
 		if q, ok := questionMap[a.QuestionID]; ok {
 			item.QuestionTitle = q.Title
@@ -238,7 +394,7 @@ func (s *assignmentService) ListSubmissions(ctx context.Context, sc *svcctx.Serv
 	if err != nil {
 		return nil, 0, errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if _, err := ensureCourseTeacher(ctx, sc, s.courseRepo, assignment.CourseID); err != nil {
 		return nil, 0, err
 	}
 
@@ -261,12 +417,14 @@ func (s *assignmentService) ListSubmissions(ctx context.Context, sc *svcctx.Serv
 			ID:           strconv.FormatInt(sub.ID, 10),
 			StudentID:    strconv.FormatInt(sub.StudentID, 10),
 			StudentName:  name,
-			StudentNo:    getSummaryStudentNo(summary),
 			SubmissionNo: sub.SubmissionNo,
 			Status:       sub.Status, StatusText: enum.GetSubmissionStatusText(sub.Status),
 			TotalScore: sub.TotalScore, IsLate: sub.IsLate,
 			SubmittedAt: sub.SubmittedAt.Format(time.RFC3339),
 		})
+		if summary != nil {
+			items[len(items)-1].StudentNo = summary.StudentNo
+		}
 	}
 	return items, total, nil
 }
@@ -279,6 +437,9 @@ func (s *assignmentService) ListMySubmissions(ctx context.Context, sc *svcctx.Se
 	}
 	if _, err := ensureCourseStudent(ctx, sc, s.courseRepo, s.enrollmentRepo, assignment.CourseID); err != nil {
 		return nil, err
+	}
+	if !assignment.IsPublished {
+		return nil, errcode.ErrAssignmentNotFound
 	}
 
 	submissions, err := s.submissionRepo.ListByStudentAndAssignment(ctx, sc.UserID, assignmentID)
@@ -300,30 +461,40 @@ func (s *assignmentService) ListMySubmissions(ctx context.Context, sc *svcctx.Se
 
 // GradeSubmission 教师批改提交
 func (s *assignmentService) GradeSubmission(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.GradeSubmissionReq) error {
-	submission, err := s.submissionRepo.GetByIDWithAnswers(ctx, id)
+	submission, err := s.submissionRepo.GetByID(ctx, id)
 	if err != nil {
 		return errcode.ErrSubmissionNotFound
+	}
+	answers, err := s.answerRepo.ListBySubmissionID(ctx, submission.ID)
+	if err != nil {
+		return err
 	}
 	assignment, err := s.assignmentRepo.GetByID(ctx, submission.AssignmentID)
 	if err != nil {
 		return errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, assignment.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseGradingAllowed(course); err != nil {
 		return err
 	}
 
 	// 更新每道题的分数
 	answerMap := make(map[int64]*entity.SubmissionAnswer)
-	for i := range submission.Answers {
-		answerMap[submission.Answers[i].QuestionID] = &submission.Answers[i]
+	for _, answer := range answers {
+		answerMap[answer.QuestionID] = answer
 	}
 	questionMap := make(map[int64]*entity.AssignmentQuestion)
-	questions, _ := s.questionRepo.ListByAssignmentID(ctx, submission.AssignmentID)
+	questions, err := s.questionRepo.ListByAssignmentID(ctx, submission.AssignmentID)
+	if err != nil {
+		return err
+	}
 	for _, q := range questions {
 		questionMap[q.ID] = q
 	}
 
-	var totalScore float64
 	for _, ga := range req.Answers {
 		qID, err := snowflake.ParseString(ga.QuestionID)
 		if err != nil {
@@ -337,8 +508,21 @@ func (s *assignmentService) GradeSubmission(ctx context.Context, sc *svcctx.Serv
 			if ga.TeacherComment != nil {
 				fields["teacher_comment"] = *ga.TeacherComment
 			}
-			_ = s.answerRepo.UpdateFields(ctx, a.ID, fields)
-			totalScore += ga.Score
+			if err := s.answerRepo.UpdateFields(ctx, a.ID, fields); err != nil {
+				return err
+			}
+			a.Score = &ga.Score
+			if ga.TeacherComment != nil {
+				a.TeacherComment = ga.TeacherComment
+			}
+		}
+	}
+
+	// 批改后总分需要基于本次提交的全部答案重新汇总，避免覆盖已自动批改的客观题得分。
+	var totalScore float64
+	for _, answer := range answers {
+		if answer.Score != nil {
+			totalScore += *answer.Score
 		}
 	}
 

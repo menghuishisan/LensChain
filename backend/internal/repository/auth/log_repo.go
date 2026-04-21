@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
@@ -26,7 +27,7 @@ type LoginLogRepository interface {
 type LoginLogListParams struct {
 	SchoolID    int64
 	UserID      int64
-	Action      int
+	Action      int16
 	CreatedFrom string
 	CreatedTo   string
 	Page        int
@@ -58,7 +59,7 @@ func (r *loginLogRepository) List(ctx context.Context, params *LoginLogListParam
 	// 多租户过滤：通过 users 表关联过滤学校
 	if params.SchoolID > 0 {
 		query = query.Where("user_id IN (?)",
-			r.db.Model(&entity.User{}).Select("id").Where("school_id = ?", params.SchoolID),
+			r.db.Unscoped().Model(&entity.User{}).Select("id").Where("school_id = ?", params.SchoolID),
 		)
 	}
 
@@ -72,13 +73,7 @@ func (r *loginLogRepository) List(ctx context.Context, params *LoginLogListParam
 		query = query.Where("action = ?", params.Action)
 	}
 
-	// 时间范围过滤
-	if params.CreatedFrom != "" {
-		query = query.Where("created_at >= ?", params.CreatedFrom)
-	}
-	if params.CreatedTo != "" {
-		query = query.Where("created_at <= ?", params.CreatedTo)
-	}
+	query = query.Scopes(database.WithDateRange("created_at", params.CreatedFrom, params.CreatedTo))
 
 	// 统计总数
 	var total int64
@@ -142,7 +137,7 @@ func (r *operationLogRepository) List(ctx context.Context, params *OperationLogL
 	// 多租户过滤：通过 users 表关联过滤学校
 	if params.SchoolID > 0 {
 		query = query.Where("operator_id IN (?)",
-			r.db.Model(&entity.User{}).Select("id").Where("school_id = ?", params.SchoolID),
+			r.db.Unscoped().Model(&entity.User{}).Select("id").Where("school_id = ?", params.SchoolID),
 		)
 	}
 
@@ -161,13 +156,7 @@ func (r *operationLogRepository) List(ctx context.Context, params *OperationLogL
 		query = query.Where("target_type = ?", params.TargetType)
 	}
 
-	// 时间范围过滤
-	if params.CreatedFrom != "" {
-		query = query.Where("created_at >= ?", params.CreatedFrom)
-	}
-	if params.CreatedTo != "" {
-		query = query.Where("created_at <= ?", params.CreatedTo)
-	}
+	query = query.Scopes(database.WithDateRange("created_at", params.CreatedFrom, params.CreatedTo))
 
 	// 统计总数
 	var total int64

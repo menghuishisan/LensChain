@@ -7,16 +7,27 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
+
+// 资源占用状态用于统计并发配额，终态实例和排队实例不计入已占用资源。
+var instanceResourceUsingStatuses = []int16{
+	enum.InstanceStatusCreating,
+	enum.InstanceStatusInitializing,
+	enum.InstanceStatusRunning,
+	enum.InstanceStatusPaused,
+}
+
+// 实例启动幂等状态包含排队和资源占用中的非终态实例。
+var instanceActiveStatuses = append([]int16{enum.InstanceStatusQueued}, instanceResourceUsingStatuses...)
 
 // ---------------------------------------------------------------------------
 // 实验实例 Repository
@@ -26,12 +37,12 @@ import (
 type InstanceRepository interface {
 	Create(ctx context.Context, instance *entity.ExperimentInstance) error
 	GetByID(ctx context.Context, id int64) (*entity.ExperimentInstance, error)
-	GetByIDWithAll(ctx context.Context, id int64) (*entity.ExperimentInstance, error)
 	GetBySimSessionID(ctx context.Context, sessionID string) (*entity.ExperimentInstance, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	List(ctx context.Context, params *InstanceListParams) ([]*entity.ExperimentInstance, int64, error)
 	ListByStudentID(ctx context.Context, studentID int64, params *StudentInstanceListParams) ([]*entity.ExperimentInstance, int64, error)
 	ListByTemplateAndStudent(ctx context.Context, templateID, studentID int64) ([]*entity.ExperimentInstance, error)
+	GetLatestActiveByTemplateAndStudent(ctx context.Context, templateID, studentID int64) (*entity.ExperimentInstance, error)
 	CountRunningByStudent(ctx context.Context, studentID int64) (int64, error)
 	CountRunningBySchool(ctx context.Context, schoolID int64) (int64, error)
 	CountRunningByCourse(ctx context.Context, courseID int64) (int64, error)
@@ -46,8 +57,22 @@ type InstanceRepository interface {
 	ListAdmin(ctx context.Context, params *AdminInstanceListParams) ([]*entity.ExperimentInstance, int64, error)
 
 	// 统计
-	CountByStatus(ctx context.Context, schoolID int64) (map[int]int64, error)
-	CountByTemplateAndStatus(ctx context.Context, templateID int64) (map[int]int64, error)
+	CountByStatus(ctx context.Context, schoolID int64) (map[int16]int64, error)
+	CountByTemplateAndStatus(ctx context.Context, templateID int64) (map[int16]int64, error)
+	StatsByCourse(ctx context.Context, courseID int64) ([]*TemplateInstanceStats, error)
+}
+
+// TemplateInstanceStats 课程实验统计聚合结果。
+// repository 只返回数据库聚合事实，完成率和展示文案由 service/handler 计算。
+type TemplateInstanceStats struct {
+	TemplateID         int64    `gorm:"column:template_id"`
+	TotalCount         int64    `gorm:"column:total_count"`
+	CompletedCount     int64    `gorm:"column:completed_count"`
+	AverageScore       *float64 `gorm:"column:average_score"`
+	HighestScore       *float64 `gorm:"column:highest_score"`
+	LowestScore        *float64 `gorm:"column:lowest_score"`
+	AverageAttemptNo   *float64 `gorm:"column:average_attempt_no"`
+	AverageDurationMin *float64 `gorm:"column:average_duration_min"`
 }
 
 // InstanceListParams 实例列表查询参数（教师视角）
@@ -56,8 +81,8 @@ type InstanceListParams struct {
 	TemplateID int64
 	CourseID   int64
 	StudentID  int64
-	Status     int
-	Statuses   []int
+	Status     int16
+	Statuses   []int16
 	SortBy     string
 	SortOrder  string
 	Page       int
@@ -68,7 +93,7 @@ type InstanceListParams struct {
 type StudentInstanceListParams struct {
 	TemplateID int64
 	CourseID   int64
-	Status     int
+	Status     int16
 	Page       int
 	PageSize   int
 }
@@ -77,8 +102,8 @@ type StudentInstanceListParams struct {
 type AdminInstanceListParams struct {
 	SchoolID   int64
 	TemplateID int64
-	Status     int
-	Keyword    string
+	StudentID  int64
+	Status     int16
 	SortBy     string
 	SortOrder  string
 	Page       int
@@ -107,22 +132,6 @@ func (r *instanceRepository) Create(ctx context.Context, instance *entity.Experi
 func (r *instanceRepository) GetByID(ctx context.Context, id int64) (*entity.ExperimentInstance, error) {
 	var instance entity.ExperimentInstance
 	err := r.db.WithContext(ctx).First(&instance, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &instance, nil
-}
-
-// GetByIDWithAll 根据ID获取实验实例（含容器、检查点结果、快照）
-func (r *instanceRepository) GetByIDWithAll(ctx context.Context, id int64) (*entity.ExperimentInstance, error) {
-	var instance entity.ExperimentInstance
-	err := r.db.WithContext(ctx).
-		Preload("Containers").
-		Preload("CheckpointResults").
-		Preload("Snapshots", func(db *gorm.DB) *gorm.DB {
-			return db.Order("created_at desc")
-		}).
-		First(&instance, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -183,26 +192,22 @@ func (r *instanceRepository) List(ctx context.Context, params *InstanceListParam
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at":   "created_at",
 		"status":       "status",
 		"total_score":  "total_score",
 		"submitted_at": "submitted_at",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	// 分页
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var instances []*entity.ExperimentInstance
 	if err := query.Find(&instances).Error; err != nil {
@@ -251,11 +256,24 @@ func (r *instanceRepository) ListByTemplateAndStudent(ctx context.Context, templ
 	return instances, err
 }
 
+// GetLatestActiveByTemplateAndStudent 获取学生在模板下最新的非终态实例，支撑并发启动幂等处理。
+func (r *instanceRepository) GetLatestActiveByTemplateAndStudent(ctx context.Context, templateID, studentID int64) (*entity.ExperimentInstance, error) {
+	var instance entity.ExperimentInstance
+	err := r.db.WithContext(ctx).
+		Where("template_id = ? AND student_id = ? AND status IN ?", templateID, studentID, instanceActiveStatuses).
+		Order("created_at desc").
+		First(&instance).Error
+	if err != nil {
+		return nil, err
+	}
+	return &instance, nil
+}
+
 // CountRunningByStudent 统计学生正在运行的实例数
 func (r *instanceRepository) CountRunningByStudent(ctx context.Context, studentID int64) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&entity.ExperimentInstance{}).
-		Where("student_id = ? AND status IN ?", studentID, []int{1, 2, 8, 9}).
+		Where("student_id = ? AND status IN ?", studentID, instanceResourceUsingStatuses).
 		Count(&count).Error
 	return count, err
 }
@@ -264,7 +282,7 @@ func (r *instanceRepository) CountRunningByStudent(ctx context.Context, studentI
 func (r *instanceRepository) CountRunningBySchool(ctx context.Context, schoolID int64) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&entity.ExperimentInstance{}).
-		Where("school_id = ? AND status IN ?", schoolID, []int{1, 2, 8, 9}).
+		Where("school_id = ? AND status IN ?", schoolID, instanceResourceUsingStatuses).
 		Count(&count).Error
 	return count, err
 }
@@ -273,7 +291,7 @@ func (r *instanceRepository) CountRunningBySchool(ctx context.Context, schoolID 
 func (r *instanceRepository) CountRunningByCourse(ctx context.Context, courseID int64) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&entity.ExperimentInstance{}).
-		Where("course_id = ? AND status IN ?", courseID, []int{1, 2, 8, 9}).
+		Where("course_id = ? AND status IN ?", courseID, instanceResourceUsingStatuses).
 		Count(&count).Error
 	return count, err
 }
@@ -301,7 +319,7 @@ func (r *instanceRepository) GetMaxAttemptNo(ctx context.Context, templateID, st
 func (r *instanceRepository) ListIdleInstances(ctx context.Context, idleSince time.Time) ([]*entity.ExperimentInstance, error) {
 	var instances []*entity.ExperimentInstance
 	err := r.db.WithContext(ctx).
-		Where("status = 2 AND last_active_at IS NOT NULL AND last_active_at < ?", idleSince).
+		Where("status = ? AND last_active_at IS NOT NULL AND last_active_at < ?", enum.InstanceStatusRunning, idleSince).
 		Find(&instances).Error
 	return instances, err
 }
@@ -312,7 +330,7 @@ func (r *instanceRepository) ListExpiredInstances(ctx context.Context, now time.
 	// 通过 JOIN 模板获取 max_duration，筛选超时实例
 	err := r.db.WithContext(ctx).
 		Joins("JOIN experiment_templates ON experiment_templates.id = experiment_instances.template_id").
-		Where("experiment_instances.status = 2").
+		Where("experiment_instances.status = ?", enum.InstanceStatusRunning).
 		Where("experiment_templates.max_duration IS NOT NULL").
 		Where("experiment_instances.started_at IS NOT NULL").
 		Where("experiment_instances.started_at + (experiment_templates.max_duration || ' minutes')::interval < ?", now).
@@ -347,6 +365,9 @@ func (r *instanceRepository) ListAdmin(ctx context.Context, params *AdminInstanc
 	if params.TemplateID > 0 {
 		query = query.Where("template_id = ?", params.TemplateID)
 	}
+	if params.StudentID > 0 {
+		query = query.Where("student_id = ?", params.StudentID)
+	}
 	if params.Status > 0 {
 		query = query.Scopes(database.WithStatus(params.Status))
 	}
@@ -356,23 +377,21 @@ func (r *instanceRepository) ListAdmin(ctx context.Context, params *AdminInstanc
 		return nil, 0, err
 	}
 
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at": "created_at",
 		"status":     "status",
 		"school_id":  "school_id",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var instances []*entity.ExperimentInstance
 	if err := query.Find(&instances).Error; err != nil {
@@ -382,9 +401,9 @@ func (r *instanceRepository) ListAdmin(ctx context.Context, params *AdminInstanc
 }
 
 // CountByStatus 按状态统计实例数量
-func (r *instanceRepository) CountByStatus(ctx context.Context, schoolID int64) (map[int]int64, error) {
+func (r *instanceRepository) CountByStatus(ctx context.Context, schoolID int64) (map[int16]int64, error) {
 	type result struct {
-		Status int   `gorm:"column:status"`
+		Status int16 `gorm:"column:status"`
 		Count  int64 `gorm:"column:count"`
 	}
 	var results []result
@@ -401,7 +420,7 @@ func (r *instanceRepository) CountByStatus(ctx context.Context, schoolID int64) 
 		return nil, err
 	}
 
-	m := make(map[int]int64)
+	m := make(map[int16]int64)
 	for _, r := range results {
 		m[r.Status] = r.Count
 	}
@@ -409,9 +428,9 @@ func (r *instanceRepository) CountByStatus(ctx context.Context, schoolID int64) 
 }
 
 // CountByTemplateAndStatus 按模板和状态统计实例数量
-func (r *instanceRepository) CountByTemplateAndStatus(ctx context.Context, templateID int64) (map[int]int64, error) {
+func (r *instanceRepository) CountByTemplateAndStatus(ctx context.Context, templateID int64) (map[int16]int64, error) {
 	type result struct {
-		Status int   `gorm:"column:status"`
+		Status int16 `gorm:"column:status"`
 		Count  int64 `gorm:"column:count"`
 	}
 	var results []result
@@ -425,11 +444,31 @@ func (r *instanceRepository) CountByTemplateAndStatus(ctx context.Context, templ
 		return nil, err
 	}
 
-	m := make(map[int]int64)
+	m := make(map[int16]int64)
 	for _, r := range results {
 		m[r.Status] = r.Count
 	}
 	return m, nil
+}
+
+// StatsByCourse 按模板聚合课程实验完成情况和成绩分布。
+func (r *instanceRepository) StatsByCourse(ctx context.Context, courseID int64) ([]*TemplateInstanceStats, error) {
+	var stats []*TemplateInstanceStats
+	err := r.db.WithContext(ctx).Model(&entity.ExperimentInstance{}).
+		Select(`
+			template_id,
+			COUNT(*) AS total_count,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS completed_count,
+			AVG(total_score) AS average_score,
+			MAX(total_score) AS highest_score,
+			MIN(total_score) AS lowest_score,
+			AVG(attempt_no) AS average_attempt_no,
+			AVG(EXTRACT(EPOCH FROM (submitted_at - started_at)) / 60.0) AS average_duration_min
+		`, enum.InstanceStatusCompleted).
+		Where("course_id = ?", courseID).
+		Group("template_id").
+		Find(&stats).Error
+	return stats, err
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +481,8 @@ type InstanceContainerRepository interface {
 	GetByID(ctx context.Context, id int64) (*entity.InstanceContainer, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	ListByInstanceID(ctx context.Context, instanceID int64) ([]*entity.InstanceContainer, error)
+	ListByInstanceIDs(ctx context.Context, instanceIDs []int64) ([]*entity.InstanceContainer, error)
+	ListByStatuses(ctx context.Context, statuses []int16) ([]*entity.InstanceContainer, error)
 	BatchCreate(ctx context.Context, containers []*entity.InstanceContainer) error
 	DeleteByInstanceID(ctx context.Context, instanceID int64) error
 }
@@ -488,8 +529,37 @@ func (r *instanceContainerRepository) ListByInstanceID(ctx context.Context, inst
 	return containers, err
 }
 
+// ListByInstanceIDs 批量获取多个实验实例的容器，供教师监控和实例列表聚合使用。
+func (r *instanceContainerRepository) ListByInstanceIDs(ctx context.Context, instanceIDs []int64) ([]*entity.InstanceContainer, error) {
+	if len(instanceIDs) == 0 {
+		return []*entity.InstanceContainer{}, nil
+	}
+	var containers []*entity.InstanceContainer
+	err := r.db.WithContext(ctx).
+		Where("instance_id IN ?", instanceIDs).
+		Order("instance_id asc, created_at asc").
+		Find(&containers).Error
+	return containers, err
+}
+
+// ListByStatuses 按容器状态批量查询，供全局容器资源监控组装实时资源视图。
+func (r *instanceContainerRepository) ListByStatuses(ctx context.Context, statuses []int16) ([]*entity.InstanceContainer, error) {
+	if len(statuses) == 0 {
+		return []*entity.InstanceContainer{}, nil
+	}
+	var containers []*entity.InstanceContainer
+	err := r.db.WithContext(ctx).
+		Where("status IN ?", statuses).
+		Order("updated_at desc").
+		Find(&containers).Error
+	return containers, err
+}
+
 // BatchCreate 批量创建实例容器
 func (r *instanceContainerRepository) BatchCreate(ctx context.Context, containers []*entity.InstanceContainer) error {
+	if len(containers) == 0 {
+		return nil
+	}
 	for i := range containers {
 		if containers[i].ID == 0 {
 			containers[i].ID = snowflake.Generate()

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
@@ -40,7 +41,18 @@ func (s *instanceService) VerifyCheckpoints(ctx context.Context, sc *svcctx.Serv
 		return nil, errcode.ErrInstanceNotRunning
 	}
 
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		nil,
+		s.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +63,9 @@ func (s *instanceService) VerifyCheckpoints(ctx context.Context, sc *svcctx.Serv
 		if parseErr != nil {
 			return nil, errcode.ErrCheckpointNotFound
 		}
-		for _, cp := range template.Checkpoints {
+		for _, cp := range templateAggregate.Checkpoints {
 			if cp.ID == checkpointID {
-				targets = append(targets, cp)
+				targets = append(targets, *cp)
 				break
 			}
 		}
@@ -61,9 +73,9 @@ func (s *instanceService) VerifyCheckpoints(ctx context.Context, sc *svcctx.Serv
 			return nil, errcode.ErrCheckpointNotFound
 		}
 	} else {
-		for _, cp := range template.Checkpoints {
+		for _, cp := range templateAggregate.Checkpoints {
 			if cp.CheckType == enum.CheckTypeScript || cp.CheckType == enum.CheckTypeSimAssert {
-				targets = append(targets, cp)
+				targets = append(targets, *cp)
 			}
 		}
 	}
@@ -85,22 +97,22 @@ func (s *instanceService) VerifyCheckpoints(ctx context.Context, sc *svcctx.Serv
 		results = append(results, dto.CheckpointVerifyResultItem{
 			CheckpointID: strconv.FormatInt(cp.ID, 10),
 			Title:        cp.Title,
-			IsPassed:     result.IsPassed,
+			IsPassed:     result.IsPassed != nil && *result.IsPassed,
 			Score:        score,
 			CheckOutput:  checkOutput,
 			CheckedAt:    result.CheckedAt.UTC().Format(time.RFC3339),
 		})
 		for _, target := range s.resolveCheckpointTargetInstances(ctx, instance, &cp) {
-			s.pushCourseMonitorCheckpoint(target, cp.Title, result.IsPassed)
+			s.pushCourseMonitorCheckpoint(target, cp.Title, result.IsPassed != nil && *result.IsPassed)
 		}
 		detailPayload, _ := json.Marshal(map[string]interface{}{
 			"checkpoint_id":    strconv.FormatInt(cp.ID, 10),
 			"checkpoint_title": cp.Title,
-			"is_passed":        result.IsPassed,
+			"is_passed":        result.IsPassed != nil && *result.IsPassed,
 			"scope":            cp.Scope,
 			"score":            score,
 		})
-		s.recordOpLog(ctx, id, sc.UserID, enum.ActionCheckpoint, cp.TargetContainer, nil, nil, nil, detailPayload, nil)
+		s.recordOpLog(ctx, id, sc.UserID, enum.ActionCheckpoint, cp.TargetContainer, nil, nil, nil, detailPayload)
 	}
 
 	s.touchInstanceActivity(ctx, instance.ID)
@@ -114,7 +126,18 @@ func (s *instanceService) ListCheckpointResults(ctx context.Context, sc *svcctx.
 	if err != nil {
 		return nil, err
 	}
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		nil,
+		s.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +151,8 @@ func (s *instanceService) ListCheckpointResults(ctx context.Context, sc *svcctx.
 		resultByCheckpoint[result.CheckpointID] = result
 	}
 
-	items := make([]dto.InstanceCheckpointItem, 0, len(template.Checkpoints))
-	for _, cp := range template.Checkpoints {
+	items := make([]dto.InstanceCheckpointItem, 0, len(templateAggregate.Checkpoints))
+	for _, cp := range templateAggregate.Checkpoints {
 		item := dto.InstanceCheckpointItem{
 			CheckpointID: strconv.FormatInt(cp.ID, 10),
 			Title:        cp.Title,
@@ -142,7 +165,7 @@ func (s *instanceService) ListCheckpointResults(ctx context.Context, sc *svcctx.
 				score = *result.Score
 			}
 			item.Result = &dto.InstanceCheckpointResult{
-				IsPassed:  result.IsPassed,
+				IsPassed:  result.IsPassed != nil && *result.IsPassed,
 				Score:     score,
 				CheckedAt: result.CheckedAt.UTC().Format(time.RFC3339),
 			}
@@ -216,15 +239,27 @@ func (s *instanceService) ManualGrade(ctx context.Context, sc *svcctx.ServiceCon
 		return nil, errcode.ErrForbidden
 	}
 
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		nil,
+		s.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 	if err != nil {
 		return nil, err
 	}
-	checkpointMap := make(map[int64]entity.TemplateCheckpoint, len(template.Checkpoints))
+	template := templateAggregate.Template
+	checkpointMap := make(map[int64]entity.TemplateCheckpoint, len(templateAggregate.Checkpoints))
 	autoTotal := 0.0
 	manualTotal := 0.0
-	for _, cp := range template.Checkpoints {
-		checkpointMap[cp.ID] = cp
+	for _, cp := range templateAggregate.Checkpoints {
+		checkpointMap[cp.ID] = *cp
 		if cp.CheckType == enum.CheckTypeManual {
 			manualTotal += cp.Score
 		} else {
@@ -287,11 +322,13 @@ func (s *instanceService) ManualGrade(ctx context.Context, sc *svcctx.ServiceCon
 	detailPayload, _ := json.Marshal(map[string]interface{}{
 		"overall_comment": req.OverallComment,
 	})
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionManualGrade, nil, nil, nil, nil, detailPayload, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionManualGrade, nil, nil, nil, nil, detailPayload)
 
 	if err := s.syncCourseGradeIfNeeded(ctx, instance, template, req.OverallComment); err != nil {
 		return nil, err
 	}
+	// 文档要求手动评分完成后向模块07发送 experiment.graded 通知。
+	// 当前模块07内部通知接口仍未闭环，此处保留正确的成绩结算与回写，待后续模块完成后通过跨模块接口补入通知发送。
 
 	return &dto.ManualGradeResp{
 		InstanceID:  strconv.FormatInt(id, 10),
@@ -314,7 +351,7 @@ func (s *instanceService) ListSnapshots(ctx context.Context, sc *svcctx.ServiceC
 	}
 	items := make([]dto.SnapshotResp, 0, len(snapshots))
 	for _, snapshot := range snapshots {
-		items = append(items, buildSnapshotResp(snapshot))
+		items = append(items, buildSnapshotResp(ctx, snapshot))
 	}
 	return items, nil
 }
@@ -325,12 +362,16 @@ func (s *instanceService) CreateSnapshot(ctx context.Context, sc *svcctx.Service
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := s.createInstanceSnapshot(ctx, instance, enum.SnapshotTypeScheduled, req.Description)
+	var description *string
+	if req != nil {
+		description = req.Description
+	}
+	snapshot, err := s.createInstanceSnapshot(ctx, instance, enum.SnapshotTypeManual, description)
 	if err != nil {
 		return nil, err
 	}
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotCreate, nil, nil, nil, nil, nil, nil)
-	resp := buildSnapshotResp(snapshot)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotCreate, nil, nil, nil, nil, nil)
+	resp := buildSnapshotResp(ctx, snapshot)
 	return &resp, nil
 }
 
@@ -353,12 +394,12 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 
 	releaseConcurrencyOnError := false
 	switch instance.Status {
-	case enum.InstanceStatusPaused, enum.InstanceStatusDestroyed, enum.InstanceStatusError, enum.InstanceStatusSubmitted:
+	case enum.InstanceStatusPaused, enum.InstanceStatusDestroyed, enum.InstanceStatusError, enum.InstanceStatusCompleted:
 		releaseConcurrencyOnError = true
 		_ = s.quotaRepo.IncrUsedConcurrency(ctx, sc.SchoolID, 1)
 	}
 
-	if instance.Status == enum.InstanceStatusRunning || instance.Status == enum.InstanceStatusRestoring {
+	if instance.Status == enum.InstanceStatusRunning || instance.Status == enum.InstanceStatusInitializing {
 		if err := s.teardownRuntimeEnvironment(ctx, instance); err != nil {
 			if releaseConcurrencyOnError {
 				_ = s.quotaRepo.DecrUsedConcurrency(ctx, sc.SchoolID, 1)
@@ -369,7 +410,7 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 
 	now := time.Now()
 	if err := s.instanceRepo.UpdateFields(ctx, id, map[string]interface{}{
-		"status":            enum.InstanceStatusRestoring,
+		"status":            enum.InstanceStatusInitializing,
 		"paused_at":         nil,
 		"updated_at":        now,
 		"started_at":        gorm.Expr("COALESCE(started_at, ?)", now),
@@ -385,16 +426,27 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 		return err
 	}
 
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.templateContainerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 	if err != nil {
 		return err
 	}
-	go s.provisionEnvironment(context.Background(), instance, template, stringifySnapshotID(snapshot), releaseConcurrencyOnError)
+	go s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, stringifySnapshotID(snapshot), releaseConcurrencyOnError)
 
 	detailPayload, _ := json.Marshal(map[string]interface{}{
 		"snapshot_id": strconv.FormatInt(snapshotID, 10),
 	})
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotRestore, nil, nil, nil, nil, detailPayload, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotRestore, nil, nil, nil, nil, detailPayload)
 	return nil
 }
 
@@ -405,29 +457,23 @@ func (s *instanceService) ListOperationLogs(ctx context.Context, sc *svcctx.Serv
 		return nil, 0, err
 	}
 	logs, total, err := s.opLogRepo.List(ctx, &experimentrepo.OperationLogListParams{
-		InstanceID: id,
-		Action:     req.Action,
-		Page:       req.Page,
-		PageSize:   req.PageSize,
+		InstanceID:      id,
+		Action:          req.Action,
+		TargetContainer: req.TargetContainer,
+		Page:            req.Page,
+		PageSize:        req.PageSize,
 	})
 	if err != nil {
 		return nil, 0, err
 	}
 	items := make([]dto.InstanceOpLogItem, 0, len(logs))
 	for _, log := range logs {
-		if req.TargetContainer != "" {
-			if log.TargetContainer == nil || *log.TargetContainer != req.TargetContainer {
-				continue
-			}
-		}
 		items = append(items, dto.InstanceOpLogItem{
 			ID:              strconv.FormatInt(log.ID, 10),
 			Action:          log.Action,
 			TargetContainer: log.TargetContainer,
-			TargetScene:     log.TargetScene,
 			Command:         log.Command,
-			Detail:          log.Detail,
-			ClientIP:        log.ClientIP,
+			Detail:          json.RawMessage(log.Detail),
 			CreatedAt:       log.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
@@ -470,11 +516,12 @@ func (s *instanceService) CreateReport(ctx context.Context, sc *svcctx.ServiceCo
 		}
 	} else {
 		if updateErr := s.reportRepo.UpdateFields(ctx, report.ID, map[string]interface{}{
-			"content":    content,
-			"file_url":   fileURL,
-			"file_name":  fileName,
-			"file_size":  req.FileSize,
-			"updated_at": now,
+			"content":      content,
+			"file_url":     fileURL,
+			"file_name":    fileName,
+			"file_size":    req.FileSize,
+			"submitted_at": now,
+			"updated_at":   now,
 		}); updateErr != nil {
 			return nil, updateErr
 		}
@@ -482,10 +529,11 @@ func (s *instanceService) CreateReport(ctx context.Context, sc *svcctx.ServiceCo
 		report.FileURL = fileURL
 		report.FileName = fileName
 		report.FileSize = req.FileSize
+		report.SubmittedAt = now
 		report.UpdatedAt = now
 	}
 
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportSubmit, nil, nil, nil, nil, nil, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportSubmit, nil, nil, nil, nil, nil)
 	return buildReportResp(report), nil
 }
 
@@ -542,7 +590,7 @@ func (s *instanceService) UpdateReport(ctx context.Context, sc *svcctx.ServiceCo
 	report.FileSize = req.FileSize
 	report.UpdatedAt = now
 
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportUpdate, nil, nil, nil, nil, nil, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportUpdate, nil, nil, nil, nil, nil)
 	return buildReportResp(report), nil
 }
 
@@ -565,7 +613,7 @@ func (s *instanceService) SendGuidance(ctx context.Context, sc *svcctx.ServiceCo
 		"type":    "guidance_message",
 		"content": req.Content,
 	})
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionGuidanceMessage, nil, nil, nil, nil, detailPayload, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionGuidanceMessage, nil, nil, nil, nil, detailPayload)
 
 	manager := ws.GetManager()
 	if manager != nil {
@@ -580,7 +628,7 @@ func (s *instanceService) SendGuidance(ctx context.Context, sc *svcctx.ServiceCo
 }
 
 // createInstanceSnapshot 创建实例快照并保存容器状态、SimEngine 状态。
-func (s *instanceService) createInstanceSnapshot(ctx context.Context, instance *entity.ExperimentInstance, snapshotType int, description *string) (*entity.InstanceSnapshot, error) {
+func (s *instanceService) createInstanceSnapshot(ctx context.Context, instance *entity.ExperimentInstance, snapshotType int16, description *string) (*entity.InstanceSnapshot, error) {
 	snapshot := &entity.InstanceSnapshot{
 		ID:           snowflake.Generate(),
 		InstanceID:   instance.ID,
@@ -592,7 +640,7 @@ func (s *instanceService) createInstanceSnapshot(ctx context.Context, instance *
 		simSnapshot, err := s.simEngineSvc.CreateSnapshot(ctx, *instance.SimSessionID)
 		if err == nil {
 			stateJSON, _ := json.Marshal(simSnapshot)
-			snapshot.SimEngineState = stateJSON
+			snapshot.SimEngineState = datatypes.JSON(stateJSON)
 		}
 	}
 
@@ -608,9 +656,9 @@ func (s *instanceService) createInstanceSnapshot(ctx context.Context, instance *
 	if err != nil {
 		return nil, err
 	}
-	snapshot.ContainerStates = strippedContainerStateJSON
+	snapshot.ContainerStates = datatypes.JSON(strippedContainerStateJSON)
 
-	objectKey, snapshotSize, err := s.uploadSnapshotArchive(ctx, snapshot, fullContainerStateJSON, snapshot.SimEngineState)
+	objectKey, snapshotSize, err := s.uploadSnapshotArchive(ctx, snapshot, fullContainerStateJSON, json.RawMessage(snapshot.SimEngineState))
 	if err != nil {
 		return nil, err
 	}
@@ -624,10 +672,10 @@ func (s *instanceService) createInstanceSnapshot(ctx context.Context, instance *
 }
 
 // buildSnapshotResp 构建快照响应。
-func buildSnapshotResp(snapshot *entity.InstanceSnapshot) dto.SnapshotResp {
+func buildSnapshotResp(ctx context.Context, snapshot *entity.InstanceSnapshot) dto.SnapshotResp {
 	resolvedURL := snapshot.SnapshotDataURL
 	if snapshot != nil && storage.GetClient() != nil && snapshot.SnapshotDataURL != "" {
-		if signedURL, err := storage.GetFileURL(context.Background(), snapshot.SnapshotDataURL, time.Hour); err == nil && signedURL != "" {
+		if signedURL, err := storage.GetFileURL(ctx, snapshot.SnapshotDataURL, time.Hour); err == nil && signedURL != "" {
 			resolvedURL = signedURL
 		}
 	}
@@ -637,8 +685,8 @@ func buildSnapshotResp(snapshot *entity.InstanceSnapshot) dto.SnapshotResp {
 		SnapshotType:     snapshot.SnapshotType,
 		SnapshotTypeText: enum.GetSnapshotTypeText(snapshot.SnapshotType),
 		SnapshotDataURL:  resolvedURL,
-		ContainerStates:  snapshot.ContainerStates,
-		SimEngineState:   snapshot.SimEngineState,
+		ContainerStates:  json.RawMessage(snapshot.ContainerStates),
+		SimEngineState:   json.RawMessage(snapshot.SimEngineState),
 		Description:      snapshot.Description,
 		CreatedAt:        snapshot.CreatedAt.UTC().Format(time.RFC3339),
 	}
@@ -652,7 +700,6 @@ func buildReportResp(report *entity.ExperimentReport) *dto.ReportResp {
 	return &dto.ReportResp{
 		ID:         strconv.FormatInt(report.ID, 10),
 		InstanceID: strconv.FormatInt(report.InstanceID, 10),
-		StudentID:  strconv.FormatInt(report.StudentID, 10),
 		Content:    report.Content,
 		FileURL:    report.FileURL,
 		FileName:   report.FileName,

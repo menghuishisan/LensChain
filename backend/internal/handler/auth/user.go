@@ -224,13 +224,12 @@ func (h *UserHandler) BatchDelete(c *gin.Context) {
 // GET /api/v1/user-imports/template
 // P1-5 修复：使用 RFC 5987 编码中文文件名
 func (h *UserHandler) DownloadTemplate(c *gin.Context) {
-	importType := c.Query("type")
-	if importType != "student" && importType != "teacher" {
-		response.Error(c, errcode.ErrInvalidParams.WithMessage("type 必须为 student 或 teacher"))
+	var req dto.ImportTemplateReq
+	if !validator.BindQuery(c, &req) {
 		return
 	}
 
-	buf, fileName, err := h.importService.BuildTemplate(importType)
+	buf, fileName, err := h.importService.BuildTemplate(req.Type)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return
@@ -246,9 +245,8 @@ func (h *UserHandler) DownloadTemplate(c *gin.Context) {
 // POST /api/v1/user-imports/preview
 // P3-9 修复：限制上传文件大小（最大 10MB）
 func (h *UserHandler) ImportPreview(c *gin.Context) {
-	importType := c.PostForm("type")
-	if importType != "student" && importType != "teacher" {
-		response.Error(c, errcode.ErrInvalidParams.WithMessage("type 必须为 student 或 teacher"))
+	var req dto.ImportPreviewReq
+	if !validator.BindAndValidate(c, &req) {
 		return
 	}
 
@@ -285,7 +283,7 @@ func (h *UserHandler) ImportPreview(c *gin.Context) {
 	}
 
 	sc := handlerctx.BuildServiceContext(c)
-	resp, err := h.importService.Preview(c.Request.Context(), sc, importType, dataRows)
+	resp, err := h.importService.Preview(c.Request.Context(), sc, req.Type, dataRows)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return

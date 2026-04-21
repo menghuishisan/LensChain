@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"gorm.io/gorm"
+
 	handler "github.com/lenschain/backend/internal/handler/auth"
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
@@ -122,12 +124,17 @@ func (a *schoolStatusCheckerAdapter) CheckLoginAllowed(ctx context.Context, scho
 
 	school, err := a.schoolRepo.GetByID(ctx, schoolID)
 	if err != nil {
-		return errcode.ErrForbidden.WithMessage("学校不存在或已不可用")
+		if err == gorm.ErrRecordNotFound {
+			return errcode.ErrForbidden.WithMessage("学校不存在或已不可用")
+		}
+		return errcode.ErrInternal.WithMessage("查询学校状态失败")
 	}
 
+	// 登录准入校验与模块02的学校生命周期规则保持一致：
+	// 激活学校允许登录，缓冲期学校仍可登录，冻结/注销学校禁止登录。
 	switch school.Status {
 	case enum.SchoolStatusFrozen:
-		return errcode.ErrSchoolFrozen
+		return errcode.ErrSchoolExpired.WithMessage("学校授权已过期，请联系管理员")
 	case enum.SchoolStatusCancelled:
 		return errcode.ErrForbidden.WithMessage("学校已注销，无法登录")
 	case enum.SchoolStatusPending, enum.SchoolStatusRejected:
@@ -150,12 +157,16 @@ type schoolSSOQuerierAdapter struct {
 func (a *schoolSSOQuerierAdapter) GetSchoolSSOConfig(ctx context.Context, schoolID int64) (*svc.SchoolSSOConfig, error) {
 	config, err := a.ssoConfigRepo.GetBySchoolID(ctx, schoolID)
 	if err != nil {
-		return nil, err
+		if err == gorm.ErrRecordNotFound {
+			return nil, err
+		}
+		return nil, errcode.ErrInternal.WithMessage("查询学校SSO配置失败")
 	}
 
+	// 这里统一解析模块02保存的 JSON 配置，认证层只消费结构化配置。
 	configMap := make(map[string]interface{})
 	if err := json.Unmarshal([]byte(config.Config), &configMap); err != nil {
-		return nil, err
+		return nil, errcode.ErrInternal.WithMessage("解析学校SSO配置失败")
 	}
 
 	return &svc.SchoolSSOConfig{

@@ -1,23 +1,24 @@
 // discussion_service.go
-// 模块03 — 课程与教学：讨论区、公告、评价、成绩管理业务逻辑
+// 模块03 — 课程与教学：讨论区、公告、评价业务逻辑
 // 对照 docs/modules/03-课程与教学/03-API接口设计.md
 
 package course
 
 import (
 	"context"
-	"encoding/json"
-	"math"
+	"errors"
 	"strconv"
 	"time"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/contentsafety"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	courserepo "github.com/lenschain/backend/internal/repository/course"
+	"gorm.io/gorm"
 )
 
 // DiscussionService 讨论区与公告服务接口
@@ -32,19 +33,18 @@ type DiscussionService interface {
 	CreateReply(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64, req *dto.CreateReplyReq) (string, error)
 	DeleteReply(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	// 点赞
-	ToggleLike(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64) (bool, error)
+	LikeDiscussion(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64) (bool, error)
+	UnlikeDiscussion(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64) (bool, error)
 	// 公告
 	CreateAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.CreateAnnouncementReq) (string, error)
 	UpdateAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateAnnouncementReq) error
+	PinAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.PinAnnouncementReq) error
 	DeleteAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	ListAnnouncements(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.AnnouncementListReq) ([]*dto.AnnouncementItem, int64, error)
 	// 评价
 	CreateEvaluation(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.CreateEvaluationReq) (string, error)
 	UpdateEvaluation(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateEvaluationReq) error
 	ListEvaluations(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.EvaluationListReq) ([]*dto.EvaluationItem, *dto.EvaluationSummary, int64, error)
-	// 成绩配置
-	SetGradeConfig(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.GradeConfigReq) error
-	GetGradeConfig(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) (*dto.GradeConfigResp, error)
 }
 
 type discussionService struct {
@@ -55,7 +55,6 @@ type discussionService struct {
 	announcementRepo courserepo.AnnouncementRepository
 	evaluationRepo   courserepo.EvaluationRepository
 	enrollmentRepo   courserepo.EnrollmentRepository
-	gradeConfigRepo  courserepo.GradeConfigRepository
 	userNameQuerier  UserNameQuerier
 }
 
@@ -68,14 +67,13 @@ func NewDiscussionService(
 	announcementRepo courserepo.AnnouncementRepository,
 	evaluationRepo courserepo.EvaluationRepository,
 	enrollmentRepo courserepo.EnrollmentRepository,
-	gradeConfigRepo courserepo.GradeConfigRepository,
 	userNameQuerier UserNameQuerier,
 ) DiscussionService {
 	return &discussionService{
 		courseRepo: courseRepo, discussionRepo: discussionRepo,
 		replyRepo: replyRepo, likeRepo: likeRepo,
 		announcementRepo: announcementRepo, evaluationRepo: evaluationRepo,
-		enrollmentRepo: enrollmentRepo, gradeConfigRepo: gradeConfigRepo,
+		enrollmentRepo:  enrollmentRepo,
 		userNameQuerier: userNameQuerier,
 	}
 }
@@ -83,13 +81,17 @@ func NewDiscussionService(
 // ========== 讨论 ==========
 
 func (s *discussionService) CreateDiscussion(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.CreateDiscussionReq) (string, error) {
-	if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, courseID); err != nil {
+	course, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, courseID)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return "", err
 	}
 
 	discussion := &entity.CourseDiscussion{
 		CourseID: courseID, AuthorID: sc.UserID,
-		Title: req.Title, Content: req.Content,
+		Title: contentsafety.SanitizeMarkdown(req.Title), Content: contentsafety.SanitizeMarkdown(req.Content),
 	}
 	if err := s.discussionRepo.Create(ctx, discussion); err != nil {
 		return "", err
@@ -100,14 +102,17 @@ func (s *discussionService) CreateDiscussion(ctx context.Context, sc *svcctx.Ser
 func (s *discussionService) GetDiscussion(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.DiscussionDetailResp, error) {
 	discussion, err := s.discussionRepo.GetByID(ctx, id)
 	if err != nil {
-		return nil, errcode.ErrInvalidParams.WithMessage("讨论不存在")
+		return nil, errcode.ErrDiscussionNotFound
 	}
 	if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID); err != nil {
 		return nil, err
 	}
 
 	authorName := s.userNameQuerier.GetUserName(ctx, discussion.AuthorID)
-	liked, _ := s.likeRepo.Exists(ctx, id, sc.UserID)
+	liked, err := s.likeRepo.Exists(ctx, id, sc.UserID)
+	if err != nil {
+		return nil, err
+	}
 
 	resp := &dto.DiscussionDetailResp{
 		ID:       strconv.FormatInt(discussion.ID, 10),
@@ -120,7 +125,10 @@ func (s *discussionService) GetDiscussion(ctx context.Context, sc *svcctx.Servic
 	}
 
 	// 加载回复
-	replies, _ := s.replyRepo.ListByDiscussionID(ctx, id)
+	replies, err := s.replyRepo.ListByDiscussionID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	resp.Replies = make([]dto.DiscussionReplyItem, 0, len(replies))
 	for _, r := range replies {
 		rName := s.userNameQuerier.GetUserName(ctx, r.AuthorID)
@@ -152,8 +160,8 @@ func (s *discussionService) ListDiscussions(ctx context.Context, sc *svcctx.Serv
 	}
 
 	discussions, total, err := s.discussionRepo.List(ctx, &courserepo.DiscussionListParams{
-		CourseID: courseID, Keyword: req.Keyword, SortBy: req.SortBy,
-		Page: req.Page, PageSize: req.PageSize,
+		CourseID: courseID,
+		Page:     req.Page, PageSize: req.PageSize,
 	})
 	if err != nil {
 		return nil, 0, err
@@ -164,7 +172,10 @@ func (s *discussionService) ListDiscussions(ctx context.Context, sc *svcctx.Serv
 	for _, d := range discussions {
 		dIDs = append(dIDs, d.ID)
 	}
-	likedIDs, _ := s.likeRepo.ListByUserAndDiscussions(ctx, sc.UserID, dIDs)
+	likedIDs, err := s.likeRepo.ListByUserAndDiscussions(ctx, sc.UserID, dIDs)
+	if err != nil {
+		return nil, 0, err
+	}
 	likedSet := make(map[int64]bool)
 	for _, id := range likedIDs {
 		likedSet[id] = true
@@ -191,9 +202,13 @@ func (s *discussionService) ListDiscussions(ctx context.Context, sc *svcctx.Serv
 func (s *discussionService) DeleteDiscussion(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
 	discussion, err := s.discussionRepo.GetByID(ctx, id)
 	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("讨论不存在")
+		return errcode.ErrDiscussionNotFound
 	}
-	if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID); err != nil {
+	course, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return err
 	}
 	// 作者或教师可删除
@@ -208,9 +223,13 @@ func (s *discussionService) DeleteDiscussion(ctx context.Context, sc *svcctx.Ser
 func (s *discussionService) PinDiscussion(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.PinDiscussionReq) error {
 	discussion, err := s.discussionRepo.GetByID(ctx, id)
 	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("讨论不存在")
+		return errcode.ErrDiscussionNotFound
 	}
-	if _, err := ensureCourseTeacher(ctx, sc, s.courseRepo, discussion.CourseID); err != nil {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, discussion.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return err
 	}
 	return s.discussionRepo.UpdateFields(ctx, id, map[string]interface{}{
@@ -223,93 +242,178 @@ func (s *discussionService) PinDiscussion(ctx context.Context, sc *svcctx.Servic
 func (s *discussionService) CreateReply(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64, req *dto.CreateReplyReq) (string, error) {
 	discussion, err := s.discussionRepo.GetByID(ctx, discussionID)
 	if err != nil {
-		return "", errcode.ErrInvalidParams.WithMessage("讨论不存在")
+		return "", errcode.ErrDiscussionNotFound
 	}
-	if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID); err != nil {
+	course, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return "", err
 	}
 
 	reply := &entity.DiscussionReply{
 		DiscussionID: discussionID, AuthorID: sc.UserID,
-		Content: req.Content,
+		Content: contentsafety.SanitizeMarkdown(req.Content),
 	}
 	if req.ReplyToID != nil {
 		rid, err := snowflake.ParseString(*req.ReplyToID)
-		if err == nil {
-			reply.ReplyToID = &rid
+		if err != nil {
+			return "", errcode.ErrReplyNotFound
 		}
+		replyTo, err := s.replyRepo.GetByID(ctx, rid)
+		if err != nil {
+			return "", errcode.ErrReplyNotFound
+		}
+		if replyTo.DiscussionID != discussionID {
+			return "", errcode.ErrInvalidParams.WithMessage("回复对象不属于当前讨论帖")
+		}
+		reply.ReplyToID = &rid
 	}
 	if err := s.replyRepo.Create(ctx, reply); err != nil {
 		return "", err
 	}
 	// 更新讨论帖回复数和最后回复时间
-	_ = s.discussionRepo.IncrReplyCount(ctx, discussionID, 1)
+	if err := s.discussionRepo.IncrReplyCount(ctx, discussionID, 1); err != nil {
+		return "", err
+	}
 	now := time.Now()
-	_ = s.discussionRepo.UpdateFields(ctx, discussionID, map[string]interface{}{
+	if err := s.discussionRepo.UpdateFields(ctx, discussionID, map[string]interface{}{
 		"last_replied_at": now,
-	})
+	}); err != nil {
+		return "", err
+	}
 	return strconv.FormatInt(reply.ID, 10), nil
 }
 
 func (s *discussionService) DeleteReply(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
 	reply, err := s.replyRepo.GetByID(ctx, id)
 	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("回复不存在")
+		return errcode.ErrReplyNotFound
 	}
-	discussion, _ := s.discussionRepo.GetByID(ctx, reply.DiscussionID)
-	if discussion != nil {
-		if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID); err != nil {
-			return err
-		}
+	discussion, err := s.discussionRepo.GetByID(ctx, reply.DiscussionID)
+	if err != nil {
+		return errcode.ErrDiscussionNotFound
+	}
+	course, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
+		return err
 	}
 	if reply.AuthorID != sc.UserID {
-		if discussion != nil {
-			if err := s.verifyCourseTeacher(ctx, sc, discussion.CourseID); err != nil {
-				return errcode.ErrForbidden
-			}
+		if err := s.verifyCourseTeacher(ctx, sc, discussion.CourseID); err != nil {
+			return errcode.ErrForbidden
 		}
 	}
 	if err := s.replyRepo.SoftDelete(ctx, id); err != nil {
 		return err
 	}
-	_ = s.discussionRepo.IncrReplyCount(ctx, reply.DiscussionID, -1)
-	return nil
+	if err := s.discussionRepo.IncrReplyCount(ctx, reply.DiscussionID, -1); err != nil {
+		return err
+	}
+	remainingReplies, err := s.replyRepo.ListByDiscussionID(ctx, reply.DiscussionID)
+	if err != nil {
+		return err
+	}
+	return s.discussionRepo.UpdateFields(ctx, reply.DiscussionID, map[string]interface{}{
+		"last_replied_at": latestReplyTime(remainingReplies),
+	})
 }
 
 // ========== 点赞 ==========
 
-func (s *discussionService) ToggleLike(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64) (bool, error) {
+func (s *discussionService) LikeDiscussion(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64) (bool, error) {
 	discussion, err := s.discussionRepo.GetByID(ctx, discussionID)
 	if err != nil {
-		return false, errcode.ErrInvalidParams.WithMessage("讨论不存在")
+		return false, errcode.ErrDiscussionNotFound
 	}
-	if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID); err != nil {
+	course, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID)
+	if err != nil {
+		return false, err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return false, err
 	}
 
-	exists, _ := s.likeRepo.Exists(ctx, discussionID, sc.UserID)
+	exists, err := s.likeRepo.Exists(ctx, discussionID, sc.UserID)
+	if err != nil {
+		return false, err
+	}
 	if exists {
-		_ = s.likeRepo.Delete(ctx, discussionID, sc.UserID)
-		_ = s.discussionRepo.IncrLikeCount(ctx, discussionID, -1)
-		return false, nil
+		return true, nil
 	}
 	like := &entity.DiscussionLike{
 		DiscussionID: discussionID, UserID: sc.UserID,
 	}
-	_ = s.likeRepo.Create(ctx, like)
-	_ = s.discussionRepo.IncrLikeCount(ctx, discussionID, 1)
+	if err := s.likeRepo.Create(ctx, like); err != nil {
+		return false, err
+	}
+	if err := s.discussionRepo.IncrLikeCount(ctx, discussionID, 1); err != nil {
+		return false, err
+	}
 	return true, nil
+}
+
+// latestReplyTime 计算剩余回复中的最新回复时间。
+// 删除回复后需要用它回填讨论帖排序字段，保证列表按真实最新回复时间排序。
+func latestReplyTime(replies []*entity.DiscussionReply) *time.Time {
+	var latest *time.Time
+	for _, reply := range replies {
+		if reply == nil {
+			continue
+		}
+		if latest == nil || reply.CreatedAt.After(*latest) {
+			t := reply.CreatedAt
+			latest = &t
+		}
+	}
+	return latest
+}
+
+func (s *discussionService) UnlikeDiscussion(ctx context.Context, sc *svcctx.ServiceContext, discussionID int64) (bool, error) {
+	discussion, err := s.discussionRepo.GetByID(ctx, discussionID)
+	if err != nil {
+		return false, errcode.ErrDiscussionNotFound
+	}
+	course, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, discussion.CourseID)
+	if err != nil {
+		return false, err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
+		return false, err
+	}
+
+	exists, err := s.likeRepo.Exists(ctx, discussionID, sc.UserID)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
+	}
+	if err := s.likeRepo.Delete(ctx, discussionID, sc.UserID); err != nil {
+		return false, err
+	}
+	if err := s.discussionRepo.IncrLikeCount(ctx, discussionID, -1); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // ========== 公告 ==========
 
 func (s *discussionService) CreateAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.CreateAnnouncementReq) (string, error) {
-	if err := s.verifyCourseTeacher(ctx, sc, courseID); err != nil {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, courseID)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return "", err
 	}
 	announcement := &entity.CourseAnnouncement{
 		CourseID: courseID, TeacherID: sc.UserID,
-		Title: req.Title, Content: req.Content,
+		Title: contentsafety.SanitizeMarkdown(req.Title), Content: contentsafety.SanitizeMarkdown(req.Content),
 	}
 	if err := s.announcementRepo.Create(ctx, announcement); err != nil {
 		return "", err
@@ -320,17 +424,21 @@ func (s *discussionService) CreateAnnouncement(ctx context.Context, sc *svcctx.S
 func (s *discussionService) UpdateAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateAnnouncementReq) error {
 	announcement, err := s.announcementRepo.GetByID(ctx, id)
 	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("公告不存在")
+		return errcode.ErrAnnouncementNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, announcement.CourseID); err != nil {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, announcement.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return err
 	}
 	fields := make(map[string]interface{})
 	if req.Title != nil {
-		fields["title"] = *req.Title
+		fields["title"] = contentsafety.SanitizeMarkdown(*req.Title)
 	}
 	if req.Content != nil {
-		fields["content"] = *req.Content
+		fields["content"] = contentsafety.SanitizeMarkdown(*req.Content)
 	}
 	if len(fields) == 0 {
 		return nil
@@ -339,12 +447,34 @@ func (s *discussionService) UpdateAnnouncement(ctx context.Context, sc *svcctx.S
 	return s.announcementRepo.UpdateFields(ctx, id, fields)
 }
 
+func (s *discussionService) PinAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.PinAnnouncementReq) error {
+	announcement, err := s.announcementRepo.GetByID(ctx, id)
+	if err != nil {
+		return errcode.ErrAnnouncementNotFound
+	}
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, announcement.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
+		return err
+	}
+	return s.announcementRepo.UpdateFields(ctx, id, map[string]interface{}{
+		"is_pinned":  req.IsPinned,
+		"updated_at": time.Now(),
+	})
+}
+
 func (s *discussionService) DeleteAnnouncement(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
 	announcement, err := s.announcementRepo.GetByID(ctx, id)
 	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("公告不存在")
+		return errcode.ErrAnnouncementNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, announcement.CourseID); err != nil {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, announcement.CourseID)
+	if err != nil {
+		return err
+	}
+	if err := ensureCourseInteractionAllowed(course); err != nil {
 		return err
 	}
 	return s.announcementRepo.SoftDelete(ctx, id)
@@ -385,13 +515,16 @@ func (s *discussionService) CreateEvaluation(ctx context.Context, sc *svcctx.Ser
 	}
 
 	// 检查是否已评价
-	existing, _ := s.evaluationRepo.GetByStudentAndCourse(ctx, sc.UserID, courseID)
+	existing, err := s.evaluationRepo.GetByStudentAndCourse(ctx, sc.UserID, courseID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", err
+	}
 	if existing != nil {
-		return "", errcode.ErrInvalidParams.WithMessage("已提交过评价")
+		return "", errcode.ErrAlreadyEvaluated
 	}
 	evaluation := &entity.CourseEvaluation{
 		CourseID: courseID, StudentID: sc.UserID,
-		Rating: req.Rating, Comment: req.Comment,
+		Rating: int16(req.Rating), Comment: contentsafety.SanitizeOptionalMarkdown(req.Comment),
 	}
 	if err := s.evaluationRepo.Create(ctx, evaluation); err != nil {
 		return "", err
@@ -402,17 +535,24 @@ func (s *discussionService) CreateEvaluation(ctx context.Context, sc *svcctx.Ser
 func (s *discussionService) UpdateEvaluation(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateEvaluationReq) error {
 	evaluation, err := s.evaluationRepo.GetByID(ctx, id)
 	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("评价不存在")
+		return errcode.ErrEvaluationNotFound
 	}
 	if evaluation.StudentID != sc.UserID {
 		return errcode.ErrForbidden
+	}
+	course, err := ensureCourseStudent(ctx, sc, s.courseRepo, s.enrollmentRepo, evaluation.CourseID)
+	if err != nil {
+		return err
+	}
+	if course.Status != enum.CourseStatusEnded {
+		return errcode.ErrInvalidParams.WithMessage("仅已结束的课程允许评价")
 	}
 	fields := make(map[string]interface{})
 	if req.Rating != nil {
 		fields["rating"] = *req.Rating
 	}
 	if req.Comment != nil {
-		fields["comment"] = *req.Comment
+		fields["comment"] = contentsafety.SanitizeMarkdown(*req.Comment)
 	}
 	if len(fields) == 0 {
 		return nil
@@ -422,7 +562,7 @@ func (s *discussionService) UpdateEvaluation(ctx context.Context, sc *svcctx.Ser
 }
 
 func (s *discussionService) ListEvaluations(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.EvaluationListReq) ([]*dto.EvaluationItem, *dto.EvaluationSummary, int64, error) {
-	if _, err := ensureCourseMember(ctx, sc, s.courseRepo, s.enrollmentRepo, courseID); err != nil {
+	if _, err := ensureCourseTeacher(ctx, sc, s.courseRepo, courseID); err != nil {
 		return nil, nil, 0, err
 	}
 
@@ -437,58 +577,23 @@ func (s *discussionService) ListEvaluations(ctx context.Context, sc *svcctx.Serv
 		items = append(items, &dto.EvaluationItem{
 			ID:          strconv.FormatInt(e.ID, 10),
 			StudentID:   strconv.FormatInt(e.StudentID, 10),
-			StudentName: name, Rating: e.Rating, Comment: e.Comment,
+			StudentName: name, Rating: int(e.Rating), Comment: e.Comment,
 			CreatedAt: e.CreatedAt.Format(time.RFC3339),
 		})
 	}
 
-	avgRating, _ := s.evaluationRepo.GetAvgRating(ctx, courseID)
-	dist, _ := s.evaluationRepo.GetDistribution(ctx, courseID)
+	avgRating, err := s.evaluationRepo.GetAvgRating(ctx, courseID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	dist, err := s.evaluationRepo.GetDistribution(ctx, courseID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	summary := &dto.EvaluationSummary{
 		AvgRating: avgRating, TotalCount: int(total), Distribution: dist,
 	}
 	return items, summary, total, nil
-}
-
-// ========== 成绩配置 ==========
-
-func (s *discussionService) SetGradeConfig(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.GradeConfigReq) error {
-	if err := s.verifyCourseTeacher(ctx, sc, courseID); err != nil {
-		return err
-	}
-	var totalWeight float64
-	for _, item := range req.Items {
-		totalWeight += item.Weight
-	}
-	if math.Abs(totalWeight-100) > 0.0001 {
-		return errcode.ErrInvalidParams.WithMessage("权重总和必须为100%")
-	}
-	configJSON, err := json.Marshal(req)
-	if err != nil {
-		return errcode.ErrInvalidParams.WithMessage("配置格式错误")
-	}
-	config := &entity.CourseGradeConfig{
-		CourseID: courseID, Config: string(configJSON),
-	}
-	return s.gradeConfigRepo.Upsert(ctx, config)
-}
-
-func (s *discussionService) GetGradeConfig(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) (*dto.GradeConfigResp, error) {
-	config, err := s.gradeConfigRepo.GetByCourseID(ctx, courseID)
-	if err != nil {
-		// 未配置，返回空
-		return &dto.GradeConfigResp{Items: []dto.GradeConfigItem{}}, nil
-	}
-	var resp dto.GradeConfigResp
-	if err := json.Unmarshal([]byte(config.Config), &resp); err != nil {
-		return &dto.GradeConfigResp{Items: []dto.GradeConfigItem{}}, nil
-	}
-	var totalWeight float64
-	for _, item := range resp.Items {
-		totalWeight += item.Weight
-	}
-	resp.TotalWeight = totalWeight
-	return &resp, nil
 }
 
 // verifyCourseTeacher 校验当前用户是否为课程负责教师

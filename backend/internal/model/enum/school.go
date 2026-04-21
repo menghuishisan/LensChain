@@ -76,7 +76,6 @@ const (
 	SchoolNotifyBuffering = 2 // 缓冲期通知
 	SchoolNotifyFrozen    = 3 // 冻结通知
 	SchoolNotifyApproved  = 4 // 审核通过
-	SchoolNotifyRejected  = 5 // 审核拒绝
 )
 
 // SchoolNotifyText 通知类型文本映射
@@ -85,7 +84,6 @@ var SchoolNotifyText = map[int16]string{
 	SchoolNotifyBuffering: "缓冲期通知",
 	SchoolNotifyFrozen:    "冻结通知",
 	SchoolNotifyApproved:  "审核通过",
-	SchoolNotifyRejected:  "审核拒绝",
 }
 
 // GetSchoolNotifyText 获取学校通知类型文本

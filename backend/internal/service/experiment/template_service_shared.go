@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/lenschain/backend/internal/model/dto"
+	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
@@ -34,9 +35,9 @@ func (s *templateService) ListShared(ctx context.Context, sc *svcctx.ServiceCont
 		return nil, 0, err
 	}
 
-	items := make([]*dto.TemplateListItem, 0, len(templates))
-	for _, template := range templates {
-		items = append(items, s.toTemplateListItem(ctx, template))
+	items, err := s.buildTemplateListItems(ctx, templates)
+	if err != nil {
+		return nil, 0, err
 	}
 	return items, total, nil
 }
@@ -47,11 +48,22 @@ func (s *templateService) GetSharedByID(ctx context.Context, sc *svcctx.ServiceC
 		return nil, errcode.ErrForbidden
 	}
 
-	template, err := s.templateRepo.GetByIDWithAll(ctx, id)
+	template, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.containerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		s.templateTagRepo,
+		s.tagRepo,
+		s.roleRepo,
+		id,
+	)
 	if err != nil {
 		return nil, errcode.ErrTemplateNotFound
 	}
-	if !template.IsShared || template.Status != 2 {
+	if !template.Template.IsShared || template.Template.Status != enum.TemplateStatusPublished {
 		return nil, errcode.ErrTemplateNotFound
 	}
 	return s.toTemplateResp(ctx, template), nil

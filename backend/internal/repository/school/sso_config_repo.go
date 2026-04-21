@@ -7,6 +7,7 @@ package schoolrepo
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -21,6 +22,8 @@ type SSOConfigRepository interface {
 	GetBySchoolID(ctx context.Context, schoolID int64) (*entity.SchoolSSOConfig, error)
 	UpdateFields(ctx context.Context, schoolID int64, fields map[string]interface{}) error
 	Upsert(ctx context.Context, config *entity.SchoolSSOConfig) error
+	UpdateTestResult(ctx context.Context, schoolID int64, isTested bool, testedAt time.Time) error
+	ToggleEnabled(ctx context.Context, schoolID int64, isEnabled bool, updatedBy int64) error
 }
 
 // ssoConfigRepository SSO配置数据访问实现
@@ -67,7 +70,31 @@ func (r *ssoConfigRepository) Upsert(ctx context.Context, config *entity.SchoolS
 	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "school_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"provider", "is_enabled", "is_tested", "config", "updated_at", "updated_by",
+			"provider", "is_enabled", "is_tested", "config", "tested_at", "updated_at", "updated_by",
 		}),
 	}).Create(config).Error
+}
+
+// UpdateTestResult 更新SSO连接测试结果
+// 测试成功和失败都会记录 tested_at，供启用前校验和后台展示使用。
+func (r *ssoConfigRepository) UpdateTestResult(ctx context.Context, schoolID int64, isTested bool, testedAt time.Time) error {
+	return r.db.WithContext(ctx).Model(&entity.SchoolSSOConfig{}).
+		Where("school_id = ?", schoolID).
+		Updates(map[string]interface{}{
+			"is_tested":  isTested,
+			"tested_at":  testedAt,
+			"updated_at": time.Now(),
+		}).Error
+}
+
+// ToggleEnabled 启用或禁用学校SSO配置
+// 只更新启用状态和修改人，是否允许启用由 service 层根据测试状态判断。
+func (r *ssoConfigRepository) ToggleEnabled(ctx context.Context, schoolID int64, isEnabled bool, updatedBy int64) error {
+	return r.db.WithContext(ctx).Model(&entity.SchoolSSOConfig{}).
+		Where("school_id = ?", schoolID).
+		Updates(map[string]interface{}{
+			"is_enabled": isEnabled,
+			"updated_at": time.Now(),
+			"updated_by": updatedBy,
+		}).Error
 }

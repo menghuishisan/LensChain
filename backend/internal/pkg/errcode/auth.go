@@ -9,19 +9,19 @@ import "net/http"
 
 var (
 	// 认证相关
-	ErrWrongCredentials   = New(40101, http.StatusUnauthorized, "用户名或密码错误")
-	ErrAccountDisabled    = New(40102, http.StatusUnauthorized, "账号已被禁用")
-	ErrAccountArchived    = New(40103, http.StatusUnauthorized, "账号已被归档")
-	ErrAccountLocked      = New(40104, http.StatusUnauthorized, "账号已被锁定，请稍后再试")
-	ErrLoginAttemptsLeft  = New(40105, http.StatusUnauthorized, "密码错误，剩余尝试次数不足")
+	ErrWrongCredentials    = New(40101, http.StatusUnauthorized, "手机号或密码错误")
+	ErrAccountDisabled     = New(40102, http.StatusUnauthorized, "账号已被禁用，请联系管理员")
+	ErrAccountArchived     = New(40103, http.StatusUnauthorized, "账号已归档，请联系管理员")
+	ErrAccountLocked       = New(40104, http.StatusUnauthorized, "账号已被锁定，请稍后再试")
+	ErrLoginAttemptsLeft   = New(40105, http.StatusUnauthorized, "密码错误，剩余尝试次数不足")
 	ErrRefreshTokenExpired = New(40106, http.StatusUnauthorized, "Refresh Token已过期，请重新登录")
 	ErrRefreshTokenInvalid = New(40107, http.StatusUnauthorized, "Refresh Token无效或已被其他设备替换")
-	ErrSSOAuthFailed      = New(40108, http.StatusUnauthorized, "SSO认证失败")
-	ErrSSOAccountNotFound = New(40109, http.StatusUnauthorized, "SSO账号未在平台中绑定")
+	ErrSSOAuthFailed       = New(40108, http.StatusUnauthorized, "SSO认证失败")
+	ErrSSOAccountNotFound  = New(40109, http.StatusUnauthorized, "账号未开通，请联系管理员")
 
 	// 密码相关
-	ErrWrongOldPassword   = New(40011, http.StatusBadRequest, "原密码错误")
-	ErrPasswordComplexity = New(40012, http.StatusBadRequest, "密码不满足复杂度要求")
+	ErrWrongOldPassword      = New(40011, http.StatusBadRequest, "旧密码不正确")
+	ErrPasswordComplexity    = New(40012, http.StatusBadRequest, "新密码不符合复杂度要求")
 	ErrPasswordSameAsCurrent = New(40013, http.StatusBadRequest, "新密码不能与当前密码相同")
 
 	// 用户管理

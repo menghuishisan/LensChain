@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
@@ -73,7 +74,7 @@ func (s *instanceService) persistManualCheckpointScore(ctx context.Context, inst
 				InstanceID:     target.ID,
 				CheckpointID:   checkpoint.ID,
 				StudentID:      target.StudentID,
-				IsPassed:       passed,
+				IsPassed:       checkpointBoolPtr(passed),
 				Score:          &scoreCopy,
 				TeacherComment: comment,
 				GradedBy:       &teacherID,
@@ -239,13 +240,7 @@ func (s *instanceService) resolveCheckpointTargetInstances(ctx context.Context, 
 	if err != nil || len(instances) == 0 {
 		return []*entity.ExperimentInstance{instance}
 	}
-	latestByStudent := make(map[int64]*entity.ExperimentInstance, len(instances))
-	for _, item := range instances {
-		current := latestByStudent[item.StudentID]
-		if current == nil || item.AttemptNo > current.AttemptNo || item.CreatedAt.After(current.CreatedAt) {
-			latestByStudent[item.StudentID] = item
-		}
-	}
+	latestByStudent := buildLatestInstanceByStudent(instances)
 	targets := make([]*entity.ExperimentInstance, 0, len(members))
 	for _, member := range members {
 		if item := latestByStudent[member.StudentID]; item != nil {
@@ -337,7 +332,7 @@ func (s *instanceService) validateSimCheckpoint(ctx context.Context, instance *e
 		if err != nil {
 			result.ErrorMessage = err.Error()
 		} else {
-			result.Passed = s.evaluateSimAssertion(cp.AssertionConfig, state.SceneState)
+			result.Passed = s.evaluateSimAssertion(json.RawMessage(cp.AssertionConfig), state.SceneState)
 			result.CheckOutput = string(state.SceneState)
 			result.Score = cp.Score
 		}
@@ -363,9 +358,18 @@ func (s *instanceService) validateSimCheckpoint(ctx context.Context, instance *e
 
 // validateGroupScriptCheckpoint 在组内所有实例目标容器执行脚本检查点。
 func (s *instanceService) validateGroupScriptCheckpoint(ctx context.Context, cp *entity.TemplateCheckpoint, targets []*entity.ExperimentInstance) (bool, string, json.RawMessage) {
-	memberResults := make([]groupCheckpointMemberResult, 0, len(targets))
+	execTargets, err := s.resolveGroupScriptExecutionTargets(ctx, cp, targets)
+	if err != nil {
+		output := err.Error()
+		return false, output, mustMarshalJSON(map[string]interface{}{
+			"scope":   "group",
+			"message": output,
+		})
+	}
+
+	memberResults := make([]groupCheckpointMemberResult, 0, len(execTargets))
 	allPassed := true
-	for _, target := range targets {
+	for _, target := range execTargets {
 		passed, _, detail := s.validateScriptCheckpoint(ctx, target, cp)
 		member := extractFirstCheckpointMember(detail, target)
 		memberResults = append(memberResults, member)
@@ -387,6 +391,58 @@ func (s *instanceService) validateGroupScriptCheckpoint(ctx context.Context, cp 
 		"scope":   "group",
 		"members": memberResults,
 	})
+}
+
+// resolveGroupScriptExecutionTargets 根据目标容器的角色归属筛选实际执行组级脚本检查点的实例。
+// 角色专属容器只能在拥有该角色的实例上执行，避免将同一目标容器错误地广播到所有组员实例。
+func (s *instanceService) resolveGroupScriptExecutionTargets(
+	ctx context.Context,
+	cp *entity.TemplateCheckpoint,
+	targets []*entity.ExperimentInstance,
+) ([]*entity.ExperimentInstance, error) {
+	if cp == nil || cp.TargetContainer == nil || *cp.TargetContainer == "" || len(targets) == 0 {
+		return targets, nil
+	}
+
+	templateContainer, err := s.templateContainerRepo.GetByTemplateAndName(ctx, targets[0].TemplateID, *cp.TargetContainer)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("组级检查点目标容器不存在")
+		}
+		return nil, err
+	}
+	if templateContainer.RoleID == nil {
+		return targets, nil
+	}
+
+	if targets[0].GroupID == nil {
+		return nil, fmt.Errorf("组级检查点要求实例属于实验分组")
+	}
+	members, err := s.groupMemberRepo.ListByGroupID(ctx, *targets[0].GroupID)
+	if err != nil {
+		return nil, err
+	}
+	memberRoleByStudent := make(map[int64]int64, len(members))
+	for _, member := range members {
+		if member == nil || member.RoleID == nil {
+			continue
+		}
+		memberRoleByStudent[member.StudentID] = *member.RoleID
+	}
+
+	filtered := make([]*entity.ExperimentInstance, 0, len(targets))
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		if memberRoleByStudent[target.StudentID] == *templateContainer.RoleID {
+			filtered = append(filtered, target)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("组级检查点目标容器未部署到任何组员实例")
+	}
+	return filtered, nil
 }
 
 // validateGroupSimCheckpoint 在组内所有 SimEngine 会话上执行状态断言。
@@ -440,10 +496,10 @@ func (s *instanceService) persistCheckpointState(ctx context.Context, cp *entity
 				fields["score"] = nil
 			}
 			_ = s.checkResultRepo.UpdateFields(ctx, result.ID, fields)
-			result.IsPassed = state.IsPassed
+			result.IsPassed = checkpointBoolPtr(state.IsPassed)
 			result.Score = cloneFloat64Ptr(state.Score)
 			result.CheckOutput = cloneStringPtr(state.CheckOutput)
-			result.AssertionResult = cloneRawMessage(state.AssertionResult)
+			result.AssertionResult = cloneDatatypesJSON(state.AssertionResult)
 			result.CheckedAt = checkedAt
 			result.UpdatedAt = checkedAt
 			results = append(results, result)
@@ -459,10 +515,10 @@ func (s *instanceService) persistCheckpointState(ctx context.Context, cp *entity
 			InstanceID:      target.ID,
 			CheckpointID:    cp.ID,
 			StudentID:       target.StudentID,
-			IsPassed:        state.IsPassed,
+			IsPassed:        checkpointBoolPtr(state.IsPassed),
 			Score:           scoreCopy,
 			CheckOutput:     outputCopy,
-			AssertionResult: cloneRawMessage(state.AssertionResult),
+			AssertionResult: cloneDatatypesJSON(state.AssertionResult),
 			CheckedAt:       checkedAt,
 			CreatedAt:       checkedAt,
 			UpdatedAt:       checkedAt,
@@ -501,10 +557,10 @@ func (s *instanceService) evaluateSimAssertion(assertionConfig json.RawMessage, 
 }
 
 // extractFirstCheckpointMember 从断言详情中提取第一个组员结果。
-func extractFirstCheckpointMember(detail json.RawMessage, fallback *entity.ExperimentInstance) groupCheckpointMemberResult {
+func extractFirstCheckpointMember(detail json.RawMessage, sourceInstance *entity.ExperimentInstance) groupCheckpointMemberResult {
 	member := groupCheckpointMemberResult{
-		StudentID:  fallback.StudentID,
-		InstanceID: fallback.ID,
+		StudentID:  sourceInstance.StudentID,
+		InstanceID: sourceInstance.ID,
 	}
 	if detail == nil {
 		return member
@@ -531,7 +587,7 @@ func pickCheckpointResult(results []*entity.CheckpointResult, instanceID int64) 
 	return &entity.CheckpointResult{
 		ID:         snowflake.Generate(),
 		InstanceID: instanceID,
-		IsPassed:   false,
+		IsPassed:   checkpointBoolPtr(false),
 	}
 }
 
@@ -562,14 +618,19 @@ func cloneStringPtr(v *string) *string {
 	return &value
 }
 
-// cloneRawMessage 复制 JSON 原始数据，避免共享底层切片。
-func cloneRawMessage(v json.RawMessage) json.RawMessage {
+// cloneDatatypesJSON 复制 JSONB 内容，避免多个结果共享底层切片。
+func cloneDatatypesJSON(v json.RawMessage) datatypes.JSON {
 	if v == nil {
 		return nil
 	}
-	clone := make(json.RawMessage, len(v))
+	clone := make(datatypes.JSON, len(v))
 	copy(clone, v)
 	return clone
+}
+
+// checkpointBoolPtr 返回布尔值指针，便于与实体层可空字段对齐。
+func checkpointBoolPtr(v bool) *bool {
+	return &v
 }
 
 // derefFloat64 解引用浮点数指针；空值时返回 0，仅用于构造更新字段。

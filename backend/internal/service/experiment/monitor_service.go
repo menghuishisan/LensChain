@@ -19,7 +19,10 @@ import (
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
 )
 
-const monitorQueryPageSize = 10000
+const (
+	monitorQueryPageSize   = 10000
+	overviewAlertListLimit = 10
+)
 
 // MonitorService 监控与统计服务接口。
 type MonitorService interface {
@@ -34,24 +37,27 @@ type MonitorService interface {
 // monitorService 监控与统计服务实现。
 // 统一聚合实例、课程、配额和集群状态，输出教师、校管、超管视角的监控面板数据。
 type monitorService struct {
-	instanceRepo       experimentrepo.InstanceRepository
-	templateRepo       experimentrepo.TemplateRepository
-	imageRepo          experimentrepo.ImageRepository
-	scenarioRepo       experimentrepo.ScenarioRepository
-	quotaRepo          experimentrepo.QuotaRepository
-	checkpointRepo     experimentrepo.CheckpointRepository
-	checkResultRepo    experimentrepo.CheckpointResultRepository
-	courseQuerier      CourseQuerier
-	courseRoster       CourseRosterQuerier
-	userSummaryQuerier UserSummaryQuerier
-	userNameQuerier    UserNameQuerier
-	schoolNameQuerier  SchoolNameQuerier
-	k8sSvc             K8sService
+	instanceRepo          experimentrepo.InstanceRepository
+	instanceContainerRepo experimentrepo.InstanceContainerRepository
+	templateRepo          experimentrepo.TemplateRepository
+	imageRepo             experimentrepo.ImageRepository
+	scenarioRepo          experimentrepo.ScenarioRepository
+	quotaRepo             experimentrepo.QuotaRepository
+	checkpointRepo        experimentrepo.CheckpointRepository
+	checkResultRepo       experimentrepo.CheckpointResultRepository
+	courseQuerier         CourseQuerier
+	courseTemplateQuerier CourseExperimentTemplateQuerier
+	courseRoster          CourseRosterQuerier
+	userSummaryQuerier    UserSummaryQuerier
+	userNameQuerier       UserNameQuerier
+	schoolNameQuerier     SchoolNameQuerier
+	k8sSvc                K8sService
 }
 
 // NewMonitorService 创建监控与统计服务实例。
 func NewMonitorService(
 	instanceRepo experimentrepo.InstanceRepository,
+	instanceContainerRepo experimentrepo.InstanceContainerRepository,
 	templateRepo experimentrepo.TemplateRepository,
 	imageRepo experimentrepo.ImageRepository,
 	scenarioRepo experimentrepo.ScenarioRepository,
@@ -59,6 +65,7 @@ func NewMonitorService(
 	checkpointRepo experimentrepo.CheckpointRepository,
 	checkResultRepo experimentrepo.CheckpointResultRepository,
 	courseQuerier CourseQuerier,
+	courseTemplateQuerier CourseExperimentTemplateQuerier,
 	courseRoster CourseRosterQuerier,
 	userSummaryQuerier UserSummaryQuerier,
 	userNameQuerier UserNameQuerier,
@@ -66,19 +73,21 @@ func NewMonitorService(
 	k8sSvc K8sService,
 ) MonitorService {
 	return &monitorService{
-		instanceRepo:       instanceRepo,
-		templateRepo:       templateRepo,
-		imageRepo:          imageRepo,
-		scenarioRepo:       scenarioRepo,
-		quotaRepo:          quotaRepo,
-		checkpointRepo:     checkpointRepo,
-		checkResultRepo:    checkResultRepo,
-		courseQuerier:      courseQuerier,
-		courseRoster:       courseRoster,
-		userSummaryQuerier: userSummaryQuerier,
-		userNameQuerier:    userNameQuerier,
-		schoolNameQuerier:  schoolNameQuerier,
-		k8sSvc:             k8sSvc,
+		instanceRepo:          instanceRepo,
+		instanceContainerRepo: instanceContainerRepo,
+		templateRepo:          templateRepo,
+		imageRepo:             imageRepo,
+		scenarioRepo:          scenarioRepo,
+		quotaRepo:             quotaRepo,
+		checkpointRepo:        checkpointRepo,
+		checkResultRepo:       checkResultRepo,
+		courseQuerier:         courseQuerier,
+		courseTemplateQuerier: courseTemplateQuerier,
+		courseRoster:          courseRoster,
+		userSummaryQuerier:    userSummaryQuerier,
+		userNameQuerier:       userNameQuerier,
+		schoolNameQuerier:     schoolNameQuerier,
+		k8sSvc:                k8sSvc,
 	}
 }
 
@@ -117,13 +126,7 @@ func (s *monitorService) GetCourseMonitor(ctx context.Context, sc *svcctx.Servic
 		return nil, err
 	}
 
-	instanceByStudent := make(map[int64]*entity.ExperimentInstance)
-	for _, instance := range instances {
-		current := instanceByStudent[instance.StudentID]
-		if current == nil || instance.AttemptNo > current.AttemptNo || instance.CreatedAt.After(current.CreatedAt) {
-			instanceByStudent[instance.StudentID] = instance
-		}
-	}
+	instanceByStudent := buildLatestInstanceByStudent(instances)
 
 	quotaResp, _ := s.buildCourseQuotaUsage(ctx, courseID, sc.SchoolID)
 	students := make([]dto.MonitorStudentItem, 0, len(roster))
@@ -172,11 +175,11 @@ func (s *monitorService) GetCourseMonitor(ctx context.Context, sc *svcctx.Servic
 		}
 
 		switch instance.Status {
-		case enum.InstanceStatusCreating, enum.InstanceStatusRunning, enum.InstanceStatusQueued, enum.InstanceStatusRestoring:
+		case enum.InstanceStatusCreating, enum.InstanceStatusInitializing, enum.InstanceStatusRunning, enum.InstanceStatusQueued:
 			summary.Running++
 		case enum.InstanceStatusPaused:
 			summary.Paused++
-		case enum.InstanceStatusSubmitted:
+		case enum.InstanceStatusCompleted:
 			summary.Completed++
 		default:
 			summary.NotStarted++
@@ -235,29 +238,65 @@ func (s *monitorService) GetCourseStatistics(ctx context.Context, sc *svcctx.Ser
 	if err != nil {
 		return nil, err
 	}
+	roster, err := s.courseRoster.ListCourseStudents(ctx, courseID)
+	if err != nil {
+		return nil, err
+	}
+	totalStudents := len(roster)
 
 	templateInstances := make(map[int64][]*entity.ExperimentInstance)
+	templateIDSet := make(map[int64]struct{})
 	for _, instance := range instances {
 		templateInstances[instance.TemplateID] = append(templateInstances[instance.TemplateID], instance)
+		templateIDSet[instance.TemplateID] = struct{}{}
 	}
 
-	items := make([]dto.TemplateStatisticsItem, 0, len(templateInstances))
-	for templateID, groupedInstances := range templateInstances {
-		template, err := s.templateRepo.GetByIDWithAll(ctx, templateID)
+	if s.courseTemplateQuerier != nil {
+		templateIDs, err := s.courseTemplateQuerier.ListCourseTemplateIDs(ctx, courseID)
+		if err != nil {
+			return nil, err
+		}
+		for _, templateID := range templateIDs {
+			if templateID == 0 {
+				continue
+			}
+			templateIDSet[templateID] = struct{}{}
+		}
+	}
+
+	orderedTemplateIDs := make([]int64, 0, len(templateIDSet))
+	for templateID := range templateIDSet {
+		orderedTemplateIDs = append(orderedTemplateIDs, templateID)
+	}
+	sort.Slice(orderedTemplateIDs, func(i, j int) bool {
+		return orderedTemplateIDs[i] < orderedTemplateIDs[j]
+	})
+
+	items := make([]dto.TemplateStatisticsItem, 0, len(orderedTemplateIDs))
+	for _, templateID := range orderedTemplateIDs {
+		groupedInstances := templateInstances[templateID]
+		templateAggregate, err := loadTemplateAggregate(
+			ctx,
+			s.templateRepo,
+			nil,
+			s.checkpointRepo,
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			templateID,
+		)
 		if err != nil {
 			continue
 		}
 		item := dto.TemplateStatisticsItem{
 			TemplateID:    strconv.FormatInt(templateID, 10),
-			TemplateTitle: template.Title,
-			Statistics:    s.buildTemplateStatistics(ctx, template, groupedInstances),
+			TemplateTitle: templateAggregate.Template.Title,
+			Statistics:    s.buildTemplateStatistics(ctx, templateAggregate, groupedInstances, totalStudents),
 		}
 		items = append(items, item)
 	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].TemplateID < items[j].TemplateID
-	})
 
 	return &dto.ExperimentStatisticsResp{Templates: items}, nil
 }
@@ -289,15 +328,15 @@ func (s *monitorService) GetSchoolMonitor(ctx context.Context, sc *svcctx.Servic
 	if quota, err := s.quotaRepo.GetBySchoolID(ctx, schoolID); err == nil {
 		resourceUsage = dto.MonitorResourceUsage{
 			CPUUsed:     quota.UsedCPU,
-			CPUTotal:    quota.MaxCPU,
+			CPUTotal:    quotaString(derefString(quota.MaxCPU)),
 			MemoryUsed:  quota.UsedMemory,
-			MemoryTotal: quota.MaxMemory,
+			MemoryTotal: quotaString(derefString(quota.MaxMemory)),
 		}
 	}
 
 	courseMap := make(map[int64]*dto.SchoolMonitorCourseItem)
 	activeStudents := make(map[int64]struct{})
-	totalStudents := 0
+	totalStudents := make(map[int64]struct{})
 	runningInstances := 0
 
 	for _, instance := range instances {
@@ -319,7 +358,9 @@ func (s *monitorService) GetSchoolMonitor(ctx context.Context, sc *svcctx.Servic
 				TeacherName:   teacherName,
 				TotalStudents: len(students),
 			}
-			totalStudents += len(students)
+			for _, student := range students {
+				totalStudents[student.StudentID] = struct{}{}
+			}
 			courseMap[courseID] = item
 		}
 		if isActiveInstanceStatus(instance.Status) {
@@ -340,7 +381,7 @@ func (s *monitorService) GetSchoolMonitor(ctx context.Context, sc *svcctx.Servic
 	return &dto.SchoolMonitorResp{
 		TotalInstances:   len(instances),
 		RunningInstances: runningInstances,
-		TotalStudents:    totalStudents,
+		TotalStudents:    len(totalStudents),
 		ActiveStudents:   len(activeStudents),
 		ResourceUsage:    resourceUsage,
 		Courses:          courses,
@@ -416,6 +457,28 @@ func (s *monitorService) GetExperimentOverview(ctx context.Context, sc *svcctx.S
 	}
 
 	schoolUsageMap := make(map[int64]*dto.SchoolUsageItem)
+	if quotas, _, quotaErr := s.quotaRepo.List(ctx, &experimentrepo.QuotaListParams{
+		QuotaLevel: enum.QuotaLevelSchool,
+		Page:       1,
+		PageSize:   monitorQueryPageSize,
+		SortBy:     "created_at",
+		SortOrder:  "desc",
+	}); quotaErr == nil {
+		for _, quota := range quotas {
+			if quota == nil {
+				continue
+			}
+			schoolUsageMap[quota.SchoolID] = &dto.SchoolUsageItem{
+				SchoolID:          strconv.FormatInt(quota.SchoolID, 10),
+				SchoolName:        s.schoolNameQuerier.GetSchoolName(ctx, quota.SchoolID),
+				CPUUsed:           quota.UsedCPU,
+				MemoryUsed:        quota.UsedMemory,
+				QuotaCPU:          quotaString(derefString(quota.MaxCPU)),
+				QuotaMemory:       quotaString(derefString(quota.MaxMemory)),
+				QuotaUsagePercent: percentString(quota.UsedCPU, derefString(quota.MaxCPU)),
+			}
+		}
+	}
 	runningInstances := 0
 	for _, instance := range instances {
 		if isActiveInstanceStatus(instance.Status) {
@@ -428,10 +491,11 @@ func (s *monitorService) GetExperimentOverview(ctx context.Context, sc *svcctx.S
 				SchoolName: s.schoolNameQuerier.GetSchoolName(ctx, instance.SchoolID),
 			}
 			if quota, quotaErr := s.quotaRepo.GetBySchoolID(ctx, instance.SchoolID); quotaErr == nil {
-				item.QuotaCPU = quota.MaxCPU
-				item.QuotaMemory = quota.MaxMemory
+				item.QuotaCPU = quotaString(derefString(quota.MaxCPU))
+				item.QuotaMemory = quotaString(derefString(quota.MaxMemory))
 				item.CPUUsed = quota.UsedCPU
 				item.MemoryUsed = quota.UsedMemory
+				item.QuotaUsagePercent = percentString(quota.UsedCPU, derefString(quota.MaxCPU))
 			}
 			schoolUsageMap[instance.SchoolID] = item
 		}
@@ -448,6 +512,8 @@ func (s *monitorService) GetExperimentOverview(ctx context.Context, sc *svcctx.S
 		return schoolUsage[i].SchoolID < schoolUsage[j].SchoolID
 	})
 
+	alertInstances := buildOverviewAlertItems(ctx, instances, s.userSummaryQuerier, s.schoolNameQuerier)
+
 	return &dto.ExperimentOverviewResp{
 		TotalInstances:   len(instances),
 		RunningInstances: runningInstances,
@@ -456,6 +522,7 @@ func (s *monitorService) GetExperimentOverview(ctx context.Context, sc *svcctx.S
 		PendingReviews:   pendingImages + pendingScenarios,
 		ClusterStatus:    clusterInfo,
 		SchoolUsage:      schoolUsage,
+		AlertInstances:   alertInstances,
 	}, nil
 }
 
@@ -485,14 +552,12 @@ func (s *monitorService) GetContainerResources(ctx context.Context, sc *svcctx.S
 		Nodes:       make([]dto.ContainerResourceNode, 0, len(nodes)),
 	}
 	for _, node := range nodes {
-		if node.Status == "Ready" {
-			resp.RunningContainers += node.PodCount
-		}
-		resp.TotalContainers += node.PodCount
+		resp.RunningContainers += node.RunningContainers
+		resp.TotalContainers += node.ContainerCount
 		resp.Nodes = append(resp.Nodes, dto.ContainerResourceNode{
 			NodeName:       node.Name,
 			Status:         node.Status,
-			ContainerCount: node.PodCount,
+			ContainerCount: node.ContainerCount,
 			CPUCapacity:    node.CPUTotal,
 			CPUUsed:        node.CPUUsed,
 			MemoryCapacity: node.MemTotal,
@@ -543,7 +608,8 @@ func (s *monitorService) GetK8sClusterStatus(ctx context.Context, sc *svcctx.Ser
 	return resp, nil
 }
 
-// ensureCourseTeacherAccess 校验课程教师/超管访问权限。
+// ensureCourseTeacherAccess 校验课程教师访问权限。
+// 课程实验监控与课程实验统计仅允许课程教师访问；学校管理员应使用学校管理员视角接口。
 func (s *monitorService) ensureCourseTeacherAccess(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) error {
 	if sc.IsSuperAdmin() {
 		return nil
@@ -562,49 +628,61 @@ func (s *monitorService) ensureCourseTeacherAccess(ctx context.Context, sc *svcc
 	if sc.IsTeacher() && teacherID == sc.UserID {
 		return nil
 	}
-	if sc.IsSchoolAdmin() {
-		return nil
-	}
 	return errcode.ErrForbidden
 }
 
 // instanceMonitorMetrics 计算实例的监控指标。
 func (s *monitorService) instanceMonitorMetrics(ctx context.Context, instance *entity.ExperimentInstance) ([]entity.InstanceContainer, int, int) {
-	fullInstance, err := s.instanceRepo.GetByIDWithAll(ctx, instance.ID)
-	if err != nil || fullInstance == nil {
+	instanceAggregate, err := loadInstanceAggregate(ctx, s.instanceRepo, s.instanceContainerRepo, s.checkResultRepo, instance.ID)
+	if err != nil || instanceAggregate == nil {
 		return nil, 0, 0
 	}
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
-	if err != nil || template == nil {
-		return fullInstance.Containers, 0, 0
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		nil,
+		s.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
+	if err != nil || templateAggregate == nil {
+		return cloneInstanceContainers(instanceAggregate.Containers), 0, 0
 	}
 	passed := 0
-	total := len(template.Checkpoints)
-	for i := range fullInstance.CheckpointResults {
-		result := fullInstance.CheckpointResults[i]
-		if result.IsPassed {
+	total := len(templateAggregate.Checkpoints)
+	for i := range instanceAggregate.CheckpointResults {
+		result := instanceAggregate.CheckpointResults[i]
+		if result.IsPassed != nil && *result.IsPassed {
 			passed++
 		}
 	}
-	return fullInstance.Containers, passed, total
+	return cloneInstanceContainers(instanceAggregate.Containers), passed, total
 }
 
 // buildTemplateStatistics 构建单个模板的统计数据。
-func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *entity.ExperimentTemplate, instances []*entity.ExperimentInstance) dto.TemplateStatisticsData {
+func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *TemplateAggregate, instances []*entity.ExperimentInstance, totalStudents int) dto.TemplateStatisticsData {
 	stats := dto.TemplateStatisticsData{
-		MinScore: 0,
+		TotalStudents: totalStudents,
+		MinScore:      0,
 	}
 	if len(instances) == 0 {
 		return stats
 	}
 
-	studentSet := make(map[int64]struct{})
+	latestInstanceByStudent := buildLatestInstanceByStudent(instances)
+	maxAttemptByStudent := make(map[int64]int)
 	scoreCount := 0
 	totalScore := 0.0
 	totalAttempts := 0
 	totalDurationMinutes := 0
 	completedDurations := 0
+	minScoreInitialized := false
 	checkpointRates := make(map[int64]*dto.CheckpointPassRateItem)
+	checkpointScoreCounts := make(map[int64]int)
 
 	for _, cp := range template.Checkpoints {
 		item := &dto.CheckpointPassRateItem{
@@ -614,10 +692,18 @@ func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *
 		checkpointRates[cp.ID] = item
 	}
 
-	for index, instance := range instances {
-		studentSet[instance.StudentID] = struct{}{}
-		totalAttempts += instance.AttemptNo
-		if instance.Status == enum.InstanceStatusSubmitted {
+	for _, instance := range instances {
+		if maxAttemptByStudent[instance.StudentID] < instance.AttemptNo {
+			maxAttemptByStudent[instance.StudentID] = instance.AttemptNo
+		}
+	}
+
+	for _, attemptNo := range maxAttemptByStudent {
+		totalAttempts += attemptNo
+	}
+
+	for _, instance := range latestInstanceByStudent {
+		if instance.Status == enum.InstanceStatusCompleted {
 			stats.CompletedCount++
 		}
 		if instance.StartedAt != nil {
@@ -626,8 +712,9 @@ func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *
 		if instance.TotalScore != nil {
 			totalScore += *instance.TotalScore
 			scoreCount++
-			if index == 0 || *instance.TotalScore < stats.MinScore {
+			if !minScoreInitialized || *instance.TotalScore < stats.MinScore {
 				stats.MinScore = *instance.TotalScore
+				minScoreInitialized = true
 			}
 			if *instance.TotalScore > stats.MaxScore {
 				stats.MaxScore = *instance.TotalScore
@@ -659,7 +746,7 @@ func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *
 			if item == nil {
 				continue
 			}
-			if result.IsPassed {
+			if result.IsPassed != nil && *result.IsPassed {
 				if item.PassRate == nil {
 					item.PassRate = floatPointer(0)
 				}
@@ -670,6 +757,7 @@ func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *
 					item.AvgScore = floatPointer(0)
 				}
 				*item.AvgScore += *result.Score
+				checkpointScoreCounts[result.CheckpointID]++
 				if item.MaxScore == nil || *result.Score > *item.MaxScore {
 					item.MaxScore = floatPointer(*result.Score)
 				}
@@ -677,10 +765,11 @@ func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *
 		}
 	}
 
-	stats.TotalStudents = len(studentSet)
 	if stats.TotalStudents > 0 {
 		stats.CompletionRate = float64(stats.CompletedCount) / float64(stats.TotalStudents) * 100
-		stats.AvgAttempts = float64(totalAttempts) / float64(stats.TotalStudents)
+	}
+	if len(latestInstanceByStudent) > 0 {
+		stats.AvgAttempts = float64(totalAttempts) / float64(len(latestInstanceByStudent))
 	}
 	if scoreCount > 0 {
 		stats.AvgScore = totalScore / float64(scoreCount)
@@ -698,8 +787,8 @@ func (s *monitorService) buildTemplateStatistics(ctx context.Context, template *
 		if item.PassRate != nil && stats.TotalStudents > 0 {
 			*item.PassRate = *item.PassRate / float64(stats.TotalStudents) * 100
 		}
-		if item.AvgScore != nil && scoreCount > 0 {
-			*item.AvgScore = *item.AvgScore / float64(scoreCount)
+		if item.AvgScore != nil && checkpointScoreCounts[cp.ID] > 0 {
+			*item.AvgScore = *item.AvgScore / float64(checkpointScoreCounts[cp.ID])
 		}
 		stats.CheckpointPassRates = append(stats.CheckpointPassRates, *item)
 	}
@@ -713,9 +802,9 @@ func (s *monitorService) buildCourseQuotaUsage(ctx context.Context, courseID, sc
 	if err == nil {
 		return &dto.MonitorResourceUsage{
 			CPUUsed:     quota.UsedCPU,
-			CPUTotal:    quota.MaxCPU,
+			CPUTotal:    quotaString(derefString(quota.MaxCPU)),
 			MemoryUsed:  quota.UsedMemory,
-			MemoryTotal: quota.MaxMemory,
+			MemoryTotal: quotaString(derefString(quota.MaxMemory)),
 		}, nil
 	}
 	quota, err = s.quotaRepo.GetBySchoolID(ctx, schoolID)
@@ -724,10 +813,62 @@ func (s *monitorService) buildCourseQuotaUsage(ctx context.Context, courseID, sc
 	}
 	return &dto.MonitorResourceUsage{
 		CPUUsed:     quota.UsedCPU,
-		CPUTotal:    quota.MaxCPU,
+		CPUTotal:    quotaString(derefString(quota.MaxCPU)),
 		MemoryUsed:  quota.UsedMemory,
-		MemoryTotal: quota.MaxMemory,
+		MemoryTotal: quotaString(derefString(quota.MaxMemory)),
 	}, nil
+}
+
+// buildOverviewAlertItems 构建全局监控页的异常实例告警列表。
+// 仅收集当前处于“异常”状态的实例，按最近更新时间倒序截取固定数量，
+// 供超管概览页直接展示并跳转到强制回收操作。
+func buildOverviewAlertItems(
+	ctx context.Context,
+	instances []*entity.ExperimentInstance,
+	userSummaryQuerier UserSummaryQuerier,
+	schoolNameQuerier SchoolNameQuerier,
+) []dto.OverviewAlertItem {
+	errorInstances := make([]*entity.ExperimentInstance, 0)
+	for _, instance := range instances {
+		if instance == nil || instance.Status != enum.InstanceStatusError {
+			continue
+		}
+		errorInstances = append(errorInstances, instance)
+	}
+	sort.Slice(errorInstances, func(i, j int) bool {
+		return errorInstances[i].UpdatedAt.After(errorInstances[j].UpdatedAt)
+	})
+	if len(errorInstances) > overviewAlertListLimit {
+		errorInstances = errorInstances[:overviewAlertListLimit]
+	}
+
+	items := make([]dto.OverviewAlertItem, 0, len(errorInstances))
+	for _, instance := range errorInstances {
+		studentName := ""
+		if userSummaryQuerier != nil {
+			if summary := userSummaryQuerier.GetUserSummary(ctx, instance.StudentID); summary != nil {
+				studentName = summary.Name
+			}
+		}
+		schoolName := ""
+		if schoolNameQuerier != nil {
+			schoolName = schoolNameQuerier.GetSchoolName(ctx, instance.SchoolID)
+		}
+		errorMessage := ""
+		if instance.ErrorMessage != nil {
+			errorMessage = *instance.ErrorMessage
+		}
+		items = append(items, dto.OverviewAlertItem{
+			InstanceID:   strconv.FormatInt(instance.ID, 10),
+			StudentID:    strconv.FormatInt(instance.StudentID, 10),
+			StudentName:  studentName,
+			SchoolID:     strconv.FormatInt(instance.SchoolID, 10),
+			SchoolName:   schoolName,
+			ErrorMessage: errorMessage,
+			UpdatedAt:    instance.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return items
 }
 
 // floatPointer 创建 float64 指针，便于聚合统计时原地更新。
@@ -736,11 +877,23 @@ func floatPointer(value float64) *float64 {
 }
 
 // isActiveInstanceStatus 判断实例是否属于教师/管理员监控中的活跃运行态。
-func isActiveInstanceStatus(status int) bool {
+func isActiveInstanceStatus(status int16) bool {
 	switch status {
-	case enum.InstanceStatusCreating, enum.InstanceStatusRunning, enum.InstanceStatusQueued, enum.InstanceStatusRestoring:
+	case enum.InstanceStatusCreating, enum.InstanceStatusInitializing, enum.InstanceStatusRunning, enum.InstanceStatusQueued:
 		return true
 	default:
 		return false
 	}
+}
+
+// cloneInstanceContainers 将实例容器指针切片转换为值切片，避免 service 对外暴露可变聚合引用。
+func cloneInstanceContainers(containers []*entity.InstanceContainer) []entity.InstanceContainer {
+	items := make([]entity.InstanceContainer, 0, len(containers))
+	for _, container := range containers {
+		if container == nil {
+			continue
+		}
+		items = append(items, *container)
+	}
+	return items
 }

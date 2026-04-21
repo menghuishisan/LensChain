@@ -656,12 +656,11 @@ type CheckpointResp struct {
 // CreateInitScriptReq 添加初始化脚本请求
 // POST /api/v1/experiment-templates/:id/init-scripts
 type CreateInitScriptReq struct {
-	TargetContainer string  `json:"target_container" binding:"required,max=100"`
-	ScriptContent   string  `json:"script_content" binding:"required"`
-	ScriptLanguage  string  `json:"script_language" binding:"required,max=20"`
-	ExecutionOrder  int     `json:"execution_order"`
-	Timeout         *int    `json:"timeout" binding:"omitempty,min=1"`
-	Description     *string `json:"description"`
+	TargetContainer string `json:"target_container" binding:"required,max=100"`
+	ScriptContent   string `json:"script_content" binding:"required"`
+	ScriptLanguage  string `json:"script_language" binding:"required,max=20"`
+	ExecutionOrder  int    `json:"execution_order"`
+	Timeout         *int   `json:"timeout" binding:"omitempty,min=1"`
 }
 
 // UpdateInitScriptReq 编辑初始化脚本请求
@@ -672,19 +671,17 @@ type UpdateInitScriptReq struct {
 	ScriptLanguage  *string `json:"script_language" binding:"omitempty,max=20"`
 	ExecutionOrder  *int    `json:"execution_order"`
 	Timeout         *int    `json:"timeout" binding:"omitempty,min=1"`
-	Description     *string `json:"description"`
 }
 
 // InitScriptResp 初始化脚本响应
 type InitScriptResp struct {
-	ID              string  `json:"id"`
-	TemplateID      string  `json:"template_id"`
-	TargetContainer string  `json:"target_container"`
-	ScriptContent   string  `json:"script_content"`
-	ScriptLanguage  string  `json:"script_language"`
-	ExecutionOrder  int     `json:"execution_order"`
-	Timeout         int     `json:"timeout"`
-	Description     *string `json:"description"`
+	ID              string `json:"id"`
+	TemplateID      string `json:"template_id"`
+	TargetContainer string `json:"target_container"`
+	ScriptContent   string `json:"script_content"`
+	ScriptLanguage  string `json:"script_language"`
+	ExecutionOrder  int    `json:"execution_order"`
+	Timeout         int    `json:"timeout"`
 }
 
 // ========== 仿真场景库 DTO ==========
@@ -692,42 +689,34 @@ type InitScriptResp struct {
 // CreateScenarioReq 上传自定义仿真场景请求
 // POST /api/v1/sim-scenarios
 type CreateScenarioReq struct {
-	Name                string          `json:"name" binding:"required,max=100"`
-	Code                string          `json:"code" binding:"required,max=100"`
-	Description         *string         `json:"description"`
-	Category            string          `json:"category" binding:"required,max=50"`
-	Ecosystem           *string         `json:"ecosystem" binding:"omitempty,max=50"`
-	TimeControlMode     string          `json:"time_control_mode" binding:"required,oneof=process reactive continuous"`
-	ContainerImageURL   string          `json:"container_image_url" binding:"required,max=500"`
-	ContainerImageSize  *string         `json:"container_image_size" binding:"omitempty,max=20"`
-	GrpcPort            *int            `json:"grpc_port" binding:"omitempty,min=1,max=65535"`
-	DefaultParams       json.RawMessage `json:"default_params"`
-	DefaultInitialState json.RawMessage `json:"default_initial_state"`
-	DataSourceModes     json.RawMessage `json:"data_source_modes"`
-	RendererType        *string         `json:"renderer_type" binding:"omitempty,max=50"`
-	RendererConfig      json.RawMessage `json:"renderer_config"`
-	LinkGroupID         *string         `json:"link_group_id"`
-	DocumentationURL    *string         `json:"documentation_url" binding:"omitempty,max=500"`
+	Name               string          `json:"name" binding:"required,max=100"`
+	Code               string          `json:"code" binding:"required,max=100"`
+	Description        *string         `json:"description"`
+	Category           string          `json:"category" binding:"required,max=50"`
+	AlgorithmType      string          `json:"algorithm_type" binding:"required,max=100"`
+	TimeControlMode    string          `json:"time_control_mode" binding:"required,oneof=process reactive continuous"`
+	ContainerImageURL  string          `json:"container_image_url" binding:"required,max=500"`
+	ContainerImageSize *string         `json:"container_image_size" binding:"omitempty,max=20"`
+	DefaultParams      json.RawMessage `json:"default_params"`
+	InteractionSchema  json.RawMessage `json:"interaction_schema"`
+	DataSourceMode     int16           `json:"data_source_mode" binding:"required,oneof=1 2 3"`
+	DefaultSize        json.RawMessage `json:"default_size"`
 }
 
 // UpdateScenarioReq 编辑场景信息请求
 // PUT /api/v1/sim-scenarios/:id
 type UpdateScenarioReq struct {
-	Name                *string         `json:"name" binding:"omitempty,max=100"`
-	Description         *string         `json:"description"`
-	Category            *string         `json:"category" binding:"omitempty,max=50"`
-	Ecosystem           *string         `json:"ecosystem" binding:"omitempty,max=50"`
-	TimeControlMode     *string         `json:"time_control_mode" binding:"omitempty,oneof=process reactive continuous"`
-	ContainerImageURL   *string         `json:"container_image_url" binding:"omitempty,max=500"`
-	ContainerImageSize  *string         `json:"container_image_size" binding:"omitempty,max=20"`
-	GrpcPort            *int            `json:"grpc_port" binding:"omitempty,min=1,max=65535"`
-	DefaultParams       json.RawMessage `json:"default_params"`
-	DefaultInitialState json.RawMessage `json:"default_initial_state"`
-	DataSourceModes     json.RawMessage `json:"data_source_modes"`
-	RendererType        *string         `json:"renderer_type" binding:"omitempty,max=50"`
-	RendererConfig      json.RawMessage `json:"renderer_config"`
-	LinkGroupID         *string         `json:"link_group_id"`
-	DocumentationURL    *string         `json:"documentation_url" binding:"omitempty,max=500"`
+	Name               *string         `json:"name" binding:"omitempty,max=100"`
+	Description        *string         `json:"description"`
+	Category           *string         `json:"category" binding:"omitempty,max=50"`
+	AlgorithmType      *string         `json:"algorithm_type" binding:"omitempty,max=100"`
+	TimeControlMode    *string         `json:"time_control_mode" binding:"omitempty,oneof=process reactive continuous"`
+	ContainerImageURL  *string         `json:"container_image_url" binding:"omitempty,max=500"`
+	ContainerImageSize *string         `json:"container_image_size" binding:"omitempty,max=20"`
+	DefaultParams      json.RawMessage `json:"default_params"`
+	InteractionSchema  json.RawMessage `json:"interaction_schema"`
+	DataSourceMode     *int16          `json:"data_source_mode" binding:"omitempty,oneof=1 2 3"`
+	DefaultSize        json.RawMessage `json:"default_size"`
 }
 
 // ReviewScenarioReq 审核场景请求
@@ -744,61 +733,57 @@ type ScenarioListReq struct {
 	PageSize        int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Keyword         string `form:"keyword"`
 	Category        string `form:"category"`
-	Ecosystem       string `form:"ecosystem"`
+	AlgorithmType   string `form:"algorithm_type"`
 	SourceType      int16  `form:"source_type" binding:"omitempty,oneof=1 2"`
 	Status          int16  `form:"status" binding:"omitempty,oneof=1 2 3 4"`
 	TimeControlMode string `form:"time_control_mode" binding:"omitempty,oneof=process reactive continuous"`
+	DataSourceMode  int16  `form:"data_source_mode" binding:"omitempty,oneof=1 2 3"`
 	SortBy          string `form:"sort_by"`
 	SortOrder       string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
 // ScenarioResp 仿真场景详情响应
 type ScenarioResp struct {
-	ID                  string          `json:"id"`
-	Name                string          `json:"name"`
-	Code                string          `json:"code"`
-	Description         *string         `json:"description"`
-	Category            string          `json:"category"`
-	CategoryText        string          `json:"category_text"`
-	Ecosystem           *string         `json:"ecosystem"`
-	SourceType          int16           `json:"source_type"`
-	SourceTypeText      string          `json:"source_type_text"`
-	UploadedBy          *string         `json:"uploaded_by"`
-	UploaderName        *string         `json:"uploader_name"`
-	Status              int16           `json:"status"`
-	StatusText          string          `json:"status_text"`
-	TimeControlMode     string          `json:"time_control_mode"`
-	ContainerImageURL   string          `json:"container_image_url"`
-	ContainerImageSize  *string         `json:"container_image_size"`
-	GrpcPort            int             `json:"grpc_port"`
-	DefaultParams       json.RawMessage `json:"default_params"`
-	DefaultInitialState json.RawMessage `json:"default_initial_state"`
-	DataSourceModes     json.RawMessage `json:"data_source_modes"`
-	RendererType        *string         `json:"renderer_type"`
-	RendererConfig      json.RawMessage `json:"renderer_config"`
-	LinkGroupID         *string         `json:"link_group_id"`
-	LinkGroupName       *string         `json:"link_group_name"`
-	DocumentationURL    *string         `json:"documentation_url"`
-	UsageCount          int             `json:"usage_count"`
-	CreatedAt           string          `json:"created_at"`
-	UpdatedAt           string          `json:"updated_at"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Code               string          `json:"code"`
+	Description        *string         `json:"description"`
+	Category           string          `json:"category"`
+	CategoryText       string          `json:"category_text"`
+	AlgorithmType      string          `json:"algorithm_type"`
+	SourceType         int16           `json:"source_type"`
+	SourceTypeText     string          `json:"source_type_text"`
+	UploadedBy         *string         `json:"uploaded_by"`
+	UploaderName       *string         `json:"uploader_name"`
+	Status             int16           `json:"status"`
+	StatusText         string          `json:"status_text"`
+	TimeControlMode    string          `json:"time_control_mode"`
+	ContainerImageURL  string          `json:"container_image_url"`
+	ContainerImageSize *string         `json:"container_image_size"`
+	DefaultParams      json.RawMessage `json:"default_params"`
+	InteractionSchema  json.RawMessage `json:"interaction_schema"`
+	DataSourceMode     int16           `json:"data_source_mode"`
+	DataSourceModeText string          `json:"data_source_mode_text"`
+	DefaultSize        json.RawMessage `json:"default_size"`
+	CreatedAt          string          `json:"created_at"`
+	UpdatedAt          string          `json:"updated_at"`
 }
 
 // ScenarioListItem 仿真场景列表项
 type ScenarioListItem struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Code            string  `json:"code"`
-	Category        string  `json:"category"`
-	CategoryText    string  `json:"category_text"`
-	Ecosystem       *string `json:"ecosystem"`
-	SourceType      int16   `json:"source_type"`
-	SourceTypeText  string  `json:"source_type_text"`
-	Status          int16   `json:"status"`
-	StatusText      string  `json:"status_text"`
-	TimeControlMode string  `json:"time_control_mode"`
-	UsageCount      int     `json:"usage_count"`
-	CreatedAt       string  `json:"created_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Code            string `json:"code"`
+	Category        string `json:"category"`
+	CategoryText    string `json:"category_text"`
+	AlgorithmType   string `json:"algorithm_type"`
+	SourceType      int16  `json:"source_type"`
+	SourceTypeText  string `json:"source_type_text"`
+	Status          int16  `json:"status"`
+	StatusText      string `json:"status_text"`
+	TimeControlMode string `json:"time_control_mode"`
+	DataSourceMode  int16  `json:"data_source_mode"`
+	CreatedAt       string `json:"created_at"`
 }
 
 // ========== 联动组 DTO ==========

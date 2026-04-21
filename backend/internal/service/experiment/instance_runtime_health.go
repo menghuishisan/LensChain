@@ -1,3 +1,8 @@
+// instance_runtime_health.go
+// 模块04 — 实验环境：实例运行时健康判定辅助
+// 负责封装实例运行容器健康状态判定规则，供调度器与实例 service 做异常识别与恢复编排
+// 该文件只承载模块04内部业务判定，不直接执行 K8s 操作或状态更新
+
 package experiment
 
 import "strings"

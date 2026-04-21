@@ -47,7 +47,10 @@ func NewExperimentScheduler(
 	versionRepo SchedulerImageVersionRepositoryLike,
 	k8sSvc K8sService,
 ) *ExperimentScheduler {
-	concrete, _ := instanceSvc.(*instanceService)
+	concrete, ok := instanceSvc.(*instanceService)
+	if !ok || concrete == nil {
+		panic("experiment scheduler requires concrete *instanceService")
+	}
 	return &ExperimentScheduler{
 		instanceSvc:        concrete,
 		instanceRepo:       instanceRepo,
@@ -176,7 +179,7 @@ func (s *ExperimentScheduler) scanRuntimeHealth(ctx context.Context) {
 		return
 	}
 	instances, _, err := s.instanceRepo.List(ctx, &experimentrepo.InstanceListParams{
-		Statuses: []int{enum.InstanceStatusRunning, enum.InstanceStatusRestoring},
+		Statuses: []int16{enum.InstanceStatusRunning, enum.InstanceStatusInitializing},
 		Page:     1,
 		PageSize: 10000,
 	})
@@ -193,11 +196,18 @@ func (s *ExperimentScheduler) inspectInstanceRuntimeHealth(ctx context.Context, 
 	if instance == nil || instance.Namespace == nil || strings.TrimSpace(*instance.Namespace) == "" {
 		return
 	}
-	fullInstance, err := s.instanceSvc.instanceRepo.GetByIDWithAll(ctx, instance.ID)
-	if err != nil || fullInstance == nil {
+	instanceAggregate, err := loadInstanceAggregate(
+		ctx,
+		s.instanceSvc.instanceRepo,
+		s.instanceSvc.containerRepo,
+		s.instanceSvc.checkResultRepo,
+		instance.ID,
+	)
+	if err != nil || instanceAggregate == nil {
 		return
 	}
-	for _, container := range fullInstance.Containers {
+	fullInstance := instanceAggregate.Instance
+	for _, container := range instanceAggregate.Containers {
 		if container.PodName == nil || strings.TrimSpace(*container.PodName) == "" {
 			continue
 		}
@@ -225,7 +235,7 @@ func (s *ExperimentScheduler) handleInstanceRuntimeFailure(ctx context.Context, 
 	})
 	instance.Status = enum.InstanceStatusError
 	instance.ErrorMessage = &errorMessage
-	s.instanceSvc.pushCourseMonitorStatusChange(instance, oldStatus, enum.InstanceStatusError)
+	s.instanceSvc.pushCourseMonitorStatusChange(instance, int(oldStatus), int(enum.InstanceStatusError))
 	s.instanceSvc.pushCourseMonitorInstanceError(instance, errorMessage)
 
 	snapshots, err := s.instanceSvc.snapshotRepo.ListByInstanceID(ctx, instance.ID)
@@ -236,20 +246,31 @@ func (s *ExperimentScheduler) handleInstanceRuntimeFailure(ctx context.Context, 
 	if snapshotID == 0 {
 		return
 	}
-	template, err := s.instanceSvc.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
-	if err != nil || template == nil {
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.instanceSvc.templateRepo,
+		s.instanceSvc.templateContainerRepo,
+		s.instanceSvc.checkpointRepo,
+		s.instanceSvc.initScriptRepo,
+		s.instanceSvc.simSceneRepo,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
+	if err != nil || templateAggregate == nil {
 		return
 	}
 	if destroyErr := s.instanceSvc.destroyEnvironment(ctx, instance); destroyErr != nil {
 		return
 	}
 	_ = s.instanceSvc.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{
-		"status":        enum.InstanceStatusRestoring,
+		"status":        enum.InstanceStatusInitializing,
 		"error_message": errorMessage,
 		"updated_at":    time.Now(),
 	})
-	instance.Status = enum.InstanceStatusRestoring
-	go s.instanceSvc.provisionEnvironment(context.Background(), instance, template, strconv.FormatInt(snapshotID, 10), false)
+	instance.Status = enum.InstanceStatusInitializing
+	go s.instanceSvc.provisionEnvironment(context.Background(), instance, templateAggregate, strconv.FormatInt(snapshotID, 10), false)
 }
 
 // scanAndReclaim 扫描运行中的实例，并按条件执行回收。
@@ -259,11 +280,11 @@ func (s *ExperimentScheduler) scanAndReclaim(ctx context.Context, includeCourseE
 	}
 
 	instances, _, err := s.instanceRepo.List(ctx, &experimentrepo.InstanceListParams{
-		Statuses: []int{
+		Statuses: []int16{
 			enum.InstanceStatusRunning,
 			enum.InstanceStatusPaused,
-			enum.InstanceStatusRestoring,
-			enum.InstanceStatusSubmitted,
+			enum.InstanceStatusInitializing,
+			enum.InstanceStatusCompleted,
 		},
 		Page:     1,
 		PageSize: 10000,
@@ -302,7 +323,7 @@ func (s *ExperimentScheduler) scanAndReclaim(ctx context.Context, includeCourseE
 				reason = "course_ended"
 			}
 		}
-		if reason == "" && instance.Status == enum.InstanceStatusSubmitted &&
+		if reason == "" && instance.Status == enum.InstanceStatusCompleted &&
 			shouldReclaimSubmitted(instance, template, now) {
 			reason = "submitted_retention"
 		}
@@ -320,7 +341,7 @@ func (s *ExperimentScheduler) scanAndReclaim(ctx context.Context, includeCourseE
 			continue
 		}
 
-		s.reclaimInstance(ctx, instance, reason)
+		s.reclaimInstance(ctx, instance, template, reason)
 	}
 }
 
@@ -331,7 +352,7 @@ func (s *ExperimentScheduler) createScheduledSnapshots(ctx context.Context) {
 	}
 
 	instances, _, err := s.instanceRepo.List(ctx, &experimentrepo.InstanceListParams{
-		Statuses: []int{enum.InstanceStatusRunning},
+		Statuses: []int16{enum.InstanceStatusRunning},
 		Page:     1,
 		PageSize: 10000,
 	})
@@ -360,7 +381,7 @@ func (s *ExperimentScheduler) createScheduledSnapshots(ctx context.Context) {
 }
 
 // reclaimInstance 保存快照并回收实验环境，将实例状态收口为文档定义的最终状态。
-func (s *ExperimentScheduler) reclaimInstance(ctx context.Context, instance *entity.ExperimentInstance, reason string) {
+func (s *ExperimentScheduler) reclaimInstance(ctx context.Context, instance *entity.ExperimentInstance, template *entity.ExperimentTemplate, reason string) {
 	if s.instanceSvc == nil || instance == nil {
 		return
 	}
@@ -384,35 +405,54 @@ func (s *ExperimentScheduler) reclaimInstance(ctx context.Context, instance *ent
 	}
 
 	now := time.Now()
-	finalStatus := enum.InstanceStatusTimeout
+	finalStatus := int16(enum.InstanceStatusExpired)
 	if reason == "submitted_retention" {
-		finalStatus = enum.InstanceStatusSubmitted
+		finalStatus = enum.InstanceStatusCompleted
 	}
 	_ = s.instanceSvc.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{
 		"status":       finalStatus,
-		"destroyed_at": nil,
+		"destroyed_at": now,
 		"updated_at":   now,
 	})
-	if finalStatus != oldStatus {
-		s.instanceSvc.pushCourseMonitorStatusChange(instance, oldStatus, finalStatus)
+	instance.Status = finalStatus
+	instance.DestroyedAt = &now
+	instance.UpdatedAt = now
+	if int16(finalStatus) != oldStatus {
+		s.instanceSvc.pushCourseMonitorStatusChange(instance, int(oldStatus), int(finalStatus))
+	}
+	// 最长时长自动结算会直接产出一次最终自动得分。
+	// 该场景终态为“已过期”而非“已完成”，因此成绩回传不能只认 completed。
+	if reason == "max_duration" && template != nil {
+		_ = s.instanceSvc.syncCourseGradeIfNeeded(ctx, instance, template, nil)
 	}
 }
 
 // finalizeTimeoutScore 在最长运行时间到达时自动执行一次自动检查点结算。
 func (s *ExperimentScheduler) finalizeTimeoutScore(ctx context.Context, instance *entity.ExperimentInstance) {
-	template, err := s.instanceSvc.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
-	if err != nil || template == nil {
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.instanceSvc.templateRepo,
+		nil,
+		s.instanceSvc.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
+	if err != nil || templateAggregate == nil {
 		return
 	}
 
 	autoScore := 0.0
 	manualTotal := 0.0
-	for _, checkpoint := range template.Checkpoints {
+	for _, checkpoint := range templateAggregate.Checkpoints {
 		if checkpoint.CheckType == enum.CheckTypeManual {
 			manualTotal += checkpoint.Score
 			continue
 		}
-		result := s.instanceSvc.executeCheckpoint(ctx, instance, &checkpoint)
+		result := s.instanceSvc.executeCheckpoint(ctx, instance, checkpoint)
 		if result.Score != nil {
 			autoScore += *result.Score
 		}
@@ -456,7 +496,11 @@ func (s *ExperimentScheduler) cleanupExpiredSnapshots(ctx context.Context) {
 		return
 	}
 	instances, _, err := s.instanceRepo.List(ctx, &experimentrepo.InstanceListParams{
-		Statuses: []int{enum.InstanceStatusDestroyed},
+		Statuses: []int16{
+			enum.InstanceStatusCompleted,
+			enum.InstanceStatusExpired,
+			enum.InstanceStatusDestroyed,
+		},
 		Page:     1,
 		PageSize: 10000,
 	})
@@ -465,10 +509,7 @@ func (s *ExperimentScheduler) cleanupExpiredSnapshots(ctx context.Context) {
 	}
 	now := time.Now()
 	for _, instance := range instances {
-		if instance.DestroyedAt == nil {
-			continue
-		}
-		if now.Sub(*instance.DestroyedAt) < destroyedSnapshotRetention {
+		if !shouldCleanupSnapshotArchives(instance, now) {
 			continue
 		}
 		snapshots, listErr := s.instanceSvc.snapshotRepo.ListByInstanceID(ctx, instance.ID)
@@ -481,6 +522,20 @@ func (s *ExperimentScheduler) cleanupExpiredSnapshots(ctx context.Context) {
 	}
 }
 
+// shouldCleanupSnapshotArchives 判断实例的运行时环境是否已销毁满 30 天，可清理快照归档。
+// 自动回收后的实例终态可能仍为“已完成/已过期”，但 destroyed_at 记录的仍是运行时被回收的时间。
+func shouldCleanupSnapshotArchives(instance *entity.ExperimentInstance, now time.Time) bool {
+	if instance == nil || instance.DestroyedAt == nil {
+		return false
+	}
+	switch instance.Status {
+	case enum.InstanceStatusCompleted, enum.InstanceStatusExpired, enum.InstanceStatusDestroyed:
+		return now.Sub(*instance.DestroyedAt) >= destroyedSnapshotRetention
+	default:
+		return false
+	}
+}
+
 // pushCourseEndingWarning 在课程结束前 10 分钟向学生推送一次性预警。
 func (s *ExperimentScheduler) pushCourseEndingWarning(ctx context.Context, instance *entity.ExperimentInstance, endingSoonCourses map[int64]time.Time) {
 	if instance == nil || instance.CourseID == nil {
@@ -490,7 +545,7 @@ func (s *ExperimentScheduler) pushCourseEndingWarning(ctx context.Context, insta
 	if !ok {
 		return
 	}
-	if instance.Status != enum.InstanceStatusRunning && instance.Status != enum.InstanceStatusPaused && instance.Status != enum.InstanceStatusRestoring {
+	if instance.Status != enum.InstanceStatusRunning && instance.Status != enum.InstanceStatusPaused && instance.Status != enum.InstanceStatusInitializing {
 		return
 	}
 
@@ -508,6 +563,9 @@ func (s *ExperimentScheduler) pushCourseEndingWarning(ctx context.Context, insta
 	if remainingMinutes < 1 {
 		remainingMinutes = 1
 	}
+	// 课程结束前预警当前先走模块04 WebSocket 通道。
+	// 若后续确认该场景需要进入模块07站内通知，应在此业务节点补发 experiment.expiring 事件，
+	// 仍通过 service 层接口解耦接入，不在调度器外层重复实现。
 	_ = manager.SendToUser(instance.StudentID, buildInstanceWSMessage("course_end_warning", map[string]interface{}{
 		"instance_id":       fmt.Sprintf("%d", instance.ID),
 		"course_id":         fmt.Sprintf("%d", *instance.CourseID),

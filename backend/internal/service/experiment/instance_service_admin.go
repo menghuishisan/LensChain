@@ -25,11 +25,12 @@ func (s *instanceService) ListAdmin(ctx context.Context, sc *svcctx.ServiceConte
 
 	schoolID, _ := snowflake.ParseString(req.SchoolID)
 	templateID, _ := snowflake.ParseString(req.TemplateID)
+	studentID, _ := snowflake.ParseString(req.StudentID)
 	instances, total, err := s.instanceRepo.ListAdmin(ctx, &experimentrepo.AdminInstanceListParams{
 		SchoolID:   schoolID,
 		TemplateID: templateID,
+		StudentID:  studentID,
 		Status:     req.Status,
-		Keyword:    req.StudentID,
 		SortBy:     req.SortBy,
 		SortOrder:  req.SortOrder,
 		Page:       req.Page,
@@ -61,6 +62,22 @@ func (s *instanceService) ListAdmin(ctx context.Context, sc *svcctx.ServiceConte
 		if template, templateErr := s.templateRepo.GetByID(ctx, inst.TemplateID); templateErr == nil && template != nil {
 			item.TemplateTitle = template.Title
 		}
+		studentIDValue := strconv.FormatInt(inst.StudentID, 10)
+		item.StudentID = &studentIDValue
+		if s.userSummaryQuerier != nil {
+			if summary := s.userSummaryQuerier.GetUserSummary(ctx, inst.StudentID); summary != nil && summary.Name != "" {
+				studentName := summary.Name
+				item.StudentName = &studentName
+			}
+		}
+		schoolIDValue := strconv.FormatInt(inst.SchoolID, 10)
+		item.SchoolID = &schoolIDValue
+		if s.schoolNameQuerier != nil {
+			if schoolName := s.schoolNameQuerier.GetSchoolName(ctx, inst.SchoolID); schoolName != "" {
+				schoolNameCopy := schoolName
+				item.SchoolName = &schoolNameCopy
+			}
+		}
 		if inst.CourseID != nil {
 			courseID := strconv.FormatInt(*inst.CourseID, 10)
 			item.CourseID = &courseID
@@ -68,6 +85,11 @@ func (s *instanceService) ListAdmin(ctx context.Context, sc *svcctx.ServiceConte
 				item.CourseTitle = &title
 			}
 		}
+		if inst.ErrorMessage != nil && *inst.ErrorMessage != "" {
+			item.ErrorMessage = inst.ErrorMessage
+		}
+		updatedAt := inst.UpdatedAt.UTC().Format(time.RFC3339)
+		item.UpdatedAt = &updatedAt
 		items = append(items, item)
 	}
 	return items, total, nil

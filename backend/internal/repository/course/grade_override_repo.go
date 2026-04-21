@@ -17,6 +17,7 @@ import (
 // 提供按课程+学生读取和写入手动调分结果的能力。
 type GradeOverrideRepository interface {
 	GetByCourseAndStudent(ctx context.Context, courseID, studentID int64) (*entity.CourseGradeOverride, error)
+	ListByCourseID(ctx context.Context, courseID int64) ([]*entity.CourseGradeOverride, error)
 	Upsert(ctx context.Context, override *entity.CourseGradeOverride) error
 }
 
@@ -39,6 +40,17 @@ func (r *gradeOverrideRepository) GetByCourseAndStudent(ctx context.Context, cou
 		return nil, err
 	}
 	return &override, nil
+}
+
+// ListByCourseID 获取课程下所有成绩调整记录
+// 成绩汇总和导出需要一次性读取课程内覆盖成绩，避免逐学生查询。
+func (r *gradeOverrideRepository) ListByCourseID(ctx context.Context, courseID int64) ([]*entity.CourseGradeOverride, error) {
+	var overrides []*entity.CourseGradeOverride
+	err := r.db.WithContext(ctx).
+		Where("course_id = ?", courseID).
+		Order("student_id asc").
+		Find(&overrides).Error
+	return overrides, err
 }
 
 // Upsert 保存课程成绩调整记录

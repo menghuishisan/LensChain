@@ -1,5 +1,5 @@
 // discussion.go
-// 模块03 — 课程与教学：讨论区、公告、评价、成绩管理 HTTP 处理层
+// 模块03 — 课程与教学：讨论区、公告、评价 HTTP 处理层
 // 对照 docs/modules/03-课程与教学/03-API接口设计.md
 
 package course
@@ -16,7 +16,7 @@ import (
 )
 
 // DiscussionHandler 讨论区与公告处理器
-// 处理讨论帖、回复、点赞、公告、课程评价、成绩配置等接口
+// 处理讨论帖、回复、点赞、公告、课程评价等接口
 type DiscussionHandler struct {
 	discussionService svc.DiscussionService
 }
@@ -158,15 +158,31 @@ func (h *DiscussionHandler) DeleteReply(c *gin.Context) {
 
 // ========== 点赞 ==========
 
-// ToggleLike 点赞/取消点赞
+// LikeDiscussion 点赞
 // POST /api/v1/discussions/:id/like
-func (h *DiscussionHandler) ToggleLike(c *gin.Context) {
+func (h *DiscussionHandler) LikeDiscussion(c *gin.Context) {
 	discussionID, ok := validator.ParsePathID(c, "id")
 	if !ok {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
-	liked, err := h.discussionService.ToggleLike(c.Request.Context(), sc, discussionID)
+	liked, err := h.discussionService.LikeDiscussion(c.Request.Context(), sc, discussionID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, gin.H{"liked": liked})
+}
+
+// UnlikeDiscussion 取消点赞
+// DELETE /api/v1/discussions/:id/like
+func (h *DiscussionHandler) UnlikeDiscussion(c *gin.Context) {
+	discussionID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	liked, err := h.discussionService.UnlikeDiscussion(c.Request.Context(), sc, discussionID)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return
@@ -213,6 +229,25 @@ func (h *DiscussionHandler) UpdateAnnouncement(c *gin.Context) {
 		return
 	}
 	response.SuccessWithMsg(c, "更新成功", nil)
+}
+
+// PinAnnouncement 置顶/取消置顶公告
+// PATCH /api/v1/announcements/:id/pin
+func (h *DiscussionHandler) PinAnnouncement(c *gin.Context) {
+	id, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.PinAnnouncementReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	if err := h.discussionService.PinAnnouncement(c.Request.Context(), sc, id, &req); err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "操作成功", nil)
 }
 
 // DeleteAnnouncement 删除公告
@@ -310,45 +345,18 @@ func (h *DiscussionHandler) ListEvaluations(c *gin.Context) {
 		return
 	}
 	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
-	response.Paginated(c, gin.H{
-		"items":   items,
-		"summary": summary,
-	}, total, page, pageSize)
-}
-
-// ========== 成绩管理 ==========
-
-// SetGradeConfig 配置成绩权重
-// PUT /api/v1/courses/:id/grade-config
-func (h *DiscussionHandler) SetGradeConfig(c *gin.Context) {
-	courseID, ok := validator.ParsePathID(c, "id")
-	if !ok {
-		return
+	totalPage := int(total) / pageSize
+	if int(total)%pageSize > 0 {
+		totalPage++
 	}
-	var req dto.GradeConfigReq
-	if !validator.BindJSON(c, &req) {
-		return
-	}
-	sc := handlerctx.BuildServiceContext(c)
-	if err := h.discussionService.SetGradeConfig(c.Request.Context(), sc, courseID, &req); err != nil {
-		handlerctx.HandleError(c, err)
-		return
-	}
-	response.SuccessWithMsg(c, "设置成功", nil)
-}
-
-// GetGradeConfig 获取成绩权重配置
-// GET /api/v1/courses/:id/grade-config
-func (h *DiscussionHandler) GetGradeConfig(c *gin.Context) {
-	courseID, ok := validator.ParsePathID(c, "id")
-	if !ok {
-		return
-	}
-	sc := handlerctx.BuildServiceContext(c)
-	config, err := h.discussionService.GetGradeConfig(c.Request.Context(), sc, courseID)
-	if err != nil {
-		handlerctx.HandleError(c, err)
-		return
-	}
-	response.Success(c, config)
+	response.Success(c, &dto.EvaluationListResp{
+		Summary: summary,
+		Items:   items,
+		Pagination: dto.EvaluationPagination{
+			Page:      page,
+			PageSize:  pageSize,
+			Total:     total,
+			TotalPage: totalPage,
+		},
+	})
 }

@@ -94,10 +94,10 @@ type Result struct {
 
 // Info 分页信息
 type Info struct {
-	Page      int   `json:"page"`
-	PageSize  int   `json:"page_size"`
-	Total     int64 `json:"total"`
-	TotalPage int   `json:"total_page"`
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
 }
 
 // NewResult 创建分页结果
@@ -111,10 +111,10 @@ func NewResult(list interface{}, total int64, page, pageSize int) *Result {
 	return &Result{
 		List: list,
 		Pagination: Info{
-			Page:      page,
-			PageSize:  pageSize,
-			Total:     total,
-			TotalPage: totalPage,
+			Page:       page,
+			PageSize:   pageSize,
+			Total:      total,
+			TotalPages: totalPage,
 		},
 	}
 }

@@ -442,7 +442,6 @@ CREATE TABLE experiment_groups (
     group_method SMALLINT NOT NULL,
     max_members INT NOT NULL,
     status SMALLINT NOT NULL DEFAULT 1,
-    namespace VARCHAR(100) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_experiment_groups_template_id FOREIGN KEY (template_id) REFERENCES experiment_templates(id),

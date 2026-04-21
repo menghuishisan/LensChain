@@ -7,8 +7,6 @@ package courserepo
 
 import (
 	"context"
-	"fmt"
-	"github.com/lenschain/backend/internal/pkg/pagination"
 	"time"
 
 	"gorm.io/gorm"
@@ -16,7 +14,16 @@ import (
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+)
+
+const (
+	courseRepositoryBatchSize = 100
+	courseScheduleBatchSize   = 20
+	courseRatingMin           = 1
+	courseRatingMax           = 5
+	courseRatingLevels        = courseRatingMax - courseRatingMin + 1
 )
 
 // CourseRepository 课程数据访问接口
@@ -32,7 +39,7 @@ type CourseRepository interface {
 	CountStudents(ctx context.Context, courseID int64) (int, error)
 	ListPublishedToActivate(ctx context.Context, now time.Time) ([]*entity.Course, error)
 	ListActiveToEnd(ctx context.Context, now time.Time) ([]*entity.Course, error)
-	UpdateStatus(ctx context.Context, id int64, status int) error
+	UpdateStatus(ctx context.Context, id int64, status int16) error
 }
 
 // CourseListParams 课程列表查询参数（教师视角）
@@ -40,11 +47,9 @@ type CourseListParams struct {
 	SchoolID   int64
 	TeacherID  int64
 	Keyword    string
-	Status     int
-	Statuses   []int
-	CourseType int
-	SortBy     string
-	SortOrder  string
+	Status     int16
+	Statuses   []int16
+	CourseType int16
 	Page       int
 	PageSize   int
 }
@@ -52,8 +57,8 @@ type CourseListParams struct {
 // SharedCourseListParams 共享课程列表查询参数
 type SharedCourseListParams struct {
 	Keyword    string
-	CourseType int
-	Difficulty int
+	CourseType int16
+	Difficulty int16
 	Topic      string
 	Page       int
 	PageSize   int
@@ -61,8 +66,8 @@ type SharedCourseListParams struct {
 
 // StudentCourseListParams 学生课程列表查询参数
 type StudentCourseListParams struct {
-	Status   int
-	Statuses []int
+	Status   int16
+	Statuses []int16
 	Page     int
 	PageSize int
 }
@@ -99,8 +104,7 @@ func (r *courseRepository) GetByID(ctx context.Context, id int64) (*entity.Cours
 func (r *courseRepository) GetByInviteCode(ctx context.Context, code string) (*entity.Course, error) {
 	var course entity.Course
 	err := r.db.WithContext(ctx).
-		Where("invite_code = ? AND status IN ?", code,
-			[]int{enum.CourseStatusPublished, enum.CourseStatusActive}).
+		Where("invite_code = ?", code).
 		First(&course).Error
 	if err != nil {
 		return nil, err
@@ -155,26 +159,8 @@ func (r *courseRepository) List(ctx context.Context, params *CourseListParams) (
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
-	allowedSortFields := map[string]string{
-		"created_at": "created_at",
-		"title":      "title",
-		"status":     "status",
-		"start_at":   "start_at",
-	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
-	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	// 分页
 	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = query.Order("created_at desc").Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
 
 	var courses []*entity.Course
 	if err := query.Find(&courses).Error; err != nil {
@@ -187,7 +173,7 @@ func (r *courseRepository) List(ctx context.Context, params *CourseListParams) (
 func (r *courseRepository) ListShared(ctx context.Context, params *SharedCourseListParams) ([]*entity.Course, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.Course{}).
 		Where("is_shared = ?", true).
-		Where("status IN ?", []int{enum.CourseStatusPublished, enum.CourseStatusActive, enum.CourseStatusEnded})
+		Where("status IN ?", []int16{enum.CourseStatusPublished, enum.CourseStatusActive, enum.CourseStatusEnded})
 
 	if params.Keyword != "" {
 		query = query.Scopes(database.WithKeywordSearch(params.Keyword, "title", "topic"))
@@ -275,7 +261,7 @@ func (r *courseRepository) ListActiveToEnd(ctx context.Context, now time.Time) (
 }
 
 // UpdateStatus 更新课程状态
-func (r *courseRepository) UpdateStatus(ctx context.Context, id int64, status int) error {
+func (r *courseRepository) UpdateStatus(ctx context.Context, id int64, status int16) error {
 	return r.db.WithContext(ctx).Model(&entity.Course{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{

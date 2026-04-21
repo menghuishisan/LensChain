@@ -78,3 +78,12 @@ func IsTokenBlacklisted(ctx context.Context, jti string) (bool, error) {
 	}
 	return cache.Exists(ctx, cache.KeyTokenBlacklist+jti)
 }
+
+// BlacklistToken 将访问令牌加入黑名单。
+// 调用方应传入该令牌的剩余有效期，避免黑名单键长期残留。
+func BlacklistToken(ctx context.Context, jti string, ttl time.Duration) error {
+	if jti == "" || ttl <= 0 {
+		return nil
+	}
+	return cache.Set(ctx, cache.KeyTokenBlacklist+jti, "1", ttl)
+}

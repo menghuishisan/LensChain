@@ -14,8 +14,8 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 )
 
-// userToListItem 用户实体转列表项 DTO
-func userToListItem(user *entity.User) *dto.UserListItem {
+// userToListItem 用户主表、扩展资料和角色编码聚合为列表项 DTO。
+func userToListItem(user *entity.User, profile *entity.UserProfile, roleCodes []string) *dto.UserListItem {
 	item := &dto.UserListItem{
 		ID:         strconv.FormatInt(user.ID, 10),
 		Phone:      user.Phone,
@@ -23,15 +23,8 @@ func userToListItem(user *entity.User) *dto.UserListItem {
 		StudentNo:  user.StudentNo,
 		Status:     user.Status,
 		StatusText: enum.GetUserStatusText(user.Status),
-		Roles:      make([]string, 0),
+		Roles:      roleCodes,
 		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
-	}
-
-	// 角色
-	for _, ur := range user.Roles {
-		if ur.Role != nil {
-			item.Roles = append(item.Roles, ur.Role.Code)
-		}
 	}
 
 	// 最后登录时间
@@ -41,13 +34,13 @@ func userToListItem(user *entity.User) *dto.UserListItem {
 	}
 
 	// 扩展信息
-	if user.Profile != nil {
-		item.College = user.Profile.College
-		item.Major = user.Profile.Major
-		item.ClassName = user.Profile.ClassName
-		item.EducationLevel = user.Profile.EducationLevel
-		if user.Profile.EducationLevel != nil {
-			text := enum.GetEduLevelText(*user.Profile.EducationLevel)
+	if profile != nil {
+		item.College = profile.College
+		item.Major = profile.Major
+		item.ClassName = profile.ClassName
+		item.EducationLevel = profile.EducationLevel
+		if profile.EducationLevel != nil {
+			text := enum.GetEduLevelText(*profile.EducationLevel)
 			item.EducationLevelText = &text
 		}
 	}
@@ -55,8 +48,8 @@ func userToListItem(user *entity.User) *dto.UserListItem {
 	return item
 }
 
-// userToDetailResp 用户实体转详情 DTO
-func userToDetailResp(user *entity.User) *dto.UserDetailResp {
+// userToDetailResp 用户主表、扩展资料和角色编码聚合为详情 DTO。
+func userToDetailResp(user *entity.User, profile *entity.UserProfile, roleCodes []string) *dto.UserDetailResp {
 	resp := &dto.UserDetailResp{
 		ID:            strconv.FormatInt(user.ID, 10),
 		Phone:         user.Phone,
@@ -67,15 +60,8 @@ func userToDetailResp(user *entity.User) *dto.UserDetailResp {
 		IsFirstLogin:  user.IsFirstLogin,
 		IsSchoolAdmin: user.IsSchoolAdmin,
 		SchoolID:      strconv.FormatInt(user.SchoolID, 10),
-		Roles:         make([]string, 0),
+		Roles:         roleCodes,
 		CreatedAt:     user.CreatedAt.Format(time.RFC3339),
-	}
-
-	// 角色
-	for _, ur := range user.Roles {
-		if ur.Role != nil {
-			resp.Roles = append(resp.Roles, ur.Role.Code)
-		}
 	}
 
 	// 最后登录时间
@@ -85,19 +71,19 @@ func userToDetailResp(user *entity.User) *dto.UserDetailResp {
 	}
 
 	// 扩展信息
-	if user.Profile != nil {
-		resp.AvatarURL = user.Profile.AvatarURL
-		resp.Nickname = user.Profile.Nickname
-		resp.Email = user.Profile.Email
-		resp.College = user.Profile.College
-		resp.Major = user.Profile.Major
-		resp.ClassName = user.Profile.ClassName
-		resp.EnrollmentYear = user.Profile.EnrollmentYear
-		resp.EducationLevel = user.Profile.EducationLevel
-		resp.Grade = user.Profile.Grade
-		resp.Remark = user.Profile.Remark
-		if user.Profile.EducationLevel != nil {
-			text := enum.GetEduLevelText(*user.Profile.EducationLevel)
+	if profile != nil {
+		resp.AvatarURL = profile.AvatarURL
+		resp.Nickname = profile.Nickname
+		resp.Email = profile.Email
+		resp.College = profile.College
+		resp.Major = profile.Major
+		resp.ClassName = profile.ClassName
+		resp.EnrollmentYear = profile.EnrollmentYear
+		resp.EducationLevel = profile.EducationLevel
+		resp.Grade = profile.Grade
+		resp.Remark = profile.Remark
+		if profile.EducationLevel != nil {
+			text := enum.GetEduLevelText(*profile.EducationLevel)
 			resp.EducationLevelText = &text
 		}
 	}

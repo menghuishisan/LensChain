@@ -8,10 +8,13 @@ package school
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
@@ -33,42 +36,39 @@ type SSOService interface {
 
 // ssoService SSO配置服务实现
 type ssoService struct {
-	ssoRepo    schoolrepo.SSOConfigRepository
-	schoolRepo schoolrepo.SchoolRepository
+	ssoRepo schoolrepo.SSOConfigRepository
 }
 
 // NewSSOService 创建SSO配置服务实例
 func NewSSOService(
 	ssoRepo schoolrepo.SSOConfigRepository,
-	schoolRepo schoolrepo.SchoolRepository,
 ) SSOService {
 	return &ssoService{
-		ssoRepo:    ssoRepo,
-		schoolRepo: schoolRepo,
+		ssoRepo: ssoRepo,
 	}
 }
 
 // GetConfig 获取SSO配置
-// client_secret 脱敏显示为 ******
+// client_secret 脱敏显示为 ******。
 func (s *ssoService) GetConfig(ctx context.Context, sc *svcctx.ServiceContext) (*dto.SSOConfigResp, error) {
 	config, err := s.ssoRepo.GetBySchoolID(ctx, sc.SchoolID)
 	if err != nil {
-		// 未配置SSO，返回空配置
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrInternal.WithMessage("查询SSO配置失败")
+		}
 		return &dto.SSOConfigResp{
 			Provider:  "",
 			IsEnabled: false,
 			IsTested:  false,
-			Config:    make(map[string]interface{}),
+			Config:    &dto.SSOConfig{},
 		}, nil
 	}
 
-	// 解析 config JSON
 	configMap := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(config.Config), &configMap); err != nil {
+	if err := json.Unmarshal(config.Config, &configMap); err != nil {
 		return nil, errcode.ErrInternal.WithMessage("解析SSO配置失败")
 	}
 
-	// 解密 client_secret 后脱敏显示
 	if _, ok := configMap["client_secret"]; ok {
 		configMap["client_secret"] = "******"
 	}
@@ -77,36 +77,38 @@ func (s *ssoService) GetConfig(ctx context.Context, sc *svcctx.ServiceContext) (
 		Provider:  config.Provider,
 		IsEnabled: config.IsEnabled,
 		IsTested:  config.IsTested,
-		Config:    configMap,
+		Config:    buildSSOConfigDTO(configMap),
 	}
 	if config.TestedAt != nil {
-		t := config.TestedAt.Format(time.RFC3339)
-		resp.TestedAt = &t
+		testedAt := config.TestedAt.Format(time.RFC3339)
+		resp.TestedAt = &testedAt
 	}
-
 	return resp, nil
 }
 
 // UpdateConfig 更新SSO配置
-// 保存配置，client_secret 加密存储，重置 is_tested = false
+// 保存配置，client_secret 加密存储，配置变更后重置测试状态。
 func (s *ssoService) UpdateConfig(ctx context.Context, sc *svcctx.ServiceContext, req *dto.UpdateSSOConfigReq) error {
-	// 加密 client_secret
-	configMap := req.Config
-	if secret, ok := configMap["client_secret"]; ok {
-		if secretStr, ok := secret.(string); ok && secretStr != "" && secretStr != "******" {
-			encrypted, err := crypto.AESEncrypt(secretStr)
+	if err := validateSSOConfig(req.Provider, req.Config); err != nil {
+		return err
+	}
+
+	configMap := buildSSOConfigMap(req.Config)
+	if secret, ok := configMap["client_secret"].(string); ok {
+		switch {
+		case secret != "" && secret != "******":
+			encrypted, err := crypto.AESEncrypt(secret)
 			if err != nil {
 				return errcode.ErrInternal.WithMessage("加密SSO密钥失败")
 			}
 			configMap["client_secret"] = encrypted
-		} else if secretStr == "******" {
-			// 未修改密钥，保留原值
+		case secret == "******":
 			existing, err := s.ssoRepo.GetBySchoolID(ctx, sc.SchoolID)
 			if err == nil {
 				var existingConfig map[string]interface{}
-				if json.Unmarshal([]byte(existing.Config), &existingConfig) == nil {
-					if origSecret, ok := existingConfig["client_secret"]; ok {
-						configMap["client_secret"] = origSecret
+				if json.Unmarshal(existing.Config, &existingConfig) == nil {
+					if originalSecret, found := existingConfig["client_secret"]; found {
+						configMap["client_secret"] = originalSecret
 					}
 				}
 			}
@@ -121,15 +123,16 @@ func (s *ssoService) UpdateConfig(ctx context.Context, sc *svcctx.ServiceContext
 	ssoConfig := &entity.SchoolSSOConfig{
 		SchoolID:  sc.SchoolID,
 		Provider:  req.Provider,
-		IsTested:  false, // 配置变更后需重新测试
-		Config:    string(configJSON),
+		IsTested:  false,
+		Config:    datatypes.JSON(configJSON),
 		UpdatedBy: &sc.UserID,
 	}
 
-	// 保留原有的 is_enabled 状态
 	existing, err := s.ssoRepo.GetBySchoolID(ctx, sc.SchoolID)
 	if err == nil {
 		ssoConfig.IsEnabled = existing.IsEnabled
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return errcode.ErrInternal.WithMessage("查询现有SSO配置失败")
 	}
 
 	return s.ssoRepo.Upsert(ctx, ssoConfig)
@@ -139,90 +142,81 @@ func (s *ssoService) UpdateConfig(ctx context.Context, sc *svcctx.ServiceContext
 func (s *ssoService) TestConnection(ctx context.Context, sc *svcctx.ServiceContext) (*dto.SSOTestResp, error) {
 	config, err := s.ssoRepo.GetBySchoolID(ctx, sc.SchoolID)
 	if err != nil {
-		return nil, errcode.ErrInvalidParams.WithMessage("请先配置SSO")
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrInternal.WithMessage("查询SSO配置失败")
+		}
+		return nil, errcode.ErrInvalidParams.WithMessage("请先完善SSO配置")
 	}
 
-	// 解析配置
 	configMap := make(map[string]interface{})
-	if err := json.Unmarshal([]byte(config.Config), &configMap); err != nil {
+	if err := json.Unmarshal(config.Config, &configMap); err != nil {
 		return nil, errcode.ErrInternal.WithMessage("解析SSO配置失败")
 	}
 
-	// 根据协议类型测试连接
-	var testErr error
-	var testDetail string
-
+	var (
+		testErr    error
+		testDetail string
+	)
 	switch config.Provider {
 	case "cas":
-		testDetail, testErr = s.testCASConnection(configMap)
+		testDetail, testErr = s.testCASConnection(ctx, configMap)
 	case "oauth2":
-		testDetail, testErr = s.testOAuth2Connection(configMap)
+		testDetail, testErr = s.testOAuth2Connection(ctx, configMap)
 	default:
 		return nil, errcode.ErrInvalidParams.WithMessage("不支持的SSO协议类型")
 	}
 
 	now := time.Now()
 	if testErr != nil {
-		// 测试失败
 		logger.L.Warn("SSO连接测试失败", zap.Int64("school_id", sc.SchoolID), zap.Error(testErr))
-		errDetail := testErr.Error()
-
-		// 更新测试状态
-		_ = s.ssoRepo.UpdateFields(ctx, sc.SchoolID, map[string]interface{}{
-			"is_tested":  false,
-			"tested_at":  now,
-			"updated_at": now,
-		})
-
+		errorDetail := testErr.Error()
+		_ = s.ssoRepo.UpdateTestResult(ctx, sc.SchoolID, false, now)
 		return &dto.SSOTestResp{
 			IsTested:    false,
-			ErrorDetail: &errDetail,
+			ErrorDetail: &errorDetail,
 		}, errcode.ErrSSOTestFailed
 	}
 
-	// 测试成功
-	nowStr := now.Format(time.RFC3339)
-	_ = s.ssoRepo.UpdateFields(ctx, sc.SchoolID, map[string]interface{}{
-		"is_tested":  true,
-		"tested_at":  now,
-		"updated_at": now,
-	})
-
+	_ = s.ssoRepo.UpdateTestResult(ctx, sc.SchoolID, true, now)
+	testedAt := now.Format(time.RFC3339)
 	return &dto.SSOTestResp{
 		IsTested:   true,
-		TestedAt:   &nowStr,
+		TestedAt:   &testedAt,
 		TestDetail: &testDetail,
 	}, nil
 }
 
 // ToggleEnable 启用或禁用SSO
-// 仅当配置存在且通过测试后才允许启用，禁用时不要求重新测试。
+// 仅当配置已测试通过时允许启用。
 func (s *ssoService) ToggleEnable(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ToggleSSOEnableReq) error {
 	config, err := s.ssoRepo.GetBySchoolID(ctx, sc.SchoolID)
 	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrInternal.WithMessage("查询SSO配置失败")
+		}
 		return errcode.ErrSSOConfigNotFound
 	}
 
-	if req.IsEnabled && !config.IsTested {
+	if req.IsEnabled == nil {
+		return errcode.ErrInvalidParams.WithMessage("is_enabled 不能为空")
+	}
+
+	if *req.IsEnabled && !config.IsTested {
 		return errcode.ErrSSONotTested
 	}
 
-	return s.ssoRepo.UpdateFields(ctx, sc.SchoolID, map[string]interface{}{
-		"is_enabled": req.IsEnabled,
-		"updated_at": time.Now(),
-		"updated_by": sc.UserID,
-	})
+	return s.ssoRepo.ToggleEnabled(ctx, sc.SchoolID, *req.IsEnabled, sc.UserID)
 }
 
-// testCASConnection 测试CAS连接
-func (s *ssoService) testCASConnection(config map[string]interface{}) (string, error) {
+// testCASConnection 测试CAS连接。
+// 使用调用链上下文，确保超时、取消信号能透传到底层 HTTP 客户端。
+func (s *ssoService) testCASConnection(ctx context.Context, config map[string]interface{}) (string, error) {
 	serverURL, ok := config["cas_server_url"].(string)
 	if !ok || serverURL == "" {
-		return "", fmt.Errorf("CAS服务器地址未配置")
+		return "", fmt.Errorf("请先完善SSO配置")
 	}
 
-	// 使用安全 HTTP 客户端（SSRF 防护：仅允许 HTTPS、拒绝私有 IP）
-	resp, err := httpclient.SafeGet(context.Background(), serverURL)
+	resp, err := httpclient.SafeGet(ctx, serverURL)
 	if err != nil {
 		return "", fmt.Errorf("无法连接到CAS服务器：%v", err)
 	}
@@ -235,18 +229,15 @@ func (s *ssoService) testCASConnection(config map[string]interface{}) (string, e
 	return "成功连接到CAS认证服务器", nil
 }
 
-// testOAuth2Connection 测试OAuth2连接
-func (s *ssoService) testOAuth2Connection(config map[string]interface{}) (string, error) {
-	// 测试 authorize_url 可达性
-	authorizeURL, _ := config["authorize_url"].(string)
+// testOAuth2Connection 测试OAuth2连接。
+// 使用调用链上下文，确保超时、取消信号能透传到底层 HTTP 客户端。
+func (s *ssoService) testOAuth2Connection(ctx context.Context, config map[string]interface{}) (string, error) {
 	tokenURL, _ := config["token_url"].(string)
-
-	if authorizeURL == "" || tokenURL == "" {
-		return "", fmt.Errorf("OAuth2授权端点或Token端点未配置")
+	if tokenURL == "" {
+		return "", fmt.Errorf("请先完善SSO配置")
 	}
 
-	// 使用安全 HTTP 客户端（SSRF 防护：仅允许 HTTPS、拒绝私有 IP）
-	resp, err := httpclient.SafeGet(context.Background(), tokenURL)
+	resp, err := httpclient.SafeGet(ctx, tokenURL)
 	if err != nil {
 		return "", fmt.Errorf("无法连接到Token端点：%v", err)
 	}
@@ -257,4 +248,97 @@ func (s *ssoService) testOAuth2Connection(config map[string]interface{}) (string
 	}
 
 	return "成功连接到OAuth2授权服务器", nil
+}
+
+// validateSSOConfig 按协议校验 SSO 配置必填项。
+// DTO 只负责字段格式校验，协议级必填规则由 service 按文档统一判断。
+func validateSSOConfig(provider string, config *dto.SSOConfig) error {
+	if config == nil {
+		return errcode.ErrInvalidParams.WithMessage("请先完善SSO配置")
+	}
+
+	switch provider {
+	case "cas":
+		if isBlankString(config.CASServerURL) || isBlankString(config.CASServiceURL) || config.UserIDAttribute == "" {
+			return errcode.ErrInvalidParams.WithMessage("请先完善SSO配置")
+		}
+	case "oauth2":
+		if isBlankString(config.AuthorizeURL) ||
+			isBlankString(config.TokenURL) ||
+			isBlankString(config.UserinfoURL) ||
+			isBlankString(config.ClientID) ||
+			isBlankString(config.ClientSecret) ||
+			isBlankString(config.RedirectURI) ||
+			config.UserIDAttribute == "" {
+			return errcode.ErrInvalidParams.WithMessage("请先完善SSO配置")
+		}
+	default:
+		return errcode.ErrInvalidParams.WithMessage("不支持的SSO协议类型")
+	}
+
+	return nil
+}
+
+// isBlankString 判断可选字符串字段是否为空。
+func isBlankString(value *string) bool {
+	return value == nil || *value == ""
+}
+
+// buildSSOConfigDTO 将持久化配置转换为对外响应 DTO。
+func buildSSOConfigDTO(configMap map[string]interface{}) *dto.SSOConfig {
+	config := &dto.SSOConfig{}
+	assignStringField(&config.CASServerURL, configMap["cas_server_url"])
+	assignStringField(&config.CASServiceURL, configMap["cas_service_url"])
+	assignStringField(&config.CASVersion, configMap["cas_version"])
+	assignStringField(&config.AuthorizeURL, configMap["authorize_url"])
+	assignStringField(&config.TokenURL, configMap["token_url"])
+	assignStringField(&config.UserinfoURL, configMap["userinfo_url"])
+	assignStringField(&config.ClientID, configMap["client_id"])
+	assignStringField(&config.ClientSecret, configMap["client_secret"])
+	assignStringField(&config.RedirectURI, configMap["redirect_uri"])
+	assignStringField(&config.Scope, configMap["scope"])
+	if value, ok := configMap["user_id_attribute"].(string); ok {
+		config.UserIDAttribute = value
+	}
+	return config
+}
+
+// buildSSOConfigMap 将请求 DTO 转换为持久化配置映射，只保留非空字段。
+func buildSSOConfigMap(config *dto.SSOConfig) map[string]interface{} {
+	result := make(map[string]interface{})
+	if config == nil {
+		return result
+	}
+
+	setOptionalString(result, "cas_server_url", config.CASServerURL)
+	setOptionalString(result, "cas_service_url", config.CASServiceURL)
+	setOptionalString(result, "cas_version", config.CASVersion)
+	setOptionalString(result, "authorize_url", config.AuthorizeURL)
+	setOptionalString(result, "token_url", config.TokenURL)
+	setOptionalString(result, "userinfo_url", config.UserinfoURL)
+	setOptionalString(result, "client_id", config.ClientID)
+	setOptionalString(result, "client_secret", config.ClientSecret)
+	setOptionalString(result, "redirect_uri", config.RedirectURI)
+	setOptionalString(result, "scope", config.Scope)
+	if config.UserIDAttribute != "" {
+		result["user_id_attribute"] = config.UserIDAttribute
+	}
+	return result
+}
+
+// assignStringField 把持久化配置中的字符串写回 DTO 可选字段。
+func assignStringField(target **string, value interface{}) {
+	text, ok := value.(string)
+	if !ok || text == "" {
+		return
+	}
+	*target = &text
+}
+
+// setOptionalString 把 DTO 可选字符串字段写入持久化配置映射。
+func setOptionalString(target map[string]interface{}, key string, value *string) {
+	if value == nil || *value == "" {
+		return
+	}
+	target[key] = *value
 }

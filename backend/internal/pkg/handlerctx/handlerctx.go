@@ -17,10 +17,14 @@ import (
 // BuildServiceContext 从 gin.Context 构建 ServiceContext
 // handler 层提取 HTTP 信息后传给 service 层，service 层不依赖 gin.Context。
 func BuildServiceContext(c *gin.Context) *svcctx.ServiceContext {
+	schoolID := requestctx.GetTenantSchoolID(c)
+	if schoolID == 0 {
+		schoolID = requestctx.GetSchoolID(c)
+	}
 	return svcctx.NewServiceContext(
 		c.Request.Context(),
 		requestctx.GetUserID(c),
-		requestctx.GetSchoolID(c),
+		schoolID,
 		requestctx.GetRoles(c),
 	).WithClientIP(c.ClientIP())
 }

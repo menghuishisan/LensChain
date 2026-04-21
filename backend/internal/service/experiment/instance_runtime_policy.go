@@ -1,3 +1,8 @@
+// instance_runtime_policy.go
+// 模块04 — 实验环境：实例运行时网络与采集策略辅助
+// 负责在 service 层生成命名空间标签、网络互通策略和混合实验 Collector 注入计划
+// 该文件只承载实例编排相关业务规则，不直接执行 K8s 调用或持久化操作
+
 package experiment
 
 import (
@@ -5,6 +10,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"gorm.io/datatypes"
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
@@ -43,11 +50,11 @@ func buildInstanceNetworkPolicy(instance *entity.ExperimentInstance) *NetworkPol
 }
 
 // buildCollectorInjectionPlan 根据混合实验模板和容器生态确定是否需要注入 Collector sidecar。
-func buildCollectorInjectionPlan(template *entity.ExperimentTemplate, container *entity.TemplateContainer, image *entity.Image) *CollectorSidecarSpec {
-	if template == nil || container == nil || image == nil || image.Ecosystem == nil {
+func buildCollectorInjectionPlan(template *TemplateAggregate, container *entity.TemplateContainer, image *entity.Image) *CollectorSidecarSpec {
+	if template == nil || template.Template == nil || container == nil || image == nil || image.Ecosystem == nil {
 		return nil
 	}
-	if template.ExpType != enum.ExperimentTypeMixed {
+	if template.Template.ExperimentType != enum.ExperimentTypeMixed {
 		return nil
 	}
 	ecosystem := strings.TrimSpace(*image.Ecosystem)
@@ -55,7 +62,7 @@ func buildCollectorInjectionPlan(template *entity.ExperimentTemplate, container 
 		return nil
 	}
 
-	matchedConfigs := make([]json.RawMessage, 0)
+	matchedConfigs := make([]datatypes.JSON, 0)
 	for _, scene := range template.SimScenes {
 		targets := collectDataSourceTargetContainers(scene.DataSourceConfig)
 		for _, target := range targets {
@@ -77,7 +84,7 @@ func buildCollectorInjectionPlan(template *entity.ExperimentTemplate, container 
 }
 
 // collectDataSourceTargetContainers 从混合实验数据采集配置中提取目标容器名。
-func collectDataSourceTargetContainers(raw json.RawMessage) []string {
+func collectDataSourceTargetContainers(raw datatypes.JSON) []string {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -99,7 +106,7 @@ func collectDataSourceTargetContainers(raw json.RawMessage) []string {
 }
 
 // mergeCollectorDataSourceConfig 将同一容器关联的多条场景采集配置合并为统一 sidecar 配置。
-func mergeCollectorDataSourceConfig(configs []json.RawMessage) []byte {
+func mergeCollectorDataSourceConfig(configs []datatypes.JSON) []byte {
 	if len(configs) == 0 {
 		return nil
 	}

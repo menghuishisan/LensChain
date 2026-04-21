@@ -24,6 +24,8 @@ var passwordDigitRegex = regexp.MustCompile(`[0-9]`)
 // runtimeSecurityPolicy 运行时安全策略
 // 从缓存配置解包后供 auth 模块内部使用。
 type runtimeSecurityPolicy struct {
+	LoginFailMaxCount        int
+	LoginLockDurationMinutes int
 	PasswordMinLength        int
 	PasswordRequireUppercase bool
 	PasswordRequireLowercase bool
@@ -55,6 +57,8 @@ func (p *cacheRuntimePolicyProvider) GetRuntimeSecurityPolicy(ctx context.Contex
 	}
 
 	return &runtimeSecurityPolicy{
+		LoginFailMaxCount:        resp.LoginFailMaxCount,
+		LoginLockDurationMinutes: resp.LoginLockDurationMinutes,
 		PasswordMinLength:        resp.PasswordMinLength,
 		PasswordRequireUppercase: resp.PasswordRequireUppercase,
 		PasswordRequireLowercase: resp.PasswordRequireLowercase,
@@ -68,6 +72,8 @@ func (p *cacheRuntimePolicyProvider) GetRuntimeSecurityPolicy(ctx context.Contex
 // defaultRuntimeSecurityPolicy 返回默认运行时安全策略
 func defaultRuntimeSecurityPolicy() *runtimeSecurityPolicy {
 	return &runtimeSecurityPolicy{
+		LoginFailMaxCount:        5,
+		LoginLockDurationMinutes: 15,
 		PasswordMinLength:        8,
 		PasswordRequireUppercase: true,
 		PasswordRequireLowercase: true,
@@ -76,6 +82,27 @@ func defaultRuntimeSecurityPolicy() *runtimeSecurityPolicy {
 		AccessTokenExpireMinutes: 30,
 		RefreshTokenExpireDays:   7,
 	}
+}
+
+// getRuntimeSecurityPolicyOrDefault 获取运行时安全策略。
+// 读取失败时回落到默认策略，避免认证主流程被配置读取失败阻断。
+func getRuntimeSecurityPolicyOrDefault(ctx context.Context, provider runtimePolicyProvider) *runtimeSecurityPolicy {
+	if provider == nil {
+		return defaultRuntimeSecurityPolicy()
+	}
+	policy, err := provider.GetRuntimeSecurityPolicy(ctx)
+	if err != nil || policy == nil {
+		return defaultRuntimeSecurityPolicy()
+	}
+	return policy
+}
+
+// resolveAccessTokenTTLByProvider 获取当前生效的 Access Token 时长。
+func resolveAccessTokenTTLByProvider(ctx context.Context, provider runtimePolicyProvider) time.Duration {
+	cfg := config.Get().JWT
+	policy := getRuntimeSecurityPolicyOrDefault(ctx, provider)
+	accessExpire, _ := resolveJWTDurations(&cfg, policy)
+	return accessExpire
 }
 
 // validatePasswordWithPolicy 使用运行时策略校验密码复杂度

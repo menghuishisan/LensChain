@@ -57,6 +57,8 @@ type SimWSClaims struct {
 type TokenPair struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	AccessJTI    string `json:"-"`
+	RefreshJTI   string `json:"-"`
 	ExpiresIn    int64  `json:"expires_in"` // Access Token 过期时间（秒）
 }
 
@@ -125,6 +127,8 @@ func GenerateTokenPairWithExpiry(
 	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		AccessJTI:    accessClaims.ID,
+		RefreshJTI:   refreshClaims.ID,
 		ExpiresIn:    int64(accessExpire.Seconds()),
 	}, nil
 }

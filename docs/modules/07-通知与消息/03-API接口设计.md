@@ -455,7 +455,7 @@
 | 调用来源 | 接口 | 场景 |
 |---------|------|------|
 | 模块01 | `POST /internal/send-event` | 账号创建、密码重置通知 |
-| 模块02 | `POST /internal/send-event` | 学校审核、授权到期通知 |
+| 模块02 | `POST /internal/send-event` | 学校授权到期等面向内部用户的站内信通知 |
 | 模块03 | `POST /internal/send-event` | 作业发布、批改完成通知 |
 | 模块04 | `POST /internal/send-event` | 实验发布、超时提醒、评分通知 |
 | 模块05 | `POST /internal/send-event` | 竞赛发布、开始提醒通知 |

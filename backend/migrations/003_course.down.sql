@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS course_announcements;
 DROP TABLE IF EXISTS course_schedules;
 DROP TABLE IF EXISTS learning_progresses;
 DROP TABLE IF EXISTS submission_answers;
+DROP TABLE IF EXISTS assignment_drafts;
 DROP TABLE IF EXISTS assignment_submissions;
 DROP TABLE IF EXISTS assignment_questions;
 DROP TABLE IF EXISTS assignments;

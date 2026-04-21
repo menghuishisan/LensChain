@@ -462,6 +462,7 @@ const (
 	SnapshotTypePause     = 2 // 手动暂停
 	SnapshotTypeTimeout   = 3 // 超时保存
 	SnapshotTypeSimEngine = 4 // SimEngine状态快照
+	SnapshotTypeManual    = 5 // 手动创建
 )
 
 // SnapshotTypeText 快照类型文本映射
@@ -470,6 +471,7 @@ var SnapshotTypeText = map[int16]string{
 	SnapshotTypePause:     "手动暂停",
 	SnapshotTypeTimeout:   "超时保存",
 	SnapshotTypeSimEngine: "SimEngine状态快照",
+	SnapshotTypeManual:    "手动创建",
 }
 
 // GetSnapshotTypeText 获取快照类型文本

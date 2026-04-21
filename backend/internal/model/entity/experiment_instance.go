@@ -169,7 +169,6 @@ type ExperimentGroup struct {
 	GroupMethod int16     `gorm:"column:group_method;type:smallint;not null;default:1" json:"group_method"`
 	MaxMembers  int       `gorm:"not null;default:4" json:"max_members"`
 	Status      int16     `gorm:"column:status;type:smallint;not null;default:1" json:"status"`
-	Namespace   *string   `gorm:"type:varchar(100)" json:"namespace,omitempty"`
 	CreatedAt   time.Time `gorm:"not null;default:now()" json:"created_at"`
 	UpdatedAt   time.Time `gorm:"not null;default:now()" json:"updated_at"`
 }

@@ -191,6 +191,23 @@ func (AssignmentSubmission) TableName() string {
 	return "assignment_submissions"
 }
 
+// AssignmentDraft 作答草稿表。
+// 对应 assignment_drafts 表，每个学生在每个作业下仅保留一份最新草稿。
+type AssignmentDraft struct {
+	ID           int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
+	AssignmentID int64          `gorm:"not null;uniqueIndex:uk_assignment_drafts_assignment_student" json:"assignment_id,string"`
+	StudentID    int64          `gorm:"not null;uniqueIndex:uk_assignment_drafts_assignment_student;index" json:"student_id,string"`
+	Answers      datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'" json:"answers"`
+	SavedAt      time.Time      `gorm:"not null;default:now();index" json:"saved_at"`
+	CreatedAt    time.Time      `gorm:"not null;default:now()" json:"created_at"`
+	UpdatedAt    time.Time      `gorm:"not null;default:now()" json:"updated_at"`
+}
+
+// TableName 返回作答草稿表表名。
+func (AssignmentDraft) TableName() string {
+	return "assignment_drafts"
+}
+
 // SubmissionAnswer 提交答案明细表
 // 对应 submission_answers 表
 type SubmissionAnswer struct {

@@ -207,9 +207,9 @@
 
 | code | message | 场景 |
 |------|---------|------|
-| 40001 | 旧密码不正确 | 旧密码验证失败 |
-| 40002 | 新密码不符合复杂度要求 | 不满足8位+大小写+数字 |
-| 40003 | 新密码不能与当前密码相同 | 新旧密码一致 |
+| 40011 | 旧密码不正确 | 旧密码验证失败 |
+| 40012 | 新密码不符合复杂度要求 | 不满足8位+大小写+数字 |
+| 40013 | 新密码不能与当前密码相同 | 新旧密码一致 |
 
 ---
 
@@ -245,7 +245,7 @@
 | status | int | 否 | 账号状态筛选：1正常 2禁用 3归档 |
 | role | string | 否 | 角色筛选：teacher / student |
 | college | string | 否 | 学院筛选 |
-| education_level | int | 否 | 学业层次：1本科 2硕士 3博士 |
+| education_level | int | 否 | 学业层次：1专科 2本科 3硕士 4博士 |
 | sort_by | string | 否 | 排序字段，默认created_at |
 | sort_order | string | 否 | 排序方向，默认desc |
 
@@ -263,7 +263,7 @@
   "college": "计算机学院",
   "major": "软件工程",
   "class_name": "软工2401",
-  "education_level": 1,
+  "education_level": 2,
   "education_level_text": "本科",
   "last_login_at": "2026-04-07T10:00:00Z",
   "created_at": "2026-03-01T08:00:00Z"
@@ -360,12 +360,12 @@
 | A | 姓名 | 是 | |
 | B | 手机号 | 是 | 11位手机号 |
 | C | 学号 | 是 | 校内唯一 |
-| D | 初始密码 | 是 | 需满足复杂度要求 |
+| D | 初始密码 | 是 | 每条记录单独填写，且需满足复杂度要求 |
 | E | 学院 | 否 | |
 | F | 专业 | 否 | |
 | G | 班级 | 否 | |
 | H | 入学年份 | 否 | 如2024 |
-| I | 学业层次 | 否 | 本科/硕士/博士 |
+| I | 学业层次 | 否 | 专科/本科/硕士/博士 |
 | J | 年级 | 否 | |
 | K | 邮箱 | 否 | |
 | L | 备注 | 否 | |
@@ -499,7 +499,7 @@
     "college": "计算机学院",
     "major": "软件工程",
     "class_name": "软工2401",
-    "education_level": 1,
+    "education_level": 2,
     "education_level_text": "本科",
     "roles": ["student"],
     "learning_overview": {

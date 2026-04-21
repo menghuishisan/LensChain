@@ -6,7 +6,9 @@
 package validator
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -35,6 +37,19 @@ func BindAndValidate(c *gin.Context, obj interface{}) bool {
 // BindJSON 绑定 JSON 请求体并校验
 func BindJSON(c *gin.Context, obj interface{}) bool {
 	if err := c.ShouldBindJSON(obj); err != nil {
+		handleValidationError(c, err)
+		return false
+	}
+	return true
+}
+
+// BindOptionalJSON 绑定可选 JSON 请求体并校验。
+// 当请求体为空时视为“未传入”，不返回校验错误，供文档允许空请求体的接口复用。
+func BindOptionalJSON(c *gin.Context, obj interface{}) bool {
+	if err := c.ShouldBindJSON(obj); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
 		handleValidationError(c, err)
 		return false
 	}
@@ -118,6 +133,12 @@ func ParseQueryInt64(c *gin.Context, key string, defaultVal int64) int64 {
 		return defaultVal
 	}
 	return val
+}
+
+// ParseSnowflakeID 解析雪花 ID 字符串。
+// 供 handler 在 DTO 已完成基础绑定后，把字符串 ID 转为 int64 使用。
+func ParseSnowflakeID(idStr string) (int64, error) {
+	return snowflake.ParseString(idStr)
 }
 
 // handleValidationError 处理校验错误

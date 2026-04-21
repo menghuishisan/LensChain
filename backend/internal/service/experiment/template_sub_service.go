@@ -8,10 +8,10 @@ package experiment
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/datatypes"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
@@ -39,44 +39,90 @@ func mustMarshalRawJSON(value any) json.RawMessage {
 	return raw
 }
 
-// refreshTemplateContainers 在容器增删改后统一重算默认配置、条件变量与服务发现变量。
-func (s *templateSubService) refreshTemplateContainers(ctx context.Context, templateID int64) error {
-	containers, err := s.containerRepo.ListByTemplateID(ctx, templateID)
+// resolveContainerRoleID 解析并校验容器绑定的角色。
+// 角色只允许引用当前模板下已定义的角色，避免把跨模板角色或无效角色写入容器配置。
+func (s *templateSubService) resolveContainerRoleID(ctx context.Context, templateID int64, roleIDText *string) (*int64, error) {
+	if roleIDText == nil {
+		return nil, nil
+	}
+	roleID, err := snowflake.ParseString(*roleIDText)
 	if err != nil {
-		return err
+		return nil, errcode.ErrInvalidParams.WithMessage("角色ID无效")
 	}
-	allContainers := make([]entity.TemplateContainer, 0, len(containers))
-	for _, container := range containers {
-		allContainers = append(allContainers, *container)
+	role, err := s.roleRepo.GetByID(ctx, roleID)
+	if err != nil {
+		return nil, errcode.ErrInvalidParams.WithMessage("角色不存在")
 	}
-	for _, container := range containers {
-		version, err := s.imageVersionRepo.GetByID(ctx, container.ImageVersionID)
-		if err != nil {
-			return errcode.ErrImageVersionNotFound
-		}
-		image, err := s.imageRepo.GetByID(ctx, version.ImageID)
-		if err != nil {
-			return errcode.ErrImageNotFound
-		}
-		merged, err := mergeContainerConfig(*container, image, version, allContainers)
-		if err != nil {
-			return errcode.ErrInvalidParams.WithMessage(fmt.Sprintf("容器配置刷新失败: %v", err))
-		}
+	if role.TemplateID != templateID {
+		return nil, errcode.ErrInvalidParams.WithMessage("角色不属于当前实验模板")
+	}
+	return &roleID, nil
+}
 
-		fields := map[string]interface{}{
-			"env_vars":   mustMarshalRawJSON(merged.EnvVars),
-			"ports":      mustMarshalRawJSON(merged.Ports),
-			"volumes":    mustMarshalRawJSON(merged.Volumes),
-			"updated_at": time.Now(),
+// ensureCollaborativeTemplate 校验模板是否为多人协作组网拓扑。
+// 角色定义仅服务于多人协作实验，其他拓扑不允许创建或保留角色配置。
+func (s *templateSubService) ensureCollaborativeTemplate(ctx context.Context, templateID int64) error {
+	template, err := s.templateRepo.GetByID(ctx, templateID)
+	if err != nil {
+		return errcode.ErrTemplateNotFound
+	}
+	if template.TopologyMode == nil || *template.TopologyMode != enum.TopologyModeCollaborate {
+		return errcode.ErrInvalidParams.WithMessage("仅多人协作组网模板允许定义角色")
+	}
+	return nil
+}
+
+// ensureTemplateSupportsContainerConfig 校验模板类型是否允许配置容器。
+// 纯仿真实验完全由 SimEngine 驱动，不允许保留任何容器、工具或初始化脚本配置。
+func ensureTemplateSupportsContainerConfig(template *entity.ExperimentTemplate) error {
+	if template == nil {
+		return errcode.ErrTemplateNotFound
+	}
+	switch template.ExperimentType {
+	case enum.ExperimentTypeReal, enum.ExperimentTypeMixed:
+		return nil
+	default:
+		return errcode.ErrInvalidParams.WithMessage("纯仿真实验不允许配置容器镜像")
+	}
+}
+
+// ensureTemplateSupportsInitScripts 校验模板类型是否允许配置初始化脚本。
+func ensureTemplateSupportsInitScripts(template *entity.ExperimentTemplate) error {
+	if template == nil {
+		return errcode.ErrTemplateNotFound
+	}
+	switch template.ExperimentType {
+	case enum.ExperimentTypeReal, enum.ExperimentTypeMixed:
+		return nil
+	default:
+		return errcode.ErrInvalidParams.WithMessage("纯仿真实验不允许配置初始化脚本")
+	}
+}
+
+// ensureTemplateSupportsSimScenes 校验模板类型是否允许配置仿真场景。
+func ensureTemplateSupportsSimScenes(template *entity.ExperimentTemplate) error {
+	if template == nil {
+		return errcode.ErrTemplateNotFound
+	}
+	switch template.ExperimentType {
+	case enum.ExperimentTypeSimulation, enum.ExperimentTypeMixed:
+		return nil
+	default:
+		return errcode.ErrInvalidParams.WithMessage("真实环境实验不允许配置仿真场景")
+	}
+}
+
+// ensureCheckpointTypeAllowed 校验检查点类型与实验类型的匹配关系。
+// 文档要求纯仿真仅允许 SimEngine 状态断言和手动评分，真实环境仅允许脚本检查点和手动评分，混合实验允许全部类型。
+func ensureCheckpointTypeAllowed(experimentType int16, checkType int16) error {
+	switch experimentType {
+	case enum.ExperimentTypeSimulation:
+		if checkType == enum.CheckTypeScript {
+			return errcode.ErrInvalidParams.WithMessage("纯仿真实验不允许使用脚本检查点")
 		}
-		if container.CPULimit == nil && merged.CPULimit != "" {
-			fields["cpu_limit"] = merged.CPULimit
-		}
-		if container.MemoryLimit == nil && merged.MemoryLimit != "" {
-			fields["memory_limit"] = merged.MemoryLimit
-		}
-		if err := s.containerRepo.UpdateFields(ctx, container.ID, fields); err != nil {
-			return err
+	case enum.ExperimentTypeReal:
+		if checkType == enum.CheckTypeSimAssert {
+			return errcode.ErrInvalidParams.WithMessage("真实环境实验不允许使用SimEngine状态断言检查点")
 		}
 	}
 	return nil
@@ -166,16 +212,61 @@ func NewTemplateSubService(
 	}
 }
 
-// ensureDraft 检查模板是否为草稿状态
-func (s *templateSubService) ensureDraft(ctx context.Context, templateID int64) error {
+// ensureStructureEditable 检查模板是否允许修改结构性编排配置。
+// 容器、初始化脚本、仿真场景、标签、角色等都会影响模板结构，
+// 仅允许草稿模板或“已发布但尚未被课时引用”的模板修改。
+func (s *templateSubService) ensureStructureEditable(ctx context.Context, templateID int64) error {
 	tpl, err := s.templateRepo.GetByID(ctx, templateID)
 	if err != nil {
 		return errcode.ErrTemplateNotFound
 	}
-	if tpl.Status != enum.TemplateStatusDraft {
+	switch tpl.Status {
+	case enum.TemplateStatusDraft:
+		return nil
+	case enum.TemplateStatusPublished:
+		hasCourseReferences, refErr := s.templateRepo.HasCourseReferences(ctx, templateID)
+		if refErr != nil {
+			return refErr
+		}
+		if !hasCourseReferences {
+			return nil
+		}
+		return errcode.ErrInvalidParams.WithMessage("该模板已被课时引用，不允许修改容器、脚本、场景、标签或角色等结构配置")
+	default:
 		return errcode.ErrTemplateNotDraft
 	}
-	return nil
+}
+
+// ensureCheckpointEditable 检查模板是否允许修改检查点。
+// 文档要求已发布模板即使被课时引用，也允许继续调整检查点以优化后续教学，不影响已启动实例。
+func (s *templateSubService) ensureCheckpointEditable(ctx context.Context, templateID int64) error {
+	tpl, err := s.templateRepo.GetByID(ctx, templateID)
+	if err != nil {
+		return errcode.ErrTemplateNotFound
+	}
+	switch tpl.Status {
+	case enum.TemplateStatusDraft, enum.TemplateStatusPublished:
+		return nil
+	default:
+		return errcode.ErrTemplateNotDraft
+	}
+}
+
+// validateUsableImageVersion 校验模板编排时引用的镜像版本是否可用。
+// 教师只能选择状态为“正常”的镜像；待审核、已下架、审核拒绝都不能进入模板编排。
+func (s *templateSubService) validateUsableImageVersion(ctx context.Context, imageVersionID int64) (*entity.ImageVersion, *entity.Image, error) {
+	version, err := s.imageVersionRepo.GetByID(ctx, imageVersionID)
+	if err != nil {
+		return nil, nil, errcode.ErrImageVersionNotFound
+	}
+	image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+	if err != nil {
+		return nil, nil, errcode.ErrImageNotFound
+	}
+	if image.Status != enum.ImageStatusNormal {
+		return nil, nil, errcode.ErrInvalidParams.WithMessage("当前镜像未处于正常状态，不可用于实验编排")
+	}
+	return version, image, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -184,20 +275,19 @@ func (s *templateSubService) ensureDraft(ctx context.Context, templateID int64) 
 
 // CreateContainer 添加容器配置
 func (s *templateSubService) CreateContainer(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateContainerReq) (*dto.ContainerResp, error) {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
+		return nil, err
+	}
+	if err := ensureTemplateSupportsContainerConfig(template); err != nil {
 		return nil, err
 	}
 
 	imageVersionID, _ := snowflake.ParseString(req.ImageVersionID)
-	version, err := s.imageVersionRepo.GetByID(ctx, imageVersionID)
-	if err != nil {
-		return nil, errcode.ErrImageVersionNotFound
-	}
-	image, err := s.imageRepo.GetByID(ctx, version.ImageID)
-	if err != nil {
-		return nil, errcode.ErrImageNotFound
-	}
-	existingContainers, err := s.containerRepo.ListByTemplateID(ctx, templateID)
+	version, image, err := s.validateUsableImageVersion(ctx, imageVersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,43 +297,28 @@ func (s *templateSubService) CreateContainer(ctx context.Context, sc *svcctx.Ser
 		TemplateID:     templateID,
 		ImageVersionID: imageVersionID,
 		ContainerName:  req.ContainerName,
-		EnvVars:        req.EnvVars,
-		Ports:          req.Ports,
-		Volumes:        req.Volumes,
+		EnvVars:        datatypes.JSON(mustMarshalRawJSON(req.EnvVars)),
+		Ports:          datatypes.JSON(mustMarshalRawJSON(req.Ports)),
+		Volumes:        datatypes.JSON(mustMarshalRawJSON(req.Volumes)),
 		CPULimit:       req.CPULimit,
 		MemoryLimit:    req.MemoryLimit,
-		DependsOn:      req.DependsOn,
+		DependsOn:      datatypes.JSON(mustMarshalRawJSON(req.DependsOn)),
 		StartupOrder:   req.StartupOrder,
 		IsPrimary:      req.IsPrimary,
 	}
 	if req.RoleID != nil {
-		roleID, _ := snowflake.ParseString(*req.RoleID)
-		container.RoleID = &roleID
-	}
-
-	allContainers := make([]entity.TemplateContainer, 0, len(existingContainers)+1)
-	for _, existing := range existingContainers {
-		allContainers = append(allContainers, *existing)
-	}
-	allContainers = append(allContainers, *container)
-	mergedSpec, err := mergeContainerConfig(*container, image, version, allContainers)
-	if err != nil {
-		return nil, errcode.ErrInvalidParams.WithMessage(fmt.Sprintf("容器配置合并失败: %v", err))
-	}
-	container.EnvVars = mustMarshalRawJSON(mergedSpec.EnvVars)
-	container.Ports = mustMarshalRawJSON(mergedSpec.Ports)
-	container.Volumes = mustMarshalRawJSON(mergedSpec.Volumes)
-	if container.CPULimit == nil && mergedSpec.CPULimit != "" {
-		container.CPULimit = stringPtr(mergedSpec.CPULimit)
-	}
-	if container.MemoryLimit == nil && mergedSpec.MemoryLimit != "" {
-		container.MemoryLimit = stringPtr(mergedSpec.MemoryLimit)
+		roleID, err := s.resolveContainerRoleID(ctx, templateID, req.RoleID)
+		if err != nil {
+			return nil, err
+		}
+		container.RoleID = roleID
 	}
 
 	if err := s.containerRepo.Create(ctx, container); err != nil {
 		return nil, err
 	}
-	return s.toContainerResp(ctx, container), nil
+	allContainers := []entity.TemplateContainer{*container}
+	return buildTemplateContainerRespWithImage(container, version, image, allContainers), nil
 }
 
 // UpdateContainer 编辑容器配置
@@ -252,15 +327,22 @@ func (s *templateSubService) UpdateContainer(ctx context.Context, sc *svcctx.Ser
 	if err != nil {
 		return errcode.ErrContainerNotFound
 	}
-	if err := s.ensureDraft(ctx, container.TemplateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, container.TemplateID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, container.TemplateID); err != nil {
+		return err
+	}
+	if err := ensureTemplateSupportsContainerConfig(template); err != nil {
 		return err
 	}
 
 	fields := make(map[string]interface{})
 	if req.ImageVersionID != nil {
 		versionID, _ := snowflake.ParseString(*req.ImageVersionID)
-		if _, err := s.imageVersionRepo.GetByID(ctx, versionID); err != nil {
-			return errcode.ErrImageVersionNotFound
+		if _, _, err := s.validateUsableImageVersion(ctx, versionID); err != nil {
+			return err
 		}
 		fields["image_version_id"] = versionID
 	}
@@ -268,17 +350,20 @@ func (s *templateSubService) UpdateContainer(ctx context.Context, sc *svcctx.Ser
 		fields["container_name"] = *req.ContainerName
 	}
 	if req.RoleID != nil {
-		roleID, _ := snowflake.ParseString(*req.RoleID)
+		roleID, err := s.resolveContainerRoleID(ctx, container.TemplateID, req.RoleID)
+		if err != nil {
+			return err
+		}
 		fields["role_id"] = roleID
 	}
 	if req.EnvVars != nil {
-		fields["env_vars"] = req.EnvVars
+		fields["env_vars"] = datatypes.JSON(mustMarshalRawJSON(req.EnvVars))
 	}
 	if req.Ports != nil {
-		fields["ports"] = req.Ports
+		fields["ports"] = datatypes.JSON(mustMarshalRawJSON(req.Ports))
 	}
 	if req.Volumes != nil {
-		fields["volumes"] = req.Volumes
+		fields["volumes"] = datatypes.JSON(mustMarshalRawJSON(req.Volumes))
 	}
 	if req.CPULimit != nil {
 		fields["cpu_limit"] = *req.CPULimit
@@ -287,7 +372,7 @@ func (s *templateSubService) UpdateContainer(ctx context.Context, sc *svcctx.Ser
 		fields["memory_limit"] = *req.MemoryLimit
 	}
 	if req.DependsOn != nil {
-		fields["depends_on"] = req.DependsOn
+		fields["depends_on"] = datatypes.JSON(mustMarshalRawJSON(req.DependsOn))
 	}
 	if req.StartupOrder != nil {
 		fields["startup_order"] = *req.StartupOrder
@@ -302,7 +387,7 @@ func (s *templateSubService) UpdateContainer(ctx context.Context, sc *svcctx.Ser
 	if err := s.containerRepo.UpdateFields(ctx, containerID, fields); err != nil {
 		return err
 	}
-	return s.refreshTemplateContainers(ctx, container.TemplateID)
+	return nil
 }
 
 // DeleteContainer 删除容器配置
@@ -311,17 +396,23 @@ func (s *templateSubService) DeleteContainer(ctx context.Context, sc *svcctx.Ser
 	if err != nil {
 		return errcode.ErrContainerNotFound
 	}
-	if err := s.ensureDraft(ctx, container.TemplateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, container.TemplateID); err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, container.TemplateID); err != nil {
 		return err
 	}
 	if err := s.containerRepo.Delete(ctx, containerID); err != nil {
 		return err
 	}
-	return s.refreshTemplateContainers(ctx, container.TemplateID)
+	return nil
 }
 
 // ListContainers 获取模板的所有容器配置
 func (s *templateSubService) ListContainers(ctx context.Context, sc *svcctx.ServiceContext, templateID int64) ([]*dto.ContainerResp, error) {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
 	containers, err := s.containerRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -335,7 +426,10 @@ func (s *templateSubService) ListContainers(ctx context.Context, sc *svcctx.Serv
 
 // SortContainers 按请求顺序更新模板容器排序。
 func (s *templateSubService) SortContainers(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.SortReq) error {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
 		return err
 	}
 	now := time.Now()
@@ -368,7 +462,14 @@ func (s *templateSubService) SortContainers(ctx context.Context, sc *svcctx.Serv
 
 // CreateCheckpoint 添加检查点
 func (s *templateSubService) CreateCheckpoint(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateCheckpointReq) (*dto.CheckpointResp, error) {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureCheckpointEditable(ctx, templateID); err != nil {
+		return nil, err
+	}
+	if err := ensureCheckpointTypeAllowed(template.ExperimentType, req.CheckType); err != nil {
 		return nil, err
 	}
 
@@ -381,7 +482,7 @@ func (s *templateSubService) CreateCheckpoint(ctx context.Context, sc *svcctx.Se
 		ScriptContent:   req.ScriptContent,
 		ScriptLanguage:  req.ScriptLanguage,
 		TargetContainer: req.TargetContainer,
-		AssertionConfig: req.AssertionConfig,
+		AssertionConfig: datatypes.JSON(req.AssertionConfig),
 		Score:           req.Score,
 		Scope:           req.Scope,
 		SortOrder:       req.SortOrder,
@@ -399,7 +500,18 @@ func (s *templateSubService) UpdateCheckpoint(ctx context.Context, sc *svcctx.Se
 	if err != nil {
 		return errcode.ErrCheckpointNotFound
 	}
-	if err := s.ensureDraft(ctx, cp.TemplateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, cp.TemplateID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureCheckpointEditable(ctx, cp.TemplateID); err != nil {
+		return err
+	}
+	checkType := cp.CheckType
+	if req.CheckType != nil {
+		checkType = *req.CheckType
+	}
+	if err := ensureCheckpointTypeAllowed(template.ExperimentType, checkType); err != nil {
 		return err
 	}
 
@@ -423,7 +535,7 @@ func (s *templateSubService) UpdateCheckpoint(ctx context.Context, sc *svcctx.Se
 		fields["target_container"] = *req.TargetContainer
 	}
 	if req.AssertionConfig != nil {
-		fields["assertion_config"] = req.AssertionConfig
+		fields["assertion_config"] = datatypes.JSON(req.AssertionConfig)
 	}
 	if req.Score != nil {
 		fields["score"] = *req.Score
@@ -447,7 +559,10 @@ func (s *templateSubService) DeleteCheckpoint(ctx context.Context, sc *svcctx.Se
 	if err != nil {
 		return errcode.ErrCheckpointNotFound
 	}
-	if err := s.ensureDraft(ctx, cp.TemplateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, cp.TemplateID); err != nil {
+		return err
+	}
+	if err := s.ensureCheckpointEditable(ctx, cp.TemplateID); err != nil {
 		return err
 	}
 	return s.checkpointRepo.Delete(ctx, checkpointID)
@@ -455,6 +570,9 @@ func (s *templateSubService) DeleteCheckpoint(ctx context.Context, sc *svcctx.Se
 
 // ListCheckpoints 获取模板的所有检查点
 func (s *templateSubService) ListCheckpoints(ctx context.Context, sc *svcctx.ServiceContext, templateID int64) ([]*dto.CheckpointResp, error) {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
 	checkpoints, err := s.checkpointRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -468,7 +586,10 @@ func (s *templateSubService) ListCheckpoints(ctx context.Context, sc *svcctx.Ser
 
 // SortCheckpoints 按请求顺序更新模板检查点排序。
 func (s *templateSubService) SortCheckpoints(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.SortReq) error {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return err
+	}
+	if err := s.ensureCheckpointEditable(ctx, templateID); err != nil {
 		return err
 	}
 	now := time.Now()
@@ -500,7 +621,14 @@ func (s *templateSubService) SortCheckpoints(ctx context.Context, sc *svcctx.Ser
 
 // CreateInitScript 添加初始化脚本
 func (s *templateSubService) CreateInitScript(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateInitScriptReq) (*dto.InitScriptResp, error) {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
+		return nil, err
+	}
+	if err := ensureTemplateSupportsInitScripts(template); err != nil {
 		return nil, err
 	}
 
@@ -521,10 +649,7 @@ func (s *templateSubService) CreateInitScript(ctx context.Context, sc *svcctx.Se
 	if err := s.initScriptRepo.Create(ctx, script); err != nil {
 		return nil, err
 	}
-	resp := s.toInitScriptResp(script)
-	// Description 是 DTO-only 字段，不持久化到数据库
-	resp.Description = req.Description
-	return resp, nil
+	return s.toInitScriptResp(script), nil
 }
 
 // UpdateInitScript 编辑初始化脚本
@@ -533,7 +658,14 @@ func (s *templateSubService) UpdateInitScript(ctx context.Context, sc *svcctx.Se
 	if err != nil {
 		return errcode.ErrInitScriptNotFound
 	}
-	if err := s.ensureDraft(ctx, script.TemplateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, script.TemplateID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, script.TemplateID); err != nil {
+		return err
+	}
+	if err := ensureTemplateSupportsInitScripts(template); err != nil {
 		return err
 	}
 
@@ -566,7 +698,10 @@ func (s *templateSubService) DeleteInitScript(ctx context.Context, sc *svcctx.Se
 	if err != nil {
 		return errcode.ErrInitScriptNotFound
 	}
-	if err := s.ensureDraft(ctx, script.TemplateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, script.TemplateID); err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, script.TemplateID); err != nil {
 		return err
 	}
 	return s.initScriptRepo.Delete(ctx, scriptID)
@@ -574,6 +709,9 @@ func (s *templateSubService) DeleteInitScript(ctx context.Context, sc *svcctx.Se
 
 // ListInitScripts 获取模板的所有初始化脚本
 func (s *templateSubService) ListInitScripts(ctx context.Context, sc *svcctx.ServiceContext, templateID int64) ([]*dto.InitScriptResp, error) {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
 	scripts, err := s.initScriptRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -594,17 +732,24 @@ func (s *templateSubService) ListInitScripts(ctx context.Context, sc *svcctx.Ser
 type simSceneConfig struct {
 	SceneParams    json.RawMessage `json:"scene_params,omitempty"`
 	InitialState   json.RawMessage `json:"initial_state,omitempty"`
-	DataSourceMode int             `json:"data_source_mode"`
+	DataSourceMode int16           `json:"data_source_mode"`
 }
 
 // CreateSimScene 添加仿真场景到模板
 func (s *templateSubService) CreateSimScene(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateTemplateSimSceneReq) (*dto.TemplateSimSceneResp, error) {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
+		return nil, err
+	}
+	if err := ensureTemplateSupportsSimScenes(template); err != nil {
 		return nil, err
 	}
 
 	scenarioID, _ := snowflake.ParseString(req.ScenarioID)
-	_, err := s.scenarioRepo.GetByID(ctx, scenarioID)
+	_, err = s.scenarioRepo.GetByID(ctx, scenarioID)
 	if err != nil {
 		return nil, errcode.ErrScenarioNotFound
 	}
@@ -621,9 +766,9 @@ func (s *templateSubService) CreateSimScene(ctx context.Context, sc *svcctx.Serv
 		ID:               snowflake.Generate(),
 		TemplateID:       templateID,
 		ScenarioID:       scenarioID,
-		Config:           configBytes,
-		DataSourceConfig: req.DataSourceConfig,
-		LayoutPosition:   req.LayoutPosition,
+		Config:           datatypes.JSON(configBytes),
+		DataSourceConfig: datatypes.JSON(req.DataSourceConfig),
+		LayoutPosition:   datatypes.JSON(req.LayoutPosition),
 	}
 	if req.LinkGroupID != nil {
 		lgID, _ := snowflake.ParseString(*req.LinkGroupID)
@@ -642,7 +787,14 @@ func (s *templateSubService) UpdateSimScene(ctx context.Context, sc *svcctx.Serv
 	if err != nil {
 		return errcode.ErrSimSceneNotFound
 	}
-	if err := s.ensureDraft(ctx, scene.TemplateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, scene.TemplateID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, scene.TemplateID); err != nil {
+		return err
+	}
+	if err := ensureTemplateSupportsSimScenes(template); err != nil {
 		return err
 	}
 
@@ -668,14 +820,14 @@ func (s *templateSubService) UpdateSimScene(ctx context.Context, sc *svcctx.Serv
 	}
 	if configChanged {
 		configBytes, _ := json.Marshal(existingCfg)
-		fields["config"] = configBytes
+		fields["config"] = datatypes.JSON(configBytes)
 	}
 
 	if req.DataSourceConfig != nil {
-		fields["data_source_config"] = req.DataSourceConfig
+		fields["data_source_config"] = datatypes.JSON(req.DataSourceConfig)
 	}
 	if req.LayoutPosition != nil {
-		fields["layout_position"] = req.LayoutPosition
+		fields["layout_position"] = datatypes.JSON(req.LayoutPosition)
 	}
 	if len(fields) == 0 {
 		return nil
@@ -690,7 +842,10 @@ func (s *templateSubService) DeleteSimScene(ctx context.Context, sc *svcctx.Serv
 	if err != nil {
 		return errcode.ErrSimSceneNotFound
 	}
-	if err := s.ensureDraft(ctx, scene.TemplateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, scene.TemplateID); err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, scene.TemplateID); err != nil {
 		return err
 	}
 	return s.simSceneRepo.Delete(ctx, simSceneID)
@@ -698,6 +853,9 @@ func (s *templateSubService) DeleteSimScene(ctx context.Context, sc *svcctx.Serv
 
 // ListSimScenes 获取模板的所有仿真场景配置
 func (s *templateSubService) ListSimScenes(ctx context.Context, sc *svcctx.ServiceContext, templateID int64) ([]*dto.TemplateSimSceneResp, error) {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
 	scenes, err := s.simSceneRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -711,7 +869,14 @@ func (s *templateSubService) ListSimScenes(ctx context.Context, sc *svcctx.Servi
 
 // UpdateSimSceneLayout 批量更新仿真场景布局
 func (s *templateSubService) UpdateSimSceneLayout(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.UpdateSimSceneLayoutReq) error {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
+		return err
+	}
+	if err := ensureTemplateSupportsSimScenes(template); err != nil {
 		return err
 	}
 	now := time.Now()
@@ -796,7 +961,10 @@ func (s *templateSubService) ListTags(ctx context.Context, sc *svcctx.ServiceCon
 
 // SetTemplateTags 设置模板标签（全量替换）
 func (s *templateSubService) SetTemplateTags(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.SetTemplateTagsReq) error {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
 		return err
 	}
 	// 删除现有关联
@@ -821,6 +989,9 @@ func (s *templateSubService) SetTemplateTags(ctx context.Context, sc *svcctx.Ser
 
 // ListTemplateTags 获取模板的标签列表
 func (s *templateSubService) ListTemplateTags(ctx context.Context, sc *svcctx.ServiceContext, templateID int64) ([]*dto.TagResp, error) {
+	if _, err := ensureTemplateReadAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
 	templateTags, err := s.templateTagRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -842,7 +1013,13 @@ func (s *templateSubService) ListTemplateTags(ctx context.Context, sc *svcctx.Se
 
 // CreateRole 添加角色
 func (s *templateSubService) CreateRole(ctx context.Context, sc *svcctx.ServiceContext, templateID int64, req *dto.CreateRoleReq) (*dto.RoleResp, error) {
-	if err := s.ensureDraft(ctx, templateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureStructureEditable(ctx, templateID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureCollaborativeTemplate(ctx, templateID); err != nil {
 		return nil, err
 	}
 
@@ -869,7 +1046,13 @@ func (s *templateSubService) UpdateRole(ctx context.Context, sc *svcctx.ServiceC
 	if err != nil {
 		return errcode.ErrRoleNotFound
 	}
-	if err := s.ensureDraft(ctx, role.TemplateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, role.TemplateID); err != nil {
+		return err
+	}
+	if err := s.ensureStructureEditable(ctx, role.TemplateID); err != nil {
+		return err
+	}
+	if err := s.ensureCollaborativeTemplate(ctx, role.TemplateID); err != nil {
 		return err
 	}
 
@@ -896,14 +1079,27 @@ func (s *templateSubService) DeleteRole(ctx context.Context, sc *svcctx.ServiceC
 	if err != nil {
 		return errcode.ErrRoleNotFound
 	}
-	if err := s.ensureDraft(ctx, role.TemplateID); err != nil {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, role.TemplateID); err != nil {
 		return err
+	}
+	if err := s.ensureStructureEditable(ctx, role.TemplateID); err != nil {
+		return err
+	}
+	hasReferences, err := s.roleRepo.HasReferences(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	if hasReferences {
+		return errcode.ErrInvalidParams.WithMessage("该角色已被容器配置或分组成员引用，不能删除")
 	}
 	return s.roleRepo.Delete(ctx, roleID)
 }
 
 // ListRoles 获取模板的所有角色
 func (s *templateSubService) ListRoles(ctx context.Context, sc *svcctx.ServiceContext, templateID int64) ([]*dto.RoleResp, error) {
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, templateID); err != nil {
+		return nil, err
+	}
 	roles, err := s.roleRepo.ListByTemplateID(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -921,148 +1117,64 @@ func (s *templateSubService) ListRoles(ctx context.Context, sc *svcctx.ServiceCo
 
 // toContainerResp 转换容器实体为响应（含镜像版本信息）
 func (s *templateSubService) toContainerResp(ctx context.Context, c *entity.TemplateContainer) *dto.ContainerResp {
-	resp := &dto.ContainerResp{
-		ID:             strconv.FormatInt(c.ID, 10),
-		TemplateID:     strconv.FormatInt(c.TemplateID, 10),
-		ImageVersionID: strconv.FormatInt(c.ImageVersionID, 10),
-		ContainerName:  c.ContainerName,
-		EnvVars:        c.EnvVars,
-		Ports:          c.Ports,
-		Volumes:        c.Volumes,
-		CPULimit:       c.CPULimit,
-		MemoryLimit:    c.MemoryLimit,
-		DependsOn:      c.DependsOn,
-		StartupOrder:   c.StartupOrder,
-		IsPrimary:      c.IsPrimary,
+	var version *entity.ImageVersion
+	if loadedVersion, err := s.imageVersionRepo.GetByID(ctx, c.ImageVersionID); err == nil {
+		version = loadedVersion
 	}
-	if c.RoleID != nil {
-		roleIDStr := strconv.FormatInt(*c.RoleID, 10)
-		resp.RoleID = &roleIDStr
-	}
-
-	// 关联镜像版本信息
-	version, err := s.imageVersionRepo.GetByID(ctx, c.ImageVersionID)
-	if err == nil {
-		ivResp := &dto.ContainerImageVersionResp{
-			ID:      strconv.FormatInt(version.ID, 10),
-			Version: version.Version,
+	var image *entity.Image
+	if version != nil {
+		if loadedImage, imageErr := s.imageRepo.GetByID(ctx, version.ImageID); imageErr == nil {
+			image = loadedImage
 		}
-		image, err := s.imageRepo.GetByID(ctx, version.ImageID)
-		if err == nil {
-			ivResp.ImageName = image.Name
-			ivResp.ImageDisplayName = image.DisplayName
-			ivResp.IconURL = image.IconURL
-		}
-		resp.ImageVersion = ivResp
 	}
-	return resp
+	allContainers := make([]entity.TemplateContainer, 0)
+	if containers, err := s.containerRepo.ListByTemplateID(ctx, c.TemplateID); err == nil {
+		allContainers = make([]entity.TemplateContainer, 0, len(containers))
+		for _, item := range containers {
+			if item == nil {
+				continue
+			}
+			allContainers = append(allContainers, *item)
+		}
+	}
+	return buildTemplateContainerRespWithImage(c, version, image, allContainers)
 }
 
 // toCheckpointResp 转换检查点实体为响应
 func (s *templateSubService) toCheckpointResp(cp *entity.TemplateCheckpoint) *dto.CheckpointResp {
-	return &dto.CheckpointResp{
-		ID:              strconv.FormatInt(cp.ID, 10),
-		TemplateID:      strconv.FormatInt(cp.TemplateID, 10),
-		Title:           cp.Title,
-		Description:     cp.Description,
-		CheckType:       cp.CheckType,
-		CheckTypeText:   enum.GetCheckTypeText(cp.CheckType),
-		ScriptContent:   cp.ScriptContent,
-		ScriptLanguage:  cp.ScriptLanguage,
-		TargetContainer: cp.TargetContainer,
-		AssertionConfig: cp.AssertionConfig,
-		Score:           cp.Score,
-		Scope:           cp.Scope,
-		ScopeText:       enum.GetCheckpointScopeText(cp.Scope),
-		SortOrder:       cp.SortOrder,
-	}
+	return buildTemplateCheckpointResp(cp)
 }
 
 // toInitScriptResp 转换初始化脚本实体为响应
 func (s *templateSubService) toInitScriptResp(script *entity.TemplateInitScript) *dto.InitScriptResp {
-	return &dto.InitScriptResp{
-		ID:              strconv.FormatInt(script.ID, 10),
-		TemplateID:      strconv.FormatInt(script.TemplateID, 10),
-		TargetContainer: script.TargetContainer,
-		ScriptContent:   script.ScriptContent,
-		ScriptLanguage:  script.ScriptLanguage,
-		ExecutionOrder:  script.ExecutionOrder,
-		Timeout:         script.Timeout,
-	}
+	return buildTemplateInitScriptResp(script)
 }
 
 // toSimSceneResp 转换仿真场景配置实体为响应
 func (s *templateSubService) toSimSceneResp(ctx context.Context, scene *entity.TemplateSimScene) *dto.TemplateSimSceneResp {
-	resp := &dto.TemplateSimSceneResp{
-		ID:               strconv.FormatInt(scene.ID, 10),
-		TemplateID:       strconv.FormatInt(scene.TemplateID, 10),
-		DataSourceConfig: scene.DataSourceConfig,
-		LayoutPosition:   scene.LayoutPosition,
-	}
-
-	// 拆分 Config JSONB → SceneParams + InitialState + DataSourceMode
-	if scene.Config != nil {
-		var cfg simSceneConfig
-		if err := json.Unmarshal(scene.Config, &cfg); err == nil {
-			resp.SceneParams = cfg.SceneParams
-			resp.InitialState = cfg.InitialState
-			resp.DataSourceMode = cfg.DataSourceMode
-			resp.DataSourceModeText = enum.GetDataSourceModeText(cfg.DataSourceMode)
-		}
-	}
-
-	// 联动组信息
+	var linkGroup *entity.SimLinkGroup
 	if scene.LinkGroupID != nil {
-		lgIDStr := strconv.FormatInt(*scene.LinkGroupID, 10)
-		resp.LinkGroupID = &lgIDStr
-		lg, err := s.linkGroupRepo.GetByID(ctx, *scene.LinkGroupID)
-		if err == nil {
-			resp.LinkGroupName = &lg.Name
+		if loadedLinkGroup, err := s.linkGroupRepo.GetByID(ctx, *scene.LinkGroupID); err == nil {
+			linkGroup = loadedLinkGroup
 		}
 	}
 
-	// 场景简要信息
-	scenario, err := s.scenarioRepo.GetByID(ctx, scene.ScenarioID)
-	if err == nil {
-		brief := &dto.ScenarioBrief{
-			ID:              strconv.FormatInt(scenario.ID, 10),
-			Name:            scenario.Name,
-			Code:            scenario.Code,
-			Category:        scenario.Category,
-			CategoryText:    enum.GetScenarioCategoryText(scenario.Category),
-			TimeControlMode: scenario.TimeControlMode,
-		}
-		if scenario.ContainerImageURL != nil {
-			brief.ContainerImageURL = *scenario.ContainerImageURL
-		}
-		if scenario.ContainerImageSize != nil {
-			sizeStr := strconv.FormatInt(*scenario.ContainerImageSize, 10)
-			brief.ContainerImageSize = &sizeStr
-		}
-		resp.Scenario = brief
+	var scenario *entity.SimScenario
+	if loadedScenario, err := s.scenarioRepo.GetByID(ctx, scene.ScenarioID); err == nil {
+		scenario = loadedScenario
 	}
 
-	return resp
+	return buildTemplateSimSceneRespWithRelations(scene, scenario, linkGroup)
 }
 
 // toTagResp 转换标签实体为响应
 func (s *templateSubService) toTagResp(t *entity.Tag) *dto.TagResp {
-	return &dto.TagResp{
-		ID:       strconv.FormatInt(t.ID, 10),
-		Name:     t.Name,
-		Category: t.Category,
-	}
+	return buildTagResp(t)
 }
 
 // toRoleResp 转换角色实体为响应
 func (s *templateSubService) toRoleResp(r *entity.TemplateRole) *dto.RoleResp {
-	return &dto.RoleResp{
-		ID:          strconv.FormatInt(r.ID, 10),
-		TemplateID:  strconv.FormatInt(r.TemplateID, 10),
-		RoleName:    r.RoleName,
-		Description: r.Description,
-		MaxMembers:  r.MaxMembers,
-	}
+	return buildTemplateRoleResp(r)
 }
 
 // ---------------------------------------------------------------------------

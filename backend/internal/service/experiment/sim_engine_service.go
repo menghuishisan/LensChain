@@ -1,7 +1,7 @@
 // sim_engine_service.go
-// 模块04 — 实验环境：SimEngine 通信接口
-// 定义与 SimEngine Core 微服务通信的接口和数据结构
-// 由 gRPC 客户端实现注入
+// 模块04 — 实验环境：SimEngine 适配契约
+// 定义模块04与 SimEngine Core 通信所需的最小接口和数据结构，供 service 层编排仿真会话
+// 该文件只声明外部系统适配契约，不承载实验业务规则
 
 package experiment
 

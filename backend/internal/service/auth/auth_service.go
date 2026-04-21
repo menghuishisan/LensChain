@@ -25,6 +25,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
 	"github.com/lenschain/backend/internal/pkg/logger"
+	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/pkg/tokenstate"
 	"github.com/lenschain/backend/internal/repository/auth"
 )
@@ -116,11 +117,12 @@ func NewAuthService(
 // - 首次登录不记录为"登录成功"，使用专门的日志标记（P1-3 修复）
 func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent string) (*LoginResult, error) {
 	// 1. 检查账号是否被锁定（Redis）
-	locked, _ := cache.Exists(ctx, cache.KeyAccountLocked+phone)
+	lockKey := cache.KeyAccountLocked + phone
+	locked, _ := cache.Exists(ctx, lockKey)
 	if locked {
-		// P1-4 修复：不记录 userID=0 的日志，改为记录 phone
-		asyncRecordLoginLog(s.loginLogRepo, 0, enum.LoginActionFail, enum.LoginMethodPassword, ip, userAgent, "账号已锁定:"+phone)
-		return nil, errcode.ErrAccountLocked.WithMessage("账号已锁定，请稍后再试")
+		// 锁定日志不记录手机号原文，避免在认证日志详情中暴露敏感信息。
+		asyncRecordLoginLog(s.loginLogRepo, 0, enum.LoginActionFail, enum.LoginMethodPassword, ip, userAgent, "账号已锁定")
+		return nil, errcode.ErrAccountLocked.WithMessagef("账号已锁定，请%d分钟后重试", resolveLockMinutes(ctx, lockKey, nil))
 	}
 
 	// 2. 根据手机号查找用户
@@ -130,6 +132,14 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 		// 执行一次虚假的 bcrypt 比较，防止时序攻击
 		crypto.CheckPassword(password, "$2a$12$000000000000000000000000000000000000000000000000000000")
 		return nil, errcode.ErrWrongCredentials
+	}
+
+	// 锁定时间到期后立即清理锁定状态和失败计数，避免再次输入错误密码时被直接重新锁定。
+	if user.LockedUntil != nil && !user.LockedUntil.After(time.Now()) {
+		_ = s.userRepo.UnlockUser(ctx, user.ID)
+		_ = cache.Del(ctx, cache.KeyAccountLocked+phone)
+		_ = cache.Del(ctx, cache.KeyLoginFail+phone)
+		user.LockedUntil = nil
 	}
 
 	// 3. 验证密码
@@ -150,7 +160,7 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 	// 检查是否已过锁定时间（数据库层面）
 	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
 		asyncRecordLoginLog(s.loginLogRepo, user.ID, enum.LoginActionFail, enum.LoginMethodPassword, ip, userAgent, "账号已锁定(DB)")
-		return nil, errcode.ErrAccountLocked.WithMessage("账号已锁定，请稍后再试")
+		return nil, errcode.ErrAccountLocked.WithMessagef("账号已锁定，请%d分钟后重试", resolveLockMinutes(ctx, lockKey, user.LockedUntil))
 	}
 
 	// 4.1 检查学校状态
@@ -188,17 +198,20 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 	}
 
 	// 6. 生成Token对
+	roleCodes, err := s.roleRepo.GetUserRoleCodes(ctx, user.ID)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
 	now := time.Now()
 	_ = s.userRepo.UpdateTokenValidAfter(ctx, user.ID, now)
 	_ = tokenstate.SetTokenValidAfter(ctx, user.ID, now)
-	roleCodes := s.extractRoleCodes(user)
 	tokenPair, err := s.generateTokenPair(ctx, user.ID, user.SchoolID, roleCodes)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
 
 	// 7. 存储Session到Redis
-	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, ip)
+	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, tokenPair.AccessJTI, ip)
 
 	// 8. 更新登录信息
 	_ = s.userRepo.UpdateLoginInfo(ctx, user.ID, ip, now)
@@ -219,15 +232,7 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 			RefreshToken: tokenPair.RefreshToken,
 			ExpiresIn:    tokenPair.ExpiresIn,
 			TokenType:    "Bearer",
-			User: dto.LoginUser{
-				ID:           strconv.FormatInt(user.ID, 10),
-				Name:         user.Name,
-				Phone:        user.Phone,
-				Roles:        roleCodes,
-				SchoolID:     strconv.FormatInt(user.SchoolID, 10),
-				SchoolName:   schoolName,
-				IsFirstLogin: false,
-			},
+			User:         s.buildLoginUser(user, roleCodes, schoolName, false),
 		},
 	}, nil
 }
@@ -236,7 +241,7 @@ func (s *authService) Login(ctx context.Context, phone, password, ip, userAgent 
 // P0-1 修复：返回统一的错误码，不泄露手机号是否存在
 func (s *authService) handleLoginFail(ctx context.Context, user *entity.User, phone, ip, userAgent string) (*LoginResult, error) {
 	// 增加失败计数（Redis 原子操作）
-	failCount, err := cache.IncrWithExpire(ctx, cache.KeyLoginFail+phone, 30*time.Minute)
+	failCount, err := cache.IncrWithExpire(ctx, cache.KeyLoginFail+phone, s.getLockDuration(ctx))
 	if err != nil {
 		logger.L.Error("增加登录失败计数失败", zap.Error(err))
 	}
@@ -278,7 +283,9 @@ func (s *authService) Logout(ctx context.Context, userID int64, jti, ip, userAge
 	_ = tokenstate.SetTokenValidAfter(ctx, userID, now)
 
 	// 将 Access Token 加入黑名单（TTL 与 Access Token 剩余有效期一致，这里用30分钟）
-	_ = cache.Set(ctx, cache.KeyTokenBlacklist+jti, "1", 30*time.Minute)
+	if jti != "" {
+		_ = tokenstate.BlacklistToken(ctx, jti, s.resolveAccessTokenTTL(ctx))
+	}
 
 	// 删除 Session
 	_ = cache.Del(ctx, cache.KeySession+strconv.FormatInt(userID, 10))
@@ -289,12 +296,47 @@ func (s *authService) Logout(ctx context.Context, userID int64, jti, ip, userAge
 	return nil
 }
 
+// resolveLockMinutes 计算账号锁定剩余分钟数，优先读取 Redis TTL，缺失时回退数据库锁定时间。
+func resolveLockMinutes(ctx context.Context, lockKey string, lockedUntil *time.Time) int {
+	if ttl, err := cache.TTL(ctx, lockKey); err == nil && ttl > 0 {
+		return durationToCeilMinutes(ttl)
+	}
+	if lockedUntil != nil {
+		remaining := time.Until(*lockedUntil)
+		if remaining > 0 {
+			return durationToCeilMinutes(remaining)
+		}
+	}
+	return 1
+}
+
+// durationToCeilMinutes 把持续时间转换为向上取整的分钟数，避免出现“0分钟后重试”。
+func durationToCeilMinutes(duration time.Duration) int {
+	minutes := int(duration / time.Minute)
+	if duration%time.Minute != 0 {
+		minutes++
+	}
+	if minutes < 1 {
+		return 1
+	}
+	return minutes
+}
+
 // RefreshToken 刷新Token
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*dto.RefreshTokenResp, error) {
 	// 解析 Refresh Token
 	claims, err := jwtpkg.ParseRefreshToken(refreshToken)
 	if err != nil {
 		return nil, errcode.ErrRefreshTokenInvalid
+	}
+	if claims.IssuedAt != nil {
+		validAfter, err := tokenstate.ResolveTokenValidAfter(ctx, claims.UserID)
+		if err != nil {
+			return nil, errcode.ErrRefreshTokenInvalid
+		}
+		if validAfter != nil && claims.IssuedAt.Time.Before(*validAfter) {
+			return nil, errcode.ErrRefreshTokenInvalid.WithMessage("Refresh Token已失效，请重新登录")
+		}
 	}
 
 	// 验证 Session 中的 Refresh Token 是否匹配（防止旧 Token 重放）
@@ -314,14 +356,34 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*d
 		return nil, errcode.ErrRefreshTokenInvalid.WithMessage("Refresh Token已被替换（可能在其他设备登录）")
 	}
 
+	user, err := s.userRepo.GetByID(ctx, claims.UserID)
+	if err != nil {
+		return nil, errcode.ErrRefreshTokenExpired
+	}
+	switch user.Status {
+	case enum.UserStatusDisabled:
+		return nil, errcode.ErrAccountDisabled
+	case enum.UserStatusArchived:
+		return nil, errcode.ErrAccountArchived
+	}
+	if s.schoolStatusChecker != nil {
+		if err := s.schoolStatusChecker.CheckLoginAllowed(ctx, user.SchoolID); err != nil {
+			return nil, err
+		}
+	}
+	roleCodes, err := s.roleRepo.GetUserRoleCodes(ctx, user.ID)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
+
 	// 生成新的 Token 对
-	newPair, err := s.generateTokenPair(ctx, claims.UserID, claims.SchoolID, claims.Roles)
+	newPair, err := s.generateTokenPair(ctx, user.ID, user.SchoolID, roleCodes)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
 
 	// 更新 Session
-	s.storeSession(ctx, claims.UserID, newPair.RefreshToken, "")
+	s.storeSession(ctx, user.ID, newPair.RefreshToken, newPair.AccessJTI, "")
 
 	return &dto.RefreshTokenResp{
 		AccessToken:  newPair.AccessToken,
@@ -386,6 +448,9 @@ func (s *authService) ForceChangePassword(ctx context.Context, userID int64, new
 	if !user.IsFirstLogin {
 		return nil, errcode.ErrForbidden.WithMessage("非首次登录用户不允许此操作")
 	}
+	if crypto.CheckPassword(newPassword, user.PasswordHash) {
+		return nil, errcode.ErrPasswordSameAsCurrent
+	}
 	if err := s.validatePasswordByPolicy(ctx, newPassword); err != nil {
 		return nil, err
 	}
@@ -406,17 +471,20 @@ func (s *authService) ForceChangePassword(ctx context.Context, userID int64, new
 	}
 
 	// 生成正式Token对
+	roleCodes, err := s.roleRepo.GetUserRoleCodes(ctx, user.ID)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
 	now := time.Now()
 	_ = s.userRepo.UpdateTokenValidAfter(ctx, user.ID, now)
 	_ = tokenstate.SetTokenValidAfter(ctx, user.ID, now)
-	roleCodes := s.extractRoleCodes(user)
 	tokenPair, err := s.generateTokenPair(ctx, user.ID, user.SchoolID, roleCodes)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
 
 	// 存储Session
-	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, ip)
+	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, tokenPair.AccessJTI, ip)
 
 	// 更新登录信息
 	_ = s.userRepo.UpdateLoginInfo(ctx, user.ID, ip, now)
@@ -434,38 +502,37 @@ func (s *authService) ForceChangePassword(ctx context.Context, userID int64, new
 			RefreshToken: tokenPair.RefreshToken,
 			ExpiresIn:    tokenPair.ExpiresIn,
 			TokenType:    "Bearer",
-			User: dto.LoginUser{
-				ID:           strconv.FormatInt(user.ID, 10),
-				Name:         user.Name,
-				Phone:        user.Phone,
-				Roles:        roleCodes,
-				SchoolID:     strconv.FormatInt(user.SchoolID, 10),
-				SchoolName:   schoolName,
-				IsFirstLogin: false,
-			},
+			User:         s.buildLoginUser(user, roleCodes, schoolName, false),
 		},
 	}, nil
 }
 
 // ========== 内部辅助方法 ==========
 
-// extractRoleCodes 从用户实体提取角色编码列表
-func (s *authService) extractRoleCodes(user *entity.User) []string {
-	codes := make([]string, 0, len(user.Roles))
-	for _, ur := range user.Roles {
-		if ur.Role != nil {
-			codes = append(codes, ur.Role.Code)
-		}
+// buildLoginUser 构建登录响应中的用户信息。
+func (s *authService) buildLoginUser(user *entity.User, roleCodes []string, schoolName string, isFirstLogin bool) dto.LoginUser {
+	return dto.LoginUser{
+		ID:           strconv.FormatInt(user.ID, 10),
+		Name:         user.Name,
+		Phone:        user.Phone,
+		Roles:        roleCodes,
+		SchoolID:     strconv.FormatInt(user.SchoolID, 10),
+		SchoolName:   schoolName,
+		IsFirstLogin: isFirstLogin,
 	}
-	return codes
 }
 
 // storeSession 存储用户Session到Redis
-func (s *authService) storeSession(ctx context.Context, userID int64, refreshToken, ip string) {
-	sessionData, err := json.Marshal(map[string]interface{}{
-		"refresh_token": refreshToken,
-		"device_info":   ip,
-		"login_at":      time.Now().Unix(),
+func (s *authService) storeSession(ctx context.Context, userID int64, refreshToken, accessJTI, ip string) {
+	if previousSession, err := getAuthSession(ctx, userID); err == nil {
+		_ = tokenstate.BlacklistToken(ctx, previousSession.AccessJTI, s.resolveAccessTokenTTL(ctx))
+	}
+
+	sessionData, err := json.Marshal(&authSession{
+		RefreshToken: refreshToken,
+		AccessJTI:    accessJTI,
+		DeviceInfo:   ip,
+		LoginAt:      time.Now().Unix(),
 	})
 	if err != nil {
 		logger.L.Error("序列化Session失败", zap.Error(err))
@@ -474,32 +541,19 @@ func (s *authService) storeSession(ctx context.Context, userID int64, refreshTok
 	_ = cache.Set(ctx, cache.KeySession+strconv.FormatInt(userID, 10), string(sessionData), 7*24*time.Hour)
 }
 
+// resolveAccessTokenTTL 获取当前生效的 Access Token 时长。
+func (s *authService) resolveAccessTokenTTL(ctx context.Context) time.Duration {
+	return resolveAccessTokenTTLByProvider(ctx, s.policyProvider)
+}
+
 // getMaxFailCount 获取最大登录失败次数（从安全策略缓存）
 func (s *authService) getMaxFailCount(ctx context.Context) int {
-	data, err := cache.GetString(ctx, cache.KeySecurityPolicy)
-	if err == nil {
-		var policy map[string]interface{}
-		if json.Unmarshal([]byte(data), &policy) == nil {
-			if v, ok := policy["max_fail_count"].(float64); ok {
-				return int(v)
-			}
-		}
-	}
-	return 5 // 默认值
+	return getRuntimeSecurityPolicyOrDefault(ctx, s.policyProvider).LoginFailMaxCount
 }
 
 // getLockDuration 获取锁定时长（从安全策略缓存）
 func (s *authService) getLockDuration(ctx context.Context) time.Duration {
-	data, err := cache.GetString(ctx, cache.KeySecurityPolicy)
-	if err == nil {
-		var policy map[string]interface{}
-		if json.Unmarshal([]byte(data), &policy) == nil {
-			if v, ok := policy["lock_duration_minutes"].(float64); ok {
-				return time.Duration(int(v)) * time.Minute
-			}
-		}
-	}
-	return 15 * time.Minute // 默认值
+	return time.Duration(getRuntimeSecurityPolicyOrDefault(ctx, s.policyProvider).LoginLockDurationMinutes) * time.Minute
 }
 
 // validatePasswordByPolicy 按运行时安全策略校验密码复杂度
@@ -526,4 +580,29 @@ func (s *authService) generateTokenPair(ctx context.Context, userID, schoolID in
 	}
 	accessExpire, refreshExpire := resolveJWTDurations(&cfg, policy)
 	return jwtpkg.GenerateTokenPairWithExpiry(userID, schoolID, roles, cfg.AccessSecret, cfg.RefreshSecret, cfg.Issuer, accessExpire, refreshExpire)
+}
+
+// asyncRecordLoginLog 异步记录登录日志。
+// 登录日志只由认证流程写入，失败不影响主业务流程。
+func asyncRecordLoginLog(loginLogRepo authrepo.LoginLogRepository, userID int64, action, loginMethod int16, ip, userAgent, failReason string) {
+	go func() {
+		log := &entity.LoginLog{
+			ID:     snowflake.Generate(),
+			UserID: userID,
+			Action: action,
+			IP:     ip,
+		}
+		if loginMethod > 0 {
+			log.LoginMethod = &loginMethod
+		}
+		if userAgent != "" {
+			log.UserAgent = &userAgent
+		}
+		if failReason != "" {
+			log.FailReason = &failReason
+		}
+		if err := loginLogRepo.Create(context.Background(), log); err != nil {
+			logger.L.Error("记录登录日志失败", zap.Error(err))
+		}
+	}()
 }

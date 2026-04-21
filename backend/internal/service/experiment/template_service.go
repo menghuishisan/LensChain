@@ -51,6 +51,8 @@ type templateService struct {
 	simSceneRepo     experimentrepo.SimSceneRepository
 	imageRepo        experimentrepo.ImageRepository
 	imageVersionRepo experimentrepo.ImageVersionRepository
+	scenarioRepo     experimentrepo.ScenarioRepository
+	linkGroupRepo    experimentrepo.LinkGroupRepository
 	tagRepo          experimentrepo.TagRepository
 	templateTagRepo  experimentrepo.TemplateTagRepository
 	roleRepo         experimentrepo.RoleRepository
@@ -67,6 +69,8 @@ func NewTemplateService(
 	simSceneRepo experimentrepo.SimSceneRepository,
 	imageRepo experimentrepo.ImageRepository,
 	imageVersionRepo experimentrepo.ImageVersionRepository,
+	scenarioRepo experimentrepo.ScenarioRepository,
+	linkGroupRepo experimentrepo.LinkGroupRepository,
 	tagRepo experimentrepo.TagRepository,
 	templateTagRepo experimentrepo.TemplateTagRepository,
 	roleRepo experimentrepo.RoleRepository,
@@ -77,6 +81,7 @@ func NewTemplateService(
 		containerRepo: containerRepo, checkpointRepo: checkpointRepo,
 		initScriptRepo: initScriptRepo, simSceneRepo: simSceneRepo,
 		imageRepo: imageRepo, imageVersionRepo: imageVersionRepo,
+		scenarioRepo: scenarioRepo, linkGroupRepo: linkGroupRepo,
 		tagRepo: tagRepo, templateTagRepo: templateTagRepo,
 		roleRepo: roleRepo, userNameQuerier: userNameQuerier,
 	}
@@ -90,23 +95,23 @@ func NewTemplateService(
 func (s *templateService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateTemplateReq) (*dto.CreateTemplateResp, error) {
 	topologyMode := req.TopologyMode
 	template := &entity.ExperimentTemplate{
-		ID:            snowflake.Generate(),
-		SchoolID:      sc.SchoolID,
-		TeacherID:     sc.UserID,
-		Title:         req.Title,
-		Description:   req.Description,
-		Objectives:    req.Objectives,
-		Instructions:  req.Instructions,
-		References:    req.References,
-		ExpType:       req.ExperimentType,
-		TopologyMode:  &topologyMode,
-		JudgeMode:     req.JudgeMode,
-		AutoWeight:    req.AutoWeight,
-		ManualWeight:  req.ManualWeight,
-		TotalScore:    float64(req.TotalScore),
-		MaxDuration:   &req.MaxDuration,
-		ScoreStrategy: req.ScoreStrategy,
-		Status:        enum.TemplateStatusDraft,
+		ID:                 snowflake.Generate(),
+		SchoolID:           sc.SchoolID,
+		TeacherID:          sc.UserID,
+		Title:              req.Title,
+		Description:        req.Description,
+		Objectives:         req.Objectives,
+		Instructions:       req.Instructions,
+		ReferenceMaterials: req.ReferenceMaterials,
+		ExperimentType:     req.ExperimentType,
+		TopologyMode:       &topologyMode,
+		JudgeMode:          req.JudgeMode,
+		AutoWeight:         req.AutoWeight,
+		ManualWeight:       req.ManualWeight,
+		TotalScore:         float64(req.TotalScore),
+		MaxDuration:        &req.MaxDuration,
+		ScoreStrategy:      req.ScoreStrategy,
+		Status:             enum.TemplateStatusDraft,
 	}
 	if req.IdleTimeout != nil {
 		template.IdleTimeout = *req.IdleTimeout
@@ -128,8 +133,8 @@ func (s *templateService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	return &dto.CreateTemplateResp{
 		ID:                 strconv.FormatInt(template.ID, 10),
 		Title:              template.Title,
-		ExperimentType:     template.ExpType,
-		ExperimentTypeText: enum.GetExperimentTypeText(template.ExpType),
+		ExperimentType:     template.ExperimentType,
+		ExperimentTypeText: enum.GetExperimentTypeText(template.ExperimentType),
 		Status:             template.Status,
 		StatusText:         enum.GetTemplateStatusText(template.Status),
 		TopologyMode:       topologyMode,
@@ -141,7 +146,21 @@ func (s *templateService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 
 // GetByID 获取实验模板详情
 func (s *templateService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.TemplateResp, error) {
-	template, err := s.templateRepo.GetByIDWithAll(ctx, id)
+	if _, err := ensureTemplateReadAccess(ctx, s.templateRepo, sc, id); err != nil {
+		return nil, err
+	}
+	template, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.containerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		s.templateTagRepo,
+		s.tagRepo,
+		s.roleRepo,
+		id,
+	)
 	if err != nil {
 		return nil, errcode.ErrTemplateNotFound
 	}
@@ -150,15 +169,18 @@ func (s *templateService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 
 // Update 更新实验模板
 func (s *templateService) Update(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateTemplateReq) error {
-	template, err := s.templateRepo.GetByID(ctx, id)
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id)
 	if err != nil {
-		return errcode.ErrTemplateNotFound
+		return err
 	}
-	if template.Status != enum.TemplateStatusDraft {
-		return errcode.ErrTemplateNotDraft
+	allowStructureEdit, err := s.canEditTemplateStructure(ctx, template)
+	if err != nil {
+		return err
 	}
 
 	fields := make(map[string]interface{})
+	basicOnly := !allowStructureEdit
+	targetExperimentType := template.ExperimentType
 	if req.Title != nil {
 		fields["title"] = *req.Title
 	}
@@ -171,64 +193,132 @@ func (s *templateService) Update(ctx context.Context, sc *svcctx.ServiceContext,
 	if req.Instructions != nil {
 		fields["instructions"] = *req.Instructions
 	}
-	if req.References != nil {
-		fields["references"] = *req.References
+	if req.ReferenceMaterials != nil {
+		fields["reference_materials"] = *req.ReferenceMaterials
 	}
-	if req.ExperimentType != nil {
+	if !basicOnly && req.ExperimentType != nil {
+		targetExperimentType = *req.ExperimentType
 		fields["experiment_type"] = *req.ExperimentType
 	}
-	if req.TopologyMode != nil {
+	if !basicOnly && req.TopologyMode != nil {
 		fields["topology_mode"] = *req.TopologyMode
 	}
-	if req.JudgeMode != nil {
+	if !basicOnly && req.JudgeMode != nil {
 		fields["judge_mode"] = *req.JudgeMode
 	}
-	if req.AutoWeight != nil {
+	if req.AutoWeight != nil && (!basicOnly || template.JudgeMode == enum.JudgeModeMixed) {
 		fields["auto_weight"] = *req.AutoWeight
 	}
-	if req.ManualWeight != nil {
+	if req.ManualWeight != nil && (!basicOnly || template.JudgeMode == enum.JudgeModeMixed) {
 		fields["manual_weight"] = *req.ManualWeight
 	}
 	if req.TotalScore != nil {
 		fields["total_score"] = float64(*req.TotalScore)
 	}
-	if req.MaxDuration != nil {
+	if !basicOnly && req.MaxDuration != nil {
 		fields["max_duration"] = *req.MaxDuration
 	}
-	if req.IdleTimeout != nil {
+	if !basicOnly && req.IdleTimeout != nil {
 		fields["idle_timeout"] = *req.IdleTimeout
 	}
-	if req.CPULimit != nil {
+	if !basicOnly && req.CPULimit != nil {
 		fields["cpu_limit"] = *req.CPULimit
 	}
-	if req.MemoryLimit != nil {
+	if !basicOnly && req.MemoryLimit != nil {
 		fields["memory_limit"] = *req.MemoryLimit
 	}
-	if req.DiskLimit != nil {
+	if !basicOnly && req.DiskLimit != nil {
 		fields["disk_limit"] = *req.DiskLimit
 	}
-	if req.ScoreStrategy != nil {
+	if !basicOnly && req.ScoreStrategy != nil {
 		fields["score_strategy"] = *req.ScoreStrategy
+	}
+	if basicOnly && hasTemplateStructureChanges(req) {
+		return errcode.ErrInvalidParams.WithMessage("该模板已被课时引用，仅允许修改基本信息、实验说明和检查点")
 	}
 	if len(fields) == 0 {
 		return nil
 	}
 	fields["updated_at"] = time.Now()
+	if !basicOnly && targetExperimentType != template.ExperimentType {
+		return s.updateTemplateWithTypeSwitchCleanup(ctx, id, fields, targetExperimentType)
+	}
 	return s.templateRepo.UpdateFields(ctx, id, fields)
+}
+
+// updateTemplateWithTypeSwitchCleanup 在实验类型切换时统一清理不再适用的配置。
+// 文档要求切换实验类型后移除不适用的容器、仿真场景及其衍生配置，避免模板同时保留两套互斥实现。
+func (s *templateService) updateTemplateWithTypeSwitchCleanup(
+	ctx context.Context,
+	templateID int64,
+	fields map[string]interface{},
+	targetExperimentType int16,
+) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&entity.ExperimentTemplate{}).
+			Where("id = ?", templateID).
+			Updates(fields).Error; err != nil {
+			return err
+		}
+
+		switch targetExperimentType {
+		case enum.ExperimentTypeSimulation:
+			if err := tx.Where("template_id = ?", templateID).Delete(&entity.TemplateContainer{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("template_id = ?", templateID).Delete(&entity.TemplateInitScript{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("template_id = ?", templateID).Delete(&entity.TemplateRole{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("template_id = ? AND check_type = ?", templateID, enum.CheckTypeScript).
+				Delete(&entity.TemplateCheckpoint{}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&entity.ExperimentTemplate{}).
+				Where("id = ?", templateID).
+				Updates(map[string]interface{}{
+					"topology_mode":  nil,
+					"cpu_limit":      nil,
+					"memory_limit":   nil,
+					"disk_limit":     nil,
+					"k8s_config":     nil,
+					"network_config": nil,
+					"updated_at":     time.Now(),
+				}).Error
+		case enum.ExperimentTypeReal:
+			if err := tx.Where("template_id = ?", templateID).Delete(&entity.TemplateSimScene{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("template_id = ? AND check_type = ?", templateID, enum.CheckTypeSimAssert).
+				Delete(&entity.TemplateCheckpoint{}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&entity.ExperimentTemplate{}).
+				Where("id = ?", templateID).
+				Updates(map[string]interface{}{
+					"sim_layout": nil,
+					"updated_at": time.Now(),
+				}).Error
+		default:
+			return nil
+		}
+	})
 }
 
 // Delete 删除实验模板
 func (s *templateService) Delete(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
-	_, err := s.templateRepo.GetByID(ctx, id)
-	if err != nil {
-		return errcode.ErrTemplateNotFound
-	}
-	hasInstances, err := s.templateRepo.HasInstances(ctx, id)
+	_, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id)
 	if err != nil {
 		return err
 	}
-	if hasInstances {
-		return errcode.ErrTemplateHasInstances
+	hasCourseReferences, err := s.templateRepo.HasCourseReferences(ctx, id)
+	if err != nil {
+		return err
+	}
+	if hasCourseReferences {
+		return errcode.ErrInvalidParams.WithMessage("该模板已被课时引用，不可删除")
 	}
 	return s.templateRepo.SoftDelete(ctx, id)
 }
@@ -258,9 +348,9 @@ func (s *templateService) List(ctx context.Context, sc *svcctx.ServiceContext, r
 	if err != nil {
 		return nil, 0, err
 	}
-	items := make([]*dto.TemplateListItem, 0, len(templates))
-	for _, t := range templates {
-		items = append(items, s.toTemplateListItem(ctx, t))
+	items, err := s.buildTemplateListItems(ctx, templates)
+	if err != nil {
+		return nil, 0, err
 	}
 	return items, total, nil
 }
@@ -271,18 +361,35 @@ func (s *templateService) List(ctx context.Context, sc *svcctx.ServiceContext, r
 
 // Publish 发布实验模板
 func (s *templateService) Publish(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
-	template, err := s.templateRepo.GetByIDWithAll(ctx, id)
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id); err != nil {
+		return err
+	}
+	template, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.containerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		s.templateTagRepo,
+		s.tagRepo,
+		s.roleRepo,
+		id,
+	)
 	if err != nil {
 		return errcode.ErrTemplateNotFound
 	}
-	if template.Status == enum.TemplateStatusPublished {
+	if template.Template.Status == enum.TemplateStatusPublished {
 		return errcode.ErrTemplateAlreadyPublished
 	}
-	if template.Status != enum.TemplateStatusDraft {
+	if template.Template.Status != enum.TemplateStatusDraft {
 		return errcode.ErrTemplateNotDraft
 	}
 	if len(template.Containers) == 0 && len(template.SimScenes) == 0 {
 		return errcode.ErrInvalidParams.WithMessage("请至少配置一个容器或一个仿真场景")
+	}
+	if len(template.Checkpoints) == 0 {
+		return errcode.ErrInvalidParams.WithMessage("请至少配置一个检查点")
 	}
 
 	validation, err := s.Validate(ctx, sc, id, &dto.ValidateTemplateReq{})
@@ -300,14 +407,16 @@ func (s *templateService) Publish(ctx context.Context, sc *svcctx.ServiceContext
 	if generated := buildTemplateK8sConfig(template); len(generated) > 0 {
 		fields["k8s_config"] = generated
 	}
+	// 文档要求模板发布后向模块07发送 experiment.published 站内通知。
+	// 当前模块07内部通知接口尚未完成，此处先收口正确业务状态变更，待模块07完成后通过跨模块接口补入通知发送。
 	return s.templateRepo.UpdateFields(ctx, id, fields)
 }
 
 // Unpublish 下架实验模板
 func (s *templateService) Unpublish(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
-	template, err := s.templateRepo.GetByID(ctx, id)
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id)
 	if err != nil {
-		return errcode.ErrTemplateNotFound
+		return err
 	}
 	if template.Status != enum.TemplateStatusPublished {
 		return errcode.ErrTemplateNotPublished
@@ -324,57 +433,106 @@ func (s *templateService) Unpublish(ctx context.Context, sc *svcctx.ServiceConte
 
 // Clone 克隆实验模板（含所有子资源，事务操作）
 func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.CreateTemplateResp, error) {
-	source, err := s.templateRepo.GetByIDWithAll(ctx, id)
+	if _, err := ensureTemplateCloneAccess(ctx, s.templateRepo, sc, id); err != nil {
+		return nil, err
+	}
+	source, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.containerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		s.templateTagRepo,
+		s.tagRepo,
+		s.roleRepo,
+		id,
+	)
 	if err != nil {
 		return nil, errcode.ErrTemplateNotFound
 	}
 
 	var newTemplate *entity.ExperimentTemplate
 	txErr := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		roleIDMap := make(map[int64]int64, len(source.Roles))
+
 		// 克隆主表
 		newID := snowflake.Generate()
-		clonedFromID := source.ID
+		clonedFromID := source.Template.ID
 		newTemplate = &entity.ExperimentTemplate{
-			ID:            newID,
-			SchoolID:      sc.SchoolID,
-			TeacherID:     sc.UserID,
-			Title:         source.Title + "（副本）",
-			Description:   source.Description,
-			Objectives:    source.Objectives,
-			Instructions:  source.Instructions,
-			References:    source.References,
-			ExpType:       source.ExpType,
-			TopologyMode:  source.TopologyMode,
-			JudgeMode:     source.JudgeMode,
-			AutoWeight:    source.AutoWeight,
-			ManualWeight:  source.ManualWeight,
-			TotalScore:    source.TotalScore,
-			MaxDuration:   source.MaxDuration,
-			IdleTimeout:   source.IdleTimeout,
-			CPULimit:      source.CPULimit,
-			MemoryLimit:   source.MemoryLimit,
-			DiskLimit:     source.DiskLimit,
-			ScoreStrategy: source.ScoreStrategy,
-			ClonedFromID:  &clonedFromID,
-			Status:        enum.TemplateStatusDraft,
-			SimLayout:     source.SimLayout,
-			K8sConfig:     source.K8sConfig,
-			NetworkConfig: source.NetworkConfig,
+			ID:                 newID,
+			SchoolID:           sc.SchoolID,
+			TeacherID:          sc.UserID,
+			Title:              source.Template.Title + "（副本）",
+			Description:        source.Template.Description,
+			Objectives:         source.Template.Objectives,
+			Instructions:       source.Template.Instructions,
+			ReferenceMaterials: source.Template.ReferenceMaterials,
+			ExperimentType:     source.Template.ExperimentType,
+			TopologyMode:       source.Template.TopologyMode,
+			JudgeMode:          source.Template.JudgeMode,
+			AutoWeight:         source.Template.AutoWeight,
+			ManualWeight:       source.Template.ManualWeight,
+			TotalScore:         source.Template.TotalScore,
+			MaxDuration:        source.Template.MaxDuration,
+			IdleTimeout:        source.Template.IdleTimeout,
+			CPULimit:           source.Template.CPULimit,
+			MemoryLimit:        source.Template.MemoryLimit,
+			DiskLimit:          source.Template.DiskLimit,
+			ScoreStrategy:      source.Template.ScoreStrategy,
+			ClonedFromID:       &clonedFromID,
+			Status:             enum.TemplateStatusDraft,
+			SimLayout:          source.Template.SimLayout,
+			K8sConfig:          source.Template.K8sConfig,
+			NetworkConfig:      source.Template.NetworkConfig,
 		}
 		if err := tx.Create(newTemplate).Error; err != nil {
 			return err
+		}
+
+		// 克隆角色。
+		// 多人协作模板中的容器会引用角色ID，必须先生成新角色并建立映射，避免副本仍指向原模板角色。
+		if len(source.Roles) > 0 {
+			roles := make([]*entity.TemplateRole, 0, len(source.Roles))
+			for _, r := range source.Roles {
+				if r == nil {
+					continue
+				}
+				newRoleID := snowflake.Generate()
+				roleIDMap[r.ID] = newRoleID
+				roles = append(roles, &entity.TemplateRole{
+					ID:          newRoleID,
+					TemplateID:  newID,
+					RoleName:    r.RoleName,
+					Description: r.Description,
+					MaxMembers:  r.MaxMembers,
+					SortOrder:   r.SortOrder,
+				})
+			}
+			if err := tx.CreateInBatches(roles, 50).Error; err != nil {
+				return err
+			}
 		}
 
 		// 克隆容器配置
 		if len(source.Containers) > 0 {
 			containers := make([]*entity.TemplateContainer, 0, len(source.Containers))
 			for _, c := range source.Containers {
+				if c == nil {
+					continue
+				}
+				var clonedRoleID *int64
+				if c.RoleID != nil {
+					if mappedRoleID, ok := roleIDMap[*c.RoleID]; ok {
+						clonedRoleID = &mappedRoleID
+					}
+				}
 				containers = append(containers, &entity.TemplateContainer{
 					ID:             snowflake.Generate(),
 					TemplateID:     newID,
 					ImageVersionID: c.ImageVersionID,
 					ContainerName:  c.ContainerName,
-					RoleID:         c.RoleID,
+					RoleID:         clonedRoleID,
 					EnvVars:        c.EnvVars,
 					Ports:          c.Ports,
 					Volumes:        c.Volumes,
@@ -395,6 +553,9 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 		if len(source.Checkpoints) > 0 {
 			checkpoints := make([]*entity.TemplateCheckpoint, 0, len(source.Checkpoints))
 			for _, cp := range source.Checkpoints {
+				if cp == nil {
+					continue
+				}
 				checkpoints = append(checkpoints, &entity.TemplateCheckpoint{
 					ID:              snowflake.Generate(),
 					TemplateID:      newID,
@@ -419,6 +580,9 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 		if len(source.InitScripts) > 0 {
 			scripts := make([]*entity.TemplateInitScript, 0, len(source.InitScripts))
 			for _, is := range source.InitScripts {
+				if is == nil {
+					continue
+				}
 				scripts = append(scripts, &entity.TemplateInitScript{
 					ID:              snowflake.Generate(),
 					TemplateID:      newID,
@@ -438,6 +602,9 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 		if len(source.SimScenes) > 0 {
 			scenes := make([]*entity.TemplateSimScene, 0, len(source.SimScenes))
 			for _, ss := range source.SimScenes {
+				if ss == nil {
+					continue
+				}
 				scenes = append(scenes, &entity.TemplateSimScene{
 					ID:               snowflake.Generate(),
 					TemplateID:       newID,
@@ -458,31 +625,16 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 		if len(source.Tags) > 0 {
 			tags := make([]*entity.TemplateTag, 0, len(source.Tags))
 			for _, tt := range source.Tags {
+				if tt == nil {
+					continue
+				}
 				tags = append(tags, &entity.TemplateTag{
 					ID:         snowflake.Generate(),
 					TemplateID: newID,
-					TagID:      tt.TagID,
+					TagID:      tt.ID,
 				})
 			}
 			if err := tx.CreateInBatches(tags, 50).Error; err != nil {
-				return err
-			}
-		}
-
-		// 克隆角色
-		if len(source.Roles) > 0 {
-			roles := make([]*entity.TemplateRole, 0, len(source.Roles))
-			for _, r := range source.Roles {
-				roles = append(roles, &entity.TemplateRole{
-					ID:          snowflake.Generate(),
-					TemplateID:  newID,
-					RoleName:    r.RoleName,
-					Description: r.Description,
-					MaxMembers:  r.MaxMembers,
-					SortOrder:   r.SortOrder,
-				})
-			}
-			if err := tx.CreateInBatches(roles, 50).Error; err != nil {
 				return err
 			}
 		}
@@ -493,15 +645,15 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 		return nil, txErr
 	}
 
-	topologyMode := 0
+	topologyMode := int16(0)
 	if newTemplate.TopologyMode != nil {
 		topologyMode = *newTemplate.TopologyMode
 	}
 	return &dto.CreateTemplateResp{
 		ID:                 strconv.FormatInt(newTemplate.ID, 10),
 		Title:              newTemplate.Title,
-		ExperimentType:     newTemplate.ExpType,
-		ExperimentTypeText: enum.GetExperimentTypeText(newTemplate.ExpType),
+		ExperimentType:     newTemplate.ExperimentType,
+		ExperimentTypeText: enum.GetExperimentTypeText(newTemplate.ExperimentType),
 		Status:             newTemplate.Status,
 		StatusText:         enum.GetTemplateStatusText(newTemplate.Status),
 		TopologyMode:       topologyMode,
@@ -517,9 +669,9 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 
 // Share 设置模板共享状态
 func (s *templateService) Share(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.ShareTemplateReq) error {
-	template, err := s.templateRepo.GetByID(ctx, id)
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id)
 	if err != nil {
-		return errcode.ErrTemplateNotFound
+		return err
 	}
 	if req.IsShared && template.Status != enum.TemplateStatusPublished {
 		return errcode.ErrTemplateNotPublished
@@ -536,21 +688,21 @@ func (s *templateService) Share(ctx context.Context, sc *svcctx.ServiceContext, 
 
 // GetK8sConfig 获取模板K8s编排配置
 func (s *templateService) GetK8sConfig(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.K8sConfigResp, error) {
-	template, err := s.templateRepo.GetByID(ctx, id)
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id)
 	if err != nil {
-		return nil, errcode.ErrTemplateNotFound
+		return nil, err
 	}
 	return &dto.K8sConfigResp{
 		TemplateID: strconv.FormatInt(template.ID, 10),
-		K8sConfig:  template.K8sConfig,
+		K8sConfig:  json.RawMessage(template.K8sConfig),
 	}, nil
 }
 
 // SetK8sConfig 设置模板K8s编排配置
 func (s *templateService) SetK8sConfig(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.K8sConfigReq) error {
-	template, err := s.templateRepo.GetByID(ctx, id)
+	template, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id)
 	if err != nil {
-		return errcode.ErrTemplateNotFound
+		return err
 	}
 	if template.Status != enum.TemplateStatusDraft {
 		return errcode.ErrTemplateNotDraft
@@ -567,7 +719,21 @@ func (s *templateService) SetK8sConfig(ctx context.Context, sc *svcctx.ServiceCo
 
 // Validate 模板配置验证
 func (s *templateService) Validate(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.ValidateTemplateReq) (*dto.ValidateTemplateResp, error) {
-	template, err := s.templateRepo.GetByIDWithAll(ctx, id)
+	if _, err := ensureTemplateOwnerAccess(ctx, s.templateRepo, sc, id); err != nil {
+		return nil, err
+	}
+	template, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.containerRepo,
+		s.checkpointRepo,
+		s.initScriptRepo,
+		s.simSceneRepo,
+		s.templateTagRepo,
+		s.tagRepo,
+		s.roleRepo,
+		id,
+	)
 	if err != nil {
 		return nil, errcode.ErrTemplateNotFound
 	}
@@ -578,7 +744,7 @@ func (s *templateService) Validate(ctx context.Context, sc *svcctx.ServiceContex
 	}
 
 	resp := &dto.ValidateTemplateResp{
-		TemplateID: strconv.FormatInt(template.ID, 10),
+		TemplateID: strconv.FormatInt(template.Template.ID, 10),
 		Results:    make([]dto.ValidationLevelResult, 0, len(levels)),
 	}
 
@@ -592,8 +758,49 @@ func (s *templateService) Validate(ctx context.Context, sc *svcctx.ServiceContex
 	return resp, nil
 }
 
+// canEditTemplateStructure 判断模板当前是否允许修改结构性配置。
+// 文档要求：
+// 1. 草稿模板可自由修改；
+// 2. 已发布但未被课时引用的模板仍可继续调整完整编排；
+// 3. 已发布且已被课时引用时，只允许修改基本信息、实验说明和检查点，不允许调整结构。
+func (s *templateService) canEditTemplateStructure(ctx context.Context, template *entity.ExperimentTemplate) (bool, error) {
+	if template == nil {
+		return false, errcode.ErrTemplateNotFound
+	}
+	switch template.Status {
+	case enum.TemplateStatusDraft:
+		return true, nil
+	case enum.TemplateStatusPublished:
+		hasCourseReferences, err := s.templateRepo.HasCourseReferences(ctx, template.ID)
+		if err != nil {
+			return false, err
+		}
+		return !hasCourseReferences, nil
+	default:
+		return false, errcode.ErrTemplateNotDraft
+	}
+}
+
+// hasTemplateStructureChanges 判断更新请求中是否包含结构性字段。
+// 已被课时引用的已发布模板只能修改基础信息、说明和检查点评分相关配置，
+// 不允许再调整实验类型、资源、判题模式、成绩策略和拓扑等结构性配置。
+func hasTemplateStructureChanges(req *dto.UpdateTemplateReq) bool {
+	if req == nil {
+		return false
+	}
+	return req.ExperimentType != nil ||
+		req.TopologyMode != nil ||
+		req.JudgeMode != nil ||
+		req.MaxDuration != nil ||
+		req.IdleTimeout != nil ||
+		req.CPULimit != nil ||
+		req.MemoryLimit != nil ||
+		req.DiskLimit != nil ||
+		req.ScoreStrategy != nil
+}
+
 // validateLevel 执行单层验证
-func (s *templateService) validateLevel(ctx context.Context, template *entity.ExperimentTemplate, level int) dto.ValidationLevelResult {
+func (s *templateService) validateLevel(ctx context.Context, template *TemplateAggregate, level int) dto.ValidationLevelResult {
 	result := dto.ValidationLevelResult{
 		Level:  level,
 		Passed: true,
@@ -612,14 +819,14 @@ func (s *templateService) validateLevel(ctx context.Context, template *entity.Ex
 	case 3: // 资源合理性
 		result.LevelName = "资源合理性检查"
 		result.Severity = "warning"
-		s.validateResourceReasonableness(template, &result)
+		s.validateResourceReasonableness(ctx, template, &result)
 	case 4: // 生态一致性
 		result.LevelName = "生态一致性检查"
-		result.Severity = "warning"
-		s.validateEcosystemConsistency(template, &result)
+		result.Severity = "hint"
+		s.validateEcosystemConsistency(ctx, template, &result)
 	case 5: // 连通性预检
 		result.LevelName = "连通性预检"
-		result.Severity = "hint"
+		result.Severity = "info"
 		s.validateConnectivityPrecheck(template, &result)
 	}
 
@@ -627,7 +834,7 @@ func (s *templateService) validateLevel(ctx context.Context, template *entity.Ex
 }
 
 // validateDependencyIntegrity 验证依赖完整性
-func (s *templateService) validateDependencyIntegrity(ctx context.Context, template *entity.ExperimentTemplate, result *dto.ValidationLevelResult) {
+func (s *templateService) validateDependencyIntegrity(ctx context.Context, template *TemplateAggregate, result *dto.ValidationLevelResult) {
 	if len(template.Containers) == 0 && len(template.SimScenes) == 0 {
 		result.Passed = false
 		result.Issues = append(result.Issues, dto.ValidationIssue{
@@ -637,7 +844,7 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 	}
 
 	// 检查是否有容器配置
-	if len(template.Containers) == 0 && (template.ExpType == enum.ExperimentTypeReal || template.ExpType == enum.ExperimentTypeMixed) {
+	if len(template.Containers) == 0 && (template.Template.ExperimentType == enum.ExperimentTypeReal || template.Template.ExperimentType == enum.ExperimentTypeMixed) {
 		result.Passed = false
 		result.Issues = append(result.Issues, dto.ValidationIssue{
 			Code:    "L1_MISSING_CONTAINER",
@@ -646,24 +853,85 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 	}
 
 	// 检查仿真场景配置
-	if len(template.SimScenes) == 0 && (template.ExpType == enum.ExperimentTypeSimulation || template.ExpType == enum.ExperimentTypeMixed) {
+	if len(template.SimScenes) == 0 && (template.Template.ExperimentType == enum.ExperimentTypeSimulation || template.Template.ExperimentType == enum.ExperimentTypeMixed) {
 		result.Passed = false
 		result.Issues = append(result.Issues, dto.ValidationIssue{
 			Code:    "L1_MISSING_SIM_SCENE",
 			Message: "纯仿真/混合实验必须配置至少一个仿真场景",
 		})
 	}
+	if len(template.Checkpoints) == 0 {
+		result.Passed = false
+		result.Issues = append(result.Issues, dto.ValidationIssue{
+			Code:    "L1_MISSING_CHECKPOINT",
+			Message: "请至少配置一个检查点",
+		})
+	}
+
+	roleByID := make(map[int64]*entity.TemplateRole, len(template.Roles))
+	for _, role := range template.Roles {
+		if role == nil {
+			continue
+		}
+		roleByID[role.ID] = role
+	}
+	hasRoleScopedContainer := false
+	for _, container := range template.Containers {
+		if container == nil || container.RoleID == nil {
+			continue
+		}
+		hasRoleScopedContainer = true
+		if _, ok := roleByID[*container.RoleID]; ok {
+			continue
+		}
+		result.Passed = false
+		result.Issues = append(result.Issues, dto.ValidationIssue{
+			Code:    "L1_CONTAINER_ROLE_INVALID",
+			Message: fmt.Sprintf("容器 %s 绑定的角色不存在或不属于当前实验模板", container.ContainerName),
+		})
+	}
+
+	topologyMode := int16(0)
+	if template.Template.TopologyMode != nil {
+		topologyMode = *template.Template.TopologyMode
+	}
+	if topologyMode == enum.TopologyModeCollaborate {
+		if len(template.Roles) == 0 {
+			result.Passed = false
+			result.Issues = append(result.Issues, dto.ValidationIssue{
+				Code:    "L1_GROUP_TOPOLOGY_ROLE_MISSING",
+				Message: "多人协作组网模板必须先定义角色",
+			})
+		}
+	} else {
+		if len(template.Roles) > 0 {
+			result.Passed = false
+			result.Issues = append(result.Issues, dto.ValidationIssue{
+				Code:    "L1_ROLE_TOPOLOGY_INVALID",
+				Message: "仅多人协作组网拓扑允许定义角色",
+			})
+		}
+		if hasRoleScopedContainer {
+			result.Passed = false
+			result.Issues = append(result.Issues, dto.ValidationIssue{
+				Code:    "L1_ROLE_CONTAINER_TOPOLOGY_INVALID",
+				Message: "仅多人协作组网拓扑允许配置角色专属容器",
+			})
+		}
+	}
 
 	// 检查检查点总分是否匹配
 	if len(template.Checkpoints) > 0 {
 		var totalScore float64
 		for _, cp := range template.Checkpoints {
-			totalScore += cp.Score
+			if cp != nil {
+				totalScore += cp.Score
+			}
 		}
-		if totalScore != template.TotalScore {
+		if totalScore != template.Template.TotalScore {
 			result.Issues = append(result.Issues, dto.ValidationIssue{
 				Code:    "L3_SCORE_MISMATCH",
-				Message: fmt.Sprintf("检查点总分(%.2f)与模板总分(%.2f)不一致", totalScore, template.TotalScore),
+				Message: fmt.Sprintf("检查点总分(%.2f)与模板总分(%.2f)不一致", totalScore, template.Template.TotalScore),
 			})
 		}
 	}
@@ -671,9 +939,15 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 	// 检查容器依赖引用
 	containerNames := make(map[string]bool)
 	for _, c := range template.Containers {
+		if c == nil {
+			continue
+		}
 		containerNames[c.ContainerName] = true
 	}
 	for _, c := range template.Containers {
+		if c == nil {
+			continue
+		}
 		if len(c.DependsOn) > 0 {
 			var deps []string
 			if err := json.Unmarshal(c.DependsOn, &deps); err == nil {
@@ -691,6 +965,9 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 	}
 
 	for _, c := range template.Containers {
+		if c == nil {
+			continue
+		}
 		version, err := s.imageVersionRepo.GetByID(ctx, c.ImageVersionID)
 		if err != nil {
 			result.Passed = false
@@ -710,22 +987,27 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 			})
 			continue
 		}
+		if image.Status != enum.ImageStatusNormal {
+			result.Passed = false
+			result.Issues = append(result.Issues, dto.ValidationIssue{
+				Code:    "L1_IMAGE_NOT_AVAILABLE",
+				Message: fmt.Sprintf("容器 %s 关联的镜像 %s 当前不可用", c.ContainerName, image.Name),
+			})
+			continue
+		}
 
-		for _, dependency := range parseRequiredDependencies(image.RequiredDependencies) {
+		for _, dependency := range parseRequiredDependencies(json.RawMessage(image.RequiredDependencies)) {
 			if containerNames[dependency] {
 				continue
 			}
 			result.Passed = false
-			result.Issues = append(result.Issues, dto.ValidationIssue{
-				Code:    "L1_MISSING_DEPENDENCY",
-				Message: fmt.Sprintf("依赖完整性检查未通过 — %s 需要 %s 作为依赖", c.ContainerName, dependency),
-			})
+			result.Issues = append(result.Issues, buildMissingDependencyIssue(c.ContainerName, dependency))
 		}
 	}
 }
 
 // validatePortConflicts 验证端口冲突
-func (s *templateService) validatePortConflicts(template *entity.ExperimentTemplate, result *dto.ValidationLevelResult) {
+func (s *templateService) validatePortConflicts(template *TemplateAggregate, result *dto.ValidationLevelResult) {
 	type portEntry struct {
 		Port      int
 		Container string
@@ -733,6 +1015,9 @@ func (s *templateService) validatePortConflicts(template *entity.ExperimentTempl
 	usedPorts := make(map[int]string)
 
 	for _, c := range template.Containers {
+		if c == nil {
+			continue
+		}
 		if len(c.Ports) == 0 {
 			continue
 		}
@@ -758,8 +1043,8 @@ func (s *templateService) validatePortConflicts(template *entity.ExperimentTempl
 	}
 }
 
-// validateResourceReasonableness 验证资源合理性
-func (s *templateService) validateResourceReasonableness(template *entity.ExperimentTemplate, result *dto.ValidationLevelResult) {
+// validateResourceReasonableness 验证资源合理性。
+func (s *templateService) validateResourceReasonableness(ctx context.Context, template *TemplateAggregate, result *dto.ValidationLevelResult) {
 	containerCount := len(template.Containers)
 	if containerCount > 10 {
 		result.Issues = append(result.Issues, dto.ValidationIssue{
@@ -771,6 +1056,9 @@ func (s *templateService) validateResourceReasonableness(template *entity.Experi
 	// 检查是否有主容器
 	hasPrimary := false
 	for _, c := range template.Containers {
+		if c == nil {
+			continue
+		}
 		if c.IsPrimary {
 			hasPrimary = true
 			break
@@ -782,26 +1070,75 @@ func (s *templateService) validateResourceReasonableness(template *entity.Experi
 			Message: "未设置主容器，建议指定一个主容器作为学生操作入口",
 		})
 	}
+
+	versionMap := make(map[int64]*entity.ImageVersion, len(template.Containers))
+	imageMap := make(map[int64]*entity.Image, len(template.Containers))
+	for _, container := range template.Containers {
+		if container == nil {
+			continue
+		}
+		if _, exists := versionMap[container.ImageVersionID]; !exists {
+			version, err := s.imageVersionRepo.GetByID(ctx, container.ImageVersionID)
+			if err == nil && version != nil {
+				versionMap[container.ImageVersionID] = version
+			}
+		}
+		version := versionMap[container.ImageVersionID]
+		if version == nil {
+			continue
+		}
+		if _, exists := imageMap[version.ImageID]; !exists {
+			image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+			if err == nil && image != nil {
+				imageMap[version.ImageID] = image
+			}
+		}
+	}
+	result.Issues = append(result.Issues, buildResourceReasonablenessIssues(template.Template, template.Containers, versionMap, imageMap)...)
 }
 
-// validateEcosystemConsistency 验证模板标签与生态配置的基础一致性。
-func (s *templateService) validateEcosystemConsistency(template *entity.ExperimentTemplate, result *dto.ValidationLevelResult) {
-	if len(template.Tags) == 0 {
-		result.Issues = append(result.Issues, dto.ValidationIssue{
-			Code:    "L4_TAG_RECOMMENDED",
-			Message: "建议为模板添加标签，便于分类和搜索",
-		})
+// validateEcosystemConsistency 验证工具镜像与当前实验生态的一致性。
+func (s *templateService) validateEcosystemConsistency(ctx context.Context, template *TemplateAggregate, result *dto.ValidationLevelResult) {
+	versionMap := make(map[int64]*entity.ImageVersion, len(template.Containers))
+	imageMap := make(map[int64]*entity.Image, len(template.Containers))
+	for _, container := range template.Containers {
+		if container == nil {
+			continue
+		}
+		if _, exists := versionMap[container.ImageVersionID]; !exists {
+			version, err := s.imageVersionRepo.GetByID(ctx, container.ImageVersionID)
+			if err == nil && version != nil {
+				versionMap[container.ImageVersionID] = version
+			}
+		}
+		version := versionMap[container.ImageVersionID]
+		if version == nil {
+			continue
+		}
+		if _, exists := imageMap[version.ImageID]; !exists {
+			image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+			if err == nil && image != nil {
+				imageMap[version.ImageID] = image
+			}
+		}
 	}
+	result.Issues = append(result.Issues, buildEcosystemConsistencyIssues(template.Containers, versionMap, imageMap)...)
 }
 
 // validateConnectivityPrecheck 连通性预检
-func (s *templateService) validateConnectivityPrecheck(template *entity.ExperimentTemplate, result *dto.ValidationLevelResult) {
+func (s *templateService) validateConnectivityPrecheck(template *TemplateAggregate, result *dto.ValidationLevelResult) {
 	// 检查初始化脚本引用的容器是否存在
 	containerNames := make(map[string]bool)
 	for _, c := range template.Containers {
+		if c == nil {
+			continue
+		}
 		containerNames[c.ContainerName] = true
 	}
 	for _, is := range template.InitScripts {
+		if is == nil {
+			continue
+		}
 		if !containerNames[is.TargetContainer] {
 			result.Passed = false
 			result.Issues = append(result.Issues, dto.ValidationIssue{
@@ -813,6 +1150,9 @@ func (s *templateService) validateConnectivityPrecheck(template *entity.Experime
 
 	// 检查检查点引用的容器是否存在
 	for _, cp := range template.Checkpoints {
+		if cp == nil {
+			continue
+		}
 		if cp.TargetContainer != nil && *cp.TargetContainer != "" {
 			if !containerNames[*cp.TargetContainer] {
 				result.Passed = false
@@ -823,6 +1163,30 @@ func (s *templateService) validateConnectivityPrecheck(template *entity.Experime
 			}
 		}
 	}
+
+	for _, cycle := range detectDependencyCycles(template.Containers) {
+		result.Passed = false
+		result.Issues = append(result.Issues, dto.ValidationIssue{
+			Code:    "L5_DEPENDENCY_CYCLE",
+			Message: fmt.Sprintf("容器依赖关系存在环：%s", cycle),
+		})
+	}
+
+	for _, issue := range findInvalidStartupOrders(template.Containers) {
+		result.Passed = false
+		result.Issues = append(result.Issues, dto.ValidationIssue{
+			Code:    "L5_STARTUP_ORDER_INVALID",
+			Message: issue,
+		})
+	}
+
+	for _, issue := range findMissingServiceReferences(template.Containers) {
+		result.Passed = false
+		result.Issues = append(result.Issues, dto.ValidationIssue{
+			Code:    "L5_SERVICE_REF_MISSING",
+			Message: issue,
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -830,223 +1194,231 @@ func (s *templateService) validateConnectivityPrecheck(template *entity.Experime
 // ---------------------------------------------------------------------------
 
 // toTemplateResp 转换模板为详情响应
-func (s *templateService) toTemplateResp(ctx context.Context, t *entity.ExperimentTemplate) *dto.TemplateResp {
-	topologyMode := 0
-	if t.TopologyMode != nil {
-		topologyMode = *t.TopologyMode
+func (s *templateService) toTemplateResp(ctx context.Context, t *TemplateAggregate) *dto.TemplateResp {
+	if t == nil || t.Template == nil {
+		return nil
+	}
+	template := t.Template
+	topologyMode := int16(0)
+	if template.TopologyMode != nil {
+		topologyMode = *template.TopologyMode
 	}
 	maxDuration := 0
-	if t.MaxDuration != nil {
-		maxDuration = *t.MaxDuration
+	if template.MaxDuration != nil {
+		maxDuration = *template.MaxDuration
 	}
 
 	resp := &dto.TemplateResp{
-		ID:                 strconv.FormatInt(t.ID, 10),
-		Title:              t.Title,
-		Description:        t.Description,
-		Objectives:         t.Objectives,
-		Instructions:       t.Instructions,
-		References:         t.References,
-		ExperimentType:     t.ExpType,
-		ExperimentTypeText: enum.GetExperimentTypeText(t.ExpType),
+		ID:                 strconv.FormatInt(template.ID, 10),
+		Title:              template.Title,
+		Description:        template.Description,
+		Objectives:         template.Objectives,
+		Instructions:       template.Instructions,
+		ReferenceMaterials: template.ReferenceMaterials,
+		ExperimentType:     template.ExperimentType,
+		ExperimentTypeText: enum.GetExperimentTypeText(template.ExperimentType),
 		TopologyMode:       topologyMode,
 		TopologyModeText:   enum.GetTopologyModeText(topologyMode),
-		JudgeMode:          t.JudgeMode,
-		JudgeModeText:      enum.GetJudgeModeText(t.JudgeMode),
-		AutoWeight:         t.AutoWeight,
-		ManualWeight:       t.ManualWeight,
-		TotalScore:         int(t.TotalScore),
+		JudgeMode:          template.JudgeMode,
+		JudgeModeText:      enum.GetJudgeModeText(template.JudgeMode),
+		AutoWeight:         template.AutoWeight,
+		ManualWeight:       template.ManualWeight,
+		TotalScore:         int(template.TotalScore),
 		MaxDuration:        maxDuration,
-		CPULimit:           t.CPULimit,
-		MemoryLimit:        t.MemoryLimit,
-		DiskLimit:          t.DiskLimit,
-		ScoreStrategy:      t.ScoreStrategy,
-		IsShared:           t.IsShared,
-		Status:             t.Status,
-		StatusText:         enum.GetTemplateStatusText(t.Status),
-		K8sConfig:          t.K8sConfig,
-		CreatedAt:          t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:          t.UpdatedAt.Format(time.RFC3339),
+		CPULimit:           template.CPULimit,
+		MemoryLimit:        template.MemoryLimit,
+		DiskLimit:          template.DiskLimit,
+		ScoreStrategy:      template.ScoreStrategy,
+		IsShared:           template.IsShared,
+		Status:             template.Status,
+		StatusText:         enum.GetTemplateStatusText(template.Status),
+		K8sConfig:          json.RawMessage(template.K8sConfig),
+		CreatedAt:          template.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:          template.UpdatedAt.Format(time.RFC3339),
 	}
 
-	if t.IdleTimeout > 0 {
-		idleTimeout := t.IdleTimeout
+	if template.IdleTimeout > 0 {
+		idleTimeout := template.IdleTimeout
 		resp.IdleTimeout = &idleTimeout
 	}
 
 	// 教师信息
-	teacherName := s.userNameQuerier.GetUserName(ctx, t.TeacherID)
+	teacherName := s.userNameQuerier.GetUserName(ctx, template.TeacherID)
 	resp.Teacher = &dto.SimpleUserResp{
-		ID:   strconv.FormatInt(t.TeacherID, 10),
+		ID:   strconv.FormatInt(template.TeacherID, 10),
 		Name: teacherName,
 	}
 
 	// 容器列表
 	resp.Containers = make([]dto.ContainerResp, 0, len(t.Containers))
 	for _, c := range t.Containers {
-		resp.Containers = append(resp.Containers, s.toContainerResp(&c))
+		if c == nil {
+			continue
+		}
+		resp.Containers = append(resp.Containers, s.toContainerResp(ctx, c))
 	}
 
 	// 检查点列表
 	resp.Checkpoints = make([]dto.CheckpointResp, 0, len(t.Checkpoints))
 	for _, cp := range t.Checkpoints {
-		resp.Checkpoints = append(resp.Checkpoints, s.toCheckpointResp(&cp))
+		if cp == nil {
+			continue
+		}
+		resp.Checkpoints = append(resp.Checkpoints, s.toCheckpointResp(cp))
 	}
 
 	// 初始化脚本列表
 	resp.InitScripts = make([]dto.InitScriptResp, 0, len(t.InitScripts))
 	for _, is := range t.InitScripts {
-		resp.InitScripts = append(resp.InitScripts, s.toInitScriptResp(&is))
+		if is == nil {
+			continue
+		}
+		resp.InitScripts = append(resp.InitScripts, s.toInitScriptResp(is))
 	}
 
 	// 仿真场景列表
 	resp.SimScenes = make([]dto.TemplateSimSceneResp, 0, len(t.SimScenes))
 	for _, ss := range t.SimScenes {
-		resp.SimScenes = append(resp.SimScenes, s.toSimSceneResp(&ss))
+		if ss == nil {
+			continue
+		}
+		resp.SimScenes = append(resp.SimScenes, s.toSimSceneResp(ctx, ss))
 	}
 
 	// 标签列表
-	resp.Tags = s.buildTemplateTagResponses(ctx, t.Tags)
+	resp.Tags = s.buildTagResponses(t.Tags)
 
 	// 角色列表
 	resp.Roles = make([]dto.RoleResp, 0, len(t.Roles))
 	for _, r := range t.Roles {
-		resp.Roles = append(resp.Roles, s.toRoleResp(&r))
-	}
-
-	return resp
-}
-
-// toTemplateListItem 转换模板为列表项
-func (s *templateService) toTemplateListItem(ctx context.Context, t *entity.ExperimentTemplate) *dto.TemplateListItem {
-	topologyMode := 0
-	if t.TopologyMode != nil {
-		topologyMode = *t.TopologyMode
-	}
-	maxDuration := 0
-	if t.MaxDuration != nil {
-		maxDuration = *t.MaxDuration
-	}
-
-	item := &dto.TemplateListItem{
-		ID:                 strconv.FormatInt(t.ID, 10),
-		Title:              t.Title,
-		ExperimentType:     t.ExpType,
-		ExperimentTypeText: enum.GetExperimentTypeText(t.ExpType),
-		TopologyMode:       topologyMode,
-		TopologyModeText:   enum.GetTopologyModeText(topologyMode),
-		JudgeMode:          t.JudgeMode,
-		JudgeModeText:      enum.GetJudgeModeText(t.JudgeMode),
-		TotalScore:         int(t.TotalScore),
-		MaxDuration:        maxDuration,
-		IsShared:           t.IsShared,
-		Status:             t.Status,
-		StatusText:         enum.GetTemplateStatusText(t.Status),
-		ContainerCount:     len(t.Containers),
-		CheckpointCount:    len(t.Checkpoints),
-		CreatedAt:          t.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:          t.UpdatedAt.Format(time.RFC3339),
-	}
-
-	item.Tags = s.buildTemplateTagResponses(ctx, t.Tags)
-
-	return item
-}
-
-// buildTemplateTagResponses 补齐模板标签的名称和分类信息。
-func (s *templateService) buildTemplateTagResponses(ctx context.Context, templateTags []entity.TemplateTag) []dto.TagResp {
-	resp := make([]dto.TagResp, 0, len(templateTags))
-	for _, tt := range templateTags {
-		item := dto.TagResp{ID: strconv.FormatInt(tt.TagID, 10)}
-		tag, err := s.tagRepo.GetByID(ctx, tt.TagID)
-		if err == nil && tag != nil {
-			item.Name = tag.Name
-			item.Category = tag.Category
+		if r == nil {
+			continue
 		}
-		resp = append(resp, item)
+		resp.Roles = append(resp.Roles, s.toRoleResp(r))
+	}
+
+	return resp
+}
+
+// buildTagResponses 构建模板标签响应列表。
+func (s *templateService) buildTagResponses(tags []*entity.Tag) []dto.TagResp {
+	resp := make([]dto.TagResp, 0, len(tags))
+	for _, tag := range tags {
+		if tag == nil {
+			continue
+		}
+		resp = append(resp, *buildTagResp(tag))
 	}
 	return resp
+}
+
+// buildTemplateListItems 批量聚合模板列表所需的容器数、检查点数和标签信息。
+func (s *templateService) buildTemplateListItems(ctx context.Context, templates []*entity.ExperimentTemplate) ([]*dto.TemplateListItem, error) {
+	templateIDs := make([]int64, 0, len(templates))
+	for _, template := range templates {
+		if template == nil {
+			continue
+		}
+		templateIDs = append(templateIDs, template.ID)
+	}
+
+	containers, err := s.containerRepo.ListByTemplateIDs(ctx, templateIDs)
+	if err != nil {
+		return nil, err
+	}
+	checkpoints, err := s.checkpointRepo.ListByTemplateIDs(ctx, templateIDs)
+	if err != nil {
+		return nil, err
+	}
+	templateTags, err := s.templateTagRepo.ListByTemplateIDs(ctx, templateIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	tagIDs := make([]int64, 0, len(templateTags))
+	seenTagIDs := make(map[int64]struct{}, len(templateTags))
+	for _, relation := range templateTags {
+		if relation == nil {
+			continue
+		}
+		if _, exists := seenTagIDs[relation.TagID]; exists {
+			continue
+		}
+		seenTagIDs[relation.TagID] = struct{}{}
+		tagIDs = append(tagIDs, relation.TagID)
+	}
+
+	var tags []*entity.Tag
+	if len(tagIDs) > 0 {
+		tags, err = s.tagRepo.ListByIDs(ctx, tagIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return buildTemplateListItemsWithMetadata(templates, containers, checkpoints, templateTags, tags), nil
 }
 
 // toContainerResp 转换容器为响应
-func (s *templateService) toContainerResp(c *entity.TemplateContainer) dto.ContainerResp {
-	resp := dto.ContainerResp{
-		ID:             strconv.FormatInt(c.ID, 10),
-		TemplateID:     strconv.FormatInt(c.TemplateID, 10),
-		ImageVersionID: strconv.FormatInt(c.ImageVersionID, 10),
-		ContainerName:  c.ContainerName,
-		EnvVars:        c.EnvVars,
-		Ports:          c.Ports,
-		Volumes:        c.Volumes,
-		CPULimit:       c.CPULimit,
-		MemoryLimit:    c.MemoryLimit,
-		DependsOn:      c.DependsOn,
-		StartupOrder:   c.StartupOrder,
-		IsPrimary:      c.IsPrimary,
+func (s *templateService) toContainerResp(ctx context.Context, c *entity.TemplateContainer) dto.ContainerResp {
+	var version *entity.ImageVersion
+	if s.imageVersionRepo != nil {
+		if loadedVersion, err := s.imageVersionRepo.GetByID(ctx, c.ImageVersionID); err == nil {
+			version = loadedVersion
+		}
 	}
-	if c.RoleID != nil {
-		roleID := strconv.FormatInt(*c.RoleID, 10)
-		resp.RoleID = &roleID
+	var image *entity.Image
+	if version != nil && s.imageRepo != nil {
+		if loadedImage, err := s.imageRepo.GetByID(ctx, version.ImageID); err == nil {
+			image = loadedImage
+		}
 	}
-	return resp
+	allContainers := make([]entity.TemplateContainer, 0, 1)
+	if s.containerRepo != nil {
+		if containerList, err := s.containerRepo.ListByTemplateID(ctx, c.TemplateID); err == nil {
+			allContainers = make([]entity.TemplateContainer, 0, len(containerList))
+			for _, item := range containerList {
+				if item == nil {
+					continue
+				}
+				allContainers = append(allContainers, *item)
+			}
+		}
+	}
+	if len(allContainers) == 0 {
+		allContainers = append(allContainers, *c)
+	}
+	return *buildTemplateContainerRespWithImage(c, version, image, allContainers)
 }
 
 // toCheckpointResp 转换检查点为响应
 func (s *templateService) toCheckpointResp(cp *entity.TemplateCheckpoint) dto.CheckpointResp {
-	return dto.CheckpointResp{
-		ID:              strconv.FormatInt(cp.ID, 10),
-		TemplateID:      strconv.FormatInt(cp.TemplateID, 10),
-		Title:           cp.Title,
-		Description:     cp.Description,
-		CheckType:       cp.CheckType,
-		CheckTypeText:   enum.GetCheckTypeText(cp.CheckType),
-		ScriptContent:   cp.ScriptContent,
-		ScriptLanguage:  cp.ScriptLanguage,
-		TargetContainer: cp.TargetContainer,
-		AssertionConfig: cp.AssertionConfig,
-		Score:           cp.Score,
-		Scope:           cp.Scope,
-		ScopeText:       enum.GetCheckpointScopeText(cp.Scope),
-		SortOrder:       cp.SortOrder,
-	}
+	return *buildTemplateCheckpointResp(cp)
 }
 
 // toInitScriptResp 转换初始化脚本为响应
 func (s *templateService) toInitScriptResp(is *entity.TemplateInitScript) dto.InitScriptResp {
-	return dto.InitScriptResp{
-		ID:              strconv.FormatInt(is.ID, 10),
-		TemplateID:      strconv.FormatInt(is.TemplateID, 10),
-		TargetContainer: is.TargetContainer,
-		ScriptContent:   is.ScriptContent,
-		ScriptLanguage:  is.ScriptLanguage,
-		ExecutionOrder:  is.ExecutionOrder,
-		Timeout:         is.Timeout,
-	}
+	return *buildTemplateInitScriptResp(is)
 }
 
 // toSimSceneResp 转换仿真场景配置为响应
-func (s *templateService) toSimSceneResp(ss *entity.TemplateSimScene) dto.TemplateSimSceneResp {
-	resp := dto.TemplateSimSceneResp{
-		ID:               strconv.FormatInt(ss.ID, 10),
-		TemplateID:       strconv.FormatInt(ss.TemplateID, 10),
-		SceneParams:      ss.Config,
-		DataSourceConfig: ss.DataSourceConfig,
-		LayoutPosition:   ss.LayoutPosition,
+func (s *templateService) toSimSceneResp(ctx context.Context, ss *entity.TemplateSimScene) dto.TemplateSimSceneResp {
+	var scenario *entity.SimScenario
+	if s.scenarioRepo != nil {
+		if loadedScenario, err := s.scenarioRepo.GetByID(ctx, ss.ScenarioID); err == nil {
+			scenario = loadedScenario
+		}
 	}
-	if ss.LinkGroupID != nil {
-		lgID := strconv.FormatInt(*ss.LinkGroupID, 10)
-		resp.LinkGroupID = &lgID
+	var linkGroup *entity.SimLinkGroup
+	if ss.LinkGroupID != nil && s.linkGroupRepo != nil {
+		if loadedLinkGroup, err := s.linkGroupRepo.GetByID(ctx, *ss.LinkGroupID); err == nil {
+			linkGroup = loadedLinkGroup
+		}
 	}
-	return resp
+	return *buildTemplateSimSceneRespWithRelations(ss, scenario, linkGroup)
 }
 
 // toRoleResp 转换角色为响应
 func (s *templateService) toRoleResp(r *entity.TemplateRole) dto.RoleResp {
-	return dto.RoleResp{
-		ID:          strconv.FormatInt(r.ID, 10),
-		TemplateID:  strconv.FormatInt(r.TemplateID, 10),
-		RoleName:    r.RoleName,
-		Description: r.Description,
-		MaxMembers:  r.MaxMembers,
-	}
+	return *buildTemplateRoleResp(r)
 }

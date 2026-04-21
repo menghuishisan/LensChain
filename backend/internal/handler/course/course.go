@@ -268,7 +268,7 @@ func (h *CourseHandler) SortChapters(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req dto.SortReq
+	var req dto.ReorderIDsReq
 	if !validator.BindJSON(c, &req) {
 		return
 	}
@@ -343,7 +343,7 @@ func (h *CourseHandler) SortLessons(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req dto.SortReq
+	var req dto.ReorderIDsReq
 	if !validator.BindJSON(c, &req) {
 		return
 	}

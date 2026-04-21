@@ -111,8 +111,6 @@ type InstanceListReq struct {
 	TemplateID string `form:"template_id"`
 	CourseID   string `form:"course_id"`
 	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5 6 7 8 9 10"`
-	SortBy     string `form:"sort_by"`
-	SortOrder  string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
 // InstanceListItem 实验实例列表条目
@@ -120,15 +118,21 @@ type InstanceListItem struct {
 	ID            string   `json:"id"`
 	TemplateID    string   `json:"template_id"`
 	TemplateTitle string   `json:"template_title"`
+	StudentID     *string  `json:"student_id,omitempty"`
+	StudentName   *string  `json:"student_name,omitempty"`
+	SchoolID      *string  `json:"school_id,omitempty"`
+	SchoolName    *string  `json:"school_name,omitempty"`
 	CourseID      *string  `json:"course_id"`
 	CourseTitle   *string  `json:"course_title"`
 	Status        int16    `json:"status"`
 	StatusText    string   `json:"status_text"`
 	AttemptNo     int      `json:"attempt_no"`
 	TotalScore    *float64 `json:"total_score"`
+	ErrorMessage  *string  `json:"error_message,omitempty"`
 	StartedAt     *string  `json:"started_at"`
 	SubmittedAt   *string  `json:"submitted_at"`
 	CreatedAt     string   `json:"created_at"`
+	UpdatedAt     *string  `json:"updated_at,omitempty"`
 }
 
 // InstanceListResp 我的实验实例列表响应
@@ -396,7 +400,6 @@ type GroupResp struct {
 	MaxMembers  int               `json:"max_members"`
 	Status      int16             `json:"status"`
 	StatusText  string            `json:"status_text"`
-	Namespace   *string           `json:"namespace"`
 	Members     []GroupMemberResp `json:"members,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
@@ -766,13 +769,26 @@ type CourseBreakdownItem struct {
 // ExperimentOverviewResp 全平台实验概览响应
 // GET /api/v1/admin/experiment-overview
 type ExperimentOverviewResp struct {
-	TotalInstances   int               `json:"total_instances"`
-	RunningInstances int               `json:"running_instances"`
-	TotalTemplates   int               `json:"total_templates"`
-	TotalImages      int               `json:"total_images"`
-	PendingReviews   int               `json:"pending_reviews"`
-	ClusterStatus    ClusterStatusInfo `json:"cluster_status"`
-	SchoolUsage      []SchoolUsageItem `json:"school_usage"`
+	TotalInstances   int                 `json:"total_instances"`
+	RunningInstances int                 `json:"running_instances"`
+	TotalTemplates   int                 `json:"total_templates"`
+	TotalImages      int                 `json:"total_images"`
+	PendingReviews   int                 `json:"pending_reviews"`
+	ClusterStatus    ClusterStatusInfo   `json:"cluster_status"`
+	SchoolUsage      []SchoolUsageItem   `json:"school_usage"`
+	AlertInstances   []OverviewAlertItem `json:"alert_instances"`
+}
+
+// OverviewAlertItem 全局监控页异常实例告警条目
+// GET /api/v1/admin/experiment-overview
+type OverviewAlertItem struct {
+	InstanceID   string `json:"instance_id"`
+	StudentID    string `json:"student_id"`
+	StudentName  string `json:"student_name"`
+	SchoolID     string `json:"school_id"`
+	SchoolName   string `json:"school_name"`
+	ErrorMessage string `json:"error_message"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // ClusterStatusInfo K8s集群状态信息
@@ -787,13 +803,14 @@ type ClusterStatusInfo struct {
 
 // SchoolUsageItem 学校资源使用条目
 type SchoolUsageItem struct {
-	SchoolID         string `json:"school_id"`
-	SchoolName       string `json:"school_name"`
-	RunningInstances int    `json:"running_instances"`
-	CPUUsed          string `json:"cpu_used"`
-	MemoryUsed       string `json:"memory_used"`
-	QuotaCPU         string `json:"quota_cpu"`
-	QuotaMemory      string `json:"quota_memory"`
+	SchoolID          string  `json:"school_id"`
+	SchoolName        string  `json:"school_name"`
+	RunningInstances  int     `json:"running_instances"`
+	CPUUsed           string  `json:"cpu_used"`
+	MemoryUsed        string  `json:"memory_used"`
+	QuotaCPU          string  `json:"quota_cpu"`
+	QuotaMemory       string  `json:"quota_memory"`
+	QuotaUsagePercent float64 `json:"quota_usage_percent"`
 }
 
 // AdminInstanceListReq 全平台实验实例列表查询参数

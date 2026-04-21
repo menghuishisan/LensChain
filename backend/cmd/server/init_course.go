@@ -33,6 +33,7 @@ func initCourseModule() *router.CourseHandlers {
 	assignmentRepo := courserepo.NewAssignmentRepository(db)
 	questionRepo := courserepo.NewQuestionRepository(db)
 	submissionRepo := courserepo.NewSubmissionRepository(db)
+	draftRepo := courserepo.NewDraftRepository(db)
 	answerRepo := courserepo.NewAnswerRepository(db)
 	discussionRepo := courserepo.NewDiscussionRepository(db)
 	replyRepo := courserepo.NewReplyRepository(db)
@@ -46,7 +47,13 @@ func initCourseModule() *router.CourseHandlers {
 	// ========== 跨模块 Adapter ==========
 	// 用户名查询（模块01 → 模块03）
 	userRepo := authrepo.NewUserRepository(db)
-	userNameQuerier := &userNameQuerierAdapter{userRepo: userRepo}
+	profileRepo := authrepo.NewProfileRepository(db)
+	roleRepo := authrepo.NewRoleRepository(db)
+	userNameQuerier := &userNameQuerierAdapter{
+		userRepo:    userRepo,
+		profileRepo: profileRepo,
+		roleRepo:    roleRepo,
+	}
 
 	// 学校名称查询（模块02 → 模块03）
 	// 复用 init_school.go 中定义的 newSchoolNameQuerier
@@ -55,7 +62,7 @@ func initCourseModule() *router.CourseHandlers {
 
 	// ========== Service 层 ==========
 	courseService := svc.NewCourseService(
-		db, courseRepo, chapterRepo, lessonRepo, enrollmentRepo,
+		db, courseRepo, chapterRepo, lessonRepo, attachmentRepo, enrollmentRepo,
 		assignmentRepo, questionRepo, progressRepo, evaluationRepo,
 		userNameQuerier, schoolNameQuerier,
 	)
@@ -65,21 +72,22 @@ func initCourseModule() *router.CourseHandlers {
 	)
 	assignmentService := svc.NewAssignmentService(
 		courseRepo, assignmentRepo, questionRepo, submissionRepo,
-		answerRepo, enrollmentRepo, userNameQuerier, userNameQuerier,
+		draftRepo, answerRepo, enrollmentRepo, userNameQuerier, userNameQuerier,
 	)
 	discussionService := svc.NewDiscussionService(
 		courseRepo, discussionRepo, replyRepo, likeRepo,
 		announcementRepo, evaluationRepo, enrollmentRepo,
-		gradeConfigRepo, userNameQuerier,
+		userNameQuerier,
 	)
 	progressService := svc.NewProgressService(
 		courseRepo, lessonRepo, chapterRepo, enrollmentRepo,
 		progressRepo, assignmentRepo, submissionRepo,
+		gradeConfigRepo, gradeOverrideRepo,
 		scheduleRepo, userNameQuerier, userNameQuerier,
 	)
 	gradeService := svc.NewGradeService(
 		courseRepo, enrollmentRepo, assignmentRepo, submissionRepo,
-		gradeConfigRepo, gradeOverrideRepo, userNameQuerier, nil,
+		gradeConfigRepo, gradeOverrideRepo, userNameQuerier, nil, progressService,
 	)
 
 	// ========== Handler 层 ==========
@@ -104,7 +112,9 @@ func initCourseModule() *router.CourseHandlers {
 // userNameQuerierAdapter 跨模块 adapter：查询用户名称
 // 实现 course.UserNameQuerier 接口，内部调用模块01的 repo 层
 type userNameQuerierAdapter struct {
-	userRepo authrepo.UserRepository
+	userRepo    authrepo.UserRepository
+	profileRepo authrepo.ProfileRepository
+	roleRepo    authrepo.RoleRepository
 }
 
 // GetUserName 根据用户ID查询用户名称
@@ -131,11 +141,16 @@ func (a *userNameQuerierAdapter) GetUserSummary(ctx context.Context, userID int6
 		Name:      user.Name,
 		StudentNo: user.StudentNo,
 	}
-	if user.Profile != nil {
-		summary.College = user.Profile.College
-		summary.Major = user.Profile.Major
-		summary.ClassName = user.Profile.ClassName
+	if a.profileRepo == nil {
+		return summary
 	}
+	profile, err := a.profileRepo.GetByUserID(ctx, userID)
+	if err != nil || profile == nil {
+		return summary
+	}
+	summary.College = profile.College
+	summary.Major = profile.Major
+	summary.ClassName = profile.ClassName
 	return summary
 }
 
@@ -152,12 +167,15 @@ func (a *userNameQuerierAdapter) GetUserSchoolID(ctx context.Context, userID int
 // HasRole 判断用户是否具备指定角色
 // 查询失败时返回错误，避免课程模块自行解析用户表结构。
 func (a *userNameQuerierAdapter) HasRole(ctx context.Context, userID int64, role string) (bool, error) {
-	codes, err := a.userRepo.GetByID(ctx, userID)
+	if a.roleRepo == nil {
+		return false, nil
+	}
+	codes, err := a.roleRepo.GetUserRoleCodes(ctx, userID)
 	if err != nil {
 		return false, err
 	}
-	for _, userRole := range codes.Roles {
-		if userRole.Role != nil && userRole.Role.Code == role {
+	for _, code := range codes {
+		if code == role {
 			return true, nil
 		}
 	}

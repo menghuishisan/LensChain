@@ -31,7 +31,7 @@ func CheckSchoolAccess(ctx context.Context, schoolID int64, now time.Time) error
 
 	switch snapshot.Status {
 	case enum.SchoolStatusFrozen:
-		return errcode.ErrSchoolFrozen
+		return errcode.ErrSchoolExpired.WithMessage("学校授权已过期，请联系管理员")
 	case enum.SchoolStatusCancelled:
 		return errcode.ErrForbidden.WithMessage("学校已注销")
 	}

@@ -9,20 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lenschain/backend/internal/model/dto"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/handlerctx"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
 	svc "github.com/lenschain/backend/internal/service/experiment"
 )
-
-// imagePullStatusData 镜像预拉取状态响应载荷。
-// 单独封装 summary、items 和 pagination，确保输出与模块04接口文档一致。
-type imagePullStatusData struct {
-	Summary    dto.PullSummary      `json:"summary"`
-	Items      []dto.PullStatusItem `json:"items"`
-	Pagination response.Pagination  `json:"pagination"`
-}
 
 // InstanceHandler 实例与监控域处理器。
 // 统一处理实验实例、分组协作、教师监控、资源配额和管理员监控接口。
@@ -64,7 +57,11 @@ func (h *InstanceHandler) CreateInstance(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, respData)
+	if respData != nil && respData.Status == enum.InstanceStatusQueued {
+		response.SuccessWithMsg(c, "资源不足，已加入排队", respData)
+		return
+	}
+	response.SuccessWithMsg(c, "实验环境创建中", respData)
 }
 
 // ListInstances 获取我的实验实例列表。
@@ -124,7 +121,7 @@ func (h *InstanceHandler) ResumeInstance(c *gin.Context) {
 		return
 	}
 	var req dto.ResumeInstanceReq
-	if !validator.BindJSON(c, &req) {
+	if !validator.BindOptionalJSON(c, &req) {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
@@ -211,7 +208,7 @@ func (h *InstanceHandler) VerifyCheckpoints(c *gin.Context) {
 		return
 	}
 	var req dto.VerifyCheckpointReq
-	if !validator.BindJSON(c, &req) {
+	if !validator.BindOptionalJSON(c, &req) {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
@@ -263,7 +260,7 @@ func (h *InstanceHandler) CreateSnapshot(c *gin.Context) {
 		return
 	}
 	var req dto.CreateSnapshotReq
-	if !validator.BindJSON(c, &req) {
+	if !validator.BindOptionalJSON(c, &req) {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
@@ -332,7 +329,7 @@ func (h *InstanceHandler) CreateReport(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, respData)
+	response.SuccessWithMsg(c, "报告提交成功", respData)
 }
 
 // GetReport 获取实验报告。
@@ -457,7 +454,7 @@ func (h *InstanceHandler) CreateGroup(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, items)
+	response.SuccessWithMsg(c, "分组创建成功", dto.CreateGroupResp{Groups: derefGroupListItems(items)})
 }
 
 // ListGroups 获取实验分组列表。
@@ -723,7 +720,7 @@ func (h *InstanceHandler) CreateQuota(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, respData)
+	response.SuccessWithMsg(c, "创建成功", respData)
 }
 
 // GetQuota 获取资源配额详情。
@@ -849,7 +846,7 @@ func (h *InstanceHandler) ForceDestroyAdminInstance(c *gin.Context) {
 // GetImagePullStatus 获取镜像预拉取状态。
 // GET /api/v1/admin/image-pull-status
 func (h *InstanceHandler) GetImagePullStatus(c *gin.Context) {
-	var req dto.ImagePullStatusReq
+	var req dto.ImagePullStatusListReq
 	if !validator.BindQuery(c, &req) {
 		return
 	}
@@ -860,27 +857,19 @@ func (h *InstanceHandler) GetImagePullStatus(c *gin.Context) {
 		return
 	}
 	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
-	totalPage := int(total) / pageSize
-	if int(total)%pageSize > 0 {
-		totalPage++
+	respData.Pagination = dto.ListPagination{
+		Page:     page,
+		PageSize: pageSize,
+		Total:    int(total),
 	}
-	response.Success(c, imagePullStatusData{
-		Summary: respData.Summary,
-		Items:   respData.Items,
-		Pagination: response.Pagination{
-			Page:      page,
-			PageSize:  pageSize,
-			Total:     total,
-			TotalPage: totalPage,
-		},
-	})
+	response.Success(c, respData)
 }
 
 // TriggerImagePull 触发镜像预拉取。
 // POST /api/v1/admin/image-pull
 func (h *InstanceHandler) TriggerImagePull(c *gin.Context) {
-	var req dto.ImagePullReq
-	if !validator.BindJSON(c, &req) {
+	var req dto.TriggerImagePullReq
+	if !validator.BindOptionalJSON(c, &req) {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
@@ -889,7 +878,7 @@ func (h *InstanceHandler) TriggerImagePull(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Success(c, respData)
+	response.SuccessWithMsg(c, "预拉取任务已创建", respData)
 }
 
 // GetSchoolMonitor 获取学校管理员视角的实验监控。
@@ -922,4 +911,16 @@ func (h *InstanceHandler) AssignCourseQuota(c *gin.Context) {
 		return
 	}
 	response.Success(c, respData)
+}
+
+// derefGroupListItems 将分组列表指针切片转换为值切片，保持响应结构与 API 文档一致。
+func derefGroupListItems(items []*dto.GroupListItem) []dto.GroupListItem {
+	result := make([]dto.GroupListItem, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		result = append(result, *item)
+	}
+	return result
 }

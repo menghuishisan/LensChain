@@ -7,16 +7,20 @@ package course
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
 
+	"gorm.io/datatypes"
+
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/contentsafety"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
-	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/timeutil"
 	courserepo "github.com/lenschain/backend/internal/repository/course"
 )
 
@@ -34,6 +38,8 @@ type AssignmentService interface {
 	UpdateQuestion(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateQuestionReq) error
 	DeleteQuestion(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	// 提交
+	SaveDraft(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64, req *dto.SaveAssignmentDraftReq) (*dto.SaveAssignmentDraftResp, error)
+	GetDraft(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64) (*dto.AssignmentDraftResp, error)
 	Submit(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64, req *dto.SubmitAssignmentReq) (*dto.SubmitAssignmentResp, error)
 	GetSubmission(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.SubmissionDetailResp, error)
 	ListSubmissions(ctx context.Context, sc *svcctx.ServiceContext, assignmentID int64, req *dto.SubmissionListReq) ([]*dto.SubmissionListItem, int64, error)
@@ -46,6 +52,7 @@ type assignmentService struct {
 	assignmentRepo     courserepo.AssignmentRepository
 	questionRepo       courserepo.QuestionRepository
 	submissionRepo     courserepo.SubmissionRepository
+	draftRepo          courserepo.DraftRepository
 	answerRepo         courserepo.AnswerRepository
 	enrollmentRepo     courserepo.EnrollmentRepository
 	userNameQuerier    UserNameQuerier
@@ -58,6 +65,7 @@ func NewAssignmentService(
 	assignmentRepo courserepo.AssignmentRepository,
 	questionRepo courserepo.QuestionRepository,
 	submissionRepo courserepo.SubmissionRepository,
+	draftRepo courserepo.DraftRepository,
 	answerRepo courserepo.AnswerRepository,
 	enrollmentRepo courserepo.EnrollmentRepository,
 	userNameQuerier UserNameQuerier,
@@ -66,7 +74,7 @@ func NewAssignmentService(
 	return &assignmentService{
 		courseRepo: courseRepo, assignmentRepo: assignmentRepo,
 		questionRepo: questionRepo, submissionRepo: submissionRepo,
-		answerRepo: answerRepo, enrollmentRepo: enrollmentRepo,
+		draftRepo: draftRepo, answerRepo: answerRepo, enrollmentRepo: enrollmentRepo,
 		userNameQuerier: userNameQuerier, userSummaryQuerier: userSummaryQuerier,
 	}
 }
@@ -74,16 +82,16 @@ func NewAssignmentService(
 // ========== 作业管理 ==========
 
 func (s *assignmentService) Create(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.CreateAssignmentReq) (string, error) {
-	if err := s.verifyCourseTeacher(ctx, sc, courseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, courseID); err != nil {
 		return "", err
 	}
 
 	assignment := &entity.Assignment{
 		CourseID:            courseID,
 		Title:               req.Title,
-		Description:         req.Description,
+		Description:         contentsafety.SanitizeOptionalMarkdown(req.Description),
 		AssignmentType:      req.AssignmentType,
-		TotalScore:          req.TotalScore,
+		TotalScore:          0,
 		LatePolicy:          req.LatePolicy,
 		LateDeductionPerDay: req.LateDeductionPerDay,
 		MaxSubmissions:      1,
@@ -92,16 +100,17 @@ func (s *assignmentService) Create(ctx context.Context, sc *svcctx.ServiceContex
 		return "", errcode.ErrInvalidParams.WithMessage("截止时间不能为空")
 	}
 	if req.ChapterID != nil {
-		cid, err := snowflake.ParseString(*req.ChapterID)
-		if err == nil {
-			assignment.ChapterID = &cid
+		chapterID, err := parseOptionalSnowflakeID(req.ChapterID, "章节ID格式错误")
+		if err != nil {
+			return "", err
 		}
+		assignment.ChapterID = chapterID
 	}
-	t, err := dto.ParseTime(*req.DeadlineAt)
+	t, err := timeutil.ParseRFC3339(*req.DeadlineAt)
 	if err != nil {
 		return "", errcode.ErrInvalidParams.WithMessage("截止时间格式错误")
 	}
-	assignment.DeadlineAt = t
+	assignment.DeadlineAt = *t
 	if req.MaxSubmissions != nil {
 		assignment.MaxSubmissions = *req.MaxSubmissions
 	}
@@ -115,10 +124,15 @@ func (s *assignmentService) Create(ctx context.Context, sc *svcctx.ServiceContex
 // GetByID 获取作业详情
 // 教师可查看自己课程下的全部作业，学生仅可查看自己已加入课程且已发布的作业
 func (s *assignmentService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.AssignmentDetailResp, error) {
-	assignment, err := s.assignmentRepo.GetByIDWithQuestions(ctx, id)
+	assignment, err := s.assignmentRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, errcode.ErrAssignmentNotFound
 	}
+	questions, err := s.questionRepo.ListByAssignmentID(ctx, assignment.ID)
+	if err != nil {
+		return nil, err
+	}
+	teacherView := true
 
 	if _, err := ensureCourseTeacher(ctx, sc, s.courseRepo, assignment.CourseID); err != nil {
 		if !errors.Is(err, errcode.ErrNotCourseTeacher) {
@@ -130,9 +144,10 @@ func (s *assignmentService) GetByID(ctx context.Context, sc *svcctx.ServiceConte
 		if !assignment.IsPublished {
 			return nil, errcode.ErrAssignmentNotFound
 		}
+		teacherView = false
 	}
 
-	return s.buildAssignmentDetail(assignment), nil
+	return s.buildAssignmentDetail(assignment, questions, teacherView), nil
 }
 
 // Update 更新作业基础信息
@@ -141,7 +156,7 @@ func (s *assignmentService) Update(ctx context.Context, sc *svcctx.ServiceContex
 	if err != nil {
 		return errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, assignment.CourseID); err != nil {
 		return err
 	}
 
@@ -150,16 +165,13 @@ func (s *assignmentService) Update(ctx context.Context, sc *svcctx.ServiceContex
 		fields["title"] = *req.Title
 	}
 	if req.Description != nil {
-		fields["description"] = *req.Description
+		fields["description"] = contentsafety.SanitizeMarkdown(*req.Description)
 	}
 	if req.AssignmentType != nil {
 		fields["assignment_type"] = *req.AssignmentType
 	}
-	if req.TotalScore != nil {
-		fields["total_score"] = *req.TotalScore
-	}
 	if req.DeadlineAt != nil {
-		t, err := dto.ParseTime(*req.DeadlineAt)
+		t, err := timeutil.ParseRFC3339(*req.DeadlineAt)
 		if err != nil {
 			return errcode.ErrInvalidParams.WithMessage("截止时间格式错误")
 		}
@@ -175,9 +187,14 @@ func (s *assignmentService) Update(ctx context.Context, sc *svcctx.ServiceContex
 		fields["late_deduction_per_day"] = *req.LateDeductionPerDay
 	}
 	if req.ChapterID != nil {
-		cid, err := snowflake.ParseString(*req.ChapterID)
-		if err == nil {
-			fields["chapter_id"] = cid
+		chapterID, err := parseOptionalSnowflakeID(req.ChapterID, "章节ID格式错误")
+		if err != nil {
+			return err
+		}
+		if chapterID == nil {
+			fields["chapter_id"] = nil
+		} else {
+			fields["chapter_id"] = *chapterID
 		}
 	}
 	if len(fields) == 0 {
@@ -194,11 +211,14 @@ func (s *assignmentService) Delete(ctx context.Context, sc *svcctx.ServiceContex
 	if err != nil {
 		return errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, assignment.CourseID); err != nil {
 		return err
 	}
 	// 已有提交的作业不可删除
-	has, _ := s.assignmentRepo.HasSubmissions(ctx, id)
+	has, err := s.assignmentRepo.HasSubmissions(ctx, id)
+	if err != nil {
+		return err
+	}
 	if has {
 		return errcode.ErrInvalidParams.WithMessage("该作业已有学生提交，不可删除")
 	}
@@ -228,10 +248,16 @@ func (s *assignmentService) List(ctx context.Context, sc *svcctx.ServiceContext,
 		return nil, 0, err
 	}
 
-	studentCount, _ := s.courseRepo.CountStudents(ctx, courseID)
+	studentCount, err := s.courseRepo.CountStudents(ctx, courseID)
+	if err != nil {
+		return nil, 0, err
+	}
 	items := make([]*dto.AssignmentListItem, 0, len(assignments))
 	for _, a := range assignments {
-		submitCount, _ := s.submissionRepo.CountByAssignment(ctx, a.ID)
+		submitCount, err := s.submissionRepo.CountByAssignment(ctx, a.ID)
+		if err != nil {
+			return nil, 0, err
+		}
 		item := &dto.AssignmentListItem{
 			ID: strconv.FormatInt(a.ID, 10), Title: a.Title,
 			AssignmentType:     a.AssignmentType,
@@ -240,7 +266,7 @@ func (s *assignmentService) List(ctx context.Context, sc *svcctx.ServiceContext,
 			SubmitCount: submitCount, TotalStudents: studentCount,
 			SortOrder: a.SortOrder,
 		}
-		if a.DeadlineAt != nil {
+		if !a.DeadlineAt.IsZero() {
 			d := a.DeadlineAt.Format(time.RFC3339)
 			item.DeadlineAt = &d
 		}
@@ -255,11 +281,18 @@ func (s *assignmentService) Publish(ctx context.Context, sc *svcctx.ServiceConte
 	if err != nil {
 		return errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, assignment.CourseID); err != nil {
 		return err
 	}
 	if assignment.IsPublished {
 		return errcode.ErrInvalidParams.WithMessage("作业已发布")
+	}
+	questions, err := s.questionRepo.ListByAssignmentID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(questions) == 0 {
+		return errcode.ErrInvalidParams.WithMessage("请至少添加一道题目后再发布")
 	}
 	return s.assignmentRepo.UpdateFields(ctx, id, map[string]interface{}{
 		"is_published": true, "updated_at": time.Now(),
@@ -273,17 +306,30 @@ func (s *assignmentService) AddQuestion(ctx context.Context, sc *svcctx.ServiceC
 	if err != nil {
 		return "", errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, assignment.CourseID); err != nil {
 		return "", err
 	}
 
 	question := &entity.AssignmentQuestion{
 		AssignmentID: assignmentID, QuestionType: req.QuestionType,
-		Title: req.Title, Options: req.Options,
-		CorrectAnswer: req.CorrectAnswer, ReferenceAnswer: req.ReferenceAnswer,
-		Score: req.Score, JudgeConfig: req.JudgeConfig,
+		Title:         contentsafety.SanitizeMarkdown(req.Title),
+		CorrectAnswer: req.CorrectAnswer, ReferenceAnswer: contentsafety.SanitizeOptionalMarkdown(req.ReferenceAnswer),
+		Score: req.Score,
 	}
+	options, err := parseOptionalJSON(req.Options, "题目选项格式错误")
+	if err != nil {
+		return "", err
+	}
+	judgeConfig, err := parseOptionalJSON(req.JudgeConfig, "判题配置格式错误")
+	if err != nil {
+		return "", err
+	}
+	question.Options = options
+	question.JudgeConfig = judgeConfig
 	if err := s.questionRepo.Create(ctx, question); err != nil {
+		return "", err
+	}
+	if err := s.syncAssignmentTotalScore(ctx, assignmentID); err != nil {
 		return "", err
 	}
 	return strconv.FormatInt(question.ID, 10), nil
@@ -299,7 +345,7 @@ func (s *assignmentService) UpdateQuestion(ctx context.Context, sc *svcctx.Servi
 	if err != nil {
 		return errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, assignment.CourseID); err != nil {
 		return err
 	}
 
@@ -308,28 +354,39 @@ func (s *assignmentService) UpdateQuestion(ctx context.Context, sc *svcctx.Servi
 		fields["question_type"] = *req.QuestionType
 	}
 	if req.Title != nil {
-		fields["title"] = *req.Title
+		fields["title"] = contentsafety.SanitizeMarkdown(*req.Title)
 	}
 	if req.Options != nil {
-		fields["options"] = *req.Options
+		options, err := parseOptionalJSON(req.Options, "题目选项格式错误")
+		if err != nil {
+			return err
+		}
+		fields["options"] = options
 	}
 	if req.CorrectAnswer != nil {
 		fields["correct_answer"] = *req.CorrectAnswer
 	}
 	if req.ReferenceAnswer != nil {
-		fields["reference_answer"] = *req.ReferenceAnswer
+		fields["reference_answer"] = contentsafety.SanitizeMarkdown(*req.ReferenceAnswer)
 	}
 	if req.Score != nil {
 		fields["score"] = *req.Score
 	}
 	if req.JudgeConfig != nil {
-		fields["judge_config"] = *req.JudgeConfig
+		judgeConfig, err := parseOptionalJSON(req.JudgeConfig, "判题配置格式错误")
+		if err != nil {
+			return err
+		}
+		fields["judge_config"] = judgeConfig
 	}
 	if len(fields) == 0 {
 		return nil
 	}
 	fields["updated_at"] = time.Now()
-	return s.questionRepo.UpdateFields(ctx, id, fields)
+	if err := s.questionRepo.UpdateFields(ctx, id, fields); err != nil {
+		return err
+	}
+	return s.syncAssignmentTotalScore(ctx, question.AssignmentID)
 }
 
 // DeleteQuestion 删除作业题目
@@ -342,22 +399,58 @@ func (s *assignmentService) DeleteQuestion(ctx context.Context, sc *svcctx.Servi
 	if err != nil {
 		return errcode.ErrAssignmentNotFound
 	}
-	if err := s.verifyCourseTeacher(ctx, sc, assignment.CourseID); err != nil {
+	if err := s.verifyCourseTeacherForContent(ctx, sc, assignment.CourseID); err != nil {
 		return err
 	}
-	return s.questionRepo.Delete(ctx, id)
+	hasSubmissions, err := s.assignmentRepo.HasSubmissions(ctx, assignment.ID)
+	if err != nil {
+		return err
+	}
+	if hasSubmissions {
+		return errcode.ErrInvalidParams.WithMessage("作业已有学生提交，不能删除题目")
+	}
+	if err := s.questionRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	return s.syncAssignmentTotalScore(ctx, assignment.ID)
 }
 
 // ========== 辅助方法 ==========
 
-// verifyCourseTeacher 校验课程教师身份
-func (s *assignmentService) verifyCourseTeacher(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) error {
-	_, err := ensureCourseTeacher(ctx, sc, s.courseRepo, courseID)
-	return err
+// verifyCourseTeacherForContent 校验课程教师身份，并确保课程仍允许编辑教学内容。
+func (s *assignmentService) verifyCourseTeacherForContent(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) error {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, courseID)
+	if err != nil {
+		return err
+	}
+	return ensureCourseContentEditable(course)
 }
 
-// buildAssignmentDetail 构建作业详情响应
-func (s *assignmentService) buildAssignmentDetail(a *entity.Assignment) *dto.AssignmentDetailResp {
+// syncAssignmentTotalScore 根据当前题目分值重算并回写作业总分，确保总分口径与题目保持一致。
+func (s *assignmentService) syncAssignmentTotalScore(ctx context.Context, assignmentID int64) error {
+	questions, err := s.questionRepo.ListByAssignmentID(ctx, assignmentID)
+	if err != nil {
+		return err
+	}
+
+	totalScore := 0.0
+	for _, question := range questions {
+		totalScore += question.Score
+	}
+
+	return s.assignmentRepo.UpdateFields(ctx, assignmentID, map[string]interface{}{
+		"total_score": totalScore,
+		"updated_at":  time.Now(),
+	})
+}
+
+// buildAssignmentDetail 构建作业详情响应。
+// 学生视角不返回标准答案与参考答案，避免通过详情接口提前获知题解。
+func (s *assignmentService) buildAssignmentDetail(
+	a *entity.Assignment,
+	questions []*entity.AssignmentQuestion,
+	includeAnswers bool,
+) *dto.AssignmentDetailResp {
 	resp := &dto.AssignmentDetailResp{
 		ID:       strconv.FormatInt(a.ID, 10),
 		CourseID: strconv.FormatInt(a.CourseID, 10),
@@ -372,20 +465,45 @@ func (s *assignmentService) buildAssignmentDetail(a *entity.Assignment) *dto.Ass
 		cid := strconv.FormatInt(*a.ChapterID, 10)
 		resp.ChapterID = &cid
 	}
-	if a.DeadlineAt != nil {
+	if !a.DeadlineAt.IsZero() {
 		d := a.DeadlineAt.Format(time.RFC3339)
 		resp.DeadlineAt = &d
 	}
 
-	resp.Questions = make([]dto.QuestionDetailItem, 0, len(a.Questions))
-	for _, q := range a.Questions {
-		resp.Questions = append(resp.Questions, dto.QuestionDetailItem{
+	resp.Questions = make([]dto.QuestionDetailItem, 0, len(questions))
+	for _, q := range questions {
+		item := dto.QuestionDetailItem{
 			ID: strconv.FormatInt(q.ID, 10), QuestionType: q.QuestionType,
 			QuestionTypeText: enum.GetQuestionTypeText(q.QuestionType),
-			Title:            q.Title, Options: q.Options,
-			CorrectAnswer: q.CorrectAnswer, ReferenceAnswer: q.ReferenceAnswer,
-			Score: q.Score, JudgeConfig: q.JudgeConfig, SortOrder: q.SortOrder,
-		})
+			Title:            q.Title, Options: stringifyOptionalJSON(q.Options),
+			Score: q.Score, SortOrder: q.SortOrder,
+		}
+		if includeAnswers {
+			item.CorrectAnswer = q.CorrectAnswer
+			item.ReferenceAnswer = q.ReferenceAnswer
+			item.JudgeConfig = stringifyOptionalJSON(q.JudgeConfig)
+		}
+		resp.Questions = append(resp.Questions, item)
 	}
 	return resp
+}
+
+// parseOptionalJSON 将 DTO 中的 JSON 字符串转为仓储层持久化所需的 JSONB 数据。
+func parseOptionalJSON(raw *string, message string) (datatypes.JSON, error) {
+	if raw == nil || *raw == "" {
+		return datatypes.JSON(nil), nil
+	}
+	if !json.Valid([]byte(*raw)) {
+		return nil, errcode.ErrInvalidParams.WithMessage(message)
+	}
+	return datatypes.JSON([]byte(*raw)), nil
+}
+
+// stringifyOptionalJSON 将 JSONB 内容转回字符串，保持 DTO 与 API 文档一致。
+func stringifyOptionalJSON(raw datatypes.JSON) *string {
+	if len(raw) == 0 {
+		return nil
+	}
+	text := string(raw)
+	return &text
 }

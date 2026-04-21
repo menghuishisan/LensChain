@@ -192,6 +192,42 @@ func (h *AssignmentHandler) DeleteQuestion(c *gin.Context) {
 
 // ========== 提交与批改 ==========
 
+// SaveAssignmentDraft 保存作答草稿
+// PUT /api/v1/assignments/:id/draft
+func (h *AssignmentHandler) SaveAssignmentDraft(c *gin.Context) {
+	assignmentID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.SaveAssignmentDraftReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	resp, err := h.assignmentService.SaveDraft(c.Request.Context(), sc, assignmentID, &req)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "草稿保存成功", resp)
+}
+
+// GetAssignmentDraft 获取我的作答草稿
+// GET /api/v1/assignments/:id/draft
+func (h *AssignmentHandler) GetAssignmentDraft(c *gin.Context) {
+	assignmentID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	resp, err := h.assignmentService.GetDraft(c.Request.Context(), sc, assignmentID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, resp)
+}
+
 // SubmitAssignment 学生提交作业
 // POST /api/v1/assignments/:id/submit
 func (h *AssignmentHandler) SubmitAssignment(c *gin.Context) {

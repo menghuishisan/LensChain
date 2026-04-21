@@ -30,10 +30,10 @@ type PaginatedData struct {
 
 // Pagination 分页信息
 type Pagination struct {
-	Page      int   `json:"page"`
-	PageSize  int   `json:"page_size"`
-	Total     int64 `json:"total"`
-	TotalPage int   `json:"total_page"`
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
 }
 
 // now 获取当前 ISO 8601 时间戳（UTC）
@@ -92,10 +92,10 @@ func Paginated(c *gin.Context, list interface{}, total int64, page, pageSize int
 		Data: PaginatedData{
 			List: list,
 			Pagination: Pagination{
-				Page:      page,
-				PageSize:  pageSize,
-				Total:     total,
-				TotalPage: totalPage,
+				Page:       page,
+				PageSize:   pageSize,
+				Total:      total,
+				TotalPages: totalPage,
 			},
 		},
 		Timestamp: now(),

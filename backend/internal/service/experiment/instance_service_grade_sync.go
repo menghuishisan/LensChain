@@ -67,13 +67,15 @@ func (s *instanceService) resolveCourseSyncScore(
 }
 
 // selectSyncedInstance 根据成绩策略从同模板多次实验中选择需要回传的实例。
-func selectSyncedInstance(instances []*entity.ExperimentInstance, scoreStrategy int) (*entity.ExperimentInstance, bool) {
+func selectSyncedInstance(instances []*entity.ExperimentInstance, scoreStrategy int16) (*entity.ExperimentInstance, bool) {
 	var selected *entity.ExperimentInstance
 	for _, instance := range instances {
 		if instance == nil || instance.TotalScore == nil {
 			continue
 		}
-		if instance.Status != enum.InstanceStatusSubmitted && instance.Status != enum.InstanceStatusDestroyed {
+		if instance.Status != enum.InstanceStatusCompleted &&
+			instance.Status != enum.InstanceStatusExpired &&
+			instance.Status != enum.InstanceStatusDestroyed {
 			continue
 		}
 		if selected == nil {

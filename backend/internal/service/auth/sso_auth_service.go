@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
@@ -27,6 +29,7 @@ import (
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/tokenstate"
 )
 
 type casAuthResponse struct {
@@ -60,6 +63,14 @@ func (s *authService) SSOLoginURL(ctx context.Context, schoolID int64) (string, 
 
 // SSOCallback 处理SSO回调并完成登录
 func (s *authService) SSOCallback(ctx context.Context, schoolID int64, query map[string]string, ip, userAgent string) (*LoginResult, error) {
+	if schoolID <= 0 {
+		resolvedSchoolID, err := s.resolveCallbackSchoolID(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		schoolID = resolvedSchoolID
+	}
+
 	config, err := s.getEnabledSchoolSSOConfig(ctx, schoolID)
 	if err != nil {
 		return nil, err
@@ -86,6 +97,34 @@ func (s *authService) SSOCallback(ctx context.Context, schoolID int64, query map
 	return s.completeSSOLogin(ctx, user, config.Provider, ip, userAgent)
 }
 
+// resolveCallbackSchoolID 从回调参数中解析学校ID。
+// CAS 场景使用回调URL上的 school_id，OAuth2 场景优先根据 state 关联缓存恢复学校ID。
+func (s *authService) resolveCallbackSchoolID(ctx context.Context, query map[string]string) (int64, error) {
+	if schoolIDText := strings.TrimSpace(query["school_id"]); schoolIDText != "" {
+		schoolID, err := snowflake.ParseString(schoolIDText)
+		if err != nil || schoolID <= 0 {
+			return 0, errcode.ErrInvalidParams.WithMessage("school_id 格式不正确")
+		}
+		return schoolID, nil
+	}
+
+	state := strings.TrimSpace(query["state"])
+	if state == "" {
+		return 0, errcode.ErrInvalidParams.WithMessage("缺少学校ID或SSO状态参数")
+	}
+
+	cachedSchoolID, err := cache.GetString(ctx, cache.KeySSOState+state)
+	if err != nil {
+		return 0, errcode.ErrSSOAuthFailed.WithMessage("SSO状态校验失败")
+	}
+
+	schoolID, err := snowflake.ParseString(cachedSchoolID)
+	if err != nil || schoolID <= 0 {
+		return 0, errcode.ErrSSOAuthFailed.WithMessage("SSO状态校验失败")
+	}
+	return schoolID, nil
+}
+
 func (s *authService) getEnabledSchoolSSOConfig(ctx context.Context, schoolID int64) (*SchoolSSOConfig, error) {
 	if s.schoolSSOQuerier == nil {
 		return nil, errcode.ErrSSOAuthFailed.WithMessage("学校SSO配置查询器未初始化")
@@ -93,6 +132,17 @@ func (s *authService) getEnabledSchoolSSOConfig(ctx context.Context, schoolID in
 
 	config, err := s.schoolSSOQuerier.GetSchoolSSOConfig(ctx, schoolID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrSSOAuthFailed.WithMessage("学校未配置SSO")
+		}
+		if appErr, ok := errcode.IsAppError(err); ok {
+			return nil, appErr
+		}
+		return nil, errcode.ErrInternal.WithMessage("查询学校SSO配置失败")
+	}
+
+	// 文档约束：只有“已保存 + 已测试通过 + 已启用”的配置才允许进入 SSO 登录链路。
+	if config == nil {
 		return nil, errcode.ErrSSOAuthFailed.WithMessage("学校未配置SSO")
 	}
 	if !config.IsEnabled {
@@ -241,7 +291,7 @@ func (s *authService) handleOAuth2Callback(ctx context.Context, schoolID int64, 
 		"redirect_uri":  []string{redirectURI},
 	})
 	if err != nil {
-		return "", errcode.ErrSSOAuthFailed.WithMessage("获取OAuth2访问令牌失败")
+		return "", errcode.ErrSSOAuthFailed.WithMessage("学校认证服务暂时不可用，请使用手机号密码登录")
 	}
 
 	accessToken, _ := tokenResp["access_token"].(string)
@@ -251,7 +301,7 @@ func (s *authService) handleOAuth2Callback(ctx context.Context, schoolID int64, 
 
 	userInfo, err := getJSONWithBearer(ctx, userInfoURL, accessToken)
 	if err != nil {
-		return "", errcode.ErrSSOAuthFailed.WithMessage("获取OAuth2用户信息失败")
+		return "", errcode.ErrSSOAuthFailed.WithMessage("学校认证服务暂时不可用，请使用手机号密码登录")
 	}
 
 	ssoUserID := extractJSONValue(userInfo, userIDAttr)
@@ -312,9 +362,9 @@ func (s *authService) completeSSOLogin(ctx context.Context, user *entity.User, p
 		return nil, errcode.ErrAccountArchived
 	}
 
-	loginMethod := enum.LoginMethodSSOOAuth
+	loginMethod := int16(enum.LoginMethodSSOOAuth)
 	if provider == "cas" {
-		loginMethod = enum.LoginMethodSSOCAS
+		loginMethod = int16(enum.LoginMethodSSOCAS)
 	}
 
 	if user.IsFirstLogin {
@@ -333,14 +383,19 @@ func (s *authService) completeSSOLogin(ctx context.Context, user *entity.User, p
 		}, nil
 	}
 
-	roleCodes := s.extractRoleCodes(user)
-	tokenPair, err := jwtpkg.GenerateTokenPair(user.ID, user.SchoolID, roleCodes)
+	roleCodes, err := s.roleRepo.GetUserRoleCodes(ctx, user.ID)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
+	now := time.Now()
+	_ = s.userRepo.UpdateTokenValidAfter(ctx, user.ID, now)
+	_ = tokenstate.SetTokenValidAfter(ctx, user.ID, now)
+	tokenPair, err := s.generateTokenPair(ctx, user.ID, user.SchoolID, roleCodes)
 	if err != nil {
 		return nil, errcode.ErrInternal.WithMessage("生成Token失败")
 	}
 
-	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, ip)
-	now := time.Now()
+	s.storeSession(ctx, user.ID, tokenPair.RefreshToken, tokenPair.AccessJTI, ip)
 	_ = s.userRepo.UpdateLoginInfo(ctx, user.ID, ip, now)
 	asyncRecordLoginLog(s.loginLogRepo, user.ID, enum.LoginActionSuccess, loginMethod, ip, userAgent, "")
 
@@ -356,15 +411,7 @@ func (s *authService) completeSSOLogin(ctx context.Context, user *entity.User, p
 			RefreshToken: tokenPair.RefreshToken,
 			ExpiresIn:    tokenPair.ExpiresIn,
 			TokenType:    "Bearer",
-			User: dto.LoginUser{
-				ID:           strconv.FormatInt(user.ID, 10),
-				Name:         user.Name,
-				Phone:        user.Phone,
-				Roles:        roleCodes,
-				SchoolID:     strconv.FormatInt(user.SchoolID, 10),
-				SchoolName:   schoolName,
-				IsFirstLogin: false,
-			},
+			User:         s.buildLoginUser(user, roleCodes, schoolName, false),
 		},
 	}, nil
 }

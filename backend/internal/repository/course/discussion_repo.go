@@ -6,6 +6,7 @@ package courserepo
 
 import (
 	"context"
+
 	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"gorm.io/gorm"
@@ -53,8 +54,6 @@ type AnnouncementRepository interface {
 // DiscussionListParams 讨论列表查询参数
 type DiscussionListParams struct {
 	CourseID int64
-	Keyword  string
-	SortBy   string
 	Page     int
 	PageSize int
 }
@@ -98,26 +97,14 @@ func (r *discussionRepository) List(ctx context.Context, params *DiscussionListP
 	query := r.db.WithContext(ctx).Model(&entity.CourseDiscussion{}).
 		Where("course_id = ?", params.CourseID)
 
-	if params.Keyword != "" {
-		query = query.Where("title ILIKE ?", "%"+params.Keyword+"%")
-	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	// 排序：置顶优先，然后按时间
-	orderClause := "is_pinned desc, "
-	switch params.SortBy {
-	case "reply_count":
-		orderClause += "reply_count desc"
-	case "like_count":
-		orderClause += "like_count desc"
-	default:
-		orderClause += "created_at desc"
-	}
-	query = query.Order(orderClause)
+	// 排序固定为：置顶优先，其余按最新回复时间倒序。
+	// 这是模块03文档定义的唯一排序规则，不保留未文档化的自定义排序入口。
+	query = query.Order("is_pinned desc, COALESCE(last_replied_at, created_at) desc")
 
 	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
 	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
@@ -214,6 +201,9 @@ func (r *likeRepository) Exists(ctx context.Context, discussionID, userID int64)
 }
 
 func (r *likeRepository) ListByUserAndDiscussions(ctx context.Context, userID int64, discussionIDs []int64) ([]int64, error) {
+	if len(discussionIDs) == 0 {
+		return []int64{}, nil
+	}
 	var ids []int64
 	err := r.db.WithContext(ctx).Model(&entity.DiscussionLike{}).
 		Where("user_id = ? AND discussion_id IN ?", userID, discussionIDs).

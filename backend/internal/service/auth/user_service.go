@@ -7,11 +7,10 @@ package auth
 
 import (
 	"context"
-	"github.com/lenschain/backend/internal/pkg/database"
+	"errors"
 	"maps"
 	"slices"
 	"strconv"
-	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -23,10 +22,11 @@ import (
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/crypto"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
+	"github.com/lenschain/backend/internal/pkg/mask"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
-	"github.com/lenschain/backend/internal/pkg/tokenstate"
 	"github.com/lenschain/backend/internal/repository/auth"
 )
 
@@ -88,10 +88,14 @@ func (s *userService) List(ctx context.Context, sc *svcctx.ServiceContext, req *
 		return nil, 0, errcode.ErrInternal.WithMessage("查询用户列表失败")
 	}
 
-	// 转换为 DTO
+	profileMap, roleCodeMap, err := s.buildUserExtraData(ctx, users)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	items := make([]*dto.UserListItem, 0, len(users))
 	for _, user := range users {
-		item := userToListItem(user)
+		item := userToListItem(user, profileMap[user.ID], roleCodeMap[user.ID])
 		items = append(items, item)
 	}
 
@@ -110,7 +114,11 @@ func (s *userService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id
 		return nil, errcode.ErrUserNotFound
 	}
 
-	return userToDetailResp(user), nil
+	profileMap, roleCodeMap, err := s.buildUserExtraData(ctx, []*entity.User{user})
+	if err != nil {
+		return nil, err
+	}
+	return userToDetailResp(user, profileMap[user.ID], roleCodeMap[user.ID]), nil
 }
 
 // Create 创建用户
@@ -148,6 +156,10 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 	// 创建用户（事务）
 	userID := snowflake.Generate()
 	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txUserRepo := authrepo.NewUserRepository(tx)
+		txProfileRepo := authrepo.NewProfileRepository(tx)
+		txRoleRepo := authrepo.NewRoleRepository(tx)
+
 		// 创建用户主记录
 		user := &entity.User{
 			ID:            userID,
@@ -161,7 +173,7 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 			IsSchoolAdmin: false,
 			CreatedBy:     &sc.UserID,
 		}
-		if err := tx.Create(user).Error; err != nil {
+		if err := txUserRepo.Create(ctx, user); err != nil {
 			return err
 		}
 
@@ -176,17 +188,12 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 			Email:          req.Email,
 			Remark:         req.Remark,
 		}
-		if err := tx.Create(profile).Error; err != nil {
+		if err := txProfileRepo.Create(ctx, profile); err != nil {
 			return err
 		}
 
 		// 分配角色
-		userRole := &entity.UserRole{
-			ID:     snowflake.Generate(),
-			UserID: userID,
-			RoleID: role.ID,
-		}
-		return tx.Create(userRole).Error
+		return txRoleRepo.AssignRole(ctx, userID, role.ID)
 	})
 	if err != nil {
 		logger.L.Error("创建用户失败", zap.Error(err))
@@ -195,7 +202,7 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 
 	// 记录操作日志（使用 pkg/audit 公共包）
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "create_user", "user", userID, map[string]interface{}{
-		"phone": req.Phone,
+		"phone": mask.Phone(req.Phone),
 		"name":  req.Name,
 		"role":  req.Role,
 	})
@@ -217,6 +224,15 @@ func (s *userService) Update(ctx context.Context, sc *svcctx.ServiceContext, id 
 		return errcode.ErrUserNotFound
 	}
 
+	var currentProfile *entity.UserProfile
+	currentProfile, err = s.profileRepo.GetByUserID(ctx, id)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return errcode.ErrInternal.WithMessage("查询用户扩展信息失败")
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		currentProfile = nil
+	}
+
 	// 检查学号唯一性
 	if req.StudentNo != nil && *req.StudentNo != "" {
 		existing, err := s.userRepo.GetBySchoolAndStudentNo(ctx, user.SchoolID, *req.StudentNo)
@@ -233,12 +249,6 @@ func (s *userService) Update(ctx context.Context, sc *svcctx.ServiceContext, id 
 	if req.StudentNo != nil {
 		userFields["student_no"] = *req.StudentNo
 	}
-	if len(userFields) > 0 {
-		if err := s.userRepo.UpdateFields(ctx, id, userFields); err != nil {
-			return errcode.ErrInternal.WithMessage("更新用户信息失败")
-		}
-	}
-
 	// 更新扩展信息
 	profileFields := make(map[string]interface{})
 	if req.College != nil {
@@ -265,16 +275,47 @@ func (s *userService) Update(ctx context.Context, sc *svcctx.ServiceContext, id 
 	if req.Remark != nil {
 		profileFields["remark"] = *req.Remark
 	}
-	if len(profileFields) > 0 {
-		if err := s.profileRepo.UpdateFields(ctx, id, profileFields); err != nil {
-			return errcode.ErrInternal.WithMessage("更新用户扩展信息失败")
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txUserRepo := authrepo.NewUserRepository(tx)
+		txProfileRepo := authrepo.NewProfileRepository(tx)
+
+		if len(userFields) > 0 {
+			if err := txUserRepo.UpdateFields(ctx, id, userFields); err != nil {
+				return err
+			}
 		}
+
+		if len(profileFields) == 0 {
+			return nil
+		}
+
+		if _, err := txProfileRepo.GetByUserID(ctx, id); err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			profile := &entity.UserProfile{
+				UserID: id,
+			}
+			applyProfileCreateFields(profile, profileFields)
+			return txProfileRepo.Create(ctx, profile)
+		}
+
+		return txProfileRepo.UpdateFields(ctx, id, profileFields)
+	})
+	if err != nil {
+		return errcode.ErrInternal.WithMessage("更新用户信息失败")
 	}
+
+	beforeSnapshot := buildUserUpdateSnapshot(user, currentProfile)
+	afterSnapshot := buildUserUpdateSnapshot(user, currentProfile)
+	applyUserUpdateSnapshot(afterSnapshot, userFields, profileFields)
 
 	// 记录操作日志（使用标准库 maps.Keys 替代自定义 mapKeys）
 	allKeys := slices.Concat(slices.Collect(maps.Keys(userFields)), slices.Collect(maps.Keys(profileFields)))
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "update_user", "user", id, map[string]interface{}{
-		"updated_fields": allKeys,
+		"updated_fields":  allKeys,
+		"before_snapshot": beforeSnapshot,
+		"after_snapshot":  afterSnapshot,
 	})
 
 	return nil
@@ -294,7 +335,10 @@ func (s *userService) Delete(ctx context.Context, sc *svcctx.ServiceContext, id 
 
 	// 边界检查：不允许删除自己
 	if id == sc.UserID {
-		return errcode.ErrForbidden.WithMessage("不允许删除自己的账号")
+		return errcode.ErrForbidden.WithMessage("不能删除自己的账号")
+	}
+	if err := s.ensureSuperAdminRetained(ctx, []*entity.User{user}); err != nil {
+		return err
 	}
 
 	if err := s.userRepo.SoftDelete(ctx, id); err != nil {
@@ -306,7 +350,7 @@ func (s *userService) Delete(ctx context.Context, sc *svcctx.ServiceContext, id 
 
 	// 记录操作日志
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "delete_user", "user", id, map[string]interface{}{
-		"phone": user.Phone,
+		"phone": mask.Phone(user.Phone),
 		"name":  user.Name,
 	})
 
@@ -318,8 +362,24 @@ func (s *userService) BatchDelete(ctx context.Context, sc *svcctx.ServiceContext
 	// 边界检查：不允许批量删除中包含自己
 	for _, id := range ids {
 		if id == sc.UserID {
-			return errcode.ErrForbidden.WithMessage("不允许删除自己的账号")
+			return errcode.ErrForbidden.WithMessage("不能删除自己的账号")
 		}
+	}
+
+	users, err := s.userRepo.GetByIDs(ctx, ids)
+	if err != nil {
+		return errcode.ErrInternal.WithMessage("查询批量删除用户失败")
+	}
+	if len(users) != len(ids) {
+		return errcode.ErrUserNotFound
+	}
+	for _, user := range users {
+		if sc.SchoolID > 0 && user.SchoolID != sc.SchoolID {
+			return errcode.ErrUserNotFound
+		}
+	}
+	if err := s.ensureSuperAdminRetained(ctx, users); err != nil {
+		return err
 	}
 
 	if err := s.userRepo.BatchSoftDelete(ctx, ids, sc.SchoolID); err != nil {
@@ -327,8 +387,8 @@ func (s *userService) BatchDelete(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 批量踢下线
-	for _, id := range ids {
-		s.kickUser(ctx, id)
+	for _, user := range users {
+		s.kickUser(ctx, user.ID)
 	}
 
 	// 记录操作日志
@@ -354,6 +414,11 @@ func (s *userService) UpdateStatus(ctx context.Context, sc *svcctx.ServiceContex
 	// 边界检查：不允许禁用/归档自己
 	if id == sc.UserID && (req.Status == enum.UserStatusDisabled || req.Status == enum.UserStatusArchived) {
 		return errcode.ErrForbidden.WithMessage("不允许禁用或归档自己的账号")
+	}
+	if (req.Status == enum.UserStatusDisabled || req.Status == enum.UserStatusArchived) && user.Status == enum.UserStatusActive {
+		if err := s.ensureSuperAdminRetained(ctx, []*entity.User{user}); err != nil {
+			return err
+		}
 	}
 
 	// 更新状态
@@ -445,13 +510,104 @@ func (s *userService) UnlockUser(ctx context.Context, sc *svcctx.ServiceContext,
 
 // ========== 内部辅助方法 ==========
 
+// buildUserExtraData 批量装配用户扩展信息和角色编码。
+func (s *userService) buildUserExtraData(ctx context.Context, users []*entity.User) (map[int64]*entity.UserProfile, map[int64][]string, error) {
+	profileMap := make(map[int64]*entity.UserProfile, len(users))
+	roleCodeMap := make(map[int64][]string, len(users))
+	if len(users) == 0 {
+		return profileMap, roleCodeMap, nil
+	}
+
+	userIDs := make([]int64, 0, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+
+	profiles, err := s.profileRepo.GetByUserIDs(ctx, userIDs)
+	if err != nil {
+		return nil, nil, errcode.ErrInternal.WithMessage("查询用户扩展信息失败")
+	}
+	for _, profile := range profiles {
+		profileMap[profile.UserID] = profile
+	}
+
+	roleCodeMap, err = s.roleRepo.GetUserRoleCodesMap(ctx, userIDs)
+	if err != nil {
+		return nil, nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
+	return profileMap, roleCodeMap, nil
+}
+
+// applyProfileCreateFields 将更新字段映射到新建的扩展信息实体。
+func applyProfileCreateFields(profile *entity.UserProfile, fields map[string]interface{}) {
+	if value, ok := fields["college"].(string); ok {
+		profile.College = &value
+	}
+	if value, ok := fields["major"].(string); ok {
+		profile.Major = &value
+	}
+	if value, ok := fields["class_name"].(string); ok {
+		profile.ClassName = &value
+	}
+	if value, ok := fields["email"].(string); ok {
+		profile.Email = &value
+	}
+	if value, ok := fields["remark"].(string); ok {
+		profile.Remark = &value
+	}
+	if value, ok := fields["enrollment_year"].(int16); ok {
+		profile.EnrollmentYear = &value
+	}
+	if value, ok := fields["education_level"].(int16); ok {
+		profile.EducationLevel = &value
+	}
+	if value, ok := fields["grade"].(int16); ok {
+		profile.Grade = &value
+	}
+}
+
 // kickUser 踢用户下线（清除Session）
 func (s *userService) kickUser(ctx context.Context, userID int64) {
-	now := time.Now()
-	_ = s.userRepo.UpdateTokenValidAfter(ctx, userID, now)
-	_ = tokenstate.SetTokenValidAfter(ctx, userID, now)
-	sessionKey := cache.KeySession + strconv.FormatInt(userID, 10)
-	_ = cache.Del(ctx, sessionKey)
+	invalidateUserSession(ctx, s.userRepo, userID, resolveAccessTokenTTLByProvider(ctx, s.policyProvider))
+}
+
+// buildUserUpdateSnapshot 构建用户更新前后的资料快照。
+func buildUserUpdateSnapshot(user *entity.User, profile *entity.UserProfile) map[string]interface{} {
+	snapshot := map[string]interface{}{
+		"name":       user.Name,
+		"student_no": user.StudentNo,
+	}
+	if profile == nil {
+		snapshot["college"] = nil
+		snapshot["major"] = nil
+		snapshot["class_name"] = nil
+		snapshot["enrollment_year"] = nil
+		snapshot["education_level"] = nil
+		snapshot["grade"] = nil
+		snapshot["email"] = nil
+		snapshot["remark"] = nil
+		return snapshot
+	}
+
+	snapshot["college"] = profile.College
+	snapshot["major"] = profile.Major
+	snapshot["class_name"] = profile.ClassName
+	snapshot["enrollment_year"] = profile.EnrollmentYear
+	snapshot["education_level"] = profile.EducationLevel
+	snapshot["grade"] = profile.Grade
+	snapshot["email"] = profile.Email
+	snapshot["remark"] = profile.Remark
+	return snapshot
+}
+
+// applyUserUpdateSnapshot 根据更新字段生成更新后的快照内容。
+func applyUserUpdateSnapshot(snapshot map[string]interface{}, userFields, profileFields map[string]interface{}) {
+	for key, value := range userFields {
+		snapshot[key] = value
+	}
+	for key, value := range profileFields {
+		snapshot[key] = value
+	}
 }
 
 // validatePasswordByPolicy 按运行时安全策略校验密码复杂度
@@ -464,4 +620,47 @@ func (s *userService) validatePasswordByPolicy(ctx context.Context, password str
 		return err
 	}
 	return validatePasswordWithPolicy(password, policy)
+}
+
+// ensureSuperAdminRetained 校验操作完成后是否仍会保留至少一个正常超级管理员。
+// 删除、批量删除、禁用、归档都会让账号失去可用性，因此在真正写库前必须先通过这里校验。
+func (s *userService) ensureSuperAdminRetained(ctx context.Context, users []*entity.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+
+	userIDs := make([]int64, 0, len(users))
+	activeUserMap := make(map[int64]bool, len(users))
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+		activeUserMap[user.ID] = user.Status == enum.UserStatusActive
+	}
+
+	roleCodeMap, err := s.roleRepo.GetUserRoleCodesMap(ctx, userIDs)
+	if err != nil {
+		return errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
+
+	affectedActiveSuperAdmins := 0
+	for _, user := range users {
+		if !activeUserMap[user.ID] {
+			continue
+		}
+		if slices.Contains(roleCodeMap[user.ID], enum.RoleSuperAdmin) {
+			affectedActiveSuperAdmins++
+		}
+	}
+	if affectedActiveSuperAdmins == 0 {
+		return nil
+	}
+
+	superAdminCount, err := s.roleRepo.CountActiveUsersByRoleCode(ctx, enum.RoleSuperAdmin)
+	if err != nil {
+		return errcode.ErrInternal.WithMessage("查询超级管理员数量失败")
+	}
+	if superAdminCount-int64(affectedActiveSuperAdmins) < 1 {
+		return errcode.ErrForbidden.WithMessage("至少保留一个超级管理员")
+	}
+
+	return nil
 }

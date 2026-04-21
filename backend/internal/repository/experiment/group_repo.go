@@ -7,7 +7,6 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
@@ -25,12 +24,12 @@ import (
 type GroupRepository interface {
 	Create(ctx context.Context, group *entity.ExperimentGroup) error
 	GetByID(ctx context.Context, id int64) (*entity.ExperimentGroup, error)
-	GetByIDWithMembers(ctx context.Context, id int64) (*entity.ExperimentGroup, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, params *GroupListParams) ([]*entity.ExperimentGroup, int64, error)
 	ListByTemplateAndCourse(ctx context.Context, templateID, courseID int64) ([]*entity.ExperimentGroup, error)
 	CountMembersByGroupID(ctx context.Context, groupID int64) (int64, error)
+	CountMembersByGroupIDs(ctx context.Context, groupIDs []int64) (map[int64]int64, error)
 }
 
 // GroupListParams 分组列表查询参数
@@ -38,7 +37,7 @@ type GroupListParams struct {
 	SchoolID   int64
 	TemplateID int64
 	CourseID   int64
-	Status     int
+	Status     int16
 	Keyword    string
 	SortBy     string
 	SortOrder  string
@@ -68,18 +67,6 @@ func (r *groupRepository) Create(ctx context.Context, group *entity.ExperimentGr
 func (r *groupRepository) GetByID(ctx context.Context, id int64) (*entity.ExperimentGroup, error) {
 	var group entity.ExperimentGroup
 	err := r.db.WithContext(ctx).First(&group, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &group, nil
-}
-
-// GetByIDWithMembers 根据ID获取实验分组（含成员列表）
-func (r *groupRepository) GetByIDWithMembers(ctx context.Context, id int64) (*entity.ExperimentGroup, error) {
-	var group entity.ExperimentGroup
-	err := r.db.WithContext(ctx).
-		Preload("Members").
-		First(&group, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -121,27 +108,24 @@ func (r *groupRepository) List(ctx context.Context, params *GroupListParams) ([]
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at": "created_at",
 		"group_name": "group_name",
 		"status":     "status",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var groups []*entity.ExperimentGroup
-	if err := query.Preload("Members").Find(&groups).Error; err != nil {
+	if err := query.Find(&groups).Error; err != nil {
 		return nil, 0, err
 	}
 	return groups, total, nil
@@ -152,7 +136,6 @@ func (r *groupRepository) ListByTemplateAndCourse(ctx context.Context, templateI
 	var groups []*entity.ExperimentGroup
 	err := r.db.WithContext(ctx).
 		Where("template_id = ? AND course_id = ?", templateID, courseID).
-		Preload("Members").
 		Order("created_at asc").
 		Find(&groups).Error
 	return groups, err
@@ -167,6 +150,30 @@ func (r *groupRepository) CountMembersByGroupID(ctx context.Context, groupID int
 	return count, err
 }
 
+// CountMembersByGroupIDs 批量统计分组成员数，避免分组列表逐组查询。
+func (r *groupRepository) CountMembersByGroupIDs(ctx context.Context, groupIDs []int64) (map[int64]int64, error) {
+	if len(groupIDs) == 0 {
+		return map[int64]int64{}, nil
+	}
+	type row struct {
+		GroupID int64 `gorm:"column:group_id"`
+		Count   int64 `gorm:"column:count"`
+	}
+	var rows []row
+	if err := r.db.WithContext(ctx).Model(&entity.GroupMember{}).
+		Select("group_id, COUNT(*) AS count").
+		Where("group_id IN ?", groupIDs).
+		Group("group_id").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	counts := make(map[int64]int64, len(rows))
+	for _, item := range rows {
+		counts[item.GroupID] = item.Count
+	}
+	return counts, nil
+}
+
 // ---------------------------------------------------------------------------
 // 分组成员 Repository
 // ---------------------------------------------------------------------------
@@ -177,7 +184,9 @@ type GroupMemberRepository interface {
 	GetByID(ctx context.Context, id int64) (*entity.GroupMember, error)
 	Delete(ctx context.Context, id int64) error
 	ListByGroupID(ctx context.Context, groupID int64) ([]*entity.GroupMember, error)
+	ListByGroupIDs(ctx context.Context, groupIDs []int64) ([]*entity.GroupMember, error)
 	GetByGroupAndStudent(ctx context.Context, groupID, studentID int64) (*entity.GroupMember, error)
+	CountByGroupAndRole(ctx context.Context, groupID, roleID int64) (int64, error)
 	IsStudentInGroup(ctx context.Context, templateID, courseID, studentID int64) (bool, error)
 	DeleteByGroupID(ctx context.Context, groupID int64) error
 	BatchCreate(ctx context.Context, members []*entity.GroupMember) error
@@ -227,6 +236,19 @@ func (r *groupMemberRepository) ListByGroupID(ctx context.Context, groupID int64
 	return members, err
 }
 
+// ListByGroupIDs 批量获取多个分组的成员列表，供分组列表页组装成员信息。
+func (r *groupMemberRepository) ListByGroupIDs(ctx context.Context, groupIDs []int64) ([]*entity.GroupMember, error) {
+	if len(groupIDs) == 0 {
+		return []*entity.GroupMember{}, nil
+	}
+	var members []*entity.GroupMember
+	err := r.db.WithContext(ctx).
+		Where("group_id IN ?", groupIDs).
+		Order("group_id asc, joined_at asc").
+		Find(&members).Error
+	return members, err
+}
+
 // GetByGroupAndStudent 获取指定分组中的指定学生
 func (r *groupMemberRepository) GetByGroupAndStudent(ctx context.Context, groupID, studentID int64) (*entity.GroupMember, error) {
 	var member entity.GroupMember
@@ -237,6 +259,15 @@ func (r *groupMemberRepository) GetByGroupAndStudent(ctx context.Context, groupI
 		return nil, err
 	}
 	return &member, nil
+}
+
+// CountByGroupAndRole 统计分组内某角色已占用人数，支撑角色 max_members 校验。
+func (r *groupMemberRepository) CountByGroupAndRole(ctx context.Context, groupID, roleID int64) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&entity.GroupMember{}).
+		Where("group_id = ? AND role_id = ?", groupID, roleID).
+		Count(&count).Error
+	return count, err
 }
 
 // IsStudentInGroup 检查学生是否已在某模板+课程的分组中
@@ -260,6 +291,9 @@ func (r *groupMemberRepository) DeleteByGroupID(ctx context.Context, groupID int
 
 // BatchCreate 批量创建分组成员
 func (r *groupMemberRepository) BatchCreate(ctx context.Context, members []*entity.GroupMember) error {
+	if len(members) == 0 {
+		return nil
+	}
 	for i := range members {
 		if members[i].ID == 0 {
 			members[i].ID = snowflake.Generate()

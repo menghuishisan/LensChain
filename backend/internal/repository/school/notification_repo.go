@@ -19,7 +19,7 @@ import (
 type NotificationRepository interface {
 	Create(ctx context.Context, notification *entity.SchoolNotification) error
 	MarkSent(ctx context.Context, id int64) error
-	ExistsBySchoolAndType(ctx context.Context, schoolID int64, notifyType int, afterTime time.Time) (bool, error)
+	ExistsBySchoolAndType(ctx context.Context, schoolID int64, notifyType int16) (bool, error)
 }
 
 // notificationRepository 学校通知数据访问实现
@@ -51,12 +51,12 @@ func (r *notificationRepository) MarkSent(ctx context.Context, id int64) error {
 		}).Error
 }
 
-// ExistsBySchoolAndType 检查指定学校和类型的通知是否在指定时间后已存在
-// 用于防止重复发送通知（如到期提醒只发一次）
-func (r *notificationRepository) ExistsBySchoolAndType(ctx context.Context, schoolID int64, notifyType int, afterTime time.Time) (bool, error) {
+// ExistsBySchoolAndType 检查指定学校和类型的通知是否已存在。
+// 到期提醒按学校维度只允许发送一次，因此这里不再引入时间窗口。
+func (r *notificationRepository) ExistsBySchoolAndType(ctx context.Context, schoolID int64, notifyType int16) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&entity.SchoolNotification{}).
-		Where("school_id = ? AND type = ? AND created_at > ?", schoolID, notifyType, afterTime).
+		Where("school_id = ? AND type = ?", schoolID, notifyType).
 		Count(&count).Error
 	return count > 0, err
 }

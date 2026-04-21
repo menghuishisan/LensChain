@@ -7,11 +7,11 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
@@ -27,6 +27,7 @@ type QuotaRepository interface {
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, params *QuotaListParams) ([]*entity.ResourceQuota, int64, error)
 	ListBySchoolID(ctx context.Context, schoolID int64) ([]*entity.ResourceQuota, error)
+	SumCourseMaxConcurrency(ctx context.Context, schoolID int64, excludeCourseID *int64) (int64, error)
 	IncrUsedConcurrency(ctx context.Context, id int64, delta int) error
 	DecrUsedConcurrency(ctx context.Context, id int64, delta int) error
 }
@@ -34,7 +35,7 @@ type QuotaRepository interface {
 // QuotaListParams 配额列表查询参数
 type QuotaListParams struct {
 	SchoolID   int64
-	QuotaLevel int
+	QuotaLevel int16
 	SortBy     string
 	SortOrder  string
 	Page       int
@@ -73,7 +74,7 @@ func (r *quotaRepository) GetByID(ctx context.Context, id int64) (*entity.Resour
 func (r *quotaRepository) GetBySchoolID(ctx context.Context, schoolID int64) (*entity.ResourceQuota, error) {
 	var quota entity.ResourceQuota
 	err := r.db.WithContext(ctx).
-		Where("school_id = ? AND quota_level = 1 AND course_id IS NULL", schoolID).
+		Where("school_id = ? AND quota_level = ? AND course_id IS NULL", schoolID, enum.QuotaLevelSchool).
 		First(&quota).Error
 	if err != nil {
 		return nil, err
@@ -85,7 +86,7 @@ func (r *quotaRepository) GetBySchoolID(ctx context.Context, schoolID int64) (*e
 func (r *quotaRepository) GetByCourseID(ctx context.Context, courseID int64) (*entity.ResourceQuota, error) {
 	var quota entity.ResourceQuota
 	err := r.db.WithContext(ctx).
-		Where("course_id = ? AND quota_level = 2", courseID).
+		Where("course_id = ? AND quota_level = ?", courseID, enum.QuotaLevelCourse).
 		First(&quota).Error
 	if err != nil {
 		return nil, err
@@ -135,24 +136,21 @@ func (r *quotaRepository) List(ctx context.Context, params *QuotaListParams) ([]
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at":  "created_at",
 		"school_id":   "school_id",
 		"quota_level": "quota_level",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var quotas []*entity.ResourceQuota
 	if err := query.Find(&quotas).Error; err != nil {
@@ -171,16 +169,28 @@ func (r *quotaRepository) ListBySchoolID(ctx context.Context, schoolID int64) ([
 	return quotas, err
 }
 
-// IncrUsedConcurrency 增加已用并发数
+// SumCourseMaxConcurrency 汇总学校下课程级配额的最大并发数，供课程配额不能超过学校剩余量校验。
+func (r *quotaRepository) SumCourseMaxConcurrency(ctx context.Context, schoolID int64, excludeCourseID *int64) (int64, error) {
+	var sum int64
+	query := r.db.WithContext(ctx).Model(&entity.ResourceQuota{}).
+		Where("school_id = ? AND quota_level = ? AND max_concurrency IS NOT NULL", schoolID, enum.QuotaLevelCourse)
+	if excludeCourseID != nil {
+		query = query.Where("course_id <> ?", *excludeCourseID)
+	}
+	err := query.Select("COALESCE(SUM(max_concurrency), 0)").Scan(&sum).Error
+	return sum, err
+}
+
+// IncrUsedConcurrency 增加当前并发数
 func (r *quotaRepository) IncrUsedConcurrency(ctx context.Context, id int64, delta int) error {
 	return r.db.WithContext(ctx).Model(&entity.ResourceQuota{}).
 		Where("id = ?", id).
-		UpdateColumn("used_concurrency", gorm.Expr("used_concurrency + ?", delta)).Error
+		UpdateColumn("current_concurrency", gorm.Expr("current_concurrency + ?", delta)).Error
 }
 
-// DecrUsedConcurrency 减少已用并发数
+// DecrUsedConcurrency 减少当前并发数
 func (r *quotaRepository) DecrUsedConcurrency(ctx context.Context, id int64, delta int) error {
 	return r.db.WithContext(ctx).Model(&entity.ResourceQuota{}).
-		Where("id = ? AND used_concurrency >= ?", id, delta).
-		UpdateColumn("used_concurrency", gorm.Expr("used_concurrency - ?", delta)).Error
+		Where("id = ? AND current_concurrency >= ?", id, delta).
+		UpdateColumn("current_concurrency", gorm.Expr("current_concurrency - ?", delta)).Error
 }

@@ -138,8 +138,22 @@ func (s *instanceService) GetTerminalOutput(ctx context.Context, sc *svcctx.Serv
 
 // GetGroupMemberTerminalOutput 获取组内成员只读查看的终端输出快照。
 func (s *instanceService) GetGroupMemberTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, groupID, studentID int64, tailLines int) (*TerminalOutput, error) {
-	if !sc.IsStudent() && !sc.IsSuperAdmin() {
+	if !sc.IsStudent() {
 		return nil, errcode.ErrForbidden
+	}
+
+	if _, err := s.groupMemberRepo.GetByGroupAndStudent(ctx, groupID, sc.UserID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrForbidden
+		}
+		return nil, err
+	}
+
+	if _, err := s.groupMemberRepo.GetByGroupAndStudent(ctx, groupID, studentID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrForbidden
+		}
+		return nil, err
 	}
 
 	instances, err := s.instanceRepo.ListByGroupID(ctx, groupID)
@@ -147,17 +161,8 @@ func (s *instanceService) GetGroupMemberTerminalOutput(ctx context.Context, sc *
 		return nil, err
 	}
 
-	var requesterMember bool
-	var targetInstance *entity.ExperimentInstance
-	for _, instance := range instances {
-		if instance.StudentID == sc.UserID {
-			requesterMember = true
-		}
-		if instance.StudentID == studentID {
-			targetInstance = instance
-		}
-	}
-	if !requesterMember || targetInstance == nil {
+	targetInstance := buildLatestInstanceByStudent(instances)[studentID]
+	if targetInstance == nil {
 		return nil, errcode.ErrForbidden
 	}
 
@@ -177,6 +182,8 @@ func (s *instanceService) GetGroupMemberTerminalOutput(ctx context.Context, sc *
 }
 
 // GetSimEngineProxyTarget 获取 SimEngine WebSocket 代理目标。
+// SimEngine 交互链路属于学生实验操作页面，必须校验当前 token 与实验实例、会话归属一致，
+// 不允许课程教师、学校管理员或超管通过该交互通道代替学生操作仿真场景。
 func (s *instanceService) GetSimEngineProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, sessionID string) (*SimEngineProxyTarget, error) {
 	instance, err := s.instanceRepo.GetBySimSessionID(ctx, sessionID)
 	if err != nil {
@@ -185,8 +192,8 @@ func (s *instanceService) GetSimEngineProxyTarget(ctx context.Context, sc *svcct
 		}
 		return nil, err
 	}
-	if err := s.ensureAccessibleInstanceRecord(ctx, sc, instance); err != nil {
-		return nil, err
+	if sc == nil || !sc.IsStudent() || instance.StudentID != sc.UserID || instance.SchoolID != sc.SchoolID {
+		return nil, errcode.ErrForbidden
 	}
 	if instance.SimWebSocketURL == nil || *instance.SimWebSocketURL == "" {
 		return nil, errcode.ErrSimSessionNotFound
@@ -204,6 +211,8 @@ func (s *instanceService) TouchActivity(ctx context.Context, id int64) {
 }
 
 // RecordSimEngineOperation 记录发往 SimEngine 的用户交互与时间控制操作。
+// 模块04文档已约定 SimEngine WebSocket 使用顶层 `type + scene_code + payload` 协议，
+// 这里按文档解析并落操作日志，避免继续沿用旧的 `data` 包装格式。
 func (s *instanceService) RecordSimEngineOperation(ctx context.Context, sc *svcctx.ServiceContext, instanceID int64, payload []byte) {
 	if len(payload) == 0 {
 		return
@@ -215,8 +224,9 @@ func (s *instanceService) RecordSimEngineOperation(ctx context.Context, sc *svcc
 	}
 
 	var envelope struct {
-		Type string          `json:"type"`
-		Data json.RawMessage `json:"data"`
+		Type      string          `json:"type"`
+		SceneCode string          `json:"scene_code"`
+		Payload   json.RawMessage `json:"payload"`
 	}
 	if err := json.Unmarshal(payload, &envelope); err != nil {
 		return
@@ -233,27 +243,17 @@ func (s *instanceService) RecordSimEngineOperation(ctx context.Context, sc *svcc
 	}
 
 	var targetScene *string
-	if len(envelope.Data) > 0 {
-		var sceneRef struct {
-			SceneCode *string `json:"scene_code"`
-			SceneID   *string `json:"scene_id"`
-		}
-		if err := json.Unmarshal(envelope.Data, &sceneRef); err == nil {
-			if sceneRef.SceneCode != nil && *sceneRef.SceneCode != "" {
-				targetScene = sceneRef.SceneCode
-			} else if sceneRef.SceneID != nil && *sceneRef.SceneID != "" {
-				targetScene = sceneRef.SceneID
-			}
-		}
+	if envelope.SceneCode != "" {
+		targetScene = &envelope.SceneCode
 	}
 
 	s.touchInstanceActivity(ctx, instance.ID)
-	s.recordOpLog(ctx, instance.ID, sc.UserID, action, nil, targetScene, nil, nil, envelope.Data, nil)
+	s.recordOpLog(ctx, instance.ID, sc.UserID, action, nil, targetScene, nil, nil, envelope.Payload)
 }
 
 // resolveTerminalStreamInfo 解析实例终端访问的命名空间、Pod 与容器信息。
 func (s *instanceService) resolveTerminalStreamInfo(ctx context.Context, instance *entity.ExperimentInstance, containerName string) (*TerminalStreamInfo, error) {
-	if instance.Status != enum.InstanceStatusRunning && instance.Status != enum.InstanceStatusSubmitted {
+	if instance.Status != enum.InstanceStatusRunning && instance.Status != enum.InstanceStatusCompleted {
 		return nil, errcode.ErrInstanceNotRunning
 	}
 	if instance.Namespace == nil || *instance.Namespace == "" {
@@ -315,5 +315,5 @@ func (s *instanceService) recordTerminalCommand(ctx context.Context, instance *e
 	detailPayloadMap["stderr"] = truncateUTF8(result.Stderr, maxCommandOutputBytes)
 	detailPayload, _ := json.Marshal(detailPayloadMap)
 	targetContainer := containerName
-	s.recordOpLog(ctx, instance.ID, instance.StudentID, enum.ActionTerminalCommand, &targetContainer, nil, &command, commandOutput, detailPayload, nil)
+	s.recordOpLog(ctx, instance.ID, instance.StudentID, enum.ActionTerminalCommand, &targetContainer, nil, &command, commandOutput, detailPayload)
 }

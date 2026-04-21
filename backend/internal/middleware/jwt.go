@@ -6,6 +6,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 	"time"
 
@@ -101,11 +102,27 @@ func extractBearerToken(c *gin.Context) (string, bool) {
 		return parts[1], true
 	}
 
+	if !allowQueryToken(c) {
+		return "", false
+	}
+
 	queryToken := strings.TrimSpace(c.Query("token"))
 	if queryToken == "" {
 		return "", false
 	}
 	return queryToken, true
+}
+
+// allowQueryToken 仅在受控的 WebSocket 握手场景允许通过 query 传递 token。
+// 普通 HTTP 接口必须使用 Authorization 头，避免把 query token 放大成通用认证入口。
+func allowQueryToken(c *gin.Context) bool {
+	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/ws/") {
+		return true
+	}
+
+	connectionHeader := strings.ToLower(c.GetHeader("Connection"))
+	upgradeHeader := strings.ToLower(c.GetHeader("Upgrade"))
+	return strings.Contains(connectionHeader, "upgrade") && upgradeHeader == "websocket" && c.Request.Method == http.MethodGet
 }
 
 // parseJWTClaims 解析访问令牌或 SimEngine WebSocket 会话令牌。

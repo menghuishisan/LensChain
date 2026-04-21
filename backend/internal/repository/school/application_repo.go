@@ -7,11 +7,11 @@ package schoolrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
@@ -29,7 +29,7 @@ type ApplicationRepository interface {
 
 // ApplicationListParams 申请列表查询参数
 type ApplicationListParams struct {
-	Status    int
+	Status    int16
 	Keyword   string
 	SortBy    string
 	SortOrder string
@@ -69,7 +69,7 @@ func (r *applicationRepository) GetByID(ctx context.Context, id int64) (*entity.
 func (r *applicationRepository) GetPendingByPhone(ctx context.Context, phone string) (*entity.SchoolApplication, error) {
 	var app entity.SchoolApplication
 	err := r.db.WithContext(ctx).
-		Where("contact_phone = ? AND status = ?", phone, 1).
+		Where("contact_phone = ? AND status = ?", phone, enum.ApplicationStatusPending).
 		First(&app).Error
 	if err != nil {
 		return nil, err
@@ -112,24 +112,18 @@ func (r *applicationRepository) List(ctx context.Context, params *ApplicationLis
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at":  "created_at",
 		"school_name": "school_name",
 		"status":      "status",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	pageQuery := pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    normalizeApplicationSortBy(params.SortBy),
+		SortOrder: params.SortOrder,
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = pageQuery.ApplyToGORM(query, allowedSortFields)
 
 	var apps []*entity.SchoolApplication
 	if err := query.Find(&apps).Error; err != nil {
@@ -137,4 +131,14 @@ func (r *applicationRepository) List(ctx context.Context, params *ApplicationLis
 	}
 
 	return apps, total, nil
+}
+
+// normalizeApplicationSortBy 统一申请列表默认排序字段。
+func normalizeApplicationSortBy(sortBy string) string {
+	switch sortBy {
+	case "school_name", "status":
+		return sortBy
+	default:
+		return "created_at"
+	}
 }

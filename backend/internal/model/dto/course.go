@@ -57,8 +57,6 @@ type CourseListReq struct {
 	Keyword    string `form:"keyword"`
 	Status     int16  `form:"status" binding:"omitempty,oneof=1 2 3 4 5"`
 	CourseType int16  `form:"course_type" binding:"omitempty,oneof=1 2 3 4"`
-	SortBy     string `form:"sort_by" binding:"omitempty"`
-	SortOrder  string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
 // CourseListItem 课程列表项
@@ -80,39 +78,34 @@ type CourseListItem struct {
 	CreatedAt      string  `json:"created_at"`
 }
 
-// CourseListResp 课程列表响应。
-type CourseListResp struct {
-	List       []CourseListItem `json:"list"`
-	Pagination PaginationResp   `json:"pagination"`
-}
-
 // CourseDetailResp 课程详情响应
 // GET /api/v1/courses/:id
 type CourseDetailResp struct {
-	ID             string   `json:"id"`
-	Title          string   `json:"title"`
-	Description    *string  `json:"description"`
-	CoverURL       *string  `json:"cover_url"`
-	CourseType     int16    `json:"course_type"`
-	CourseTypeText string   `json:"course_type_text"`
-	Difficulty     int16    `json:"difficulty"`
-	DifficultyText string   `json:"difficulty_text"`
-	Topic          string   `json:"topic"`
-	Status         int16    `json:"status"`
-	StatusText     string   `json:"status_text"`
-	IsShared       bool     `json:"is_shared"`
-	InviteCode     *string  `json:"invite_code"`
-	Credits        *float64 `json:"credits"`
-	SemesterID     *string  `json:"semester_id"`
-	StartAt        *string  `json:"start_at"`
-	EndAt          *string  `json:"end_at"`
-	MaxStudents    *int     `json:"max_students"`
-	StudentCount   int      `json:"student_count"`
-	TeacherID      string   `json:"teacher_id"`
-	TeacherName    string   `json:"teacher_name"`
-	ClonedFromID   *string  `json:"cloned_from_id"`
-	CreatedAt      string   `json:"created_at"`
-	UpdatedAt      string   `json:"updated_at"`
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Description    *string `json:"description"`
+	CoverURL       *string `json:"cover_url"`
+	CourseType     int16   `json:"course_type"`
+	CourseTypeText string  `json:"course_type_text"`
+	Difficulty     int16   `json:"difficulty"`
+	DifficultyText string  `json:"difficulty_text"`
+	Topic          string  `json:"topic"`
+	Status         int16   `json:"status"`
+	StatusText     string  `json:"status_text"`
+	IsShared       bool    `json:"is_shared"`
+	// InviteCode 仅课程教师可见；学生访问课程详情时不返回该字段。
+	InviteCode   *string                  `json:"invite_code"`
+	Credits      *float64                 `json:"credits"`
+	SemesterID   *string                  `json:"semester_id"`
+	StartAt      *string                  `json:"start_at"`
+	EndAt        *string                  `json:"end_at"`
+	MaxStudents  *int                     `json:"max_students"`
+	StudentCount int                      `json:"student_count"`
+	TeacherID    string                   `json:"teacher_id"`
+	TeacherName  string                   `json:"teacher_name"`
+	CreatedAt    string                   `json:"created_at"`
+	UpdatedAt    string                   `json:"updated_at"`
+	Chapters     []ChapterWithLessonsResp `json:"chapters"`
 }
 
 // ToggleShareReq 切换共享状态请求
@@ -144,6 +137,14 @@ type ChapterWithLessonsResp struct {
 	Description *string          `json:"description"`
 	SortOrder   int              `json:"sort_order"`
 	Lessons     []LessonListItem `json:"lessons"`
+}
+
+// ReorderIDsReq 顺序重排请求
+// PUT /api/v1/courses/:id/chapters/sort
+// PUT /api/v1/chapters/:id/lessons/sort
+// 文档要求前端按目标顺序提交完整 ID 数组，服务端按数组顺序重写 sort_order。
+type ReorderIDsReq struct {
+	IDs []string `json:"ids" binding:"required,min=1,dive,required"`
 }
 
 // ========== 课时 DTO ==========
@@ -225,7 +226,7 @@ type UploadAttachmentReq struct {
 // JoinCourseReq 邀请码加入课程请求
 // POST /api/v1/courses/join
 type JoinCourseReq struct {
-	InviteCode string `json:"invite_code" binding:"required,min=6,max=10"`
+	InviteCode string `json:"invite_code" binding:"required,len=6,alphanum"`
 }
 
 // AddStudentReq 教师添加学生请求
@@ -262,12 +263,6 @@ type EnrolledStudentItem struct {
 	Progress       float64 `json:"progress"`
 }
 
-// StudentListResp 课程学生列表响应。
-type StudentListResp struct {
-	List       []EnrolledStudentItem `json:"list"`
-	Pagination PaginationResp        `json:"pagination"`
-}
-
 // ========== 课表 DTO ==========
 
 // SetScheduleReq 设置课程时间表请求
@@ -291,12 +286,6 @@ type ScheduleItemResp struct {
 	StartTime string  `json:"start_time"`
 	EndTime   string  `json:"end_time"`
 	Location  *string `json:"location"`
-}
-
-// MyScheduleReq 我的课表查询参数
-// GET /api/v1/my-schedule
-type MyScheduleReq struct {
-	Week string `form:"week"` // 可选，格式 2026-W15
 }
 
 // MyScheduleItem 我的课表项
@@ -346,10 +335,29 @@ type SharedCourseItem struct {
 	Rating         float64 `json:"rating"`
 }
 
-// SharedCourseListResp 共享课程列表响应。
-type SharedCourseListResp struct {
-	List       []SharedCourseItem `json:"list"`
-	Pagination PaginationResp     `json:"pagination"`
+// SharedCourseDetailResp 共享课程详情响应
+// GET /api/v1/shared-courses/:id
+type SharedCourseDetailResp struct {
+	ID             string                   `json:"id"`
+	Title          string                   `json:"title"`
+	Description    *string                  `json:"description"`
+	CoverURL       *string                  `json:"cover_url"`
+	CourseType     int16                    `json:"course_type"`
+	CourseTypeText string                   `json:"course_type_text"`
+	Difficulty     int16                    `json:"difficulty"`
+	DifficultyText string                   `json:"difficulty_text"`
+	Topic          string                   `json:"topic"`
+	Status         int16                    `json:"status"`
+	StatusText     string                   `json:"status_text"`
+	Credits        *float64                 `json:"credits"`
+	StartAt        *string                  `json:"start_at"`
+	EndAt          *string                  `json:"end_at"`
+	MaxStudents    *int                     `json:"max_students"`
+	StudentCount   int                      `json:"student_count"`
+	TeacherName    string                   `json:"teacher_name"`
+	SchoolName     string                   `json:"school_name"`
+	Rating         float64                  `json:"rating"`
+	Chapters       []ChapterWithLessonsResp `json:"chapters"`
 }
 
 // ========== 课程统计 DTO ==========
@@ -357,13 +365,15 @@ type SharedCourseListResp struct {
 // CourseOverviewStatsResp 课程概览统计响应
 // GET /api/v1/courses/:id/statistics/overview
 type CourseOverviewStatsResp struct {
-	StudentCount    int     `json:"student_count"`
-	LessonCount     int     `json:"lesson_count"`
-	AssignmentCount int     `json:"assignment_count"`
-	AvgProgress     float64 `json:"avg_progress"`
-	AvgScore        float64 `json:"avg_score"`
-	CompletionRate  float64 `json:"completion_rate"`
-	TotalStudyHours float64 `json:"total_study_hours"`
+	StudentCount         int                            `json:"student_count"`
+	LessonCount          int                            `json:"lesson_count"`
+	AssignmentCount      int                            `json:"assignment_count"`
+	AvgProgress          float64                        `json:"avg_progress"`
+	AvgScore             float64                        `json:"avg_score"`
+	CompletionRate       float64                        `json:"completion_rate"`
+	ActivityRate         float64                        `json:"activity_rate"`
+	TotalStudyHours      float64                        `json:"total_study_hours"`
+	ProgressDistribution CourseProgressDistributionResp `json:"progress_distribution"`
 }
 
 // AssignmentStatsResp 作业统计响应
@@ -374,14 +384,23 @@ type AssignmentStatsResp struct {
 
 // AssignmentStatItem 单个作业统计项
 type AssignmentStatItem struct {
-	ID            string  `json:"id"`
-	Title         string  `json:"title"`
-	SubmitCount   int     `json:"submit_count"`
-	TotalStudents int     `json:"total_students"`
-	SubmitRate    float64 `json:"submit_rate"`
-	AvgScore      float64 `json:"avg_score"`
-	MaxScore      float64 `json:"max_score"`
-	MinScore      float64 `json:"min_score"`
+	ID                string                  `json:"id"`
+	Title             string                  `json:"title"`
+	SubmitCount       int                     `json:"submit_count"`
+	TotalStudents     int                     `json:"total_students"`
+	SubmitRate        float64                 `json:"submit_rate"`
+	AvgScore          float64                 `json:"avg_score"`
+	MaxScore          float64                 `json:"max_score"`
+	MinScore          float64                 `json:"min_score"`
+	ScoreDistribution []ScoreDistributionItem `json:"score_distribution"`
+}
+
+// CourseProgressDistributionResp 课程学习进度分布响应
+// 以学生为单位统计未开始、进行中、已完成占比。
+type CourseProgressDistributionResp struct {
+	NotStartedRate float64 `json:"not_started_rate"`
+	InProgressRate float64 `json:"in_progress_rate"`
+	CompletedRate  float64 `json:"completed_rate"`
 }
 
 // ========== 学生视角 DTO ==========
@@ -406,12 +425,6 @@ type MyCourseItem struct {
 	StatusText     string  `json:"status_text"`
 	Progress       float64 `json:"progress"`
 	JoinedAt       string  `json:"joined_at"`
-}
-
-// MyCourseListResp 我的课程列表响应。
-type MyCourseListResp struct {
-	List       []MyCourseItem `json:"list"`
-	Pagination PaginationResp `json:"pagination"`
 }
 
 // ========== 学习进度 DTO ==========
@@ -467,10 +480,4 @@ type StudentProgressItem struct {
 	Progress        float64 `json:"progress"`
 	TotalStudyHours float64 `json:"total_study_hours"`
 	LastAccessedAt  *string `json:"last_accessed_at"`
-}
-
-// StudentsProgressResp 全班学习进度列表响应。
-type StudentsProgressResp struct {
-	List       []StudentProgressItem `json:"list"`
-	Pagination PaginationResp        `json:"pagination"`
 }

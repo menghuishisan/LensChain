@@ -230,14 +230,15 @@ func (h *InstanceHandler) ServeSimEngineWS(c *gin.Context) {
 	}
 
 	proxyDone := make(chan struct{}, 2)
+	callCtx := websocketServiceContext(c)
 	go proxyWebSocket(upstreamConn, clientConn, proxyDone, nil, nil)
 	go proxyWebSocket(clientConn, upstreamConn, proxyDone, func() {
-		h.instanceService.TouchActivity(context.Background(), target.InstanceID)
+		h.instanceService.TouchActivity(callCtx, target.InstanceID)
 	}, func(messageType int, payload []byte) {
 		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
 			return
 		}
-		h.instanceService.RecordSimEngineOperation(context.Background(), sc, target.InstanceID, payload)
+		h.instanceService.RecordSimEngineOperation(callCtx, sc, target.InstanceID, payload)
 	})
 	<-proxyDone
 	_ = clientConn.Close()
@@ -256,6 +257,12 @@ func upgradeExperimentWS(c *gin.Context) (*wsmanager.Client, *wsmanager.Manager,
 	return client, manager, true
 }
 
+// websocketServiceContext 返回 WebSocket 生命周期内调用 service 使用的上下文。
+// WebSocket 升级后 HTTP 请求上下文可能随握手结束而取消，因此保留请求值但去除取消信号。
+func websocketServiceContext(c *gin.Context) context.Context {
+	return context.WithoutCancel(c.Request.Context())
+}
+
 // readGroupChatLoop 读取组内消息客户端输入并转交 service 层处理。
 func (h *InstanceHandler) readGroupChatLoop(c *gin.Context, client *wsmanager.Client, manager *wsmanager.Manager, groupID int64, sc *svcctx.ServiceContext) {
 	defer func() {
@@ -271,6 +278,7 @@ func (h *InstanceHandler) readGroupChatLoop(c *gin.Context, client *wsmanager.Cl
 		return nil
 	})
 
+	callCtx := websocketServiceContext(c)
 	for {
 		_, payload, err := client.Conn.ReadMessage()
 		if err != nil {
@@ -284,7 +292,7 @@ func (h *InstanceHandler) readGroupChatLoop(c *gin.Context, client *wsmanager.Cl
 			continue
 		}
 		req := &dto.SendGroupMessageReq{Content: strings.TrimSpace(inbound.Content)}
-		if err := h.groupService.SendMessage(context.Background(), sc, groupID, req); err != nil {
+		if err := h.groupService.SendMessage(callCtx, sc, groupID, req); err != nil {
 			continue
 		}
 	}
@@ -298,6 +306,7 @@ func (h *InstanceHandler) readTerminalLoop(c *gin.Context, client *wsmanager.Cli
 	}()
 
 	lastOutput := initialData
+	callCtx := websocketServiceContext(c)
 	clientInputDone := make(chan struct{}, 1)
 	go func() {
 		defer func() { clientInputDone <- struct{}{} }()
@@ -320,7 +329,7 @@ func (h *InstanceHandler) readTerminalLoop(c *gin.Context, client *wsmanager.Cli
 				continue
 			}
 			req := &dto.SendGuidanceReq{Content: strings.TrimSpace(inbound.Content)}
-			_ = h.instanceService.SendGuidance(context.Background(), sc, instanceID, req)
+			_ = h.instanceService.SendGuidance(callCtx, sc, instanceID, req)
 		}
 	}()
 
@@ -331,7 +340,7 @@ func (h *InstanceHandler) readTerminalLoop(c *gin.Context, client *wsmanager.Cli
 		case <-clientInputDone:
 			return
 		case <-ticker.C:
-			current, err := h.instanceService.GetTerminalOutput(context.Background(), sc, instanceID, terminalTailLines)
+			current, err := h.instanceService.GetTerminalOutput(callCtx, sc, instanceID, terminalTailLines)
 			if err != nil {
 				return
 			}
@@ -358,6 +367,7 @@ func (h *InstanceHandler) readStudentTerminalLoop(c *gin.Context, client *wsmana
 		return nil
 	})
 
+	callCtx := websocketServiceContext(c)
 	for {
 		_, payload, err := client.Conn.ReadMessage()
 		if err != nil {
@@ -376,7 +386,7 @@ func (h *InstanceHandler) readStudentTerminalLoop(c *gin.Context, client *wsmana
 		if containerName == "" {
 			containerName = defaultContainer
 		}
-		result, err := h.instanceService.ExecuteTerminalCommand(context.Background(), sc, instanceID, containerName, strings.TrimSpace(inbound.Command))
+		result, err := h.instanceService.ExecuteTerminalCommand(callCtx, sc, instanceID, containerName, strings.TrimSpace(inbound.Command))
 		if err != nil {
 			continue
 		}
@@ -392,6 +402,7 @@ func (h *InstanceHandler) readGroupMemberTerminalLoop(c *gin.Context, client *ws
 	}()
 
 	lastOutput := initialData
+	callCtx := websocketServiceContext(c)
 	clientInputDone := make(chan struct{}, 1)
 	go func() {
 		defer func() { clientInputDone <- struct{}{} }()
@@ -415,7 +426,7 @@ func (h *InstanceHandler) readGroupMemberTerminalLoop(c *gin.Context, client *ws
 		case <-clientInputDone:
 			return
 		case <-ticker.C:
-			current, err := h.instanceService.GetGroupMemberTerminalOutput(context.Background(), sc, groupID, studentID, terminalTailLines)
+			current, err := h.instanceService.GetGroupMemberTerminalOutput(callCtx, sc, groupID, studentID, terminalTailLines)
 			if err != nil {
 				return
 			}

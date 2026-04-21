@@ -356,6 +356,8 @@
 | approve | 审核通过，状态变为正常 |
 | reject | 审核拒绝，状态变为审核拒绝 |
 
+> 当 `action=approve` 时，接口成功仅表示审核状态已更新为“正常”；镜像预拉取作为后台异步任务触发，进度通过 `GET /api/v1/admin/image-pull-status` 查看。
+
 **错误响应：**
 
 | code | message | 场景 |
@@ -1066,6 +1068,7 @@
 
 > `content` 和报告文件元数据至少提供一种；当提交文件时，前端应先完成文件上传，再将 `file_url / file_name / file_size` 回传后端。  
 > 报告文件仅允许 `pdf / doc / docx`，且文件大小不得超过 50MB。
+> 当学生重复调用提交接口时，系统覆盖上一次报告内容，并刷新报告提交时间。
 
 **响应：**
 
@@ -1354,6 +1357,144 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal?token=<jwt>&cont
 
 ---
 
+### 2.20A GET /api/v1/resource-quotas — 资源配额列表
+
+**权限：** 超级管理员 / 学校管理员
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| page | int | 页码，默认1 |
+| page_size | int | 每页条数，默认20 |
+| quota_level | int | 1=学校级 2=课程级 |
+| school_id | string | 按学校筛选（超管可选，学校管理员忽略非本校值） |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "id": "1780000000800001",
+        "quota_level": 1,
+        "quota_level_text": "学校级",
+        "school_id": "1780000000000001",
+        "school_name": "XX大学",
+        "course_id": null,
+        "course_title": null,
+        "max_cpu": "100",
+        "max_memory": "200Gi",
+        "max_storage": "500Gi",
+        "max_concurrency": 200,
+        "max_per_student": 2,
+        "used_cpu": "45.5",
+        "used_memory": "98Gi",
+        "used_storage": "120Gi",
+        "used_concurrency": 85,
+        "created_at": "2026-04-01T08:00:00Z",
+        "updated_at": "2026-04-08T10:00:00Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "total": 6,
+      "total_pages": 1
+    }
+  }
+}
+```
+
+---
+
+### 2.20B GET /api/v1/resource-quotas/:id — 资源配额详情
+
+**权限：** 超级管理员 / 学校管理员
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "id": "1780000000800002",
+    "quota_level": 2,
+    "quota_level_text": "课程级",
+    "school_id": "1780000000000001",
+    "school_name": "XX大学",
+    "course_id": "1780000000010001",
+    "course_title": "区块链技术与应用",
+    "max_cpu": "100",
+    "max_memory": "200Gi",
+    "max_storage": "500Gi",
+    "max_concurrency": 50,
+    "max_per_student": 2,
+    "used_cpu": "19",
+    "used_memory": "38Gi",
+    "used_storage": "40Gi",
+    "used_concurrency": 38,
+    "created_at": "2026-04-01T08:30:00Z",
+    "updated_at": "2026-04-08T10:00:00Z"
+  }
+}
+```
+
+---
+
+### 2.20C PUT /api/v1/resource-quotas/:id — 编辑资源配额
+
+**权限：** 超级管理员 / 学校管理员
+
+**请求体：**
+
+```json
+{
+  "max_cpu": "120",
+  "max_memory": "240Gi",
+  "max_storage": "600Gi",
+  "max_concurrency": 220,
+  "max_per_student": 3
+}
+```
+
+> 学校管理员仅可编辑本校配额；课程级配额仍需满足学校级剩余可分配量限制。
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "id": "1780000000800001",
+    "quota_level": 1,
+    "quota_level_text": "学校级",
+    "school_id": "1780000000000001",
+    "school_name": "XX大学",
+    "course_id": null,
+    "course_title": null,
+    "max_cpu": "120",
+    "max_memory": "240Gi",
+    "max_storage": "600Gi",
+    "max_concurrency": 220,
+    "max_per_student": 3,
+    "used_cpu": "45.5",
+    "used_memory": "98Gi",
+    "used_storage": "120Gi",
+    "used_concurrency": 85,
+    "created_at": "2026-04-01T08:00:00Z",
+    "updated_at": "2026-04-08T10:30:00Z"
+  }
+}
+```
+
+---
+
 ### 2.21 GET /api/v1/schools/:id/resource-usage — 学校资源使用情况
 
 **权限：** 超级管理员 / 学校管理员
@@ -1399,6 +1540,42 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal?token=<jwt>&cont
 
 ---
 
+### 2.21A GET /api/v1/school/experiment-monitor — 本校实验监控
+
+**权限：** 学校管理员
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "total_instances": 156,
+    "running_instances": 92,
+    "total_students": 420,
+    "active_students": 88,
+    "resource_usage": {
+      "cpu_used": "45.5",
+      "cpu_total": "100",
+      "memory_used": "98Gi",
+      "memory_total": "200Gi"
+    },
+    "courses": [
+      {
+        "course_id": "1780000000010001",
+        "course_title": "区块链技术与应用",
+        "teacher_name": "李教授",
+        "running_instances": 38,
+        "total_students": 45
+      }
+    ]
+  }
+}
+```
+
+---
+
 ### 2.22 GET /api/v1/admin/experiment-overview — 全平台实验概览
 
 **权限：** 超级管理员
@@ -1431,10 +1608,178 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal?token=<jwt>&cont
         "cpu_used": "45.5",
         "memory_used": "98Gi",
         "quota_cpu": "100",
-        "quota_memory": "200Gi"
+        "quota_memory": "200Gi",
+        "quota_usage_percent": 45.5
+      }
+    ],
+    "alert_instances": [
+      {
+        "instance_id": "1780000000600999",
+        "student_id": "1780000000000001",
+        "student_name": "张三",
+        "school_id": "1780000000000001",
+        "school_name": "XX大学",
+        "error_message": "容器发生 OOMKilled（OOMKilled）: Container killed due to memory limit",
+        "updated_at": "2026-04-08T10:42:00Z"
+      },
+      {
+        "instance_id": "1780000000600998",
+        "student_id": "1780000000000123",
+        "student_name": "李四",
+        "school_id": "1780000000000002",
+        "school_name": "YY大学",
+        "error_message": "容器进入 CrashLoopBackOff（CrashLoopBackOff）: Back-off restarting failed container",
+        "updated_at": "2026-04-08T10:40:00Z"
       }
     ]
   }
+}
+```
+
+> `school_usage[].quota_usage_percent` 表示学校级资源配额使用率，当前按 CPU 已用量 ÷ CPU 配额计算，用于全局监控页直接展示“配额使用率”列。
+>
+> `alert_instances` 返回最近 10 条处于“异常”状态的实例摘要，用于全局监控页直接展示异常实例告警，并支持超管跳转到强制回收操作。
+
+---
+
+### 2.22A GET /api/v1/admin/container-resources — 全平台容器资源监控
+
+**权限：** 超级管理员
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "total_containers": 640,
+    "running_containers": 598,
+    "total_cpu": "400",
+    "used_cpu": "180",
+    "total_memory": "800Gi",
+    "used_memory": "350Gi",
+    "nodes": [
+      {
+        "node_name": "node-01",
+        "status": "Ready",
+        "container_count": 68,
+        "cpu_capacity": "40",
+        "cpu_used": "18",
+        "memory_capacity": "80Gi",
+        "memory_used": "36Gi"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 2.22B GET /api/v1/admin/k8s-cluster-status — K8s集群状态
+
+**权限：** 超级管理员
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "nodes": [
+      {
+        "name": "node-01",
+        "status": "Ready",
+        "kubelet_version": "v1.30.2",
+        "cpu_capacity": "40",
+        "cpu_allocatable": "39",
+        "mem_capacity": "80Gi",
+        "mem_allocatable": "78Gi",
+        "pod_count": 68,
+        "pod_capacity": 110
+      }
+    ],
+    "total_pods": 680,
+    "running_pods": 640,
+    "pending_pods": 22,
+    "failed_pods": 3,
+    "total_namespaces": 48
+  }
+}
+```
+
+---
+
+### 2.22C GET /api/v1/admin/experiment-instances — 全平台实验实例列表
+
+**权限：** 超级管理员
+
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| page | int | 页码，默认1 |
+| page_size | int | 每页条数，默认20 |
+| school_id | string | 按学校筛选 |
+| template_id | string | 按实验模板筛选 |
+| status | int | 按实例状态筛选 |
+| student_id | string | 按学生ID筛选 |
+| sort_by | string | 排序字段：created_at / status / school_id |
+| sort_order | string | asc / desc |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "id": "1780000000600001",
+        "template_id": "1780000000300001",
+        "template_title": "以太坊智能合约开发入门",
+        "student_id": "1780000000000001",
+        "student_name": "张三",
+        "school_id": "1780000000000001",
+        "school_name": "XX大学",
+        "course_id": "1780000000010001",
+        "course_title": "区块链技术与应用",
+        "status": 3,
+        "status_text": "运行中",
+        "attempt_no": 1,
+        "total_score": null,
+        "error_message": null,
+        "started_at": "2026-04-08T10:00:00Z",
+        "submitted_at": null,
+        "created_at": "2026-04-08T09:58:00Z",
+        "updated_at": "2026-04-08T10:05:00Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "page_size": 20,
+      "total": 1250,
+      "total_pages": 63
+    }
+  }
+}
+```
+
+---
+
+### 2.22D POST /api/v1/admin/experiment-instances/:id/force-destroy — 强制回收任意实验环境
+
+**权限：** 超级管理员
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "回收成功",
+  "data": null
 }
 ```
 
@@ -1909,7 +2254,7 @@ wss://api.lianjing.com/api/v1/experiment-groups/:id/members/:student_id/terminal
         "issues": [
           {
             "code": "L3_TOTAL_CPU_EXCEEDS_QUOTA",
-            "message": "当前配置总 CPU 需求 4 核，超过课程配额单实验上限 2 核，可能导致启动失败",
+            "message": "当前配置总 CPU 需求 4 核，超过单实验资源上限 2 核，可能导致启动失败",
             "current_total_cpu": "4",
             "quota_limit_cpu": "2"
           }
@@ -1942,6 +2287,8 @@ wss://api.lianjing.com/api/v1/experiment-groups/:id/members/:student_id/terminal
 }
 ```
 
+> `L3_TOTAL_CPU_EXCEEDS_QUOTA` 当前基于模板 `cpu_limit`（单实验资源上限）进行提示，不依赖课程上下文。
+>
 > `is_publishable` 为 false 时表示存在 L1 或 L2 级别的错误，阻断发布。L3-L5 的问题不影响发布。
 
 ---

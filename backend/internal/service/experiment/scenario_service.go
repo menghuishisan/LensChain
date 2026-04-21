@@ -7,10 +7,12 @@ package experiment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
@@ -18,8 +20,10 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
+	"go.uber.org/zap"
 )
 
 // ScenarioService 仿真场景库服务接口
@@ -45,6 +49,7 @@ type scenarioService struct {
 	linkGroupRepo      experimentrepo.LinkGroupRepository
 	linkGroupSceneRepo experimentrepo.LinkGroupSceneRepository
 	userNameQuerier    UserNameQuerier
+	k8sSvc             K8sService
 }
 
 // NewScenarioService 创建仿真场景库服务实例
@@ -53,12 +58,14 @@ func NewScenarioService(
 	linkGroupRepo experimentrepo.LinkGroupRepository,
 	linkGroupSceneRepo experimentrepo.LinkGroupSceneRepository,
 	userNameQuerier UserNameQuerier,
+	k8sSvc K8sService,
 ) ScenarioService {
 	return &scenarioService{
 		scenarioRepo:       scenarioRepo,
 		linkGroupRepo:      linkGroupRepo,
 		linkGroupSceneRepo: linkGroupSceneRepo,
 		userNameQuerier:    userNameQuerier,
+		k8sSvc:             k8sSvc,
 	}
 }
 
@@ -69,17 +76,21 @@ func NewScenarioService(
 // Create 上传自定义仿真场景
 func (s *scenarioService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateScenarioReq) (string, error) {
 	scenario := &entity.SimScenario{
-		ID:              snowflake.Generate(),
-		Name:            req.Name,
-		Code:            req.Code,
-		Category:        req.Category,
-		Description:     req.Description,
-		SourceType:      enum.ScenarioSourceTypeCustom,
-		UploadedBy:      &sc.UserID,
-		SchoolID:        &sc.SchoolID,
-		Status:          enum.ScenarioStatusPending,
-		TimeControlMode: req.TimeControlMode,
-		DefaultParams:   req.DefaultParams,
+		ID:                snowflake.Generate(),
+		Name:              req.Name,
+		Code:              req.Code,
+		Category:          req.Category,
+		Description:       req.Description,
+		SourceType:        enum.ScenarioSourceTypeCustom,
+		UploadedBy:        &sc.UserID,
+		SchoolID:          &sc.SchoolID,
+		Status:            enum.ScenarioStatusPending,
+		AlgorithmType:     req.AlgorithmType,
+		TimeControlMode:   req.TimeControlMode,
+		DefaultParams:     datatypes.JSON(req.DefaultParams),
+		InteractionSchema: datatypes.JSON(req.InteractionSchema),
+		DataSourceMode:    req.DataSourceMode,
+		DefaultSize:       datatypes.JSON(req.DefaultSize),
 	}
 
 	// 可选字段
@@ -91,16 +102,6 @@ func (s *scenarioService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 			scenario.ContainerImageSize = &size
 		}
 	}
-	if req.Ecosystem != nil {
-		scenario.AlgorithmType = *req.Ecosystem
-	}
-	if req.DefaultInitialState != nil {
-		scenario.InteractionSchema = req.DefaultInitialState
-	}
-	if req.DataSourceModes != nil {
-		scenario.DefaultSize = req.DataSourceModes
-	}
-
 	if err := s.scenarioRepo.Create(ctx, scenario); err != nil {
 		return "", err
 	}
@@ -109,6 +110,9 @@ func (s *scenarioService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 
 // GetByID 获取仿真场景详情
 func (s *scenarioService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ScenarioResp, error) {
+	if err := ensureScenarioReadAccess(sc); err != nil {
+		return nil, err
+	}
 	scenario, err := s.scenarioRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -120,12 +124,15 @@ func (s *scenarioService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 }
 
 // Update 编辑场景信息
-func (s *scenarioService) Update(ctx context.Context, _ *svcctx.ServiceContext, id int64, req *dto.UpdateScenarioReq) error {
+func (s *scenarioService) Update(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateScenarioReq) error {
 	scenario, err := s.scenarioRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errcode.ErrScenarioNotFound
 		}
+		return err
+	}
+	if err := ensureScenarioWriteAccess(sc, scenario); err != nil {
 		return err
 	}
 
@@ -144,8 +151,8 @@ func (s *scenarioService) Update(ctx context.Context, _ *svcctx.ServiceContext, 
 	if req.Category != nil {
 		fields["category"] = *req.Category
 	}
-	if req.Ecosystem != nil {
-		fields["algorithm_type"] = *req.Ecosystem
+	if req.AlgorithmType != nil {
+		fields["algorithm_type"] = *req.AlgorithmType
 	}
 	if req.TimeControlMode != nil {
 		fields["time_control_mode"] = *req.TimeControlMode
@@ -159,13 +166,16 @@ func (s *scenarioService) Update(ctx context.Context, _ *svcctx.ServiceContext, 
 		}
 	}
 	if req.DefaultParams != nil {
-		fields["default_params"] = req.DefaultParams
+		fields["default_params"] = datatypes.JSON(req.DefaultParams)
 	}
-	if req.DefaultInitialState != nil {
-		fields["interaction_schema"] = req.DefaultInitialState
+	if req.InteractionSchema != nil {
+		fields["interaction_schema"] = datatypes.JSON(req.InteractionSchema)
 	}
-	if req.DataSourceModes != nil {
-		fields["default_size"] = req.DataSourceModes
+	if req.DataSourceMode != nil {
+		fields["data_source_mode"] = *req.DataSourceMode
+	}
+	if req.DefaultSize != nil {
+		fields["default_size"] = datatypes.JSON(req.DefaultSize)
 	}
 
 	if len(fields) == 0 {
@@ -176,13 +186,19 @@ func (s *scenarioService) Update(ctx context.Context, _ *svcctx.ServiceContext, 
 }
 
 // Delete 删除/下架仿真场景
-func (s *scenarioService) Delete(ctx context.Context, _ *svcctx.ServiceContext, id int64) error {
-	_, err := s.scenarioRepo.GetByID(ctx, id)
+func (s *scenarioService) Delete(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
+	scenario, err := s.scenarioRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errcode.ErrScenarioNotFound
 		}
 		return err
+	}
+	if sc == nil || !sc.IsSuperAdmin() {
+		return errcode.ErrForbidden
+	}
+	if scenario == nil {
+		return errcode.ErrScenarioNotFound
 	}
 
 	// 检查是否被模板引用
@@ -198,13 +214,18 @@ func (s *scenarioService) Delete(ctx context.Context, _ *svcctx.ServiceContext, 
 }
 
 // List 仿真场景列表
-func (s *scenarioService) List(ctx context.Context, _ *svcctx.ServiceContext, req *dto.ScenarioListReq) ([]*dto.ScenarioListItem, int64, error) {
+func (s *scenarioService) List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ScenarioListReq) ([]*dto.ScenarioListItem, int64, error) {
+	if err := ensureScenarioReadAccess(sc); err != nil {
+		return nil, 0, err
+	}
 	params := &experimentrepo.ScenarioListParams{
 		Keyword:         req.Keyword,
 		Category:        req.Category,
+		AlgorithmType:   req.AlgorithmType,
 		SourceType:      req.SourceType,
 		Status:          req.Status,
 		TimeControlMode: req.TimeControlMode,
+		DataSourceMode:  req.DataSourceMode,
 		SortBy:          req.SortBy,
 		SortOrder:       req.SortOrder,
 		Page:            req.Page,
@@ -223,13 +244,14 @@ func (s *scenarioService) List(ctx context.Context, _ *svcctx.ServiceContext, re
 			Name:            sc.Name,
 			Code:            sc.Code,
 			Category:        sc.Category,
-			CategoryText:    enum.GetScenarioCategoryText(sc.Category),
-			Ecosystem:       ptrIfNotEmpty(sc.AlgorithmType),
+			CategoryText:    enum.GetSceneCategoryText(sc.Category),
+			AlgorithmType:   sc.AlgorithmType,
 			SourceType:      sc.SourceType,
 			SourceTypeText:  enum.ScenarioSourceTypeText[sc.SourceType],
 			Status:          sc.Status,
 			StatusText:      enum.ScenarioStatusText[sc.Status],
 			TimeControlMode: sc.TimeControlMode,
+			DataSourceMode:  sc.DataSourceMode,
 			CreatedAt:       sc.CreatedAt.Format(time.RFC3339),
 		})
 	}
@@ -270,7 +292,29 @@ func (s *scenarioService) Review(ctx context.Context, sc *svcctx.ServiceContext,
 		fields["status"] = enum.ScenarioStatusRejected
 	}
 
-	return s.scenarioRepo.UpdateFields(ctx, id, fields)
+	if err := s.scenarioRepo.UpdateFields(ctx, id, fields); err != nil {
+		return err
+	}
+	if req.Action == "approve" {
+		go s.enqueueApprovedScenarioPrePull(detachContext(ctx), scenario)
+	}
+	return nil
+}
+
+// enqueueApprovedScenarioPrePull 在场景审核通过后异步触发算法镜像预拉取。
+// 场景算法镜像属于 SimEngine 调度资源，不进入教师镜像选配库；这里仅确保审核通过后平台节点具备镜像缓存。
+func (s *scenarioService) enqueueApprovedScenarioPrePull(ctx context.Context, scenario *entity.SimScenario) {
+	if s.k8sSvc == nil || scenario == nil || scenario.ContainerImageURL == nil || *scenario.ContainerImageURL == "" {
+		return
+	}
+	if err := s.k8sSvc.PrePullImage(ctx, *scenario.ContainerImageURL, nil); err != nil {
+		logger.L.Warn("审核通过后触发场景算法镜像预拉取失败",
+			zap.Int64("scenario_id", scenario.ID),
+			zap.String("scenario_code", scenario.Code),
+			zap.String("registry_url", *scenario.ContainerImageURL),
+			zap.Error(err),
+		)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +327,26 @@ func (s *scenarioService) ListLinkGroups(ctx context.Context, _ *svcctx.ServiceC
 	if err != nil {
 		return nil, err
 	}
+	groupIDs := make([]int64, 0, len(groups))
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		groupIDs = append(groupIDs, group.ID)
+	}
+	sceneCountByGroup := make(map[int64]int, len(groupIDs))
+	if len(groupIDs) > 0 {
+		groupScenes, listErr := s.linkGroupSceneRepo.ListByLinkGroupIDs(ctx, groupIDs)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, groupScene := range groupScenes {
+			if groupScene == nil {
+				continue
+			}
+			sceneCountByGroup[groupScene.LinkGroupID]++
+		}
+	}
 
 	items := make([]*dto.LinkGroupListItem, 0, len(groups))
 	for _, g := range groups {
@@ -290,24 +354,53 @@ func (s *scenarioService) ListLinkGroups(ctx context.Context, _ *svcctx.ServiceC
 			ID:          strconv.FormatInt(g.ID, 10),
 			Name:        g.Name,
 			Description: g.Description,
-			SceneCount:  len(g.Scenes),
+			SceneCount:  sceneCountByGroup[g.ID],
 		})
 	}
 	return items, nil
 }
 
+// ensureScenarioReadAccess 校验场景库读取权限。
+func ensureScenarioReadAccess(sc *svcctx.ServiceContext) error {
+	if sc == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() || sc.IsTeacher() {
+		return nil
+	}
+	return errcode.ErrForbidden
+}
+
+// ensureScenarioWriteAccess 校验场景上传者或超级管理员的写权限。
+func ensureScenarioWriteAccess(sc *svcctx.ServiceContext, scenario *entity.SimScenario) error {
+	if sc == nil || scenario == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() {
+		return nil
+	}
+	if scenario.UploadedBy != nil && *scenario.UploadedBy == sc.UserID {
+		return nil
+	}
+	return errcode.ErrForbidden
+}
+
 // GetLinkGroup 联动组详情
 func (s *scenarioService) GetLinkGroup(ctx context.Context, _ *svcctx.ServiceContext, id int64) (*dto.LinkGroupResp, error) {
-	group, err := s.linkGroupRepo.GetByIDWithScenes(ctx, id)
+	group, err := s.linkGroupRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errcode.ErrLinkGroupNotFound
 		}
 		return nil, err
 	}
+	groupScenes, err := s.linkGroupSceneRepo.ListByLinkGroupID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 
-	scenes := make([]dto.LinkGroupSceneResp, 0, len(group.Scenes))
-	for _, sc := range group.Scenes {
+	scenes := make([]dto.LinkGroupSceneResp, 0, len(groupScenes))
+	for _, sc := range groupScenes {
 		sceneResp := dto.LinkGroupSceneResp{
 			ID:         strconv.FormatInt(sc.ID, 10),
 			ScenarioID: strconv.FormatInt(sc.ScenarioID, 10),
@@ -340,24 +433,25 @@ func (s *scenarioService) GetLinkGroup(ctx context.Context, _ *svcctx.ServiceCon
 // toScenarioResp 将实体转换为场景详情响应
 func (s *scenarioService) toScenarioResp(ctx context.Context, sc *entity.SimScenario) *dto.ScenarioResp {
 	resp := &dto.ScenarioResp{
-		ID:                  strconv.FormatInt(sc.ID, 10),
-		Name:                sc.Name,
-		Code:                sc.Code,
-		Description:         sc.Description,
-		Category:            sc.Category,
-		CategoryText:        enum.GetScenarioCategoryText(sc.Category),
-		Ecosystem:           ptrIfNotEmpty(sc.AlgorithmType),
-		SourceType:          sc.SourceType,
-		SourceTypeText:      enum.ScenarioSourceTypeText[sc.SourceType],
-		Status:              sc.Status,
-		StatusText:          enum.ScenarioStatusText[sc.Status],
-		TimeControlMode:     sc.TimeControlMode,
-		DefaultParams:       sc.DefaultParams,
-		DefaultInitialState: sc.InteractionSchema,
-		DataSourceModes:     sc.DefaultSize,
-		GrpcPort:            0,
-		CreatedAt:           sc.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:           sc.UpdatedAt.Format(time.RFC3339),
+		ID:                 strconv.FormatInt(sc.ID, 10),
+		Name:               sc.Name,
+		Code:               sc.Code,
+		Description:        sc.Description,
+		Category:           sc.Category,
+		CategoryText:       enum.GetSceneCategoryText(sc.Category),
+		AlgorithmType:      sc.AlgorithmType,
+		SourceType:         sc.SourceType,
+		SourceTypeText:     enum.ScenarioSourceTypeText[sc.SourceType],
+		Status:             sc.Status,
+		StatusText:         enum.ScenarioStatusText[sc.Status],
+		TimeControlMode:    sc.TimeControlMode,
+		DefaultParams:      json.RawMessage(sc.DefaultParams),
+		InteractionSchema:  json.RawMessage(sc.InteractionSchema),
+		DataSourceMode:     sc.DataSourceMode,
+		DataSourceModeText: enum.GetDataSourceModeText(sc.DataSourceMode),
+		DefaultSize:        json.RawMessage(sc.DefaultSize),
+		CreatedAt:          sc.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:          sc.UpdatedAt.Format(time.RFC3339),
 	}
 
 	if sc.ContainerImageURL != nil {
@@ -379,12 +473,4 @@ func (s *scenarioService) toScenarioResp(ctx context.Context, sc *entity.SimScen
 	}
 
 	return resp
-}
-
-// ptrIfNotEmpty 非空字符串转指针
-func ptrIfNotEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

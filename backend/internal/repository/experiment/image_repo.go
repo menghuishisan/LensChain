@@ -7,11 +7,11 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
@@ -94,12 +94,13 @@ func (r *imageCategoryRepository) ListAll(ctx context.Context) ([]*entity.ImageC
 type ImageRepository interface {
 	Create(ctx context.Context, image *entity.Image) error
 	GetByID(ctx context.Context, id int64) (*entity.Image, error)
-	GetByIDWithVersions(ctx context.Context, id int64) (*entity.Image, error)
+	GetByName(ctx context.Context, name string) (*entity.Image, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	SoftDelete(ctx context.Context, id int64) error
 	List(ctx context.Context, params *ImageListParams) ([]*entity.Image, int64, error)
 	ListBySchoolID(ctx context.Context, params *SchoolImageListParams) ([]*entity.Image, int64, error)
 	CountByCategoryID(ctx context.Context, categoryID int64) (int64, error)
+	CountTemplateReferences(ctx context.Context, imageID int64) (int64, error)
 	IncrUsageCount(ctx context.Context, id int64) error
 }
 
@@ -108,8 +109,8 @@ type ImageListParams struct {
 	Keyword    string
 	CategoryID int64
 	Ecosystem  string
-	SourceType int
-	Status     int
+	SourceType int16
+	Status     int16
 	SortBy     string
 	SortOrder  string
 	Page       int
@@ -121,7 +122,7 @@ type SchoolImageListParams struct {
 	SchoolID   int64
 	Keyword    string
 	CategoryID int64
-	Status     int
+	Status     int16
 	Page       int
 	PageSize   int
 }
@@ -154,14 +155,10 @@ func (r *imageRepository) GetByID(ctx context.Context, id int64) (*entity.Image,
 	return &image, nil
 }
 
-// GetByIDWithVersions 根据ID获取镜像（含版本列表）
-func (r *imageRepository) GetByIDWithVersions(ctx context.Context, id int64) (*entity.Image, error) {
+// GetByName 根据镜像名称获取镜像，供创建/更新时做唯一性校验。
+func (r *imageRepository) GetByName(ctx context.Context, name string) (*entity.Image, error) {
 	var image entity.Image
-	err := r.db.WithContext(ctx).
-		Preload("Versions", func(db *gorm.DB) *gorm.DB {
-			return db.Order("is_default desc, created_at desc")
-		}).
-		First(&image, id).Error
+	err := r.db.WithContext(ctx).Where("name = ?", name).First(&image).Error
 	if err != nil {
 		return nil, err
 	}
@@ -213,26 +210,22 @@ func (r *imageRepository) List(ctx context.Context, params *ImageListParams) ([]
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at":  "created_at",
 		"name":        "name",
 		"usage_count": "usage_count",
 		"status":      "status",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	// 分页
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var images []*entity.Image
 	if err := query.Find(&images).Error; err != nil {
@@ -244,7 +237,7 @@ func (r *imageRepository) List(ctx context.Context, params *ImageListParams) ([]
 // ListBySchoolID 本校镜像列表查询
 func (r *imageRepository) ListBySchoolID(ctx context.Context, params *SchoolImageListParams) ([]*entity.Image, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.Image{}).
-		Where("school_id = ? OR source_type = 1", params.SchoolID)
+		Where("school_id = ? OR source_type = ?", params.SchoolID, enum.ImageSourceTypeOfficial)
 
 	if params.Keyword != "" {
 		query = query.Scopes(database.WithKeywordSearch(params.Keyword, "name", "display_name"))
@@ -280,6 +273,16 @@ func (r *imageRepository) CountByCategoryID(ctx context.Context, categoryID int6
 	return count, err
 }
 
+// CountTemplateReferences 统计镜像被模板容器引用的次数，支撑“被引用镜像不可下架/删除”规则。
+func (r *imageRepository) CountTemplateReferences(ctx context.Context, imageID int64) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Model(&entity.TemplateContainer{}).
+		Joins("JOIN image_versions ON image_versions.id = template_containers.image_version_id").
+		Where("image_versions.image_id = ?", imageID).
+		Count(&count).Error
+	return count, err
+}
+
 // IncrUsageCount 增加镜像使用次数
 func (r *imageRepository) IncrUsageCount(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Model(&entity.Image{}).
@@ -295,9 +298,11 @@ func (r *imageRepository) IncrUsageCount(ctx context.Context, id int64) error {
 type ImageVersionRepository interface {
 	Create(ctx context.Context, version *entity.ImageVersion) error
 	GetByID(ctx context.Context, id int64) (*entity.ImageVersion, error)
+	GetByImageAndVersion(ctx context.Context, imageID int64, version string) (*entity.ImageVersion, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
 	ListByImageID(ctx context.Context, imageID int64) ([]*entity.ImageVersion, error)
+	ListByImageIDs(ctx context.Context, imageIDs []int64) ([]*entity.ImageVersion, error)
 	GetDefaultByImageID(ctx context.Context, imageID int64) (*entity.ImageVersion, error)
 	ClearDefault(ctx context.Context, imageID int64) error
 	SetDefault(ctx context.Context, id int64) error
@@ -333,6 +338,18 @@ func (r *imageVersionRepository) GetByID(ctx context.Context, id int64) (*entity
 	return &version, nil
 }
 
+// GetByImageAndVersion 根据镜像ID和版本号获取版本记录，供版本重复校验使用。
+func (r *imageVersionRepository) GetByImageAndVersion(ctx context.Context, imageID int64, version string) (*entity.ImageVersion, error) {
+	var imageVersion entity.ImageVersion
+	err := r.db.WithContext(ctx).
+		Where("image_id = ? AND version = ?", imageID, version).
+		First(&imageVersion).Error
+	if err != nil {
+		return nil, err
+	}
+	return &imageVersion, nil
+}
+
 // UpdateFields 更新镜像版本指定字段
 func (r *imageVersionRepository) UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error {
 	return r.db.WithContext(ctx).Model(&entity.ImageVersion{}).Where("id = ?", id).Updates(fields).Error
@@ -349,6 +366,19 @@ func (r *imageVersionRepository) ListByImageID(ctx context.Context, imageID int6
 	err := r.db.WithContext(ctx).
 		Where("image_id = ?", imageID).
 		Order("is_default desc, created_at desc").
+		Find(&versions).Error
+	return versions, err
+}
+
+// ListByImageIDs 批量获取多个镜像的版本列表，供列表页组装版本信息时避免逐条查询。
+func (r *imageVersionRepository) ListByImageIDs(ctx context.Context, imageIDs []int64) ([]*entity.ImageVersion, error) {
+	if len(imageIDs) == 0 {
+		return []*entity.ImageVersion{}, nil
+	}
+	var versions []*entity.ImageVersion
+	err := r.db.WithContext(ctx).
+		Where("image_id IN ?", imageIDs).
+		Order("image_id asc, is_default desc, created_at desc").
 		Find(&versions).Error
 	return versions, err
 }

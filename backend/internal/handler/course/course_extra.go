@@ -240,7 +240,7 @@ func (h *CourseHandler) ListShared(c *gin.Context) {
 	response.Paginated(c, items, total, page, pageSize)
 }
 
-// GetSharedDetail 共享课程详情（复用课程详情）
+// GetSharedDetail 共享课程详情
 // GET /api/v1/shared-courses/:id
 func (h *CourseHandler) GetSharedDetail(c *gin.Context) {
 	courseID, ok := validator.ParsePathID(c, "id")
@@ -295,6 +295,41 @@ func (h *CourseHandler) GetCourseOverview(c *gin.Context) {
 
 // ========== 单课程成绩 ==========
 
+// SetGradeConfig 配置成绩权重
+// PUT /api/v1/courses/:id/grade-config
+func (h *CourseHandler) SetGradeConfig(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.GradeConfigReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	if err := h.gradeService.SetGradeConfig(c.Request.Context(), sc, courseID, &req); err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "设置成功", nil)
+}
+
+// GetGradeConfig 获取成绩权重配置
+// GET /api/v1/courses/:id/grade-config
+func (h *CourseHandler) GetGradeConfig(c *gin.Context) {
+	courseID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	config, err := h.gradeService.GetGradeConfig(c.Request.Context(), sc, courseID)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, config)
+}
+
 // GetGradeSummary 获取课程成绩汇总
 // GET /api/v1/courses/:id/grades
 func (h *CourseHandler) GetGradeSummary(c *gin.Context) {
@@ -302,18 +337,13 @@ func (h *CourseHandler) GetGradeSummary(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req dto.GradeSummaryReq
-	if !validator.BindQuery(c, &req) {
-		return
-	}
 	sc := handlerctx.BuildServiceContext(c)
-	items, total, err := h.gradeService.GetGradeSummary(c.Request.Context(), sc, courseID, &req)
+	resp, err := h.gradeService.GetGradeSummary(c.Request.Context(), sc, courseID)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
-	response.Paginated(c, items, total, page, pageSize)
+	response.Success(c, resp)
 }
 
 // AdjustGrade 手动调整课程最终成绩
@@ -390,15 +420,15 @@ func (h *CourseHandler) GetAssignmentStatistics(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// ExportAssignmentStatistics 导出课程作业统计
+// ExportCourseStatistics 导出课程统计报告
 // GET /api/v1/courses/:id/statistics/export
-func (h *CourseHandler) ExportAssignmentStatistics(c *gin.Context) {
+func (h *CourseHandler) ExportCourseStatistics(c *gin.Context) {
 	courseID, ok := validator.ParsePathID(c, "id")
 	if !ok {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
-	buf, fileName, err := h.gradeService.ExportAssignmentStatistics(c.Request.Context(), sc, courseID)
+	buf, fileName, err := h.gradeService.ExportCourseStatistics(c.Request.Context(), sc, courseID)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return

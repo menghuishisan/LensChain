@@ -7,7 +7,6 @@ package school
 
 import (
 	"context"
-	"github.com/lenschain/backend/internal/pkg/database"
 	"math"
 	"strconv"
 	"time"
@@ -19,18 +18,26 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/mask"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
+// SchoolUserLifecycleManager 跨模块接口：处理学校维度的用户软删与恢复。
+// 学校注销/恢复涉及 users 表，模块02只能通过接口协调模块01执行，不直接写跨模块表。
+type SchoolUserLifecycleManager interface {
+	SoftDeleteSchoolUsers(ctx context.Context, schoolID int64) error
+	RestoreSchoolUsers(ctx context.Context, schoolID int64) error
+}
+
 // Freeze 冻结学校
-// 只有已激活或缓冲期的学校可以冻结
+// 只有已激活或缓冲期的学校可以冻结。
 func (s *schoolService) Freeze(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.FreezeSchoolReq) error {
 	sch, err := s.schoolRepo.GetByID(ctx, id)
 	if err != nil {
 		return errcode.ErrSchoolNotFound
 	}
-	// 只有已激活或缓冲期的学校可以冻结
 	if sch.Status == enum.SchoolStatusFrozen {
 		return errcode.ErrSchoolAlreadyFrozen
 	}
@@ -48,7 +55,6 @@ func (s *schoolService) Freeze(ctx context.Context, sc *svcctx.ServiceContext, i
 		return errcode.ErrInternal.WithMessage("冻结学校失败")
 	}
 
-	// 清除缓存 + 踢出所有用户
 	deleteSchoolStatusCache(ctx, id)
 	if s.sessionKicker != nil {
 		_ = s.sessionKicker.KickSchoolUsers(ctx, id)
@@ -79,22 +85,20 @@ func (s *schoolService) Unfreeze(ctx context.Context, sc *svcctx.ServiceContext,
 		return errcode.ErrInternal.WithMessage("解冻学校失败")
 	}
 
-	// 刷新缓存
 	refreshSchoolStatusCache(ctx, id, enum.SchoolStatusActive, sch.LicenseEndAt)
 
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "unfreeze_school", "school", id, nil)
 	return nil
 }
 
-// Cancel 注销学校（软删除学校 + 软删除所有用户）
-// 需要二次确认（confirm: true），防止误操作
+// Cancel 注销学校
+// 需要二次确认（confirm=true），并通过跨模块接口同步软删除该校用户。
 func (s *schoolService) Cancel(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.CancelSchoolReq) error {
-	// 二次确认校验
-	if !req.Confirm {
+	if req.Confirm == nil || !*req.Confirm {
 		return errcode.ErrCancelNotConfirmed
 	}
 
-	sch, err := s.schoolRepo.GetByID(ctx, id)
+	sch, err := s.schoolRepo.GetByIDIncludingDeleted(ctx, id)
 	if err != nil {
 		return errcode.ErrSchoolNotFound
 	}
@@ -104,24 +108,25 @@ func (s *schoolService) Cancel(ctx context.Context, sc *svcctx.ServiceContext, i
 
 	now := time.Now()
 	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
-		// 1. 更新学校状态 + 软删除
-		if err := tx.Model(&entity.School{}).Where("id = ?", id).Updates(map[string]interface{}{
+		txCtx := database.WithTxContext(ctx, tx)
+		txSchoolRepo := schoolrepo.NewSchoolRepository(tx)
+		if err := txSchoolRepo.UpdateFields(ctx, id, map[string]interface{}{
 			"status":     enum.SchoolStatusCancelled,
 			"deleted_at": now,
 			"updated_at": now,
-		}).Error; err != nil {
+		}); err != nil {
 			return err
 		}
-		// 2. 软删除该校所有用户
-		return tx.Model(&entity.User{}).
-			Where("school_id = ? AND deleted_at IS NULL", id).
-			Updates(map[string]interface{}{"deleted_at": now}).Error
+
+		if s.userLifecycle == nil {
+			return nil
+		}
+		return s.userLifecycle.SoftDeleteSchoolUsers(txCtx, id)
 	})
 	if err != nil {
 		return errcode.ErrInternal.WithMessage("注销学校失败")
 	}
 
-	// 清除缓存 + 踢出所有用户
 	deleteSchoolStatusCache(ctx, id)
 	if s.sessionKicker != nil {
 		_ = s.sessionKicker.KickSchoolUsers(ctx, id)
@@ -133,41 +138,41 @@ func (s *schoolService) Cancel(ctx context.Context, sc *svcctx.ServiceContext, i
 
 // Restore 恢复已注销学校
 func (s *schoolService) Restore(ctx context.Context, sc *svcctx.ServiceContext, id int64) error {
-	// 使用 Unscoped 查询已软删除的学校
-	var sch entity.School
-	if err := s.db.WithContext(ctx).Unscoped().First(&sch, id).Error; err != nil {
+	sch, err := s.schoolRepo.GetByIDIncludingDeleted(ctx, id)
+	if err != nil {
 		return errcode.ErrSchoolNotFound
 	}
 	if sch.Status != enum.SchoolStatusCancelled {
 		return errcode.ErrSchoolNotCancelled
 	}
 
-	err := database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
-		// 1. 恢复学校
-		if err := tx.Unscoped().Model(&entity.School{}).Where("id = ?", id).Updates(map[string]interface{}{
-			"status":     enum.SchoolStatusActive,
-			"deleted_at": nil,
-			"updated_at": time.Now(),
-		}).Error; err != nil {
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txCtx := database.WithTxContext(ctx, tx)
+		txSchoolRepo := schoolrepo.NewSchoolRepository(tx)
+		if err := txSchoolRepo.Restore(ctx, id); err != nil {
 			return err
 		}
-		// 2. 恢复该校所有用户
-		return tx.Unscoped().Model(&entity.User{}).
-			Where("school_id = ? AND deleted_at IS NOT NULL", id).
-			Updates(map[string]interface{}{"deleted_at": nil}).Error
+		if err := txSchoolRepo.UpdateFields(ctx, id, map[string]interface{}{
+			"status":     enum.SchoolStatusActive,
+			"updated_at": time.Now(),
+		}); err != nil {
+			return err
+		}
+
+		if s.userLifecycle == nil {
+			return nil
+		}
+		return s.userLifecycle.RestoreSchoolUsers(txCtx, id)
 	})
 	if err != nil {
 		return errcode.ErrInternal.WithMessage("恢复学校失败")
 	}
 
-	// 刷新缓存
 	refreshSchoolStatusCache(ctx, id, enum.SchoolStatusActive, sch.LicenseEndAt)
 
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "restore_school", "school", id, nil)
 	return nil
 }
-
-// ========== 实体转 DTO 辅助方法 ==========
 
 // schoolToListItem 学校实体转列表项
 func schoolToListItem(sch *entity.School) *dto.SchoolListItem {
@@ -183,12 +188,12 @@ func schoolToListItem(sch *entity.School) *dto.SchoolListItem {
 		CreatedAt:    sch.CreatedAt.Format(time.RFC3339),
 	}
 	if sch.LicenseStartAt != nil {
-		t := sch.LicenseStartAt.Format(time.RFC3339)
-		item.LicenseStartAt = &t
+		licenseStartAt := sch.LicenseStartAt.Format(time.RFC3339)
+		item.LicenseStartAt = &licenseStartAt
 	}
 	if sch.LicenseEndAt != nil {
-		t := sch.LicenseEndAt.Format(time.RFC3339)
-		item.LicenseEndAt = &t
+		licenseEndAt := sch.LicenseEndAt.Format(time.RFC3339)
+		item.LicenseEndAt = &licenseEndAt
 		remaining := int(math.Ceil(time.Until(*sch.LicenseEndAt).Hours() / 24))
 		item.LicenseRemainingDays = &remaining
 	}
@@ -215,20 +220,20 @@ func schoolToDetailResp(sch *entity.School) *dto.SchoolDetailResp {
 		CreatedAt:    sch.CreatedAt.Format(time.RFC3339),
 	}
 	if sch.LicenseStartAt != nil {
-		t := sch.LicenseStartAt.Format(time.RFC3339)
-		resp.LicenseStartAt = &t
+		licenseStartAt := sch.LicenseStartAt.Format(time.RFC3339)
+		resp.LicenseStartAt = &licenseStartAt
 	}
 	if sch.LicenseEndAt != nil {
-		t := sch.LicenseEndAt.Format(time.RFC3339)
-		resp.LicenseEndAt = &t
+		licenseEndAt := sch.LicenseEndAt.Format(time.RFC3339)
+		resp.LicenseEndAt = &licenseEndAt
 	}
 	if sch.FrozenAt != nil {
-		t := sch.FrozenAt.Format(time.RFC3339)
-		resp.FrozenAt = &t
+		frozenAt := sch.FrozenAt.Format(time.RFC3339)
+		resp.FrozenAt = &frozenAt
 	}
 	if sch.CreatedBy != nil {
-		cb := strconv.FormatInt(*sch.CreatedBy, 10)
-		resp.CreatedBy = &cb
+		createdBy := strconv.FormatInt(*sch.CreatedBy, 10)
+		resp.CreatedBy = &createdBy
 	}
 	return resp
 }

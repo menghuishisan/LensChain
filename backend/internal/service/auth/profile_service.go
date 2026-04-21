@@ -7,6 +7,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -70,6 +71,17 @@ func (s *profileService) GetProfile(ctx context.Context, sc *svcctx.ServiceConte
 	if err != nil {
 		return nil, errcode.ErrUserNotFound
 	}
+	roleCodes, err := s.roleRepo.GetUserRoleCodes(ctx, user.ID)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+	}
+	profile, err := s.profileRepo.GetByUserID(ctx, user.ID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("查询个人资料失败")
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		profile = nil
+	}
 
 	resp := &dto.ProfileResp{
 		ID:         strconv.FormatInt(user.ID, 10),
@@ -77,7 +89,7 @@ func (s *profileService) GetProfile(ctx context.Context, sc *svcctx.ServiceConte
 		Name:       user.Name,
 		StudentNo:  user.StudentNo,
 		SchoolName: "", // 下方通过跨模块查询填充
-		Roles:      make([]string, 0),
+		Roles:      roleCodes,
 		LearningOverview: dto.LearningOverview{
 			CourseCount:      0,
 			ExperimentCount:  0,
@@ -86,24 +98,17 @@ func (s *profileService) GetProfile(ctx context.Context, sc *svcctx.ServiceConte
 		},
 	}
 
-	// 角色
-	for _, ur := range user.Roles {
-		if ur.Role != nil {
-			resp.Roles = append(resp.Roles, ur.Role.Code)
-		}
-	}
-
 	// 扩展信息
-	if user.Profile != nil {
-		resp.Nickname = user.Profile.Nickname
-		resp.AvatarURL = user.Profile.AvatarURL
-		resp.Email = user.Profile.Email
-		resp.College = user.Profile.College
-		resp.Major = user.Profile.Major
-		resp.ClassName = user.Profile.ClassName
-		resp.EducationLevel = user.Profile.EducationLevel
-		if user.Profile.EducationLevel != nil {
-			text := enum.GetEduLevelText(*user.Profile.EducationLevel)
+	if profile != nil {
+		resp.Nickname = profile.Nickname
+		resp.AvatarURL = profile.AvatarURL
+		resp.Email = profile.Email
+		resp.College = profile.College
+		resp.Major = profile.Major
+		resp.ClassName = profile.ClassName
+		resp.EducationLevel = profile.EducationLevel
+		if profile.EducationLevel != nil {
+			text := enum.GetEduLevelText(*profile.EducationLevel)
 			resp.EducationLevelText = &text
 		}
 	}
@@ -154,6 +159,9 @@ func (s *profileService) UpdateProfile(ctx context.Context, sc *svcctx.ServiceCo
 	// 确保 profile 存在，不存在则创建
 	profile, err := s.profileRepo.GetByUserID(ctx, sc.UserID)
 	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrInternal.WithMessage("查询个人资料失败")
+		}
 		// profile 不存在，创建
 		newProfile := &entity.UserProfile{
 			UserID: sc.UserID,

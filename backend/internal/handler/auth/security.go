@@ -47,8 +47,7 @@ func (h *SecurityHandler) UpdateSecurityPolicy(c *gin.Context) {
 		return
 	}
 
-	sc := handlerctx.BuildServiceContext(c)
-	if err := h.securityService.UpdateSecurityPolicy(c.Request.Context(), sc, &req); err != nil {
+	if err := h.securityService.UpdateSecurityPolicy(c.Request.Context(), &req); err != nil {
 		handlerctx.HandleError(c, err)
 		return
 	}

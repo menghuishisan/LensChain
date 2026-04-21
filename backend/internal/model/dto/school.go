@@ -99,12 +99,6 @@ type ApplicationListItem struct {
 	ReviewedAt   *string `json:"reviewed_at"`
 }
 
-// ApplicationListResp 申请列表响应。
-type ApplicationListResp struct {
-	List       []ApplicationListItem `json:"list"`
-	Pagination PaginationResp        `json:"pagination"`
-}
-
 // ApplicationDetailResp 申请详情响应
 type ApplicationDetailResp struct {
 	ID                    string  `json:"id"`
@@ -175,12 +169,6 @@ type SchoolListItem struct {
 	ContactName          string  `json:"contact_name"`
 	ContactPhone         string  `json:"contact_phone"`
 	CreatedAt            string  `json:"created_at"`
-}
-
-// SchoolListResp 学校列表响应。
-type SchoolListResp struct {
-	List       []SchoolListItem `json:"list"`
-	Pagination PaginationResp   `json:"pagination"`
 }
 
 // SchoolDetailResp 学校详情响应
@@ -261,7 +249,7 @@ type FreezeSchoolReq struct {
 // CancelSchoolReq 注销学校请求
 // POST /api/v1/admin/schools/:id/cancel
 type CancelSchoolReq struct {
-	Confirm bool `json:"confirm" binding:"required"`
+	Confirm *bool `json:"confirm" binding:"required"`
 }
 
 // ========== 学校配置接口 DTO（校管） ==========
@@ -325,7 +313,7 @@ type UpdateSSOConfigReq struct {
 // ToggleSSOEnableReq 切换SSO启用状态请求
 // POST /api/v1/school/sso-config/enable
 type ToggleSSOEnableReq struct {
-	IsEnabled bool `json:"is_enabled" binding:"required"`
+	IsEnabled *bool `json:"is_enabled" binding:"required"`
 }
 
 // SSOTestResp SSO连接测试响应
@@ -355,9 +343,4 @@ type SSOSchoolItem struct {
 	ID      string  `json:"id"`
 	Name    string  `json:"name"`
 	LogoURL *string `json:"logo_url"`
-}
-
-// SSOSchoolListResp 可用 SSO 学校列表响应。
-type SSOSchoolListResp struct {
-	List []SSOSchoolItem `json:"list"`
 }

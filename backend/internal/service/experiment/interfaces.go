@@ -48,6 +48,13 @@ type CourseQuerier interface {
 	GetCourseTeacherID(ctx context.Context, courseID int64) (int64, error)
 }
 
+// CourseExperimentTemplateQuerier 跨模块接口：查询课程已关联的实验模板ID集合（从模块03注入）。
+// 返回值需要同时覆盖 lessons.experiment_id 与 course_experiments.experiment_id 两种课程侧关联来源，
+// 供模块04在监控与统计场景下按“课程已配置模板”维度聚合，而不是仅按已启动实例反推。
+type CourseExperimentTemplateQuerier interface {
+	ListCourseTemplateIDs(ctx context.Context, courseID int64) ([]int64, error)
+}
+
 // CourseGradeSyncer 跨模块接口：将实验最终成绩同步回课程成绩体系。
 // 模块04 仅声明同步契约，具体写入 assignment_submissions 的实现由模块03适配层注入。
 type CourseGradeSyncer interface {
@@ -78,3 +85,9 @@ type EndedCourseQuerier interface {
 	ListEndedCourseIDs(ctx context.Context) ([]int64, error)
 	ListCourseIDsEndingWithin(ctx context.Context, within time.Duration) (map[int64]time.Time, error)
 }
+
+// 说明：
+// 模块07《通知与消息》文档要求模块04在“模板发布 / 实验即将超时 / 评分完成”三个业务节点发送内部通知事件。
+// 当前仓库内模块07的 handler/service 尚未完成，/internal/send-event 仍是路由占位，因此模块04暂不注入通知发送接口。
+// 后续模块07完成后，应在本文件新增通知发送接口，并由 cmd/server/init_experiment.go 注入 adapter，
+// 再由模板发布、超时预警和评分完成三个 service 节点统一调用，禁止在 handler 或 repository 层直接补写通知逻辑。

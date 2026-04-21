@@ -67,15 +67,15 @@ func (h *SSOHandler) TestConnection(c *gin.Context) {
 	resp, err := h.ssoService.TestConnection(c.Request.Context(), sc)
 	if err != nil {
 		// 测试失败时按文档返回错误码，同时在 data 中附带错误详情
-		if resp != nil {
-			response.ErrorWithData(c, errcode.ErrSSOTestFailed, resp)
+		if appErr, ok := errcode.IsAppError(err); ok && appErr.Is(errcode.ErrSSOTestFailed) && resp != nil {
+			response.ErrorWithData(c, appErr, resp)
 			return
 		}
 		handlerctx.HandleError(c, err)
 		return
 	}
 
-	response.Success(c, resp)
+	response.SuccessWithMsg(c, "SSO连接测试成功", resp)
 }
 
 // ToggleEnable 启用或禁用SSO
@@ -93,7 +93,7 @@ func (h *SSOHandler) ToggleEnable(c *gin.Context) {
 		return
 	}
 
-	if req.IsEnabled {
+	if req.IsEnabled != nil && *req.IsEnabled {
 		response.SuccessWithMsg(c, "SSO已启用", nil)
 		return
 	}

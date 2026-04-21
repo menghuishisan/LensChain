@@ -8,14 +8,19 @@ package auth
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/mail"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
+	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
@@ -74,10 +79,12 @@ func (s *importService) BuildTemplate(importType string) (*bytes.Buffer, string,
 		return nil, "", errcode.ErrInvalidParams.WithMessage("type 必须为 student 或 teacher")
 	}
 	fileName := "学生导入模板.xlsx"
+	sampleRows := studentImportSampleRows()
 	if importType == enum.ImportTypeTeacher {
 		fileName = "教师导入模板.xlsx"
+		sampleRows = teacherImportSampleRows()
 	}
-	buf, err := excelpkg.CreateTemplate("Sheet1", userImportHeaders, nil)
+	buf, err := excelpkg.CreateTemplate("Sheet1", userImportHeaders, sampleRows)
 	if err != nil {
 		return nil, "", errcode.ErrInternal.WithMessage("生成模板失败")
 	}
@@ -158,8 +165,11 @@ func (s *importService) Preview(ctx context.Context, sc *svcctx.ServiceContext, 
 	if len(rows) == 0 {
 		return nil, errcode.ErrInvalidParams.WithMessage("文件内容为空")
 	}
+	if !enum.IsValidImportType(importType) {
+		return nil, errcode.ErrInvalidParams.WithMessage("导入类型不合法")
+	}
 	if len(rows) > 5000 {
-		return nil, errcode.ErrInvalidParams.WithMessage("单次导入最多支持5000行数据")
+		return nil, errcode.ErrInvalidParams.WithMessage("单次导入不超过5000条")
 	}
 
 	importID := fmt.Sprintf("imp_%d", snowflake.Generate())
@@ -168,6 +178,9 @@ func (s *importService) Preview(ctx context.Context, sc *svcctx.ServiceContext, 
 
 	for i, row := range rows {
 		parsed := s.parseRow(i+2, row) // 行号从2开始（第1行是表头）
+		if parsed == nil {
+			continue
+		}
 
 		// 校验数据
 		s.validateRow(ctx, sc.SchoolID, parsed)
@@ -250,14 +263,32 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 		return nil, errcode.ErrInternal.WithMessage("导入缓存服务未初始化")
 	}
 
+	acquired, err := s.importCacheStore.AcquireExecution(ctx, req.ImportID, 24*time.Hour)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("导入执行状态初始化失败")
+	}
+	if !acquired {
+		return nil, errcode.ErrInvalidParams.WithMessage("该导入批次已执行或正在处理中")
+	}
+
 	cacheData, err := s.importCacheStore.GetImport(ctx, req.ImportID)
 	if err != nil {
+		_ = s.importCacheStore.ReleaseExecution(ctx, req.ImportID)
 		return nil, errcode.ErrInvalidParams.WithMessage("导入批次不存在或已过期")
 	}
 
 	// P0-3 修复：校验学校ID一致，防止跨租户操作
 	if cacheData.SchoolID != sc.SchoolID {
+		_ = s.importCacheStore.ReleaseExecution(ctx, req.ImportID)
 		return nil, errcode.ErrForbidden.WithMessage("无权操作其他学校的导入批次")
+	}
+	if !enum.IsValidImportType(cacheData.ImportType) {
+		_ = s.importCacheStore.ReleaseExecution(ctx, req.ImportID)
+		return nil, errcode.ErrInvalidParams.WithMessage("导入批次类型不合法")
+	}
+	if !enum.IsValidConflictStrategy(req.ConflictStrategy) {
+		_ = s.importCacheStore.ReleaseExecution(ctx, req.ImportID)
+		return nil, errcode.ErrInvalidParams.WithMessage("冲突处理策略不合法")
 	}
 
 	// 构建覆盖手机号集合
@@ -273,14 +304,19 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 	}
 	role, err := s.roleRepo.GetByCode(ctx, roleCode)
 	if err != nil {
+		_ = s.importCacheStore.ReleaseExecution(ctx, req.ImportID)
 		return nil, errcode.ErrInternal.WithMessage("角色不存在")
 	}
 
 	successCount, failCount, skipCount, overwriteCount := 0, 0, 0, 0
 	failedRows := make([]*importRow, 0)
+	overwrittenUserIDs := make([]int64, 0)
 
 	// 逐行处理（事务）
 	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txUserRepo := authrepo.NewUserRepository(tx)
+		txProfileRepo := authrepo.NewProfileRepository(tx)
+		txRoleRepo := authrepo.NewRoleRepository(tx)
 		for _, row := range cacheData.Rows {
 			// 跳过无效行
 			if row.Status == enum.ImportRowInvalid {
@@ -304,18 +340,20 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 				}
 
 				// P0-5 修复：覆盖时校验目标用户属于同一学校
-				if err := s.overwriteUser(ctx, tx, sc, row); err != nil {
+				overwrittenUserID, err := s.overwriteUser(ctx, txUserRepo, txProfileRepo, sc, row)
+				if err != nil {
 					failCount++
 					row.Message = "覆盖失败：" + err.Error()
 					failedRows = append(failedRows, row)
 					continue
 				}
+				overwrittenUserIDs = append(overwrittenUserIDs, overwrittenUserID)
 				overwriteCount++
 				continue
 			}
 
 			// 创建新用户
-			if err := s.createImportUser(ctx, tx, sc, row, role.ID); err != nil {
+			if err := s.createImportUser(ctx, txUserRepo, txProfileRepo, txRoleRepo, sc, row, role.ID); err != nil {
 				failCount++
 				row.Message = "创建失败：" + err.Error()
 				failedRows = append(failedRows, row)
@@ -326,7 +364,11 @@ func (s *importService) Execute(ctx context.Context, sc *svcctx.ServiceContext, 
 		return nil
 	})
 	if err != nil {
+		_ = s.importCacheStore.ReleaseExecution(ctx, req.ImportID)
 		return nil, errcode.ErrInternal.WithMessage("执行导入失败")
+	}
+	for _, userID := range overwrittenUserIDs {
+		invalidateUserSession(ctx, s.userRepo, userID, resolveAccessTokenTTLByProvider(ctx, s.policyProvider))
 	}
 
 	// 清除导入预览缓存
@@ -399,4 +441,320 @@ func (s *importService) GetImportFailures(ctx context.Context, sc *svcctx.Servic
 	}
 
 	return result, nil
+}
+
+// parseRow 解析 Excel 行数据，并统一裁剪字段空白。
+func (s *importService) parseRow(rowNum int, cells []string) *importRow {
+	row := &importRow{
+		Row:    rowNum,
+		Status: enum.ImportRowValid,
+	}
+
+	getCell := func(idx int) string {
+		if idx >= len(cells) {
+			return ""
+		}
+		return strings.TrimSpace(cells[idx])
+	}
+
+	row.Name = getCell(0)
+	row.Phone = getCell(1)
+	row.StudentNo = getCell(2)
+	row.PasswordHash = getCell(3)
+	row.College = getCell(4)
+	row.Major = getCell(5)
+	row.ClassName = getCell(6)
+	row.EnrollmentYear = getCell(7)
+	row.EducationLevel = getCell(8)
+	row.Grade = getCell(9)
+	row.Email = getCell(10)
+	row.Remark = getCell(11)
+
+	if row.Name == "" &&
+		row.Phone == "" &&
+		row.StudentNo == "" &&
+		row.PasswordHash == "" &&
+		row.College == "" &&
+		row.Major == "" &&
+		row.ClassName == "" &&
+		row.EnrollmentYear == "" &&
+		row.EducationLevel == "" &&
+		row.Grade == "" &&
+		row.Email == "" &&
+		row.Remark == "" {
+		return nil
+	}
+
+	return row
+}
+
+// validateRow 校验导入行数据。
+func (s *importService) validateRow(ctx context.Context, schoolID int64, row *importRow) {
+	var errors []string
+	policy := defaultRuntimeSecurityPolicy()
+	if s.policyProvider != nil {
+		if runtimePolicy, err := s.policyProvider.GetRuntimeSecurityPolicy(ctx); err == nil && runtimePolicy != nil {
+			policy = runtimePolicy
+		}
+	}
+
+	if row.Name == "" {
+		errors = append(errors, "姓名不能为空")
+	}
+	if row.Phone == "" {
+		errors = append(errors, "手机号不能为空")
+	} else if !phoneRegex.MatchString(row.Phone) {
+		errors = append(errors, "手机号格式不正确")
+	}
+	if row.StudentNo == "" {
+		errors = append(errors, "学号/工号不能为空")
+	}
+	if row.PasswordHash == "" {
+		errors = append(errors, "初始密码不能为空")
+	} else if err := validatePasswordWithPolicy(row.PasswordHash, policy); err != nil {
+		errors = append(errors, "初始密码不满足当前密码复杂度要求")
+	}
+	if row.Email != "" {
+		if _, err := mail.ParseAddress(row.Email); err != nil {
+			errors = append(errors, "邮箱格式不正确")
+		}
+	}
+	if len(row.Name) > 50 {
+		errors = append(errors, "姓名长度不能超过50")
+	}
+	if len(row.StudentNo) > 50 {
+		errors = append(errors, "学号/工号长度不能超过50")
+	}
+	if row.EnrollmentYear != "" {
+		year, err := strconv.Atoi(row.EnrollmentYear)
+		currentYear := time.Now().Year()
+		if err != nil || year < 2000 || year > currentYear {
+			errors = append(errors, "入学年份不在有效范围内")
+		}
+	}
+	if row.EducationLevel != "" && enum.ParseEduLevel(row.EducationLevel) == 0 {
+		errors = append(errors, "学业层次仅支持专科/本科/硕士/博士")
+	}
+
+	if len(errors) > 0 {
+		row.Status = enum.ImportRowInvalid
+		row.Message = joinErrors(errors)
+		return
+	}
+
+	existingByPhone, err := s.userRepo.GetByPhone(ctx, row.Phone)
+	if err == nil && existingByPhone != nil {
+		row.Status = enum.ImportRowConflict
+		existName := existingByPhone.Name
+		existNo := ""
+		if existingByPhone.StudentNo != nil {
+			existNo = *existingByPhone.StudentNo
+		}
+		row.Message = fmt.Sprintf("手机号已存在，当前用户：%s（学号%s）", existName, existNo)
+		return
+	}
+
+	existingByNo, err := s.userRepo.GetBySchoolAndStudentNo(ctx, schoolID, row.StudentNo)
+	if err == nil && existingByNo != nil {
+		row.Status = enum.ImportRowConflict
+		row.Message = fmt.Sprintf("学号已存在，当前用户：%s（手机号%s）", existingByNo.Name, existingByNo.Phone)
+	}
+}
+
+// createImportUser 创建导入用户。
+func (s *importService) createImportUser(
+	ctx context.Context,
+	userRepo authrepo.UserRepository,
+	profileRepo authrepo.ProfileRepository,
+	roleRepo authrepo.RoleRepository,
+	sc *svcctx.ServiceContext,
+	row *importRow,
+	roleID int64,
+) error {
+	userID := snowflake.Generate()
+	studentNo := row.StudentNo
+
+	user := &entity.User{
+		ID:           userID,
+		Phone:        row.Phone,
+		PasswordHash: row.PasswordHash,
+		Name:         row.Name,
+		SchoolID:     sc.SchoolID,
+		StudentNo:    &studentNo,
+		Status:       enum.UserStatusActive,
+		IsFirstLogin: true,
+		CreatedBy:    &sc.UserID,
+	}
+	if err := userRepo.Create(ctx, user); err != nil {
+		return err
+	}
+
+	profile := &entity.UserProfile{
+		UserID: userID,
+	}
+	if row.College != "" {
+		profile.College = &row.College
+	}
+	if row.Major != "" {
+		profile.Major = &row.Major
+	}
+	if row.ClassName != "" {
+		profile.ClassName = &row.ClassName
+	}
+	if row.EnrollmentYear != "" {
+		if year, err := strconv.Atoi(row.EnrollmentYear); err == nil {
+			enrollmentYear := int16(year)
+			profile.EnrollmentYear = &enrollmentYear
+		}
+	}
+	if row.EducationLevel != "" {
+		level := enum.ParseEduLevel(row.EducationLevel)
+		if level > 0 {
+			profile.EducationLevel = &level
+		}
+	}
+	if row.Grade != "" {
+		if grade, err := strconv.Atoi(row.Grade); err == nil {
+			levelGrade := int16(grade)
+			profile.Grade = &levelGrade
+		}
+	}
+	if row.Email != "" {
+		profile.Email = &row.Email
+	}
+	if row.Remark != "" {
+		profile.Remark = &row.Remark
+	}
+	if err := profileRepo.Create(ctx, profile); err != nil {
+		return err
+	}
+
+	return roleRepo.AssignRole(ctx, userID, roleID)
+}
+
+// overwriteUser 覆盖已有用户。
+func (s *importService) overwriteUser(
+	ctx context.Context,
+	userRepo authrepo.UserRepository,
+	profileRepo authrepo.ProfileRepository,
+	sc *svcctx.ServiceContext,
+	row *importRow,
+) (int64, error) {
+	existing, err := userRepo.GetByPhone(ctx, row.Phone)
+	if err != nil {
+		return 0, err
+	}
+	if existing.SchoolID != sc.SchoolID {
+		return 0, fmt.Errorf("目标用户不属于当前学校，禁止跨租户覆盖")
+	}
+
+	studentNo := row.StudentNo
+	if err := userRepo.UpdateFields(ctx, existing.ID, map[string]interface{}{
+		"name":           row.Name,
+		"password_hash":  row.PasswordHash,
+		"student_no":     &studentNo,
+		"is_first_login": true,
+	}); err != nil {
+		return 0, err
+	}
+
+	profileFields := make(map[string]interface{})
+	if row.College != "" {
+		profileFields["college"] = row.College
+	}
+	if row.Major != "" {
+		profileFields["major"] = row.Major
+	}
+	if row.ClassName != "" {
+		profileFields["class_name"] = row.ClassName
+	}
+	if row.Email != "" {
+		profileFields["email"] = row.Email
+	}
+	if row.Remark != "" {
+		profileFields["remark"] = row.Remark
+	}
+	if row.EnrollmentYear != "" {
+		if year, err := strconv.Atoi(row.EnrollmentYear); err == nil {
+			profileFields["enrollment_year"] = int16(year)
+		}
+	}
+	if row.EducationLevel != "" {
+		if level := enum.ParseEduLevel(row.EducationLevel); level > 0 {
+			profileFields["education_level"] = level
+		}
+	}
+	if row.Grade != "" {
+		if grade, err := strconv.Atoi(row.Grade); err == nil {
+			profileFields["grade"] = int16(grade)
+		}
+	}
+	if len(profileFields) == 0 {
+		return existing.ID, nil
+	}
+
+	if _, err := profileRepo.GetByUserID(ctx, existing.ID); err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, err
+		}
+		profile := &entity.UserProfile{UserID: existing.ID}
+		applyImportProfileFields(profile, profileFields)
+		if err := profileRepo.Create(ctx, profile); err != nil {
+			return 0, err
+		}
+		return existing.ID, nil
+	}
+	if err := profileRepo.UpdateFields(ctx, existing.ID, profileFields); err != nil {
+		return 0, err
+	}
+	return existing.ID, nil
+}
+
+// joinErrors 拼接多条校验错误。
+func joinErrors(errors []string) string {
+	return strings.Join(errors, "；")
+}
+
+// applyImportProfileFields 将导入字段映射到扩展资料实体。
+func applyImportProfileFields(profile *entity.UserProfile, fields map[string]interface{}) {
+	if value, ok := fields["college"].(string); ok {
+		profile.College = &value
+	}
+	if value, ok := fields["major"].(string); ok {
+		profile.Major = &value
+	}
+	if value, ok := fields["class_name"].(string); ok {
+		profile.ClassName = &value
+	}
+	if value, ok := fields["email"].(string); ok {
+		profile.Email = &value
+	}
+	if value, ok := fields["remark"].(string); ok {
+		profile.Remark = &value
+	}
+	if value, ok := fields["enrollment_year"].(int16); ok {
+		profile.EnrollmentYear = &value
+	}
+	if value, ok := fields["education_level"].(int16); ok {
+		profile.EducationLevel = &value
+	}
+	if value, ok := fields["grade"].(int16); ok {
+		profile.Grade = &value
+	}
+}
+
+// studentImportSampleRows 返回学生导入模板的说明行和示例行。
+func studentImportSampleRows() [][]interface{} {
+	return [][]interface{}{
+		{"必填，1-50字", "必填，11位手机号", "必填，校内唯一", "必填，满足密码复杂度", "选填", "选填", "选填", "选填，如2024", "选填：专科/本科/硕士/博士", "选填", "选填，邮箱格式", "选填"},
+		{"张三", "13800138000", "2024001", "InitPass123", "计算机学院", "软件工程", "软工2401", "2024", "本科", "1", "zhangsan@example.com", "示例学生"},
+	}
+}
+
+// teacherImportSampleRows 返回教师导入模板的说明行和示例行。
+func teacherImportSampleRows() [][]interface{} {
+	return [][]interface{}{
+		{"必填，1-50字", "必填，11位手机号", "必填，工号", "必填，满足密码复杂度", "选填", "通常留空", "通常留空", "通常留空", "通常留空", "通常留空", "选填，邮箱格式", "选填"},
+		{"李老师", "13900139000", "T2024001", "InitPass123", "计算机学院", "", "", "", "", "", "li@example.com", "示例教师"},
+	}
 }

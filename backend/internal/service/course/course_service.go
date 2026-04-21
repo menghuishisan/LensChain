@@ -17,9 +17,11 @@ import (
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/contentsafety"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/timeutil"
 	courserepo "github.com/lenschain/backend/internal/repository/course"
 )
 
@@ -59,7 +61,7 @@ type SchoolNameQuerier interface {
 type CourseService interface {
 	Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateCourseReq) (*dto.CreateCourseResp, error)
 	GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.CourseDetailResp, error)
-	GetSharedDetail(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.CourseDetailResp, error)
+	GetSharedDetail(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.SharedCourseDetailResp, error)
 	Update(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateCourseReq) error
 	Delete(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CourseListReq) ([]*dto.CourseListItem, int64, error)
@@ -79,6 +81,7 @@ type courseService struct {
 	courseRepo        courserepo.CourseRepository
 	chapterRepo       courserepo.ChapterRepository
 	lessonRepo        courserepo.LessonRepository
+	attachmentRepo    courserepo.AttachmentRepository
 	enrollmentRepo    courserepo.EnrollmentRepository
 	assignmentRepo    courserepo.AssignmentRepository
 	questionRepo      courserepo.QuestionRepository
@@ -94,6 +97,7 @@ func NewCourseService(
 	courseRepo courserepo.CourseRepository,
 	chapterRepo courserepo.ChapterRepository,
 	lessonRepo courserepo.LessonRepository,
+	attachmentRepo courserepo.AttachmentRepository,
 	enrollmentRepo courserepo.EnrollmentRepository,
 	assignmentRepo courserepo.AssignmentRepository,
 	questionRepo courserepo.QuestionRepository,
@@ -104,7 +108,7 @@ func NewCourseService(
 ) CourseService {
 	return &courseService{
 		db: db, courseRepo: courseRepo, chapterRepo: chapterRepo,
-		lessonRepo: lessonRepo, enrollmentRepo: enrollmentRepo,
+		lessonRepo: lessonRepo, attachmentRepo: attachmentRepo, enrollmentRepo: enrollmentRepo,
 		assignmentRepo: assignmentRepo, questionRepo: questionRepo,
 		progressRepo: progressRepo, evaluationRepo: evaluationRepo,
 		userNameQuerier: userNameQuerier, schoolNameQuerier: schoolNameQuerier,
@@ -113,7 +117,10 @@ func NewCourseService(
 
 // Create 创建课程
 func (s *courseService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateCourseReq) (*dto.CreateCourseResp, error) {
-	inviteCode := generateInviteCode()
+	inviteCode, err := generateInviteCode()
+	if err != nil {
+		return nil, err
+	}
 	coverURL := req.CoverURL
 	if coverURL == nil {
 		coverURL = getDefaultCourseCoverURL()
@@ -123,7 +130,7 @@ func (s *courseService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 		SchoolID:    sc.SchoolID,
 		TeacherID:   sc.UserID,
 		Title:       req.Title,
-		Description: req.Description,
+		Description: contentsafety.SanitizeOptionalMarkdown(req.Description),
 		CoverURL:    coverURL,
 		CourseType:  req.CourseType,
 		Difficulty:  req.Difficulty,
@@ -143,18 +150,21 @@ func (s *courseService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 	}
 
 	if req.StartAt != nil {
-		t, err := dto.ParseTime(*req.StartAt)
+		t, err := timeutil.ParseRFC3339(*req.StartAt)
 		if err != nil {
 			return nil, errcode.ErrInvalidParams.WithMessage("开始时间格式错误")
 		}
 		course.StartAt = t
 	}
 	if req.EndAt != nil {
-		t, err := dto.ParseTime(*req.EndAt)
+		t, err := timeutil.ParseRFC3339(*req.EndAt)
 		if err != nil {
 			return nil, errcode.ErrInvalidParams.WithMessage("结束时间格式错误")
 		}
 		course.EndAt = t
+	}
+	if err := validateCourseTimeRange(course.StartAt, course.EndAt); err != nil {
+		return nil, err
 	}
 
 	if err := s.courseRepo.Create(ctx, course); err != nil {
@@ -176,9 +186,28 @@ func (s *courseService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, 
 	if err != nil {
 		return nil, err
 	}
-	studentCount, _ := s.courseRepo.CountStudents(ctx, id)
+	studentCount, err := s.courseRepo.CountStudents(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	chapters, err := s.chapterRepo.ListByCourseID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	chapterIDs := make([]int64, 0, len(chapters))
+	for _, chapter := range chapters {
+		chapterIDs = append(chapterIDs, chapter.ID)
+	}
+	lessons, err := s.lessonRepo.ListByChapterIDs(ctx, chapterIDs)
+	if err != nil {
+		return nil, err
+	}
 	teacherName := s.userNameQuerier.GetUserName(ctx, course.TeacherID)
-	return buildCourseDetail(course, studentCount, teacherName), nil
+	detail := buildCourseDetail(course, studentCount, teacherName, buildCourseChapters(chapters, lessons))
+	if course.TeacherID != sc.UserID {
+		detail.InviteCode = nil
+	}
+	return detail, nil
 }
 
 // Update 编辑课程信息
@@ -190,13 +219,16 @@ func (s *courseService) Update(ctx context.Context, sc *svcctx.ServiceContext, i
 	if _, err := ensureCourseTeacher(ctx, sc, s.courseRepo, course.ID); err != nil {
 		return err
 	}
+	if err := ensureCourseContentEditable(course); err != nil {
+		return err
+	}
 
 	fields := make(map[string]interface{})
 	if req.Title != nil {
 		fields["title"] = *req.Title
 	}
 	if req.Description != nil {
-		fields["description"] = *req.Description
+		fields["description"] = contentsafety.SanitizeMarkdown(*req.Description)
 	}
 	if req.CoverURL != nil {
 		fields["cover_url"] = *req.CoverURL
@@ -225,18 +257,31 @@ func (s *courseService) Update(ctx context.Context, sc *svcctx.ServiceContext, i
 		}
 	}
 	if req.StartAt != nil {
-		t, err := dto.ParseTime(*req.StartAt)
+		t, err := timeutil.ParseRFC3339(*req.StartAt)
 		if err != nil {
 			return errcode.ErrInvalidParams.WithMessage("开始时间格式错误")
 		}
 		fields["start_at"] = t
 	}
 	if req.EndAt != nil {
-		t, err := dto.ParseTime(*req.EndAt)
+		t, err := timeutil.ParseRFC3339(*req.EndAt)
 		if err != nil {
 			return errcode.ErrInvalidParams.WithMessage("结束时间格式错误")
 		}
 		fields["end_at"] = t
+	}
+	nextStartAt := course.StartAt
+	if parsedStartAt, ok := fields["start_at"]; ok {
+		value := parsedStartAt.(time.Time)
+		nextStartAt = &value
+	}
+	nextEndAt := course.EndAt
+	if parsedEndAt, ok := fields["end_at"]; ok {
+		value := parsedEndAt.(time.Time)
+		nextEndAt = &value
+	}
+	if err := validateCourseTimeRange(nextStartAt, nextEndAt); err != nil {
+		return err
 	}
 	if req.MaxStudents != nil {
 		fields["max_students"] = *req.MaxStudents
@@ -268,7 +313,6 @@ func (s *courseService) List(ctx context.Context, sc *svcctx.ServiceContext, req
 	courses, total, err := s.courseRepo.List(ctx, &courserepo.CourseListParams{
 		SchoolID: sc.SchoolID, TeacherID: sc.UserID,
 		Keyword: req.Keyword, Status: req.Status, CourseType: req.CourseType,
-		SortBy: req.SortBy, SortOrder: req.SortOrder,
 		Page: req.Page, PageSize: req.PageSize,
 	})
 	if err != nil {
@@ -277,7 +321,10 @@ func (s *courseService) List(ctx context.Context, sc *svcctx.ServiceContext, req
 
 	items := make([]*dto.CourseListItem, 0, len(courses))
 	for _, c := range courses {
-		count, _ := s.courseRepo.CountStudents(ctx, c.ID)
+		count, err := s.courseRepo.CountStudents(ctx, c.ID)
+		if err != nil {
+			return nil, 0, err
+		}
 		items = append(items, buildCourseListItem(c, count))
 	}
 	return items, total, nil
@@ -295,13 +342,16 @@ func (s *courseService) Publish(ctx context.Context, sc *svcctx.ServiceContext, 
 	if course.Status != enum.CourseStatusDraft {
 		return errcode.ErrCourseAlreadyPublished
 	}
-	chapterCount, _ := s.chapterRepo.CountByCourseID(ctx, id)
-	if chapterCount == 0 {
-		return errcode.ErrInvalidParams.WithMessage("至少需要1个章节才能发布")
+	chapterCount, err := s.chapterRepo.CountByCourseID(ctx, id)
+	if err != nil {
+		return err
 	}
-	lessonCount, _ := s.lessonRepo.CountByCourseID(ctx, id)
-	if lessonCount == 0 {
-		return errcode.ErrInvalidParams.WithMessage("至少需要1个课时才能发布")
+	lessonCount, err := s.lessonRepo.CountByCourseID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if chapterCount == 0 || lessonCount == 0 {
+		return errcode.ErrInvalidParams.WithMessage("请至少添加一个章节和一个课时")
 	}
 	return s.courseRepo.UpdateStatus(ctx, id, enum.CourseStatusPublished)
 }
@@ -342,6 +392,9 @@ func (s *courseService) ToggleShare(ctx context.Context, sc *svcctx.ServiceConte
 	if err != nil {
 		return err
 	}
+	if err := ensureCourseWriteAllowed(course); err != nil {
+		return err
+	}
 	if req.IsShared {
 		switch course.Status {
 		case enum.CourseStatusPublished, enum.CourseStatusActive, enum.CourseStatusEnded:
@@ -356,10 +409,17 @@ func (s *courseService) ToggleShare(ctx context.Context, sc *svcctx.ServiceConte
 
 // RefreshInviteCode 刷新邀请码
 func (s *courseService) RefreshInviteCode(ctx context.Context, sc *svcctx.ServiceContext, id int64) (string, error) {
-	if _, err := ensureCourseTeacher(ctx, sc, s.courseRepo, id); err != nil {
+	course, err := ensureCourseTeacher(ctx, sc, s.courseRepo, id)
+	if err != nil {
 		return "", err
 	}
-	code := generateInviteCode()
+	if err := ensureCourseContentEditable(course); err != nil {
+		return "", err
+	}
+	code, err := generateInviteCode()
+	if err != nil {
+		return "", err
+	}
 	if err := s.courseRepo.UpdateFields(ctx, id, map[string]interface{}{
 		"invite_code": code, "updated_at": time.Now(),
 	}); err != nil {
@@ -368,15 +428,19 @@ func (s *courseService) RefreshInviteCode(ctx context.Context, sc *svcctx.Servic
 	return code, nil
 }
 
-// generateInviteCode 生成6位随机邀请码（排除易混淆字符 0OI1）
-func generateInviteCode() string {
+// generateInviteCode 生成6位随机邀请码（排除易混淆字符 0OI1）。
+// 使用加密安全随机源，失败时向上返回错误，避免静默生成无效邀请码。
+func generateInviteCode() (string, error) {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	code := make([]byte, 6)
 	for i := range code {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(chars))))
+		if err != nil {
+			return "", errcode.ErrInternal.WithMessage("生成邀请码失败")
+		}
 		code[i] = chars[n.Int64()]
 	}
-	return string(code)
+	return string(code), nil
 }
 
 // getDefaultCourseCoverURL 获取课程默认封面地址

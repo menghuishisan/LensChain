@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/database"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/pkg/tokenstate"
@@ -46,13 +48,15 @@ func initSchoolModule() *router.SchoolHandlers {
 	userRepo := authrepo.NewUserRepository(db)
 	roleRepo := authrepo.NewRoleRepository(db)
 
-	adminCreator := &adminCreatorAdapter{roleRepo: roleRepo}
+	adminCreator := &adminCreatorAdapter{userRepo: userRepo, roleRepo: roleRepo}
 	sessionKicker := &sessionKickerAdapter{userRepo: userRepo}
+	userLifecycle := &schoolUserLifecycleAdapter{}
+	adminContactProvider := &schoolAdminContactProviderAdapter{userRepo: userRepo}
 
 	// ========== Service 层 ==========
 	appService := svc.NewApplicationService(db, appRepo, schoolRepo, notifyRepo, adminCreator)
-	schoolService := svc.NewSchoolService(db, schoolRepo, adminCreator, sessionKicker)
-	ssoService := svc.NewSSOService(ssoRepo, schoolRepo)
+	schoolService := svc.NewSchoolService(db, schoolRepo, adminCreator, sessionKicker, userLifecycle)
+	ssoService := svc.NewSSOService(ssoRepo)
 
 	// ========== Handler 层 ==========
 	appHandler := handler.NewApplicationHandler(appService)
@@ -60,7 +64,7 @@ func initSchoolModule() *router.SchoolHandlers {
 	ssoHandler := handler.NewSSOHandler(ssoService)
 
 	// ========== 定时任务注册 ==========
-	scheduler := svc.NewSchoolScheduler(schoolRepo, notifyRepo, sessionKicker)
+	scheduler := svc.NewSchoolScheduler(schoolRepo, notifyRepo, sessionKicker, adminContactProvider)
 	cronpkg.AddTask(cronpkg.CronSchoolExpireBuffer, "学校到期转缓冲期", scheduler.RunExpireToBuffering)
 	cronpkg.AddTask(cronpkg.CronSchoolExpiryCheck, "学校到期提醒检查", scheduler.RunExpiryReminder)
 	cronpkg.AddTask(cronpkg.CronSchoolBufferFreeze, "学校缓冲期转冻结", scheduler.RunBufferingToFrozen)
@@ -77,13 +81,29 @@ func initSchoolModule() *router.SchoolHandlers {
 // adminCreatorAdapter 跨模块 adapter：创建首个校管账号
 // 实现 school.AdminCreator 接口，内部调用模块01的 repo 层
 type adminCreatorAdapter struct {
+	userRepo authrepo.UserRepository
 	roleRepo authrepo.RoleRepository
 }
 
 // CreateSchoolAdmin 在事务中创建首个校管账号
 // 1. 生成随机密码 2. 创建用户 3. 分配 teacher + school_admin 角色
 // 返回 userID 和明文密码（用于短信通知）
-func (a *adminCreatorAdapter) CreateSchoolAdmin(ctx context.Context, tx *gorm.DB, schoolID int64, phone, name string, createdBy int64) (int64, string, error) {
+func (a *adminCreatorAdapter) CreateSchoolAdmin(ctx context.Context, schoolID int64, phone, name string, createdBy int64) (int64, string, error) {
+	tx, ok := database.TxFromContext(ctx)
+	if !ok {
+		return 0, "", errors.New("创建校管账号缺少事务上下文")
+	}
+
+	txUserRepo := authrepo.NewUserRepository(tx)
+	txRoleRepo := authrepo.NewRoleRepository(tx)
+
+	// 联系人手机号若已被现有账号占用，需要按文档提示超管人工处理。
+	if existing, err := txUserRepo.GetByPhone(ctx, phone); err == nil && existing != nil {
+		return 0, "", errcode.ErrDuplicatePhone.WithMessage("联系人手机号已存在，请超管手动处理")
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, "", err
+	}
+
 	// 1. 生成随机密码
 	password, err := crypto.GenerateRandomPassword(12)
 	if err != nil {
@@ -125,10 +145,10 @@ func (a *adminCreatorAdapter) CreateSchoolAdmin(ctx context.Context, tx *gorm.DB
 	// 5. 分配角色：teacher + school_admin
 	roleCodes := []string{enum.RoleTeacher, enum.RoleSchoolAdmin}
 	for _, code := range roleCodes {
-		role, err := a.roleRepo.GetByCode(ctx, code)
+		role, err := txRoleRepo.GetByCode(ctx, code)
 		if err != nil {
 			logger.L.Error("查找角色失败", zap.String("code", code), zap.Error(err))
-			continue
+			return 0, "", err
 		}
 		userRole := &entity.UserRole{
 			ID:     snowflake.Generate(),
@@ -152,9 +172,8 @@ type sessionKickerAdapter struct {
 }
 
 // KickSchoolUsers 踢出指定学校的所有用户 Session
-// 1. 查询该校所有用户 ID
-// 2. 批量删除 Redis 中的 session:{user_id} 键
-// Access Token 在 30 分钟内自然过期，不单独加黑名单
+// 1. 批量刷新该校用户的 token_valid_after，使历史 Access/Refresh Token 立即失效
+// 2. 删除 Redis 中的 session:{user_id} 键，清空在线会话
 func (a *sessionKickerAdapter) KickSchoolUsers(ctx context.Context, schoolID int64) error {
 	now := time.Now()
 	if err := a.userRepo.BatchUpdateTokenValidAfterBySchool(ctx, schoolID, now); err != nil {
@@ -179,6 +198,39 @@ func (a *sessionKickerAdapter) KickSchoolUsers(ctx context.Context, schoolID int
 		zap.Int("user_count", len(userIDs)),
 	)
 	return nil
+}
+
+// schoolUserLifecycleAdapter 跨模块 adapter：学校维度用户软删与恢复。
+// 具体写库逻辑由模块01 repository 执行，模块02 service 只通过接口协调。
+type schoolUserLifecycleAdapter struct{}
+
+// SoftDeleteSchoolUsers 软删除学校下全部用户
+func (a *schoolUserLifecycleAdapter) SoftDeleteSchoolUsers(ctx context.Context, schoolID int64) error {
+	tx, ok := database.TxFromContext(ctx)
+	if !ok {
+		return errors.New("软删除学校用户缺少事务上下文")
+	}
+	return authrepo.NewUserRepository(tx).SoftDeleteBySchoolID(ctx, schoolID)
+}
+
+// RestoreSchoolUsers 恢复学校下全部用户
+func (a *schoolUserLifecycleAdapter) RestoreSchoolUsers(ctx context.Context, schoolID int64) error {
+	tx, ok := database.TxFromContext(ctx)
+	if !ok {
+		return errors.New("恢复学校用户缺少事务上下文")
+	}
+	return authrepo.NewUserRepository(tx).RestoreBySchoolID(ctx, schoolID)
+}
+
+// schoolAdminContactProviderAdapter 跨模块 adapter：提供学校管理员手机号列表。
+// 学校模块的到期提醒只依赖接口，不直接跨模块读 users 表。
+type schoolAdminContactProviderAdapter struct {
+	userRepo authrepo.UserRepository
+}
+
+// ListAdminPhones 返回学校管理员手机号列表。
+func (a *schoolAdminContactProviderAdapter) ListAdminPhones(ctx context.Context, schoolID int64) ([]string, error) {
+	return a.userRepo.ListAdminPhonesBySchoolID(ctx, schoolID)
 }
 
 // ========== SchoolNameQuerier Adapter ==========

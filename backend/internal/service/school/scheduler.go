@@ -15,9 +15,9 @@ import (
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
-	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/sms"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
 // SchoolScheduler 学校定时任务服务
@@ -26,9 +26,16 @@ import (
 // 2. 到期提醒检查（每天 01:00）
 // 3. 缓冲期转冻结（每天 02:00）
 type SchoolScheduler struct {
-	schoolRepo   schoolrepo.SchoolRepository
-	notifyRepo   schoolrepo.NotificationRepository
-	sessionKicker SessionKicker
+	schoolRepo           schoolrepo.SchoolRepository
+	notifyRepo           schoolrepo.NotificationRepository
+	sessionKicker        SessionKicker
+	adminContactProvider SchoolAdminContactProvider
+}
+
+// SchoolAdminContactProvider 跨模块接口：获取学校管理员手机号列表。
+// 到期提醒要求通知本校所有管理员，模块02通过接口读取模块01用户数据，不直接访问跨模块表。
+type SchoolAdminContactProvider interface {
+	ListAdminPhones(ctx context.Context, schoolID int64) ([]string, error)
 }
 
 // NewSchoolScheduler 创建学校定时任务服务实例
@@ -36,11 +43,13 @@ func NewSchoolScheduler(
 	schoolRepo schoolrepo.SchoolRepository,
 	notifyRepo schoolrepo.NotificationRepository,
 	sessionKicker SessionKicker,
+	adminContactProvider SchoolAdminContactProvider,
 ) *SchoolScheduler {
 	return &SchoolScheduler{
-		schoolRepo:    schoolRepo,
-		notifyRepo:    notifyRepo,
-		sessionKicker: sessionKicker,
+		schoolRepo:           schoolRepo,
+		notifyRepo:           notifyRepo,
+		sessionKicker:        sessionKicker,
+		adminContactProvider: adminContactProvider,
 	}
 }
 
@@ -52,7 +61,7 @@ func (s *SchoolScheduler) RunExpireToBuffering() {
 	now := time.Now()
 
 	// 查询已激活且授权已过期的学校
-	schools, err := s.schoolRepo.ListByStatus(ctx, enum.SchoolStatusActive)
+	schools, err := s.schoolRepo.ListExpiredActive(ctx, now)
 	if err != nil {
 		logger.L.Error("定时任务[到期转缓冲期]查询学校失败", zap.Error(err))
 		return
@@ -60,11 +69,6 @@ func (s *SchoolScheduler) RunExpireToBuffering() {
 
 	count := 0
 	for _, sch := range schools {
-		// 跳过未设置到期时间或未到期的学校
-		if sch.LicenseEndAt == nil || sch.LicenseEndAt.After(now) {
-			continue
-		}
-
 		// 更新状态为缓冲期
 		if err := s.schoolRepo.UpdateFields(ctx, sch.ID, map[string]interface{}{
 			"status":     enum.SchoolStatusBuffering,
@@ -80,12 +84,12 @@ func (s *SchoolScheduler) RunExpireToBuffering() {
 		// 刷新缓存
 		refreshSchoolStatusCache(ctx, sch.ID, enum.SchoolStatusBuffering, sch.LicenseEndAt)
 
-		// 创建通知记录
+		// 创建学校通知记录
 		expireDate := ""
 		if sch.LicenseEndAt != nil {
 			expireDate = sch.LicenseEndAt.Format("2006-01-02")
 		}
-		s.createNotification(ctx, sch.ID, enum.SchoolNotifyBuffering, sch.Name, sch.ContactPhone,
+		s.createNotification(ctx, sch.ID, enum.SchoolNotifyBuffering, sch.ContactPhone,
 			fmt.Sprintf("学校「%s」授权已于 %s 到期，已进入7天缓冲期，请尽快续期", sch.Name, expireDate))
 
 		// 发送短信通知
@@ -111,7 +115,7 @@ func (s *SchoolScheduler) RunExpireToBuffering() {
 
 // RunExpiryReminder 到期提醒检查
 // 每天凌晨 01:00 执行
-// 检查7天内即将到期的学校，发送提醒通知（每校每天只发一次）
+// 检查7天内即将到期的学校，发送提醒通知（每校只发一次）
 func (s *SchoolScheduler) RunExpiryReminder() {
 	ctx := context.Background()
 	now := time.Now()
@@ -126,9 +130,8 @@ func (s *SchoolScheduler) RunExpiryReminder() {
 
 	count := 0
 	for _, sch := range schools {
-		// 检查今天是否已发送过提醒（防止重复发送）
-		todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		exists, err := s.notifyRepo.ExistsBySchoolAndType(ctx, sch.ID, enum.SchoolNotifyExpiring, todayStart)
+		// 文档要求到期提醒只发送一次，不按天重复发送。
+		exists, err := s.notifyRepo.ExistsBySchoolAndType(ctx, sch.ID, enum.SchoolNotifyExpiring)
 		if err != nil {
 			logger.L.Error("定时任务[到期提醒]检查通知记录失败",
 				zap.Int64("school_id", sch.ID),
@@ -137,29 +140,35 @@ func (s *SchoolScheduler) RunExpiryReminder() {
 			continue
 		}
 		if exists {
-			continue // 今天已发送过，跳过
+			continue // 已发送过提醒，跳过
 		}
 
 		// 计算剩余天数
 		remaining := int(time.Until(*sch.LicenseEndAt).Hours() / 24)
 
-		// 创建通知记录
+		// 创建学校通知记录，并向该校所有管理员发送通知流水
 		expireDate := ""
 		if sch.LicenseEndAt != nil {
 			expireDate = sch.LicenseEndAt.Format("2006-01-02")
 		}
-		s.createNotification(ctx, sch.ID, enum.SchoolNotifyExpiring, sch.Name, sch.ContactPhone,
-			fmt.Sprintf("学校「%s」授权将于 %s 到期（剩余%d天），请及时续期", sch.Name, expireDate, remaining))
+		detail := fmt.Sprintf("学校「%s」授权将于 %s 到期（剩余%d天），请及时续期", sch.Name, expireDate, remaining)
+		adminPhones := s.listAdminPhones(ctx, sch)
+		for _, phone := range adminPhones {
+			s.createNotification(ctx, sch.ID, enum.SchoolNotifyExpiring, phone, detail)
+		}
 
-		// 发送短信提醒
-		go func(school *entity.School, days int) {
-			if school.ContactPhone != "" {
-				_ = sms.Send(school.ContactPhone, sms.TemplateLicenseExpiring, map[string]string{
+		// 发送短信提醒给该校所有管理员；无管理员手机号时退回联系人手机号。
+		go func(school *entity.School, days int, phones []string) {
+			for _, phone := range phones {
+				if phone == "" {
+					continue
+				}
+				_ = sms.Send(phone, sms.TemplateLicenseExpiring, map[string]string{
 					"school_name":    school.Name,
 					"remaining_days": strconv.Itoa(days),
 				})
 			}
-		}(sch, remaining)
+		}(sch, remaining, adminPhones)
 
 		count++
 		logger.L.Info("发送学校到期提醒",
@@ -219,7 +228,7 @@ func (s *SchoolScheduler) RunBufferingToFrozen() {
 		}
 
 		// 创建通知记录
-		s.createNotification(ctx, sch.ID, enum.SchoolNotifyFrozen, sch.Name, sch.ContactPhone,
+		s.createNotification(ctx, sch.ID, enum.SchoolNotifyFrozen, sch.ContactPhone,
 			fmt.Sprintf("学校「%s」缓冲期已满7天，已自动冻结，如需恢复请联系管理员", sch.Name))
 
 		// 发送冻结通知短信
@@ -243,9 +252,9 @@ func (s *SchoolScheduler) RunBufferingToFrozen() {
 	}
 }
 
-// createNotification 创建学校通知记录
-// 包含学校名称、日期等具体信息，设置 target_phone 字段
-func (s *SchoolScheduler) createNotification(ctx context.Context, schoolID int64, notifyType int, schoolName, contactPhone, detail string) {
+// createNotification 创建学校通知记录。
+// 该方法只负责通知落库，不参与发送逻辑判断。
+func (s *SchoolScheduler) createNotification(ctx context.Context, schoolID int64, notifyType int16, contactPhone, detail string) {
 	title := enum.SchoolNotifyText[notifyType]
 	content := title
 	if detail != "" {
@@ -268,8 +277,42 @@ func (s *SchoolScheduler) createNotification(ctx context.Context, schoolID int64
 	if err := s.notifyRepo.Create(ctx, notification); err != nil {
 		logger.L.Error("创建学校通知记录失败",
 			zap.Int64("school_id", schoolID),
-			zap.Int("type", notifyType),
+			zap.Int16("type", notifyType),
 			zap.Error(err),
 		)
 	}
+}
+
+// listAdminPhones 获取学校管理员手机号列表。
+// 文档要求到期提醒发送给所有管理员；若暂时未查询到管理员，则回退到学校联系人手机号，避免提醒完全丢失。
+func (s *SchoolScheduler) listAdminPhones(ctx context.Context, school *entity.School) []string {
+	phones := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+
+	if s.adminContactProvider != nil {
+		adminPhones, err := s.adminContactProvider.ListAdminPhones(ctx, school.ID)
+		if err != nil {
+			logger.L.Error("查询学校管理员手机号失败",
+				zap.Int64("school_id", school.ID),
+				zap.Error(err),
+			)
+		} else {
+			for _, phone := range adminPhones {
+				if phone == "" {
+					continue
+				}
+				if _, ok := seen[phone]; ok {
+					continue
+				}
+				seen[phone] = struct{}{}
+				phones = append(phones, phone)
+			}
+		}
+	}
+
+	if len(phones) == 0 && school.ContactPhone != "" {
+		phones = append(phones, school.ContactPhone)
+	}
+
+	return phones
 }

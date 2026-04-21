@@ -7,7 +7,6 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
@@ -36,10 +35,11 @@ type ScenarioRepository interface {
 type ScenarioListParams struct {
 	Keyword         string
 	Category        string
-	SourceType      int
-	Status          int
+	AlgorithmType   string
+	SourceType      int16
+	Status          int16
 	TimeControlMode string
-	DataSourceMode  int
+	DataSourceMode  int16
 	SortBy          string
 	SortOrder       string
 	Page            int
@@ -108,6 +108,11 @@ func (r *scenarioRepository) List(ctx context.Context, params *ScenarioListParam
 		query = query.Where("category = ?", params.Category)
 	}
 
+	// 算法类型筛选
+	if params.AlgorithmType != "" {
+		query = query.Where("algorithm_type = ?", params.AlgorithmType)
+	}
+
 	// 来源类型筛选
 	if params.SourceType > 0 {
 		query = query.Where("source_type = ?", params.SourceType)
@@ -134,26 +139,22 @@ func (r *scenarioRepository) List(ctx context.Context, params *ScenarioListParam
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at": "created_at",
 		"name":       "name",
 		"category":   "category",
 		"status":     "status",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	// 分页
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var scenarios []*entity.SimScenario
 	if err := query.Find(&scenarios).Error; err != nil {
@@ -179,7 +180,6 @@ func (r *scenarioRepository) HasReferences(ctx context.Context, scenarioID int64
 type LinkGroupRepository interface {
 	Create(ctx context.Context, group *entity.SimLinkGroup) error
 	GetByID(ctx context.Context, id int64) (*entity.SimLinkGroup, error)
-	GetByIDWithScenes(ctx context.Context, id int64) (*entity.SimLinkGroup, error)
 	GetByCode(ctx context.Context, code string) (*entity.SimLinkGroup, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	Delete(ctx context.Context, id int64) error
@@ -193,6 +193,7 @@ type LinkGroupSceneRepository interface {
 	Delete(ctx context.Context, id int64) error
 	DeleteByLinkGroupID(ctx context.Context, linkGroupID int64) error
 	ListByLinkGroupID(ctx context.Context, linkGroupID int64) ([]*entity.SimLinkGroupScene, error)
+	ListByLinkGroupIDs(ctx context.Context, linkGroupIDs []int64) ([]*entity.SimLinkGroupScene, error)
 	BatchCreate(ctx context.Context, scenes []*entity.SimLinkGroupScene) error
 }
 
@@ -224,20 +225,6 @@ func (r *linkGroupRepository) GetByID(ctx context.Context, id int64) (*entity.Si
 	return &group, nil
 }
 
-// GetByIDWithScenes 根据ID获取联动组（含场景关联）
-func (r *linkGroupRepository) GetByIDWithScenes(ctx context.Context, id int64) (*entity.SimLinkGroup, error) {
-	var group entity.SimLinkGroup
-	err := r.db.WithContext(ctx).
-		Preload("Scenes", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
-		First(&group, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &group, nil
-}
-
 // GetByCode 根据编码获取联动组
 func (r *linkGroupRepository) GetByCode(ctx context.Context, code string) (*entity.SimLinkGroup, error) {
 	var group entity.SimLinkGroup
@@ -262,9 +249,6 @@ func (r *linkGroupRepository) Delete(ctx context.Context, id int64) error {
 func (r *linkGroupRepository) ListAll(ctx context.Context) ([]*entity.SimLinkGroup, error) {
 	var groups []*entity.SimLinkGroup
 	err := r.db.WithContext(ctx).
-		Preload("Scenes", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
 		Order("created_at desc").
 		Find(&groups).Error
 	return groups, err
@@ -279,9 +263,6 @@ func (r *linkGroupRepository) ListByScenarioID(ctx context.Context, scenarioID i
 				Select("link_group_id").
 				Where("scenario_id = ?", scenarioID),
 		).
-		Preload("Scenes", func(db *gorm.DB) *gorm.DB {
-			return db.Order("sort_order asc")
-		}).
 		Find(&groups).Error
 	return groups, err
 }
@@ -324,8 +305,24 @@ func (r *linkGroupSceneRepository) ListByLinkGroupID(ctx context.Context, linkGr
 	return scenes, err
 }
 
+// ListByLinkGroupIDs 批量获取多个联动组的场景关联。
+func (r *linkGroupSceneRepository) ListByLinkGroupIDs(ctx context.Context, linkGroupIDs []int64) ([]*entity.SimLinkGroupScene, error) {
+	if len(linkGroupIDs) == 0 {
+		return []*entity.SimLinkGroupScene{}, nil
+	}
+	var scenes []*entity.SimLinkGroupScene
+	err := r.db.WithContext(ctx).
+		Where("link_group_id IN ?", linkGroupIDs).
+		Order("link_group_id asc, sort_order asc").
+		Find(&scenes).Error
+	return scenes, err
+}
+
 // BatchCreate 批量创建联动组场景关联
 func (r *linkGroupSceneRepository) BatchCreate(ctx context.Context, scenes []*entity.SimLinkGroupScene) error {
+	if len(scenes) == 0 {
+		return nil
+	}
 	for i := range scenes {
 		if scenes[i].ID == 0 {
 			scenes[i].ID = snowflake.Generate()

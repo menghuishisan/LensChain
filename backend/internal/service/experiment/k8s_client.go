@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"sort"
 	"strings"
@@ -307,9 +308,9 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 		return nil, fmt.Errorf("%w: %v", errcode.ErrK8sDeployFailed, err)
 	}
 
-	// 为有端口的容器创建 Service
-	var servicePorts []corev1.ServicePort
+	// 为有端口的容器创建 Service，服务名与容器名保持一致，和文档里的服务发现变量语义对齐。
 	for _, cs := range req.Containers {
+		var servicePorts []corev1.ServicePort
 		for _, p := range cs.Ports {
 			svcPort := p.ServicePort
 			if svcPort == 0 {
@@ -326,13 +327,16 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 				Protocol:   proto,
 			})
 		}
-	}
-	if len(servicePorts) > 0 {
+		if len(servicePorts) == 0 {
+			continue
+		}
+		serviceLabels := maps.Clone(req.Labels)
+		serviceLabels["pod-name"] = req.PodName
 		svc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      req.PodName + "-svc",
+				Name:      cs.Name,
 				Namespace: req.Namespace,
-				Labels:    req.Labels,
+				Labels:    serviceLabels,
 			},
 			Spec: corev1.ServiceSpec{
 				Selector: req.Labels,
@@ -451,7 +455,14 @@ func buildNamespacePeers(namespace string, policy *NetworkPolicySpec) []networki
 // DeletePod 删除 Pod 及关联 Service
 func (k *k8sClient) DeletePod(ctx context.Context, namespace, podName string) error {
 	// 删除关联 Service（忽略不存在错误）
-	_ = k.clientset.CoreV1().Services(namespace).Delete(ctx, podName+"-svc", metav1.DeleteOptions{})
+	services, err := k.clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "pod-name=" + podName,
+	})
+	if err == nil {
+		for _, service := range services.Items {
+			_ = k.clientset.CoreV1().Services(namespace).Delete(ctx, service.Name, metav1.DeleteOptions{})
+		}
+	}
 	// 删除关联 NetworkPolicy（忽略不存在错误）
 	_ = k.clientset.NetworkingV1().NetworkPolicies(namespace).Delete(ctx, podName+"-netpol", metav1.DeleteOptions{})
 	// 删除 Pod
@@ -623,7 +634,7 @@ func (k *k8sClient) GetResourceUsage(ctx context.Context, namespace string) (*Re
 		return nil, err
 	}
 
-	usedCPU, usedMem, usedStorage, podCount := summarizePodResources(podList.Items)
+	usedCPU, usedMem, usedStorage, podCount, _, _ := summarizePodResources(podList.Items)
 	totalCPU := ""
 	totalMem := ""
 	totalStorage := ""
@@ -690,26 +701,28 @@ func (k *k8sClient) GetNodeStatus(ctx context.Context) ([]*NodeStatus, error) {
 		}
 
 		nodePods := podsByNode[node.Name]
-		usedCPU, usedMem, _, podCount := summarizePodResources(nodePods)
+		usedCPU, usedMem, _, podCount, containerCount, runningContainers := summarizePodResources(nodePods)
 		podCapacity := 0
 		if quantity, ok := node.Status.Capacity[corev1.ResourcePods]; ok {
 			podCapacity = int(quantity.Value())
 		}
 
 		result = append(result, &NodeStatus{
-			Name:           node.Name,
-			Status:         status,
-			KubeletVersion: node.Status.NodeInfo.KubeletVersion,
-			CPUUsed:        formatMilliCPU(usedCPU),
-			CPUTotal:       node.Status.Capacity.Cpu().String(),
-			CPUAllocatable: node.Status.Allocatable.Cpu().String(),
-			MemUsed:        formatBytes(usedMem),
-			MemTotal:       node.Status.Capacity.Memory().String(),
-			MemAllocatable: node.Status.Allocatable.Memory().String(),
-			DiskUsed:       "0",
-			DiskTotal:      "0",
-			PodCount:       podCount,
-			PodCapacity:    podCapacity,
+			Name:              node.Name,
+			Status:            status,
+			KubeletVersion:    node.Status.NodeInfo.KubeletVersion,
+			CPUUsed:           formatMilliCPU(usedCPU),
+			CPUTotal:          node.Status.Capacity.Cpu().String(),
+			CPUAllocatable:    node.Status.Allocatable.Cpu().String(),
+			MemUsed:           formatBytes(usedMem),
+			MemTotal:          node.Status.Capacity.Memory().String(),
+			MemAllocatable:    node.Status.Allocatable.Memory().String(),
+			DiskUsed:          "0",
+			DiskTotal:         "0",
+			PodCount:          podCount,
+			ContainerCount:    containerCount,
+			RunningContainers: runningContainers,
+			PodCapacity:       podCapacity,
 		})
 	}
 	return result, nil
@@ -748,7 +761,7 @@ func (k *k8sClient) GetClusterStatus(ctx context.Context) (*ClusterStatus, error
 		}
 	}
 
-	usedCPU, usedMem, _, _ := summarizePodResources(podList.Items)
+	usedCPU, usedMem, _, _, _, _ := summarizePodResources(podList.Items)
 	runningPods := 0
 	pendingPods := 0
 	failedPods := 0
@@ -1083,11 +1096,15 @@ func appendResourceQuantity(resources corev1.ResourceList, name corev1.ResourceN
 	resources[name] = resource.MustParse(quantity)
 }
 
-// summarizePodResources 汇总一组 Pod 的资源限制占用和运行中 Pod 数量。
-func summarizePodResources(pods []corev1.Pod) (cpuMilli int64, memoryBytes int64, storageBytes int64, runningPods int) {
+// summarizePodResources 汇总一组 Pod 的资源限制占用、Pod 数量和容器数量。
+func summarizePodResources(pods []corev1.Pod) (cpuMilli int64, memoryBytes int64, storageBytes int64, podCount int, containerCount int, runningContainers int) {
 	for _, pod := range pods {
-		if pod.Status.Phase == corev1.PodRunning {
-			runningPods++
+		podCount++
+		containerCount += len(pod.Spec.Containers)
+		for _, status := range pod.Status.ContainerStatuses {
+			if status.State.Running != nil {
+				runningContainers++
+			}
 		}
 		for _, container := range pod.Spec.Containers {
 			if cpu := container.Resources.Limits.Cpu(); cpu != nil {
@@ -1101,7 +1118,7 @@ func summarizePodResources(pods []corev1.Pod) (cpuMilli int64, memoryBytes int64
 			}
 		}
 	}
-	return cpuMilli, memoryBytes, storageBytes, runningPods
+	return cpuMilli, memoryBytes, storageBytes, podCount, containerCount, runningContainers
 }
 
 // readQuotaQuantity 读取 ResourceQuota 中指定资源名的硬限制。

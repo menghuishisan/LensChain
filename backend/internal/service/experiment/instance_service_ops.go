@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"time"
 
+	"gorm.io/datatypes"
+
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
@@ -70,9 +72,12 @@ func (s *instanceService) Pause(ctx context.Context, sc *svcctx.ServiceContext, 
 	}
 	_ = cache.Set(ctx, fmt.Sprintf("%s:%d", cache.KeyExpInstanceStatus, id),
 		fmt.Sprintf("%d", enum.InstanceStatusPaused), 24*time.Hour)
+	if instance.GroupID != nil {
+		s.refreshGroupStatus(ctx, *instance.GroupID)
+	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionPause, nil, nil, nil, nil, nil, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionPause, nil, nil, nil, nil, nil)
 	s.pushCourseMonitorStatusChange(instance, enum.InstanceStatusRunning, enum.InstanceStatusPaused)
 
 	return &dto.PauseInstanceResp{
@@ -124,7 +129,7 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 	// 更新状态为恢复中
 	now := time.Now()
 	fields := map[string]interface{}{
-		"status":         enum.InstanceStatusRestoring,
+		"status":         enum.InstanceStatusInitializing,
 		"last_active_at": now,
 		"updated_at":     now,
 	}
@@ -132,25 +137,40 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 		_ = s.quotaRepo.DecrUsedConcurrency(ctx, sc.SchoolID, 1)
 		return nil, err
 	}
+	if instance.GroupID != nil {
+		s.refreshGroupStatus(ctx, *instance.GroupID)
+	}
 
 	// 异步恢复环境
 	go func() {
-		template, _ := s.templateRepo.GetByIDWithAll(context.Background(), instance.TemplateID)
-		if template == nil {
-			_ = s.quotaRepo.DecrUsedConcurrency(context.Background(), instance.SchoolID, 1)
+		asyncCtx := detachContext(ctx)
+		templateAggregate, _ := loadTemplateAggregate(
+			asyncCtx,
+			s.templateRepo,
+			s.templateContainerRepo,
+			s.checkpointRepo,
+			s.initScriptRepo,
+			s.simSceneRepo,
+			nil,
+			nil,
+			nil,
+			instance.TemplateID,
+		)
+		if templateAggregate == nil {
+			_ = s.quotaRepo.DecrUsedConcurrency(asyncCtx, instance.SchoolID, 1)
 			return
 		}
-		s.provisionEnvironment(context.Background(), instance, template, stringifySnapshotID(snapshot), true)
+		s.provisionEnvironment(asyncCtx, instance, templateAggregate, stringifySnapshotID(snapshot), true)
 	}()
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionResume, nil, nil, nil, nil, nil, nil)
-	s.pushCourseMonitorStatusChange(instance, enum.InstanceStatusPaused, enum.InstanceStatusRestoring)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionResume, nil, nil, nil, nil, nil)
+	s.pushCourseMonitorStatusChange(instance, int(enum.InstanceStatusPaused), int(enum.InstanceStatusInitializing))
 
 	return &dto.ResumeInstanceResp{
 		InstanceID:            strconv.FormatInt(id, 10),
-		Status:                enum.InstanceStatusRestoring,
-		StatusText:            enum.GetInstanceStatusText(enum.InstanceStatusRestoring),
+		Status:                enum.InstanceStatusInitializing,
+		StatusText:            enum.GetInstanceStatusText(enum.InstanceStatusInitializing),
 		EstimatedReadySeconds: 15,
 	}, nil
 }
@@ -186,9 +206,9 @@ func (s *instanceService) Restart(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 只有已完成/已超时/错误/已销毁状态可以重新开始
-	allowRestart := map[int]bool{
-		enum.InstanceStatusSubmitted: true,
-		enum.InstanceStatusTimeout:   true,
+	allowRestart := map[int16]bool{
+		enum.InstanceStatusCompleted: true,
+		enum.InstanceStatusExpired:   true,
 		enum.InstanceStatusError:     true,
 		enum.InstanceStatusDestroyed: true,
 	}
@@ -222,7 +242,7 @@ func (s *instanceService) Restart(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionRestart, nil, nil, nil, nil, nil, nil)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionRestart, nil, nil, nil, nil, nil)
 
 	return s.Create(ctx, sc, req)
 }
@@ -244,16 +264,28 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 	}
 
 	// 获取模板检查点
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		nil,
+		s.checkpointRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 	if err != nil {
 		return nil, err
 	}
+	template := templateAggregate.Template
 
 	// 执行所有自动检查点验证
 	var autoScore, autoTotal, manualTotal float64
-	details := make([]dto.SubmitScoreDetail, 0, len(template.Checkpoints))
+	details := make([]dto.SubmitScoreDetail, 0, len(templateAggregate.Checkpoints))
 
-	for _, cp := range template.Checkpoints {
+	for _, cp := range templateAggregate.Checkpoints {
 		detail := dto.SubmitScoreDetail{
 			CheckpointID: strconv.FormatInt(cp.ID, 10),
 			Title:        cp.Title,
@@ -268,8 +300,12 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 		} else {
 			autoTotal += cp.Score
 			// 执行自动验证
-			result := s.executeCheckpoint(ctx, instance, &cp)
-			detail.IsPassed = &result.IsPassed
+			result := s.executeCheckpoint(ctx, instance, cp)
+			passed := false
+			if result.IsPassed != nil {
+				passed = *result.IsPassed
+			}
+			detail.IsPassed = &passed
 			score := float64(0)
 			if result.Score != nil {
 				score = *result.Score
@@ -284,7 +320,7 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 	// 计算总分
 	now := time.Now()
 	fields := map[string]interface{}{
-		"status":       enum.InstanceStatusSubmitted,
+		"status":       enum.InstanceStatusCompleted,
 		"auto_score":   autoScore,
 		"submitted_at": now,
 		"updated_at":   now,
@@ -301,14 +337,17 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 	if err := s.instanceRepo.UpdateFields(ctx, id, fields); err != nil {
 		return nil, err
 	}
-	instance.Status = enum.InstanceStatusSubmitted
+	instance.Status = enum.InstanceStatusCompleted
 	instance.AutoScore = &autoScore
 	instance.SubmittedAt = &now
 	instance.UpdatedAt = now
+	if instance.GroupID != nil {
+		s.refreshGroupStatus(ctx, *instance.GroupID)
+	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSubmit, nil, nil, nil, nil, nil, nil)
-	s.pushCourseMonitorStatusChange(instance, enum.InstanceStatusRunning, enum.InstanceStatusSubmitted)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSubmit, nil, nil, nil, nil, nil)
+	s.pushCourseMonitorStatusChange(instance, int(enum.InstanceStatusRunning), int(enum.InstanceStatusCompleted))
 	s.pushCourseMonitorSubmitted(instance, autoScore, manualTotal > 0)
 
 	if manualTotal == 0 {
@@ -317,12 +356,14 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 		if err := s.syncCourseGradeIfNeeded(ctx, instance, template, nil); err != nil {
 			return nil, err
 		}
+		// 文档要求评分完成后向模块07发送 experiment.graded 通知。
+		// 纯自动评分场景在提交时即视为评分完成；待模块07内部通知接口落地后，在此节点通过跨模块接口发送事件。
 	}
 
 	return &dto.SubmitInstanceResp{
 		InstanceID: strconv.FormatInt(id, 10),
-		Status:     enum.InstanceStatusSubmitted,
-		StatusText: enum.GetInstanceStatusText(enum.InstanceStatusSubmitted),
+		Status:     enum.InstanceStatusCompleted,
+		StatusText: enum.GetInstanceStatusText(enum.InstanceStatusCompleted),
 		Scores: dto.SubmitScoresInfo{
 			AutoScore:   autoScore,
 			AutoTotal:   autoTotal,
@@ -345,7 +386,7 @@ func (s *instanceService) Destroy(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 已销毁/已提交的不需要再销毁
-	if instance.Status == enum.InstanceStatusDestroyed || instance.Status == enum.InstanceStatusSubmitted {
+	if instance.Status == enum.InstanceStatusDestroyed || instance.Status == enum.InstanceStatusCompleted {
 		return nil
 	}
 
@@ -354,8 +395,8 @@ func (s *instanceService) Destroy(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionDestroy, nil, nil, nil, nil, nil, nil)
-	s.pushCourseMonitorStatusChange(instance, instance.Status, enum.InstanceStatusDestroyed)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionDestroy, nil, nil, nil, nil, nil)
+	s.pushCourseMonitorStatusChange(instance, int(instance.Status), int(enum.InstanceStatusDestroyed))
 
 	return nil
 }
@@ -372,8 +413,8 @@ func (s *instanceService) ForceDestroy(ctx context.Context, sc *svcctx.ServiceCo
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionForceDestroy, nil, nil, nil, nil, nil, nil)
-	s.pushCourseMonitorStatusChange(instance, instance.Status, enum.InstanceStatusDestroyed)
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionForceDestroy, nil, nil, nil, nil, nil)
+	s.pushCourseMonitorStatusChange(instance, int(instance.Status), int(enum.InstanceStatusDestroyed))
 
 	return nil
 }
@@ -406,6 +447,9 @@ func (s *instanceService) destroyEnvironment(ctx context.Context, instance *enti
 	// 清除 Redis 缓存
 	_ = cache.Del(ctx, fmt.Sprintf("%s:%d", cache.KeyExpInstanceStatus, instance.ID))
 	_ = cache.Del(ctx, fmt.Sprintf("%s:%d", cache.KeyExpHeartbeat, instance.ID))
+	if instance.GroupID != nil {
+		s.refreshGroupStatus(ctx, *instance.GroupID)
+	}
 
 	return nil
 }
@@ -465,12 +509,16 @@ func (s *instanceService) Heartbeat(ctx context.Context, sc *svcctx.ServiceConte
 	manager := ws.GetManager()
 	if manager != nil {
 		if idleWarning {
+			// 文档同时要求“实验即将超时”进入模块07站内通知。
+			// 当前模块07尚未提供可用的内部通知 service，此处先保留模块04必需的 WebSocket 预警，后续在同一业务节点补发 experiment.expiring 事件。
 			_ = manager.SendToUser(instance.StudentID, buildInstanceWSMessage("idle_warning", map[string]interface{}{
 				"remaining_minutes": 5,
 				"message":           "您的实验环境将在5分钟后因空闲超时被回收，请继续操作或手动暂停",
 			}))
 		}
 		if remainingMinutes > 0 && remainingMinutes <= 10 {
+			// 最长时长预警与上方空闲预警属于同一类“即将超时”业务事件。
+			// 待模块07完成内部通知链路后，应在此处统一走 experiment.expiring 事件，而不是在其他层重复实现通知逻辑。
 			_ = manager.SendToUser(instance.StudentID, buildInstanceWSMessage("duration_warning", map[string]interface{}{
 				"remaining_minutes": remainingMinutes,
 				"message":           fmt.Sprintf("实验剩余时间%d分钟，请尽快完成并提交", remainingMinutes),
@@ -490,7 +538,7 @@ func (s *instanceService) Heartbeat(ctx context.Context, sc *svcctx.ServiceConte
 // ---------------------------------------------------------------------------
 
 // recordOpLog 记录实例操作日志
-func (s *instanceService) recordOpLog(ctx context.Context, instanceID, studentID int64, action string, targetContainer, targetScene, command, commandOutput *string, detail json.RawMessage, clientIP *string) {
+func (s *instanceService) recordOpLog(ctx context.Context, instanceID, studentID int64, action string, targetContainer, targetScene, command, commandOutput *string, detail json.RawMessage) {
 	log := &entity.InstanceOperationLog{
 		ID:              snowflake.Generate(),
 		InstanceID:      instanceID,
@@ -500,8 +548,7 @@ func (s *instanceService) recordOpLog(ctx context.Context, instanceID, studentID
 		TargetScene:     targetScene,
 		Command:         command,
 		CommandOutput:   commandOutput,
-		Detail:          detail,
-		ClientIP:        clientIP,
+		Detail:          datatypes.JSON(detail),
 	}
 	_ = s.opLogRepo.Create(ctx, log)
 }

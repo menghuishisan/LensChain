@@ -47,7 +47,7 @@ func (s *imageService) ListSchoolImages(ctx context.Context, sc *svcctx.ServiceC
 }
 
 // GetImagePullStatus 获取镜像预拉取状态。
-func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullStatusReq) (*dto.ImagePullStatusResp, int64, error) {
+func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullStatusListReq) (*dto.ImagePullStatusListResp, int64, error) {
 	if !sc.IsSuperAdmin() {
 		return nil, 0, errcode.ErrForbidden
 	}
@@ -56,18 +56,19 @@ func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.Servic
 	}
 
 	images, _, err := s.imageRepo.List(ctx, &experimentrepo.ImageListParams{
-		Keyword:   req.ImageName,
-		Page:      1,
-		PageSize:  10000,
-		SortBy:    "created_at",
-		SortOrder: "desc",
+		Keyword:    req.ImageName,
+		SourceType: enum.ImageSourceTypeOfficial,
+		Status:     enum.ImageStatusNormal,
+		Page:       1,
+		PageSize:   10000,
+		SortBy:     "created_at",
+		SortOrder:  "desc",
 	})
 	if err != nil {
 		return nil, 0, err
 	}
 
-	items := make([]dto.PullStatusItem, 0)
-	distinctImages := make(map[int64]struct{})
+	items := make([]dto.ImagePullStatusItem, 0)
 	nodeSet := make(map[string]struct{})
 	fullyPulled := 0
 	partiallyPulled := 0
@@ -83,14 +84,13 @@ func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.Servic
 		if len(versions) == 0 {
 			continue
 		}
-		distinctImages[image.ID] = struct{}{}
 
 		for _, version := range versions {
 			nodeStatuses, statusErr := s.getImagePullNodeStatuses(ctx, version.RegistryURL)
 			if statusErr != nil {
 				return nil, 0, statusErr
 			}
-			filteredNodes := make([]dto.NodePullStatus, 0, len(nodeStatuses))
+			filteredNodes := make([]dto.ImagePullNodeStatus, 0, len(nodeStatuses))
 			pulledCount := 0
 			for _, nodeStatus := range nodeStatuses {
 				if req.NodeName != "" && nodeStatus.NodeName != req.NodeName {
@@ -120,7 +120,7 @@ func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.Servic
 				partiallyPulled++
 			}
 
-			items = append(items, dto.PullStatusItem{
+			items = append(items, dto.ImagePullStatusItem{
 				ImageName:      image.Name,
 				ImageVersion:   version.Version,
 				RegistryURL:    version.RegistryURL,
@@ -138,13 +138,14 @@ func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.Servic
 		return items[i].ImageName < items[j].ImageName
 	})
 
-	total := int64(len(items))
+	totalItems := len(items)
+	total := int64(totalItems)
 	page, pageSize := normalizePage(req.Page, req.PageSize)
 	items = paginatePullStatusItems(items, page, pageSize)
 
-	return &dto.ImagePullStatusResp{
-		Summary: dto.PullSummary{
-			TotalImages:     len(distinctImages),
+	return &dto.ImagePullStatusListResp{
+		Summary: dto.ImagePullStatusSummary{
+			TotalImages:     totalItems,
 			TotalNodes:      len(nodeSet),
 			FullyPulled:     fullyPulled,
 			PartiallyPulled: partiallyPulled,
@@ -156,7 +157,7 @@ func (s *imageService) GetImagePullStatus(ctx context.Context, sc *svcctx.Servic
 }
 
 // TriggerImagePull 触发镜像预拉取任务。
-func (s *imageService) TriggerImagePull(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullReq) (*dto.ImagePullResp, error) {
+func (s *imageService) TriggerImagePull(ctx context.Context, sc *svcctx.ServiceContext, req *dto.TriggerImagePullReq) (*dto.TriggerImagePullResp, error) {
 	if !sc.IsSuperAdmin() {
 		return nil, errcode.ErrForbidden
 	}
@@ -196,7 +197,7 @@ func (s *imageService) TriggerImagePull(ctx context.Context, sc *svcctx.ServiceC
 		totalJobs += len(targetNodes)
 	}
 
-	return &dto.ImagePullResp{
+	return &dto.TriggerImagePullResp{
 		TaskID:      fmt.Sprintf("pull-task-%s-%d", time.Now().Format("20060102150405"), time.Now().UnixNano()%1000),
 		TotalJobs:   totalJobs,
 		Images:      labels,
@@ -207,9 +208,9 @@ func (s *imageService) TriggerImagePull(ctx context.Context, sc *svcctx.ServiceC
 }
 
 // getImagePullNodeStatuses 查询单个镜像版本在各节点的拉取状态。
-func (s *imageService) getImagePullNodeStatuses(ctx context.Context, imageURL string) ([]dto.NodePullStatus, error) {
+func (s *imageService) getImagePullNodeStatuses(ctx context.Context, imageURL string) ([]dto.ImagePullNodeStatus, error) {
 	if s.k8sSvc == nil {
-		return []dto.NodePullStatus{}, nil
+		return []dto.ImagePullNodeStatus{}, nil
 	}
 
 	statuses, err := s.k8sSvc.GetImagePullStatus(ctx, imageURL)
@@ -217,14 +218,14 @@ func (s *imageService) getImagePullNodeStatuses(ctx context.Context, imageURL st
 		return nil, err
 	}
 
-	resp := make([]dto.NodePullStatus, 0, len(statuses))
+	resp := make([]dto.ImagePullNodeStatus, 0, len(statuses))
 	for _, status := range statuses {
 		var pulledAt *string
 		if status.PulledAt != nil {
 			value := status.PulledAt.UTC().Format(time.RFC3339)
 			pulledAt = &value
 		}
-		resp = append(resp, dto.NodePullStatus{
+		resp = append(resp, dto.ImagePullNodeStatus{
 			NodeName:      status.NodeName,
 			Status:        mapPullStatusCode(status.Status, status.Progress, status.Error),
 			StatusText:    mapPullStatusText(status.Status, status.Progress, status.Error),
@@ -251,6 +252,7 @@ func (s *imageService) collectPrePullVersions(ctx context.Context, imageIDs []st
 	if len(imageIDs) == 0 {
 		images, _, err := s.imageRepo.List(ctx, &experimentrepo.ImageListParams{
 			SourceType: enum.ImageSourceTypeOfficial,
+			Status:     enum.ImageStatusNormal,
 			Page:       1,
 			PageSize:   10000,
 			SortBy:     "created_at",
@@ -281,6 +283,12 @@ func (s *imageService) collectPrePullVersions(ctx context.Context, imageIDs []st
 		image, err := s.imageRepo.GetByID(ctx, imageID)
 		if err != nil {
 			return nil, nil, errcode.ErrImageNotFound
+		}
+		if image.SourceType != enum.ImageSourceTypeOfficial {
+			return nil, nil, errcode.ErrInvalidParams.WithMessage("手动预拉取仅支持官方镜像")
+		}
+		if image.Status != enum.ImageStatusNormal {
+			return nil, nil, errcode.ErrInvalidParams.WithMessage("仅正常状态的官方镜像可执行预拉取")
 		}
 		version, versionErr := s.pickDefaultVersion(ctx, image.ID)
 		if versionErr != nil {
@@ -336,7 +344,7 @@ func (s *imageService) filterNodesNeedingPull(ctx context.Context, imageURL stri
 }
 
 // mapPullStatusCode 将 K8s 拉取状态映射为接口定义的状态码。
-func mapPullStatusCode(status, progress, errText string) int {
+func mapPullStatusCode(status, progress, errText string) int16 {
 	switch {
 	case errText != "":
 		return 3
@@ -364,10 +372,10 @@ func mapPullStatusText(status, progress, errText string) string {
 }
 
 // paginatePullStatusItems 对预拉取状态条目进行分页。
-func paginatePullStatusItems(items []dto.PullStatusItem, page, pageSize int) []dto.PullStatusItem {
+func paginatePullStatusItems(items []dto.ImagePullStatusItem, page, pageSize int) []dto.ImagePullStatusItem {
 	start := (page - 1) * pageSize
 	if start >= len(items) {
-		return []dto.PullStatusItem{}
+		return []dto.ImagePullStatusItem{}
 	}
 	end := start + pageSize
 	if end > len(items) {

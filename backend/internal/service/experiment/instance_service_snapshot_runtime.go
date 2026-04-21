@@ -74,7 +74,18 @@ func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, insta
 		return nil, nil
 	}
 
-	template, err := s.templateRepo.GetByIDWithAll(ctx, instance.TemplateID)
+	templateAggregate, err := loadTemplateAggregate(
+		ctx,
+		s.templateRepo,
+		s.templateContainerRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		instance.TemplateID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -83,9 +94,9 @@ func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, insta
 		return nil, err
 	}
 
-	templateMap := make(map[int64]entity.TemplateContainer, len(template.Containers))
-	for _, container := range template.Containers {
-		templateMap[container.ID] = container
+	templateMap := make(map[int64]entity.TemplateContainer, len(templateAggregate.Containers))
+	for _, container := range templateAggregate.Containers {
+		templateMap[container.ID] = *container
 	}
 
 	states := make([]runtimeContainerState, 0, len(containers))
@@ -95,7 +106,7 @@ func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, insta
 		}
 		state := runtimeContainerState{
 			ContainerName: container.ContainerName,
-			Status:        container.Status,
+			Status:        int(container.Status),
 		}
 		if container.PodName != nil {
 			state.PodName = *container.PodName
@@ -109,7 +120,7 @@ func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, insta
 			states = append(states, state)
 			continue
 		}
-		spec, _, buildErr := s.buildContainerSpec(ctx, templateContainer, template)
+		spec, _, buildErr := s.buildContainerSpec(ctx, templateContainer, templateAggregate)
 		if buildErr != nil {
 			return nil, buildErr
 		}
@@ -127,7 +138,7 @@ func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, insta
 			runtimeState.ContainerName = container.ContainerName
 			runtimeState.PodName = state.PodName
 			runtimeState.InternalIP = state.InternalIP
-			runtimeState.Status = container.Status
+			runtimeState.Status = int(container.Status)
 			states = append(states, *runtimeState)
 			continue
 		}

@@ -20,13 +20,13 @@ import (
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
-	"github.com/lenschain/backend/internal/repository/auth"
+	authrepo "github.com/lenschain/backend/internal/repository/auth"
 )
 
 // SecurityService 安全策略服务接口
 type SecurityService interface {
 	GetSecurityPolicy(ctx context.Context) (*dto.SecurityPolicyResp, error)
-	UpdateSecurityPolicy(ctx context.Context, sc *svcctx.ServiceContext, req *dto.UpdateSecurityPolicyReq) error
+	UpdateSecurityPolicy(ctx context.Context, req *dto.UpdateSecurityPolicyReq) error
 	ListLoginLogs(ctx context.Context, sc *svcctx.ServiceContext, req *dto.LoginLogListReq) ([]*dto.LoginLogItem, int64, error)
 	ListOperationLogs(ctx context.Context, sc *svcctx.ServiceContext, req *dto.OperationLogListReq) ([]*dto.OperationLogItem, int64, error)
 }
@@ -69,20 +69,22 @@ func (s *securityService) GetSecurityPolicy(ctx context.Context) (*dto.SecurityP
 	data, err := cache.GetString(ctx, cache.KeySecurityPolicy)
 	if err != nil {
 		// Redis 中没有，返回默认值
-		return defaultSecurityPolicy, nil
+		policy := *defaultSecurityPolicy
+		return &policy, nil
 	}
 
 	var policy dto.SecurityPolicyResp
 	if err := json.Unmarshal([]byte(data), &policy); err != nil {
 		logger.L.Error("解析安全策略缓存失败", zap.Error(err))
-		return defaultSecurityPolicy, nil
+		fallback := *defaultSecurityPolicy
+		return &fallback, nil
 	}
 
 	return &policy, nil
 }
 
 // UpdateSecurityPolicy 更新安全策略配置（支持部分更新）
-func (s *securityService) UpdateSecurityPolicy(ctx context.Context, sc *svcctx.ServiceContext, req *dto.UpdateSecurityPolicyReq) error {
+func (s *securityService) UpdateSecurityPolicy(ctx context.Context, req *dto.UpdateSecurityPolicyReq) error {
 	// 获取当前策略
 	current, _ := s.GetSecurityPolicy(ctx)
 
@@ -225,13 +227,18 @@ func (s *securityService) ListOperationLogs(ctx context.Context, sc *svcctx.Serv
 	// 转换为 DTO
 	items := make([]*dto.OperationLogItem, 0, len(logs))
 	for _, log := range logs {
+		var detail *string
+		if len(log.Detail) > 0 {
+			text := string(log.Detail)
+			detail = &text
+		}
 		item := &dto.OperationLogItem{
 			ID:           strconv.FormatInt(log.ID, 10),
 			OperatorID:   strconv.FormatInt(log.OperatorID, 10),
 			OperatorName: userNameMap[log.OperatorID],
 			Action:       log.Action,
 			TargetType:   log.TargetType,
-			Detail:       log.Detail,
+			Detail:       detail,
 			IP:           log.IP,
 			CreatedAt:    log.CreatedAt.Format(time.RFC3339),
 		}
@@ -262,7 +269,7 @@ func (s *securityService) getUserNameMap(ctx context.Context, userIDs []int64) m
 		}
 	}
 
-	users, err := s.userRepo.GetByIDs(ctx, deduped)
+	users, err := s.userRepo.GetByIDsIncludingDeleted(ctx, deduped)
 	if err != nil {
 		return nameMap
 	}

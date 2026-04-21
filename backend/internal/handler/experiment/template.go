@@ -74,7 +74,7 @@ func (h *TemplateHandler) CreateImage(c *gin.Context) {
 	imageID, parseErr := snowflake.ParseString(id)
 	parseOK := parseErr == nil && imageID > 0
 	if !parseOK {
-		response.Created(c, gin.H{"id": id})
+		response.SuccessWithMsg(c, "创建成功", gin.H{"id": id})
 		return
 	}
 	detail, err := h.imageService.GetByID(c.Request.Context(), sc, imageID)
@@ -82,7 +82,7 @@ func (h *TemplateHandler) CreateImage(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, detail)
+	response.SuccessWithMsg(c, "创建成功", detail)
 }
 
 // GetImage 获取镜像详情。
@@ -296,7 +296,7 @@ func (h *TemplateHandler) CreateTemplate(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, respData)
+	response.SuccessWithMsg(c, "创建成功", respData)
 }
 
 // ListTemplates 获取实验模板列表。
@@ -459,7 +459,7 @@ func (h *TemplateHandler) ValidateTemplate(c *gin.Context) {
 		return
 	}
 	var req dto.ValidateTemplateReq
-	if !validator.BindJSON(c, &req) {
+	if !validator.BindOptionalJSON(c, &req) {
 		return
 	}
 	sc := handlerctx.BuildServiceContext(c)
@@ -504,7 +504,7 @@ func (h *TemplateHandler) CreateTemplateContainer(c *gin.Context) {
 		handlerctx.HandleError(c, err)
 		return
 	}
-	response.Created(c, respData)
+	response.SuccessWithMsg(c, "添加成功", respData)
 }
 
 // SortTemplateContainers 调整模板容器排序。

@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm"
 )
 
+type txContextKey struct{}
+
 // TxFunc 事务执行函数类型
 // 接收事务 *gorm.DB，返回错误时自动回滚
 type TxFunc func(tx *gorm.DB) error
@@ -54,4 +56,22 @@ func GetDB(tx ...*gorm.DB) *gorm.DB {
 		return tx[0]
 	}
 	return db
+}
+
+// WithTxContext 把当前事务实例写入上下文，供跨模块适配器在同一事务边界内执行写操作。
+func WithTxContext(ctx context.Context, tx *gorm.DB) context.Context {
+	if tx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, txContextKey{}, tx)
+}
+
+// TxFromContext 从上下文提取事务实例。
+// 当返回值 ok=false 时，表示当前调用链不在数据库事务中。
+func TxFromContext(ctx context.Context) (*gorm.DB, bool) {
+	tx, ok := ctx.Value(txContextKey{}).(*gorm.DB)
+	if !ok || tx == nil {
+		return nil, false
+	}
+	return tx, true
 }

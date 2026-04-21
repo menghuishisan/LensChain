@@ -7,7 +7,6 @@ package experimentrepo
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
@@ -27,10 +26,20 @@ type CheckpointResultRepository interface {
 	GetByID(ctx context.Context, id int64) (*entity.CheckpointResult, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	ListByInstanceID(ctx context.Context, instanceID int64) ([]*entity.CheckpointResult, error)
+	ListByInstanceIDs(ctx context.Context, instanceIDs []int64) ([]*entity.CheckpointResult, error)
 	GetByInstanceAndCheckpoint(ctx context.Context, instanceID, checkpointID int64) (*entity.CheckpointResult, error)
 	CountPassedByInstanceID(ctx context.Context, instanceID int64) (int64, error)
 	SumScoreByInstanceID(ctx context.Context, instanceID int64) (float64, error)
 	ListByStudentAndTemplate(ctx context.Context, studentID, templateID int64) ([]*entity.CheckpointResult, error)
+	ListCommonFailedByCourse(ctx context.Context, courseID int64, limit int) ([]*CommonCheckpointIssue, error)
+}
+
+// CommonCheckpointIssue 课程实验统计中的常见失败检查点聚合结果。
+type CommonCheckpointIssue struct {
+	TemplateID      int64  `gorm:"column:template_id"`
+	CheckpointID    int64  `gorm:"column:checkpoint_id"`
+	CheckpointTitle string `gorm:"column:checkpoint_title"`
+	FailedCount     int64  `gorm:"column:failed_count"`
 }
 
 // checkpointResultRepository 检查点结果数据访问实现
@@ -72,6 +81,19 @@ func (r *checkpointResultRepository) ListByInstanceID(ctx context.Context, insta
 	err := r.db.WithContext(ctx).
 		Where("instance_id = ?", instanceID).
 		Order("checkpoint_id asc").
+		Find(&results).Error
+	return results, err
+}
+
+// ListByInstanceIDs 批量获取多个实例的检查点结果。
+func (r *checkpointResultRepository) ListByInstanceIDs(ctx context.Context, instanceIDs []int64) ([]*entity.CheckpointResult, error) {
+	if len(instanceIDs) == 0 {
+		return []*entity.CheckpointResult{}, nil
+	}
+	var results []*entity.CheckpointResult
+	err := r.db.WithContext(ctx).
+		Where("instance_id IN ?", instanceIDs).
+		Order("instance_id asc, checkpoint_id asc").
 		Find(&results).Error
 	return results, err
 }
@@ -122,6 +144,29 @@ func (r *checkpointResultRepository) ListByStudentAndTemplate(ctx context.Contex
 	return results, err
 }
 
+// ListCommonFailedByCourse 聚合课程下失败次数最多的检查点，用于实验统计“常见错误检查点”。
+func (r *checkpointResultRepository) ListCommonFailedByCourse(ctx context.Context, courseID int64, limit int) ([]*CommonCheckpointIssue, error) {
+	var issues []*CommonCheckpointIssue
+	query := r.db.WithContext(ctx).Model(&entity.CheckpointResult{}).
+		Select(`
+			experiment_instances.template_id AS template_id,
+			checkpoint_results.checkpoint_id AS checkpoint_id,
+			template_checkpoints.title AS checkpoint_title,
+			COUNT(*) AS failed_count
+		`).
+		Joins("JOIN experiment_instances ON experiment_instances.id = checkpoint_results.instance_id").
+		Joins("JOIN template_checkpoints ON template_checkpoints.id = checkpoint_results.checkpoint_id").
+		Where("experiment_instances.course_id = ?", courseID).
+		Where("checkpoint_results.is_passed = false").
+		Group("experiment_instances.template_id, checkpoint_results.checkpoint_id, template_checkpoints.title").
+		Order("failed_count desc, checkpoint_results.checkpoint_id asc")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&issues).Error
+	return issues, err
+}
+
 // ---------------------------------------------------------------------------
 // 实例快照 Repository
 // ---------------------------------------------------------------------------
@@ -130,7 +175,9 @@ func (r *checkpointResultRepository) ListByStudentAndTemplate(ctx context.Contex
 type SnapshotRepository interface {
 	Create(ctx context.Context, snapshot *entity.InstanceSnapshot) error
 	GetByID(ctx context.Context, id int64) (*entity.InstanceSnapshot, error)
+	GetLatestByInstanceID(ctx context.Context, instanceID int64) (*entity.InstanceSnapshot, error)
 	ListByInstanceID(ctx context.Context, instanceID int64) ([]*entity.InstanceSnapshot, error)
+	ListByInstanceIDs(ctx context.Context, instanceIDs []int64) ([]*entity.InstanceSnapshot, error)
 	Delete(ctx context.Context, id int64) error
 	DeleteByInstanceID(ctx context.Context, instanceID int64) error
 	DeleteOldByInstanceID(ctx context.Context, instanceID int64, keepCount int) error
@@ -165,12 +212,38 @@ func (r *snapshotRepository) GetByID(ctx context.Context, id int64) (*entity.Ins
 	return &snapshot, nil
 }
 
+// GetLatestByInstanceID 获取实例最新快照，供恢复接口未指定 snapshot_id 时使用。
+func (r *snapshotRepository) GetLatestByInstanceID(ctx context.Context, instanceID int64) (*entity.InstanceSnapshot, error) {
+	var snapshot entity.InstanceSnapshot
+	err := r.db.WithContext(ctx).
+		Where("instance_id = ?", instanceID).
+		Order("created_at desc").
+		First(&snapshot).Error
+	if err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
+}
+
 // ListByInstanceID 获取实例的所有快照
 func (r *snapshotRepository) ListByInstanceID(ctx context.Context, instanceID int64) ([]*entity.InstanceSnapshot, error) {
 	var snapshots []*entity.InstanceSnapshot
 	err := r.db.WithContext(ctx).
 		Where("instance_id = ?", instanceID).
 		Order("created_at desc").
+		Find(&snapshots).Error
+	return snapshots, err
+}
+
+// ListByInstanceIDs 批量获取多个实例的快照列表。
+func (r *snapshotRepository) ListByInstanceIDs(ctx context.Context, instanceIDs []int64) ([]*entity.InstanceSnapshot, error) {
+	if len(instanceIDs) == 0 {
+		return []*entity.InstanceSnapshot{}, nil
+	}
+	var snapshots []*entity.InstanceSnapshot
+	err := r.db.WithContext(ctx).
+		Where("instance_id IN ?", instanceIDs).
+		Order("instance_id asc, created_at desc").
 		Find(&snapshots).Error
 	return snapshots, err
 }
@@ -223,15 +296,16 @@ type OperationLogRepository interface {
 
 // OperationLogListParams 操作日志列表查询参数
 type OperationLogListParams struct {
-	InstanceID int64
-	StudentID  int64
-	Action     string
-	DateFrom   string
-	DateTo     string
-	SortBy     string
-	SortOrder  string
-	Page       int
-	PageSize   int
+	InstanceID      int64
+	StudentID       int64
+	Action          string
+	TargetContainer string
+	DateFrom        string
+	DateTo          string
+	SortBy          string
+	SortOrder       string
+	Page            int
+	PageSize        int
 }
 
 // operationLogRepository 实例操作日志数据访问实现
@@ -265,6 +339,9 @@ func (r *operationLogRepository) List(ctx context.Context, params *OperationLogL
 	if params.Action != "" {
 		query = query.Where("action = ?", params.Action)
 	}
+	if params.TargetContainer != "" {
+		query = query.Where("target_container = ?", params.TargetContainer)
+	}
 	if params.DateFrom != "" || params.DateTo != "" {
 		query = query.Scopes(database.WithDateRange("created_at", params.DateFrom, params.DateTo))
 	}
@@ -274,23 +351,20 @@ func (r *operationLogRepository) List(ctx context.Context, params *OperationLogL
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at": "created_at",
 		"action":     "action",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	sortBy := params.SortBy
+	if sortBy == "" {
+		sortBy = "created_at"
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = (&pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    sortBy,
+		SortOrder: params.SortOrder,
+	}).ApplyToGORM(query, allowedSortFields)
 
 	var logs []*entity.InstanceOperationLog
 	if err := query.Find(&logs).Error; err != nil {

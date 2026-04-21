@@ -7,7 +7,6 @@ package schoolrepo
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -19,17 +18,21 @@ import (
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
+const licenseExpiringWindowDays = 7
+
 // SchoolRepository 学校数据访问接口
 type SchoolRepository interface {
 	Create(ctx context.Context, school *entity.School) error
 	GetByID(ctx context.Context, id int64) (*entity.School, error)
+	GetByIDIncludingDeleted(ctx context.Context, id int64) (*entity.School, error)
 	GetByName(ctx context.Context, name string) (*entity.School, error)
 	GetByCode(ctx context.Context, code string) (*entity.School, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	SoftDelete(ctx context.Context, id int64) error
 	Restore(ctx context.Context, id int64) error
 	List(ctx context.Context, params *SchoolListParams) ([]*entity.School, int64, error)
-	ListByStatus(ctx context.Context, status int) ([]*entity.School, error)
+	ListByStatus(ctx context.Context, status int16) ([]*entity.School, error)
+	ListExpiredActive(ctx context.Context, before time.Time) ([]*entity.School, error)
 	ListExpiringSoon(ctx context.Context, before time.Time) ([]*entity.School, error)
 	ListBufferingExpired(ctx context.Context, before time.Time) ([]*entity.School, error)
 	GetSSOEnabledSchools(ctx context.Context) ([]*entity.School, error)
@@ -38,7 +41,7 @@ type SchoolRepository interface {
 // SchoolListParams 学校列表查询参数
 type SchoolListParams struct {
 	Keyword         string
-	Status          int
+	Status          int16
 	LicenseExpiring bool
 	SortBy          string
 	SortOrder       string
@@ -74,10 +77,22 @@ func (r *schoolRepository) GetByID(ctx context.Context, id int64) (*entity.Schoo
 	return &school, nil
 }
 
+// GetByIDIncludingDeleted 根据ID获取学校，包含已软删除记录
+// 学校恢复流程需要先读取已注销学校，普通详情查询不得使用该方法。
+func (r *schoolRepository) GetByIDIncludingDeleted(ctx context.Context, id int64) (*entity.School, error) {
+	var school entity.School
+	err := r.db.WithContext(ctx).Unscoped().First(&school, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &school, nil
+}
+
 // GetByName 根据名称获取学校（用于唯一性校验）
+// 业务规则要求学校名称全局唯一，因此这里包含已注销学校。
 func (r *schoolRepository) GetByName(ctx context.Context, name string) (*entity.School, error) {
 	var school entity.School
-	err := r.db.WithContext(ctx).Where("name = ?", name).First(&school).Error
+	err := r.db.WithContext(ctx).Unscoped().Where("name = ?", name).First(&school).Error
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +100,10 @@ func (r *schoolRepository) GetByName(ctx context.Context, name string) (*entity.
 }
 
 // GetByCode 根据编码获取学校（用于唯一性校验）
+// 业务规则要求学校编码全局唯一，因此这里包含已注销学校。
 func (r *schoolRepository) GetByCode(ctx context.Context, code string) (*entity.School, error) {
 	var school entity.School
-	err := r.db.WithContext(ctx).Where("code = ?", code).First(&school).Error
+	err := r.db.WithContext(ctx).Unscoped().Where("code = ?", code).First(&school).Error
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +131,9 @@ func (r *schoolRepository) Restore(ctx context.Context, id int64) error {
 }
 
 // List 学校列表查询
+// 后台列表需要包含已注销学校，便于超管执行恢复操作，因此这里使用 Unscoped 查询。
 func (r *schoolRepository) List(ctx context.Context, params *SchoolListParams) ([]*entity.School, int64, error) {
-	query := r.db.WithContext(ctx).Model(&entity.School{})
+	query := r.db.WithContext(ctx).Unscoped().Model(&entity.School{})
 
 	// 关键字搜索（学校名称、编码）
 	if params.Keyword != "" {
@@ -131,8 +148,13 @@ func (r *schoolRepository) List(ctx context.Context, params *SchoolListParams) (
 	// 7天内即将到期筛选
 	if params.LicenseExpiring {
 		now := time.Now()
-		sevenDaysLater := now.AddDate(0, 0, 7)
-		query = query.Where("license_end_at IS NOT NULL AND license_end_at > ? AND license_end_at <= ?", now, sevenDaysLater)
+		expiringDeadline := now.AddDate(0, 0, licenseExpiringWindowDays)
+		query = query.Where(
+			"status = ? AND license_end_at IS NOT NULL AND license_end_at > ? AND license_end_at <= ?",
+			enum.SchoolStatusActive,
+			now,
+			expiringDeadline,
+		)
 	}
 
 	// 统计总数
@@ -141,25 +163,19 @@ func (r *schoolRepository) List(ctx context.Context, params *SchoolListParams) (
 		return nil, 0, err
 	}
 
-	// 排序
-	sortField := "created_at"
-	sortOrder := "desc"
 	allowedSortFields := map[string]string{
 		"created_at":     "created_at",
 		"name":           "name",
 		"status":         "status",
 		"license_end_at": "license_end_at",
 	}
-	if field, ok := allowedSortFields[params.SortBy]; ok {
-		sortField = field
+	pageQuery := pagination.Query{
+		Page:      params.Page,
+		PageSize:  params.PageSize,
+		SortBy:    normalizeSchoolSortBy(params.SortBy),
+		SortOrder: params.SortOrder,
 	}
-	if params.SortOrder == "asc" {
-		sortOrder = "asc"
-	}
-	query = query.Order(fmt.Sprintf("%s %s", sortField, sortOrder))
-
-	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
-	query = query.Offset(pagination.Offset(page, pageSize)).Limit(pageSize)
+	query = pageQuery.ApplyToGORM(query, allowedSortFields)
 
 	var schools []*entity.School
 	if err := query.Find(&schools).Error; err != nil {
@@ -169,10 +185,31 @@ func (r *schoolRepository) List(ctx context.Context, params *SchoolListParams) (
 	return schools, total, nil
 }
 
+// normalizeSchoolSortBy 统一学校列表默认排序字段。
+func normalizeSchoolSortBy(sortBy string) string {
+	switch sortBy {
+	case "name", "status", "license_end_at":
+		return sortBy
+	default:
+		return "created_at"
+	}
+}
+
 // ListByStatus 根据状态查询学校列表
-func (r *schoolRepository) ListByStatus(ctx context.Context, status int) ([]*entity.School, error) {
+func (r *schoolRepository) ListByStatus(ctx context.Context, status int16) ([]*entity.School, error) {
 	var schools []*entity.School
 	err := r.db.WithContext(ctx).Where("status = ?", status).Find(&schools).Error
+	return schools, err
+}
+
+// ListExpiredActive 查询已到期且仍处于激活状态的学校
+// 到期转缓冲期任务使用该查询，避免把冻结或注销学校重复转态。
+func (r *schoolRepository) ListExpiredActive(ctx context.Context, before time.Time) ([]*entity.School, error) {
+	var schools []*entity.School
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND license_end_at IS NOT NULL AND license_end_at <= ?",
+			enum.SchoolStatusActive, before).
+		Find(&schools).Error
 	return schools, err
 }
 
@@ -196,11 +233,13 @@ func (r *schoolRepository) ListBufferingExpired(ctx context.Context, before time
 	return schools, err
 }
 
-// GetSSOEnabledSchools 获取已启用SSO且已通过测试的学校
+// GetSSOEnabledSchools 获取可出现在登录页 SSO 学校列表中的学校
+// 仅返回状态为已激活、授权未过期，且 SSO 已启用并通过测试的学校。
 func (r *schoolRepository) GetSSOEnabledSchools(ctx context.Context) ([]*entity.School, error) {
 	var schools []*entity.School
 	err := r.db.WithContext(ctx).
-		Where("status = ?", 2).
+		Where("status = ?", enum.SchoolStatusActive).
+		Where("(license_end_at IS NULL OR license_end_at > ?)", time.Now()).
 		Where("id IN (?)",
 			r.db.Model(&entity.SchoolSSOConfig{}).
 				Select("school_id").

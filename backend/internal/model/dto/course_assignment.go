@@ -13,7 +13,6 @@ type CreateAssignmentReq struct {
 	Description         *string  `json:"description"`
 	ChapterID           *string  `json:"chapter_id"`
 	AssignmentType      int16    `json:"assignment_type" binding:"required,oneof=1 2"`
-	TotalScore          float64  `json:"total_score" binding:"required,min=1"`
 	DeadlineAt          *string  `json:"deadline_at" binding:"required"`
 	MaxSubmissions      *int     `json:"max_submissions" binding:"omitempty,min=1"`
 	LatePolicy          int16    `json:"late_policy" binding:"required,oneof=1 2 3"`
@@ -27,7 +26,6 @@ type UpdateAssignmentReq struct {
 	Description         *string  `json:"description"`
 	ChapterID           *string  `json:"chapter_id"`
 	AssignmentType      *int16   `json:"assignment_type" binding:"omitempty,oneof=1 2"`
-	TotalScore          *float64 `json:"total_score" binding:"omitempty,min=1"`
 	DeadlineAt          *string  `json:"deadline_at"`
 	MaxSubmissions      *int     `json:"max_submissions" binding:"omitempty,min=1"`
 	LatePolicy          *int16   `json:"late_policy" binding:"omitempty,oneof=1 2 3"`
@@ -117,6 +115,28 @@ type QuestionDetailItem struct {
 }
 
 // ========== 提交与批改 DTO ==========
+
+// SaveAssignmentDraftReq 保存作答草稿请求
+// PUT /api/v1/assignments/:id/draft
+type SaveAssignmentDraftReq struct {
+	Answers []SubmitAnswerReq `json:"answers"`
+}
+
+// SaveAssignmentDraftResp 保存作答草稿响应
+// PUT /api/v1/assignments/:id/draft
+type SaveAssignmentDraftResp struct {
+	AssignmentID string `json:"assignment_id"`
+	SavedAt      string `json:"saved_at"`
+	AnswerCount  int    `json:"answer_count"`
+}
+
+// AssignmentDraftResp 获取作答草稿响应
+// GET /api/v1/assignments/:id/draft
+type AssignmentDraftResp struct {
+	AssignmentID string            `json:"assignment_id"`
+	SavedAt      string            `json:"saved_at"`
+	Answers      []SubmitAnswerReq `json:"answers"`
+}
 
 // SubmitAssignmentReq 提交作业请求
 // POST /api/v1/assignments/:id/submit
@@ -261,6 +281,12 @@ type UpdateAnnouncementReq struct {
 	Content *string `json:"content"`
 }
 
+// PinAnnouncementReq 置顶/取消置顶公告请求
+// PATCH /api/v1/announcements/:id/pin
+type PinAnnouncementReq struct {
+	IsPinned bool `json:"is_pinned"`
+}
+
 // AnnouncementListReq 公告列表查询参数
 // GET /api/v1/courses/:id/announcements
 type AnnouncementListReq struct {
@@ -291,10 +317,8 @@ type CreateDiscussionReq struct {
 // DiscussionListReq 讨论列表查询参数
 // GET /api/v1/courses/:id/discussions
 type DiscussionListReq struct {
-	Page     int    `form:"page" binding:"omitempty,min=1"`
-	PageSize int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	Keyword  string `form:"keyword"`
-	SortBy   string `form:"sort_by" binding:"omitempty"`
+	Page     int `form:"page" binding:"omitempty,min=1"`
+	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
 }
 
 // DiscussionListItem 讨论列表项
@@ -392,6 +416,21 @@ type EvaluationSummary struct {
 	Distribution [5]int  `json:"distribution"` // 1-5星分布
 }
 
+// EvaluationPagination 评价列表分页信息
+type EvaluationPagination struct {
+	Page      int   `json:"page"`
+	PageSize  int   `json:"page_size"`
+	Total     int64 `json:"total"`
+	TotalPage int   `json:"total_page"`
+}
+
+// EvaluationListResp 评价列表响应
+type EvaluationListResp struct {
+	Summary    *EvaluationSummary   `json:"summary"`
+	Items      []*EvaluationItem    `json:"items"`
+	Pagination EvaluationPagination `json:"pagination"`
+}
+
 // ========== 成绩管理 DTO ==========
 
 // GradeConfigReq 设置成绩权重请求
@@ -411,16 +450,6 @@ type GradeConfigItem struct {
 // GET /api/v1/courses/:id/grade-config
 type GradeConfigResp struct {
 	Items []GradeConfigItem `json:"items"`
-}
-
-// GradeSummaryReq 成绩汇总查询参数
-// GET /api/v1/courses/:id/grades
-type GradeSummaryReq struct {
-	Page      int    `form:"page" binding:"omitempty,min=1"`
-	PageSize  int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	Keyword   string `form:"keyword"`
-	SortBy    string `form:"sort_by" binding:"omitempty"`
-	SortOrder string `form:"sort_order" binding:"omitempty,oneof=asc desc"`
 }
 
 // GradeSummaryResp 成绩汇总响应

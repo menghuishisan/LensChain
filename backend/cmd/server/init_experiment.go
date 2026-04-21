@@ -68,6 +68,8 @@ func initExperimentModule() *router.ExperimentHandlers {
 	// ========== 跨模块 Repository ==========
 	userRepo := authrepo.NewUserRepository(db)
 	courseRepo := courserepo.NewCourseRepository(db)
+	lessonRepo := courserepo.NewLessonRepository(db)
+	courseExperimentRepo := courserepo.NewCourseExperimentRepository(db)
 	assignmentRepo := courserepo.NewAssignmentRepository(db)
 	submissionRepo := courserepo.NewSubmissionRepository(db)
 	enrollmentRepo := courserepo.NewEnrollmentRepository(db)
@@ -76,6 +78,10 @@ func initExperimentModule() *router.ExperimentHandlers {
 	// ========== 跨模块 Adapter ==========
 	userQuerier := &experimentUserQuerierAdapter{userRepo: userRepo}
 	courseQuerier := &experimentCourseQuerierAdapter{courseRepo: courseRepo}
+	courseTemplateQuerier := &experimentCourseTemplateQuerierAdapter{
+		lessonRepo:           lessonRepo,
+		courseExperimentRepo: courseExperimentRepo,
+	}
 	enrollmentChecker := &experimentEnrollmentCheckerAdapter{enrollmentRepo: enrollmentRepo}
 	courseGradeSyncer := &experimentCourseGradeSyncerAdapter{
 		assignmentRepo: assignmentRepo,
@@ -87,6 +93,9 @@ func initExperimentModule() *router.ExperimentHandlers {
 		userRepo:       userRepo,
 	}
 	schoolNameQuerier := &experimentSchoolNameQuerierAdapter{schoolRepo: schoolRepo}
+	// 模块07内部通知发送器暂不在此处注入。
+	// 原因：当前模块07的 /internal/send-event 仍未完成 service/handler 闭环，
+	// 先保持模块04的跨模块边界清晰，待模块07补齐后在此处按接口注入，不在模块04 service 内写跨模块写入逻辑。
 
 	// ========== 基础服务 ==========
 	k8sSvc, err := svc.NewK8sService(config.Get().K8s)
@@ -117,6 +126,8 @@ func initExperimentModule() *router.ExperimentHandlers {
 		simSceneRepo,
 		imageRepo,
 		imageVersionRepo,
+		scenarioRepo,
+		linkGroupRepo,
 		tagRepo,
 		templateTagRepo,
 		roleRepo,
@@ -141,27 +152,34 @@ func initExperimentModule() *router.ExperimentHandlers {
 		linkGroupRepo,
 		linkGroupSceneRepo,
 		userQuerier,
+		k8sSvc,
 	)
 	instanceService := svc.NewInstanceService(
 		db,
 		instanceRepo,
 		instanceContainerRepo,
 		templateRepo,
+		containerRepo,
 		imageRepo,
 		imageVersionRepo,
 		checkpointRepo,
 		checkpointResultRepo,
+		groupRepo,
 		groupMemberRepo,
 		snapshotRepo,
 		opLogRepo,
 		reportRepo,
 		quotaRepo,
+		initScriptRepo,
 		simSceneRepo,
 		scenarioRepo,
 		linkGroupRepo,
+		linkGroupSceneRepo,
 		k8sSvc,
 		simEngineSvc,
 		userQuerier,
+		userQuerier,
+		schoolNameQuerier,
 		courseQuerier,
 		courseGradeSyncer,
 		enrollmentChecker,
@@ -182,6 +200,7 @@ func initExperimentModule() *router.ExperimentHandlers {
 	)
 	monitorService := svc.NewMonitorService(
 		instanceRepo,
+		instanceContainerRepo,
 		templateRepo,
 		imageRepo,
 		scenarioRepo,
@@ -189,6 +208,7 @@ func initExperimentModule() *router.ExperimentHandlers {
 		checkpointRepo,
 		checkpointResultRepo,
 		courseQuerier,
+		courseTemplateQuerier,
 		courseRosterQuerier,
 		userQuerier,
 		userQuerier,
@@ -303,6 +323,54 @@ func (a *experimentCourseQuerierAdapter) GetCourseTeacherID(ctx context.Context,
 		return 0, err
 	}
 	return course.TeacherID, nil
+}
+
+// experimentCourseTemplateQuerierAdapter 跨模块适配器：查询课程已关联的实验模板ID。
+// 统一收敛 lessons.experiment_id 与 course_experiments.experiment_id 两种课程侧来源，
+// 避免模块04在 service 内直接依赖模块03表结构。
+type experimentCourseTemplateQuerierAdapter struct {
+	lessonRepo           courserepo.LessonRepository
+	courseExperimentRepo courserepo.CourseExperimentRepository
+}
+
+// ListCourseTemplateIDs 返回课程已配置的实验模板ID集合。
+func (a *experimentCourseTemplateQuerierAdapter) ListCourseTemplateIDs(ctx context.Context, courseID int64) ([]int64, error) {
+	templateIDSet := make(map[int64]struct{})
+
+	if a.lessonRepo != nil {
+		lessons, err := a.lessonRepo.ListByCourseID(ctx, courseID)
+		if err != nil {
+			return nil, err
+		}
+		for _, lesson := range lessons {
+			if lesson == nil || lesson.ExperimentID == nil || *lesson.ExperimentID == 0 {
+				continue
+			}
+			templateIDSet[*lesson.ExperimentID] = struct{}{}
+		}
+	}
+
+	if a.courseExperimentRepo != nil {
+		courseExperiments, err := a.courseExperimentRepo.ListByCourseID(ctx, courseID)
+		if err != nil {
+			return nil, err
+		}
+		for _, courseExperiment := range courseExperiments {
+			if courseExperiment == nil || courseExperiment.ExperimentID == 0 {
+				continue
+			}
+			templateIDSet[courseExperiment.ExperimentID] = struct{}{}
+		}
+	}
+
+	templateIDs := make([]int64, 0, len(templateIDSet))
+	for templateID := range templateIDSet {
+		templateIDs = append(templateIDs, templateID)
+	}
+	sort.Slice(templateIDs, func(i, j int) bool {
+		return templateIDs[i] < templateIDs[j]
+	})
+	return templateIDs, nil
 }
 
 // experimentCourseGradeSyncerAdapter 跨模块适配器：将实验最终成绩同步到课程作业提交。
@@ -456,7 +524,7 @@ type experimentEndedCourseQuerierAdapter struct {
 // ListEndedCourseIDs 获取所有已结束或已归档课程ID。
 func (a *experimentEndedCourseQuerierAdapter) ListEndedCourseIDs(ctx context.Context) ([]int64, error) {
 	courses, _, err := a.courseRepo.List(ctx, &courserepo.CourseListParams{
-		Statuses: []int{enum.CourseStatusEnded, enum.CourseStatusArchived},
+		Statuses: []int16{enum.CourseStatusEnded, enum.CourseStatusArchived},
 		Page:     1,
 		PageSize: 10000,
 	})
@@ -473,7 +541,7 @@ func (a *experimentEndedCourseQuerierAdapter) ListEndedCourseIDs(ctx context.Con
 // ListCourseIDsEndingWithin 获取指定时间窗口内即将结束的课程及结束时间。
 func (a *experimentEndedCourseQuerierAdapter) ListCourseIDsEndingWithin(ctx context.Context, within time.Duration) (map[int64]time.Time, error) {
 	courses, _, err := a.courseRepo.List(ctx, &courserepo.CourseListParams{
-		Statuses: []int{enum.CourseStatusActive},
+		Statuses: []int16{enum.CourseStatusActive},
 		Page:     1,
 		PageSize: 10000,
 	})

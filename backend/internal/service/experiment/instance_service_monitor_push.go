@@ -30,7 +30,7 @@ func (s *instanceService) pushCourseMonitorStatusChange(instance *entity.Experim
 		"instance_id":     strconv.FormatInt(instance.ID, 10),
 		"old_status":      oldStatus,
 		"new_status":      newStatus,
-		"new_status_text": enum.GetInstanceStatusText(newStatus),
+		"new_status_text": enum.GetInstanceStatusText(int16(newStatus)),
 	}
 	_ = manager.BroadcastToRoom(CourseMonitorRoom(*instance.CourseID, ""), buildCourseMonitorWSMessage("student_status_change", payload))
 	_ = manager.BroadcastToRoom(CourseMonitorRoom(*instance.CourseID, strconv.FormatInt(instance.TemplateID, 10)), buildCourseMonitorWSMessage("student_status_change", payload))

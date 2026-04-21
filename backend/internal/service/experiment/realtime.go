@@ -1,6 +1,7 @@
 // realtime.go
 // 模块04 — 实验环境：实时推送辅助
 // 统一维护实验实例、实验分组、课程监控的 WebSocket 房间命名与消息封装
+// 该文件只提供 service 与 handler 共享的实时通道规范，不承载业务状态流转
 
 package experiment
 
