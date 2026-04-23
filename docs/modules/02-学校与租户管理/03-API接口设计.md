@@ -13,6 +13,7 @@
 | **入驻申请（公开）** | POST | /api/v1/school-applications | 提交入驻申请 | 无需认证 |
 | | POST | /api/v1/school-applications/send-sms-code | 发送查询验证码 | 无需认证 |
 | | GET | /api/v1/school-applications/query | 查询申请状态 | 无需认证（手机号+验证码） |
+| | GET | /api/v1/school-applications/:id/reapply-detail | 获取重新申请预填详情 | 无需认证（手机号+验证码） |
 | | POST | /api/v1/school-applications/:id/reapply | 重新申请 | 无需认证（手机号+验证码） |
 | **入驻审核** | GET | /api/v1/admin/school-applications | 申请列表 | 超管 |
 | | GET | /api/v1/admin/school-applications/:id | 申请详情 | 超管 |
@@ -164,6 +165,48 @@
 
 ---
 
+#### GET /api/v1/school-applications/:id/reapply-detail — 获取重新申请预填详情
+
+**权限：** 无需认证，需联系人手机号 + 短信验证码
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| phone | string | 是 | 原申请联系人手机号 |
+| sms_code | string | 是 | 短信验证码 |
+
+**成功响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "application_id": "1780000000000001",
+    "school_name": "XX大学",
+    "school_code": "10001",
+    "school_address": "北京市海淀区XX路1号",
+    "school_website": "https://www.xxu.edu.cn",
+    "school_logo_url": null,
+    "contact_name": "张教授",
+    "contact_phone": "13800138000",
+    "contact_email": "zhang@xxu.edu.cn",
+    "contact_title": "计算机学院副院长",
+    "status": 3,
+    "status_text": "已拒绝",
+    "reject_reason": "学校信息不完整，请补充学校编码和官网地址"
+  }
+}
+```
+
+**业务规则：**
+1. 仅允许读取状态为"已拒绝"的申请
+2. `phone` 必须与原申请联系人手机号一致
+3. 用于前端在重新申请页预填上一次申请信息
+
+---
+
 ### 2.2 入驻审核接口
 
 #### GET /api/v1/admin/school-applications — 申请列表
@@ -249,7 +292,7 @@
 |------|------|------|
 | page / page_size | int | 分页 |
 | keyword | string | 搜索（学校名称、编码） |
-| status | int | 状态筛选 |
+| status | int | 状态筛选：1待审核 2已激活 3缓冲期 4已冻结 5已注销 6已拒绝 |
 | license_expiring | bool | 筛选7天内即将到期的学校 |
 | sort_by / sort_order | string | 排序 |
 
@@ -298,6 +341,21 @@
 ```
 
 **后端逻辑：** 同审核通过，直接创建学校（已激活）+ 创建校管 + 短信通知
+
+**成功响应：**
+
+```json
+{
+  "code": 200,
+  "message": "学校创建成功",
+  "data": {
+    "school_id": "1780000000000100",
+    "admin_user_id": "1780000000000200",
+    "admin_phone": "13900139000",
+    "sms_sent": true
+  }
+}
+```
 
 ---
 
@@ -435,6 +493,9 @@
     "is_tested": true,
     "tested_at": "2026-04-05T14:00:00Z",
     "config": {
+      "cas_server_url": null,
+      "cas_service_url": null,
+      "cas_version": null,
       "authorize_url": "https://oauth.xxu.edu.cn/authorize",
       "token_url": "https://oauth.xxu.edu.cn/token",
       "userinfo_url": "https://oauth.xxu.edu.cn/userinfo",
@@ -469,6 +530,20 @@
     "client_secret": "new_secret_value",
     "redirect_uri": "https://lianjing.com/api/v1/auth/sso/callback",
     "scope": "openid profile",
+    "user_id_attribute": "student_id"
+  }
+}
+```
+
+**CAS 请求体示例：**
+
+```json
+{
+  "provider": "cas",
+  "config": {
+    "cas_server_url": "https://cas.xxu.edu.cn/cas",
+    "cas_service_url": "https://lianjing.com/api/v1/auth/sso/callback",
+    "cas_version": "3.0",
     "user_id_attribute": "student_id"
   }
 }

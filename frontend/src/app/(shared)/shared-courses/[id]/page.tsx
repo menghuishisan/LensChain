@@ -1,0 +1,12 @@
+// page.tsx
+// 共享课程详情页。
+
+import { PermissionGate } from "@/components/business/PermissionGate";
+import { SharedCourseDetailPanel } from "@/components/business/CoursePanels";
+
+/**
+ * SharedCourseDetailPage 共享课程详情页。
+ */
+export default function SharedCourseDetailPage({ params }: { params: { id: string } }) {
+  return <PermissionGate allowedRoles={["teacher", "school_admin", "super_admin"]}><SharedCourseDetailPanel courseID={params.id} /></PermissionGate>;
+}

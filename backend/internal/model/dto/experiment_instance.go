@@ -22,6 +22,7 @@ type CreateInstanceReq struct {
 // CreateInstanceResp 启动实验环境响应
 type CreateInstanceResp struct {
 	InstanceID            *string `json:"instance_id"`
+	SimSessionID          *string `json:"sim_session_id"`
 	Status                int16   `json:"status"`
 	StatusText            string  `json:"status_text"`
 	AttemptNo             int     `json:"attempt_no,omitempty"`
@@ -39,6 +40,7 @@ type InstanceDetailResp struct {
 	Status       int16                    `json:"status"`
 	StatusText   string                   `json:"status_text"`
 	AttemptNo    int                      `json:"attempt_no"`
+	SimSessionID *string                  `json:"sim_session_id"`
 	AccessURL    *string                  `json:"access_url"`
 	Containers   []InstanceContainerItem  `json:"containers"`
 	Checkpoints  []InstanceCheckpointItem `json:"checkpoints"`
@@ -91,6 +93,7 @@ type InstanceCheckpointItem struct {
 
 // InstanceCheckpointResult 检查点结果
 type InstanceCheckpointResult struct {
+	ID        string  `json:"id"`
 	IsPassed  bool    `json:"is_passed"`
 	Score     float64 `json:"score"`
 	CheckedAt string  `json:"checked_at"`
@@ -322,7 +325,7 @@ type InstanceOpLogListResp struct {
 // POST /api/v1/experiment-instances/:id/report
 type CreateReportReq struct {
 	Content  *string `json:"content"`
-	FileURL  *string `json:"file_url" binding:"omitempty,url,max=500"`
+	FileURL  *string `json:"file_url" binding:"omitempty,max=500"`
 	FileName *string `json:"file_name" binding:"omitempty,max=200"`
 	FileSize *int64  `json:"file_size,omitempty" binding:"omitempty,min=1,max=52428800"`
 }
@@ -331,7 +334,7 @@ type CreateReportReq struct {
 // PUT /api/v1/experiment-instances/:id/report
 type UpdateReportReq struct {
 	Content  *string `json:"content"`
-	FileURL  *string `json:"file_url" binding:"omitempty,url,max=500"`
+	FileURL  *string `json:"file_url" binding:"omitempty,max=500"`
 	FileName *string `json:"file_name" binding:"omitempty,max=200"`
 	FileSize *int64  `json:"file_size,omitempty" binding:"omitempty,min=1,max=52428800"`
 }
@@ -346,6 +349,16 @@ type ReportResp struct {
 	FileSize   *int64  `json:"file_size,omitempty"`
 	CreatedAt  string  `json:"created_at"`
 	UpdatedAt  string  `json:"updated_at"`
+}
+
+// UploadExperimentFileResp 实验文件上传响应
+// POST /api/v1/experiment-files/upload
+type UploadExperimentFileResp struct {
+	FileName    string `json:"file_name"`
+	FileURL     string `json:"file_url"`
+	DownloadURL string `json:"download_url"`
+	FileSize    int64  `json:"file_size"`
+	FileType    string `json:"file_type"`
 }
 
 // ========== 实验分组 DTO ==========

@@ -353,10 +353,10 @@ func (h *DiscussionHandler) ListEvaluations(c *gin.Context) {
 		Summary: summary,
 		Items:   items,
 		Pagination: dto.EvaluationPagination{
-			Page:      page,
-			PageSize:  pageSize,
-			Total:     total,
-			TotalPage: totalPage,
+			Page:       page,
+			PageSize:   pageSize,
+			Total:      total,
+			TotalPages: totalPage,
 		},
 	})
 }

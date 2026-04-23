@@ -146,6 +146,7 @@ func RegisterCTFRoutes(rg *gin.RouterGroup, ch *CTFHandlers) {
 
 	// 从模板生成题目
 	ctf.POST("/challenges/generate-from-template", middleware.RequireTeacher(), ch.CompetitionHandler.GenerateChallengeFromTemplate) // 从模板生成题目
+	ctf.POST("/challenges/import-external", middleware.RequireTeacher(), ch.CompetitionHandler.ImportExternalVulnerability)          // 从外部真实漏洞源导入
 
 	// WebSocket
 	ctf.GET("/ws", ch.RealtimeHandler.ServeWS) // CTF实时通信

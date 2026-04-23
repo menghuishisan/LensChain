@@ -140,6 +140,17 @@ type CreateUserResp struct {
 	ID string `json:"id"`
 }
 
+// CreateSuperAdminReq 创建超级管理员请求
+// POST /api/v1/users/super-admins
+type CreateSuperAdminReq struct {
+	Phone    string  `json:"phone" binding:"required,phone"`
+	Name     string  `json:"name" binding:"required,min=2,max=50"`
+	Password string  `json:"password" binding:"required,password"`
+	SchoolID *string `json:"school_id" binding:"omitempty"`
+	Email    *string `json:"email" binding:"omitempty,email"`
+	Remark   *string `json:"remark"`
+}
+
 // UserDetailResp 用户详情响应
 // GET /api/v1/users/:id
 type UserDetailResp struct {

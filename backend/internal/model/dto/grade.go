@@ -110,26 +110,41 @@ type GradeReviewListResp struct {
 
 // GradeReviewDetailResp 审核详情响应。
 type GradeReviewDetailResp struct {
-	ID              string  `json:"id"`
-	CourseID        string  `json:"course_id"`
-	CourseName      string  `json:"course_name"`
-	SemesterID      string  `json:"semester_id"`
-	SemesterName    string  `json:"semester_name"`
-	SubmittedBy     string  `json:"submitted_by"`
-	SubmittedByName string  `json:"submitted_by_name"`
-	Status          int16   `json:"status"`
-	StatusText      string  `json:"status_text"`
-	SubmitNote      *string `json:"submit_note"`
-	SubmittedAt     *string `json:"submitted_at"`
-	ReviewedBy      *string `json:"reviewed_by"`
-	ReviewedByName  *string `json:"reviewed_by_name"`
-	ReviewedAt      *string `json:"reviewed_at"`
-	ReviewComment   *string `json:"review_comment"`
-	IsLocked        bool    `json:"is_locked"`
-	LockedAt        *string `json:"locked_at"`
-	UnlockedBy      *string `json:"unlocked_by"`
-	UnlockedAt      *string `json:"unlocked_at"`
-	UnlockReason    *string `json:"unlock_reason"`
+	ID              string           `json:"id"`
+	CourseID        string           `json:"course_id"`
+	CourseName      string           `json:"course_name"`
+	SemesterID      string           `json:"semester_id"`
+	SemesterName    string           `json:"semester_name"`
+	SubmittedBy     string           `json:"submitted_by"`
+	SubmittedByName string           `json:"submitted_by_name"`
+	Status          int16            `json:"status"`
+	StatusText      string           `json:"status_text"`
+	SubmitNote      *string          `json:"submit_note"`
+	SubmittedAt     *string          `json:"submitted_at"`
+	ReviewedBy      *string          `json:"reviewed_by"`
+	ReviewedByName  *string          `json:"reviewed_by_name"`
+	ReviewedAt      *string          `json:"reviewed_at"`
+	ReviewComment   *string          `json:"review_comment"`
+	IsLocked        bool             `json:"is_locked"`
+	LockedAt        *string          `json:"locked_at"`
+	UnlockedBy      *string          `json:"unlocked_by"`
+	UnlockedAt      *string          `json:"unlocked_at"`
+	UnlockReason    *string          `json:"unlock_reason"`
+	GradeRows       []ReviewGradeRow `json:"grade_rows,omitempty"`
+	Distribution    map[string]int   `json:"distribution,omitempty"`
+}
+
+// ReviewGradeRow 审核详情中的成绩明细行。
+type ReviewGradeRow struct {
+	GradeID     string  `json:"grade_id"`
+	StudentID   string  `json:"student_id"`
+	StudentName string  `json:"student_name"`
+	StudentNo   string  `json:"student_no"`
+	Credits     float64 `json:"credits"`
+	FinalScore  float64 `json:"final_score"`
+	GradeLevel  string  `json:"grade_level"`
+	GPAPoint    float64 `json:"gpa_point"`
+	IsAdjusted  bool    `json:"is_adjusted"`
 }
 
 // ReviewHandleReq 审核通过/驳回请求。
@@ -166,6 +181,7 @@ type SemesterInfo struct {
 
 // SemesterGradeItem 学期成绩列表项。
 type SemesterGradeItem struct {
+	GradeID          string  `json:"grade_id"`
 	CourseID         string  `json:"course_id"`
 	CourseName       string  `json:"course_name"`
 	TeacherName      string  `json:"teacher_name"`

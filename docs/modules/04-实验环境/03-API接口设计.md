@@ -159,6 +159,7 @@
 | POST | /api/v1/experiment-instances/:id/report | 提交实验报告 | 实例所属学生 |
 | GET | /api/v1/experiment-instances/:id/report | 获取实验报告 | 学生/教师 |
 | PUT | /api/v1/experiment-instances/:id/report | 更新实验报告 | 实例所属学生 |
+| POST | /api/v1/experiment-files/upload | 上传实验文件 | 学生/教师/管理员 |
 
 ### 1.16 实验分组（多人实验）
 
@@ -672,6 +673,7 @@
 ```
 
 > `snapshot_id` 不为空时从快照恢复；`group_id` 不为空时为多人实验。
+> `sim_session_id` 仅在纯仿真/混合实验且 SimEngine 会话已创建后返回；前端必须使用该字段连接 `/api/v1/ws/sim-engine/:session_id`，不得自行拼造会话ID。
 
 **响应（创建中）：**
 
@@ -681,6 +683,7 @@
   "message": "实验环境创建中",
   "data": {
     "instance_id": "1780000000600001",
+    "sim_session_id": null,
     "status": 1,
     "status_text": "创建中",
     "attempt_no": 1,
@@ -698,6 +701,7 @@
   "message": "资源不足，已加入排队",
   "data": {
     "instance_id": null,
+    "sim_session_id": null,
     "status": 10,
     "status_text": "排队中",
     "queue_position": 3,
@@ -749,6 +753,7 @@
     "status": 3,
     "status_text": "运行中",
     "attempt_no": 1,
+    "sim_session_id": "sim-20260408-0001",
     "access_url": "https://lab.lianjing.com/instance/1780000000600001",
     "containers": [
       {
@@ -779,6 +784,7 @@
         "check_type": 1,
         "score": 30,
         "result": {
+          "id": "1780000000610201",
           "is_passed": true,
           "score": 30,
           "checked_at": "2026-04-08T10:30:00Z"
@@ -1060,13 +1066,13 @@
 ```json
 {
   "content": "# 实验报告\n\n## 实验目的\n\n...\n\n## 实验过程\n\n...\n\n## 实验总结\n\n...",
-  "file_url": "https://oss.example.com/experiment-reports/report-1780000000600001.pdf",
+  "file_url": "experiment/report/1780000000000001/1780000000600001.pdf",
   "file_name": "实验报告.pdf",
   "file_size": 1048576
 }
 ```
 
-> `content` 和报告文件元数据至少提供一种；当提交文件时，前端应先完成文件上传，再将 `file_url / file_name / file_size` 回传后端。  
+> `content` 和报告文件元数据至少提供一种；当提交文件时，前端必须先调用 `POST /api/v1/experiment-files/upload` 完成文件上传，再将返回的 `file_url / file_name / file_size` 回传后端。  
 > 报告文件仅允许 `pdf / doc / docx`，且文件大小不得超过 50MB。
 > 当学生重复调用提交接口时，系统覆盖上一次报告内容，并刷新报告提交时间。
 
@@ -1080,7 +1086,7 @@
     "id": "1780000000800001",
     "instance_id": "1780000000600001",
     "content": "# 实验报告\n\n...",
-    "file_url": "https://oss.example.com/experiment-reports/report-1780000000600001.pdf",
+    "file_url": "experiment/report/1780000000000001/1780000000600001.pdf",
     "file_name": "实验报告.pdf",
     "file_size": 1048576,
     "created_at": "2026-04-08T11:45:00Z",
@@ -1408,6 +1414,37 @@ wss://api.lianjing.com/api/v1/experiment-instances/:id/terminal?token=<jwt>&cont
   }
 }
 ```
+
+---
+
+### 2.15A POST /api/v1/experiment-files/upload — 上传实验文件
+
+**权限：** 学生 / 教师 / 管理员
+
+**请求：** `multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| file | File | 是 | 待上传文件 |
+| purpose | string | 是 | `experiment_report` / `scenario_package` / `image_document` |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "上传成功",
+  "data": {
+    "file_name": "实验报告.pdf",
+    "file_url": "experiment/experiment_report/1780000000000001/1780000000600001.pdf",
+    "download_url": "https://minio.example.com/...",
+    "file_size": 1048576,
+    "file_type": "application/pdf"
+  }
+}
+```
+
+> `file_url` 为对象存储键，长期持久化；`download_url` 为短期预签名地址，仅用于当前页面即时展示。
 
 ---
 

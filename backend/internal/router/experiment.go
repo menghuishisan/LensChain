@@ -13,6 +13,14 @@ import (
 
 // RegisterExperimentRoutes 注册实验环境模块路由。
 func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
+	// ========== 0. 实验文件上传 ==========
+	experimentFiles := rg.Group("/experiment-files")
+	experimentFiles.Use(middleware.JWTAuth(), middleware.TenantIsolation())
+	experimentFiles.Use(middleware.RequireRoles(middleware.RoleTeacher, middleware.RoleSchoolAdmin, middleware.RoleStudent, middleware.RoleSuperAdmin))
+	{
+		experimentFiles.POST("/upload", eh.InstanceHandler.UploadExperimentFile)
+	}
+
 	// ========== 1. 镜像管理 ==========
 	images := rg.Group("/images")
 	images.Use(middleware.JWTAuth(), middleware.TenantIsolation())

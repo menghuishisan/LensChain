@@ -365,6 +365,36 @@ func (s *service) GetReview(ctx context.Context, sc *svcctx.ServiceContext, id i
 	if review.ReviewedBy != nil {
 		reviewedBy = s.userQuerier.GetUserSummary(ctx, *review.ReviewedBy)
 	}
+	gradeRows, _ := s.gradeRepo.ListByReview(ctx, review.ID)
+	detailRows := make([]dto.ReviewGradeRow, 0, len(gradeRows))
+	distribution := make(map[string]int)
+	studentIDs := make([]int64, 0, len(gradeRows))
+	for _, row := range gradeRows {
+		if row != nil {
+			studentIDs = append(studentIDs, row.StudentID)
+		}
+	}
+	studentMap := map[int64]*UserSummary{}
+	if s.userQuerier != nil {
+		studentMap = s.userQuerier.GetUserSummaries(ctx, uniqueInt64s(studentIDs))
+	}
+	for _, row := range gradeRows {
+		if row == nil {
+			continue
+		}
+		distribution[row.GradeLevel]++
+		detailRows = append(detailRows, dto.ReviewGradeRow{
+			GradeID:     fmt.Sprintf("%d", row.ID),
+			StudentID:   fmt.Sprintf("%d", row.StudentID),
+			StudentName: userName(studentMap[row.StudentID]),
+			StudentNo:   studentNo(studentMap[row.StudentID]),
+			Credits:     row.Credits,
+			FinalScore:  row.FinalScore,
+			GradeLevel:  row.GradeLevel,
+			GPAPoint:    row.GPAPoint,
+			IsAdjusted:  row.IsAdjusted,
+		})
+	}
 	return &dto.GradeReviewDetailResp{
 		ID:              fmt.Sprintf("%d", review.ID),
 		CourseID:        fmt.Sprintf("%d", review.CourseID),
@@ -386,6 +416,8 @@ func (s *service) GetReview(ctx context.Context, sc *svcctx.ServiceContext, id i
 		UnlockedBy:      optionalIDString(review.UnlockedBy),
 		UnlockedAt:      formatDateTime(review.UnlockedAt),
 		UnlockReason:    review.UnlockReason,
+		GradeRows:       detailRows,
+		Distribution:    distribution,
 	}, nil
 }
 

@@ -96,6 +96,24 @@ func (h *UserHandler) Create(c *gin.Context) {
 	response.Created(c, resp)
 }
 
+// CreateSuperAdmin 创建超级管理员
+// POST /api/v1/users/super-admins
+func (h *UserHandler) CreateSuperAdmin(c *gin.Context) {
+	var req dto.CreateSuperAdminReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+
+	sc := handlerctx.BuildServiceContext(c)
+	resp, err := h.userService.CreateSuperAdmin(c.Request.Context(), sc, &req)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+
+	response.Created(c, resp)
+}
+
 // Update 更新用户信息
 // PUT /api/v1/users/:id
 func (h *UserHandler) Update(c *gin.Context) {

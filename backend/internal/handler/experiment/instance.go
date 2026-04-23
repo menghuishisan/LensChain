@@ -6,16 +6,21 @@
 package experiment
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/handlerctx"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
 	svc "github.com/lenschain/backend/internal/service/experiment"
 )
+
+const maxExperimentUploadSize = 100 << 20
 
 // InstanceHandler 实例与监控域处理器。
 // 统一处理实验实例、分组协作、教师监控、资源配额和管理员监控接口。
@@ -42,6 +47,38 @@ func NewInstanceHandler(
 		quotaService:    quotaService,
 		imageService:    imageService,
 	}
+}
+
+// UploadExperimentFile 上传实验文件。
+// POST /api/v1/experiment-files/upload
+func (h *InstanceHandler) UploadExperimentFile(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(maxExperimentUploadSize); err != nil {
+		response.Error(c, errcode.ErrInvalidParams.WithMessage("文件大小不能超过100MB"))
+		return
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, errcode.ErrInvalidParams.WithMessage("请上传文件"))
+		return
+	}
+	src, err := file.Open()
+	if err != nil {
+		response.Error(c, errcode.ErrInternal.WithMessage("打开文件失败"))
+		return
+	}
+	defer src.Close()
+
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType([]byte(file.Filename))
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	respData, err := h.instanceService.UploadExperimentFile(c.Request.Context(), sc, file.Filename, src, file.Size, contentType, c.PostForm("purpose"))
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "上传成功", respData)
 }
 
 // CreateInstance 启动实验环境。

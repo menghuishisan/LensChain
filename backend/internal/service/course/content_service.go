@@ -6,7 +6,11 @@ package course
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lenschain/backend/internal/model/dto"
@@ -16,6 +20,7 @@ import (
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/storage"
 	courserepo "github.com/lenschain/backend/internal/repository/course"
 )
 
@@ -34,6 +39,7 @@ type ContentService interface {
 	DeleteLesson(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	SortLessons(ctx context.Context, sc *svcctx.ServiceContext, chapterID int64, req *dto.ReorderIDsReq) error
 	// 附件
+	UploadCourseFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadCourseFileResp, error)
 	UploadAttachment(ctx context.Context, sc *svcctx.ServiceContext, lessonID int64, req *dto.UploadAttachmentReq) (string, error)
 	DeleteAttachment(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	// 选课
@@ -43,6 +49,13 @@ type ContentService interface {
 	RemoveStudent(ctx context.Context, sc *svcctx.ServiceContext, courseID, studentID int64) error
 	ListStudents(ctx context.Context, sc *svcctx.ServiceContext, courseID int64, req *dto.StudentListReq) ([]*dto.EnrolledStudentItem, int64, error)
 }
+
+const (
+	courseFilePurposeLessonAttachment = "lesson_attachment"
+	courseFilePurposeAssignmentReport = "assignment_report"
+	maxCourseVideoFileSize            = 500 << 20
+	maxCourseDocumentFileSize         = 50 << 20
+)
 
 type contentService struct {
 	courseRepo         courserepo.CourseRepository
@@ -376,6 +389,35 @@ func (s *contentService) SortLessons(ctx context.Context, sc *svcctx.ServiceCont
 
 // ========== 附件 ==========
 
+// UploadCourseFile 上传课程文件到对象存储，返回持久化对象键和短期下载URL。
+func (s *contentService) UploadCourseFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadCourseFileResp, error) {
+	if err := validateCourseUploadAccess(sc, purpose); err != nil {
+		return nil, err
+	}
+	if err := validateCourseFile(fileName, contentType, fileSize, purpose); err != nil {
+		return nil, err
+	}
+
+	extension := strings.ToLower(filepath.Ext(fileName))
+	objectName := fmt.Sprintf("course/%s/%d/%d%s", purpose, sc.UserID, snowflake.Generate(), extension)
+	uploadedObject, err := storage.UploadFile(ctx, objectName, reader, fileSize, contentType)
+	if err != nil {
+		return nil, errcode.ErrMinIO.WithMessage("上传课程文件失败")
+	}
+	downloadURL, err := storage.GetFileURL(ctx, uploadedObject, time.Hour)
+	if err != nil {
+		return nil, errcode.ErrMinIO.WithMessage("生成课程文件下载地址失败")
+	}
+
+	return &dto.UploadCourseFileResp{
+		FileName:    fileName,
+		FileURL:     uploadedObject,
+		DownloadURL: downloadURL,
+		FileSize:    fileSize,
+		FileType:    contentType,
+	}, nil
+}
+
 func (s *contentService) UploadAttachment(ctx context.Context, sc *svcctx.ServiceContext, lessonID int64, req *dto.UploadAttachmentReq) (string, error) {
 	lesson, err := s.lessonRepo.GetByID(ctx, lessonID)
 	if err != nil {
@@ -395,6 +437,70 @@ func (s *contentService) UploadAttachment(ctx context.Context, sc *svcctx.Servic
 		return "", err
 	}
 	return strconv.FormatInt(attachment.ID, 10), nil
+}
+
+func validateCourseUploadAccess(sc *svcctx.ServiceContext, purpose string) error {
+	switch purpose {
+	case courseFilePurposeLessonAttachment:
+		if sc.IsTeacher() || sc.IsSuperAdmin() || sc.IsSchoolAdmin() {
+			return nil
+		}
+	case courseFilePurposeAssignmentReport:
+		if sc.IsStudent() {
+			return nil
+		}
+	default:
+		return errcode.ErrInvalidParams.WithMessage("不支持的课程文件用途")
+	}
+	return errcode.ErrForbidden
+}
+
+func validateCourseFile(fileName string, contentType string, fileSize int64, purpose string) error {
+	if strings.TrimSpace(fileName) == "" || fileSize <= 0 {
+		return errcode.ErrInvalidParams.WithMessage("文件不能为空")
+	}
+	isVideo := strings.HasPrefix(contentType, "video/")
+	isDocument := isCourseDocumentContentType(contentType)
+
+	switch purpose {
+	case courseFilePurposeLessonAttachment:
+		if isVideo {
+			if fileSize > maxCourseVideoFileSize {
+				return errcode.ErrInvalidParams.WithMessage("视频文件不能超过500MB")
+			}
+			return nil
+		}
+		if isDocument {
+			if fileSize > maxCourseDocumentFileSize {
+				return errcode.ErrInvalidParams.WithMessage("文档文件不能超过50MB")
+			}
+			return nil
+		}
+		return errcode.ErrInvalidParams.WithMessage("课时附件仅支持视频或PDF/Word/PPT文档")
+	case courseFilePurposeAssignmentReport:
+		if !isDocument {
+			return errcode.ErrInvalidParams.WithMessage("实验报告仅支持PDF/Word/PPT文档")
+		}
+		if fileSize > maxCourseDocumentFileSize {
+			return errcode.ErrInvalidParams.WithMessage("文档文件不能超过50MB")
+		}
+		return nil
+	default:
+		return errcode.ErrInvalidParams.WithMessage("不支持的课程文件用途")
+	}
+}
+
+func isCourseDocumentContentType(contentType string) bool {
+	switch contentType {
+	case "application/pdf",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return true
+	default:
+		return false
+	}
 }
 
 // DeleteAttachment 删除课时附件

@@ -87,6 +87,34 @@ func (h *ApplicationHandler) Query(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GetReapplyDetail 获取重新申请预填详情
+// GET /api/v1/school-applications/:id/reapply-detail
+// 公开接口，通过手机号+验证码读取已拒绝申请的完整表单信息
+func (h *ApplicationHandler) GetReapplyDetail(c *gin.Context) {
+	id, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+
+	var req dto.ReapplyDetailReq
+	if !validator.BindQuery(c, &req) {
+		return
+	}
+
+	if err := sms.VerifyCode(c.Request.Context(), req.Phone, req.SMSCode); err != nil {
+		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("短信验证码错误或已过期"))
+		return
+	}
+
+	resp, err := h.appService.GetReapplyDetail(c.Request.Context(), id, req.Phone)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
 // Reapply 重新申请
 // POST /api/v1/school-applications/:id/reapply
 // 公开接口，仅已拒绝的申请可重新提交

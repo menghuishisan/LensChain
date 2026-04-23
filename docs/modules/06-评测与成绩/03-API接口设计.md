@@ -287,6 +287,55 @@
 
 ---
 
+#### GET /api/v1/grades/reviews/:id — 审核详情
+
+**权限：** 教师 / 学校管理员
+
+**成功响应：**
+```json
+{
+  "code": 200,
+  "data": {
+    "id": "1880000000100",
+    "course_id": "1780000000100",
+    "course_name": "区块链原理与技术",
+    "semester_id": "1880000000001",
+    "semester_name": "2025-2026第一学期",
+    "submitted_by": "1780000000900",
+    "submitted_by_name": "李教授",
+    "status": 2,
+    "status_text": "待审核",
+    "submit_note": "成绩已全部计算完成",
+    "submitted_at": "2026-01-15T10:00:00Z",
+    "is_locked": false,
+    "grade_rows": [
+      {
+        "grade_id": "1880000000200",
+        "student_id": "1780000000500",
+        "student_name": "张三",
+        "student_no": "2024001",
+        "credits": 3.0,
+        "final_score": 88.5,
+        "grade_level": "B",
+        "gpa_point": 3.0,
+        "is_adjusted": false
+      }
+    ],
+    "distribution": {
+      "A": 8,
+      "B": 15,
+      "C": 12,
+      "D": 5,
+      "F": 5
+    }
+  }
+}
+```
+
+> `grade_rows` 供学校管理员审核详情页直接展示学生成绩明细；`distribution` 用于审核页分布图和异常分布检查。
+
+---
+
 ### 2.4 成绩查询
 
 #### GET /api/v1/grades/my/semester-grades — 我的学期成绩
@@ -303,6 +352,7 @@
     "semester": { "id": "1880000000001", "name": "2025-2026学年第一学期", "code": "2025-2026-1" },
     "grades": [
       {
+        "grade_id": "1880000000200",
         "course_id": "1780000000100",
         "course_name": "区块链原理与技术",
         "teacher_name": "李教授",
@@ -315,6 +365,7 @@
         "review_status_text": "已审核"
       },
       {
+        "grade_id": "1880000000201",
         "course_id": "1780000000101",
         "course_name": "智能合约开发",
         "teacher_name": "王教授",
@@ -358,6 +409,8 @@
   }
 }
 ```
+
+> `grade_id` 为成绩申诉接口 `POST /api/v1/grades/appeals` 所需主键，前端申诉页必须使用该字段，不应要求学生手工输入。
 
 #### GET /api/v1/grades/my/learning-overview — 我的学习概览
 

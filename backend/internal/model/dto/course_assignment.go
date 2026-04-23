@@ -148,7 +148,7 @@ type SubmitAssignmentReq struct {
 type SubmitAnswerReq struct {
 	QuestionID    string  `json:"question_id" binding:"required"`
 	AnswerContent *string `json:"answer_content"`
-	AnswerFileURL *string `json:"answer_file_url" binding:"omitempty,url,max=500"`
+	AnswerFileURL *string `json:"answer_file_url" binding:"omitempty,max=500"`
 }
 
 // SubmitAssignmentResp 提交作业响应
@@ -418,10 +418,10 @@ type EvaluationSummary struct {
 
 // EvaluationPagination 评价列表分页信息
 type EvaluationPagination struct {
-	Page      int   `json:"page"`
-	PageSize  int   `json:"page_size"`
-	Total     int64 `json:"total"`
-	TotalPage int   `json:"total_page"`
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+	Total      int64 `json:"total"`
+	TotalPages int   `json:"total_pages"`
 }
 
 // EvaluationListResp 评价列表响应

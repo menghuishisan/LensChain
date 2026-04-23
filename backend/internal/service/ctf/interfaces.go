@@ -72,6 +72,7 @@ type ChallengeService interface {
 	ListTemplates(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ChallengeTemplateListReq) (*dto.ChallengeTemplateListResp, error)
 	GetTemplate(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ChallengeTemplateDetailResp, error)
 	GenerateFromTemplate(ctx context.Context, sc *svcctx.ServiceContext, req *dto.GenerateChallengeFromTemplateReq) (*dto.ChallengeStatusResp, error)
+	ImportExternalVulnerability(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImportExternalVulnerabilityReq) (*dto.ChallengeStatusResp, error)
 
 	StartVerification(ctx context.Context, sc *svcctx.ServiceContext, challengeID int64, req *dto.VerifyChallengeReq) (*dto.VerifyChallengeResp, error)
 	GetVerification(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.VerificationDetailResp, error)

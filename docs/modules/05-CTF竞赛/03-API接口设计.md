@@ -60,6 +60,7 @@
 | GET | /api/v1/ctf/challenge-templates | 参数化模板列表 | 教师 |
 | GET | /api/v1/ctf/challenge-templates/:id | 模板详情（含参数定义和变体） | 教师 |
 | POST | /api/v1/ctf/challenges/generate-from-template | 从模板生成题目 | 教师 |
+| POST | /api/v1/ctf/challenges/import-external | 从外部真实漏洞源导入题目草稿 | 教师 |
 
 ### 1.6 题目预验证
 
@@ -1059,6 +1060,78 @@
 | 40401 | 模板不存在 | template_id 无效 |
 | 40001 | 难度超出模板适用范围 | difficulty 不在 difficulty_range 内 |
 | 40002 | 模板参数不完整 | 必填参数缺失 |
+
+---
+
+### 2.15A POST /api/v1/ctf/challenges/import-external — 从外部真实漏洞源导入题目草稿
+
+**权限：** 教师
+
+**请求体：**
+
+```json
+{
+  "source_grade": "A",
+  "title": "真实DeFi漏洞复现",
+  "vulnerability_name": "Price Oracle Manipulation",
+  "source_url": "https://example.com/postmortem",
+  "confidence_score": 0.95,
+  "reproducibility_score": 0.9,
+  "category": "contract",
+  "difficulty": 4,
+  "base_score": 700,
+  "chain_config": {
+    "chain_type": "evm",
+    "chain_version": "london",
+    "block_number": 0,
+    "fork": {
+      "rpc_url": "https://rpc.example.com",
+      "chain_id": 1,
+      "block_number": 17800000
+    },
+    "accounts": []
+  },
+  "source_code": "pragma solidity ^0.8.20; contract Vulnerable {}",
+  "poc_content": "async function exploit() {}",
+  "setup_transactions": [],
+  "reference_event": {
+    "name": "Example Incident",
+    "loss": "$1M"
+  }
+}
+```
+
+> `source_grade=A` 可生成链上验证题草稿；如存在固定历史区块 Fork 配置，则 `runtime_mode=2`。  
+> `source_grade=B` 生成待补全链上验证草稿，可缺少完整断言，但必须补齐并通过预验证后才能提交审核。  
+> `source_grade=C` 不允许生成链上状态验证题，后端会降级为 `blockchain` 或 `misc` 类静态/动态题素材。
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "导入成功",
+  "data": {
+    "id": "1780000000510999",
+    "title": "真实DeFi漏洞复现",
+    "category": "contract",
+    "category_text": "智能合约安全",
+    "difficulty": 4,
+    "difficulty_text": "Hard",
+    "base_score": 700,
+    "flag_type": 3,
+    "flag_type_text": "链上状态验证",
+    "runtime_mode": 2,
+    "runtime_mode_text": "Fork模式",
+    "source_path": 3,
+    "source_path_text": "完全自定义",
+    "status": 1,
+    "status_text": "草稿",
+    "contracts_generated": 1,
+    "assertions_generated": 1
+  }
+}
+```
 
 ---
 

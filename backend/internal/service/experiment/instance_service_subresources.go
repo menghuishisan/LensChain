@@ -166,6 +166,7 @@ func (s *instanceService) ListCheckpointResults(ctx context.Context, sc *svcctx.
 				score = *result.Score
 			}
 			item.Result = &dto.InstanceCheckpointResult{
+				ID:        strconv.FormatInt(result.ID, 10),
 				IsPassed:  result.IsPassed != nil && *result.IsPassed,
 				Score:     score,
 				CheckedAt: result.CheckedAt.UTC().Format(time.RFC3339),

@@ -833,6 +833,25 @@ type GenerateChallengeFromTemplateReq struct {
 	TemplateParams map[string]interface{} `json:"template_params" binding:"required"`
 }
 
+// ImportExternalVulnerabilityReq 从外部真实漏洞源导入题目草稿请求。
+// POST /api/v1/ctf/challenges/import-external
+type ImportExternalVulnerabilityReq struct {
+	SourceGrade          string                      `json:"source_grade" binding:"required,oneof=A B C"`
+	Title                string                      `json:"title" binding:"required,max=200"`
+	VulnerabilityName    string                      `json:"vulnerability_name" binding:"required,max=200"`
+	SourceURL            string                      `json:"source_url" binding:"required,max=500"`
+	ConfidenceScore      float64                     `json:"confidence_score" binding:"omitempty,min=0,max=1"`
+	ReproducibilityScore float64                     `json:"reproducibility_score" binding:"omitempty,min=0,max=1"`
+	Category             string                      `json:"category" binding:"required"`
+	Difficulty           int16                       `json:"difficulty" binding:"required,oneof=1 2 3 4 5"`
+	BaseScore            int                         `json:"base_score" binding:"required,min=1"`
+	ChainConfig          *ChallengeChainConfig       `json:"chain_config"`
+	SourceCode           *string                     `json:"source_code"`
+	PocContent           *string                     `json:"poc_content"`
+	SetupTransactions    []ChallengeSetupTransaction `json:"setup_transactions"`
+	ReferenceEvent       map[string]interface{}      `json:"reference_event"`
+}
+
 // ========== 预验证与审核 ==========
 
 // VerifyChallengeReq 发起预验证请求。

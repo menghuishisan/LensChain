@@ -216,9 +216,19 @@ type LessonAttachmentItem struct {
 // POST /api/v1/lessons/:id/attachments
 type UploadAttachmentReq struct {
 	FileName string `json:"file_name" binding:"required,max=200"`
-	FileURL  string `json:"file_url" binding:"required,url,max=500"`
+	FileURL  string `json:"file_url" binding:"required,max=500"`
 	FileSize int64  `json:"file_size" binding:"required,min=1"`
 	FileType string `json:"file_type" binding:"required,max=100"`
+}
+
+// UploadCourseFileResp 课程文件上传响应
+// POST /api/v1/course-files/upload
+type UploadCourseFileResp struct {
+	FileName    string `json:"file_name"`
+	FileURL     string `json:"file_url"`
+	DownloadURL string `json:"download_url"`
+	FileSize    int64  `json:"file_size"`
+	FileType    string `json:"file_type"`
 }
 
 // ========== 选课 DTO ==========

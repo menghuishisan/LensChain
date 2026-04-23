@@ -6,10 +6,13 @@
 package experiment
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +27,7 @@ import (
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
+	"github.com/lenschain/backend/internal/pkg/storage"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
 )
 
@@ -66,6 +70,7 @@ type InstanceService interface {
 	GetReport(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ReportResp, error)
 	UpdateReport(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateReportReq) (*dto.ReportResp, error)
 	SendGuidance(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.SendGuidanceReq) error
+	UploadExperimentFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadExperimentFileResp, error)
 }
 
 // instanceService 实验实例服务实现
@@ -99,6 +104,88 @@ type instanceService struct {
 	courseGradeSyncer     CourseGradeSyncer
 	enrollmentChecker     EnrollmentChecker
 	eventDispatcher       NotificationEventDispatcher
+}
+
+const (
+	experimentFilePurposeReport       = "experiment_report"
+	experimentFilePurposeScenarioPack = "scenario_package"
+	experimentFilePurposeImageDoc     = "image_document"
+	maxExperimentReportFileSize       = 50 << 20
+	maxExperimentPackageFileSize      = 100 << 20
+)
+
+// UploadExperimentFile 上传实验文件到对象存储，返回对象键和短期下载地址。
+func (s *instanceService) UploadExperimentFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadExperimentFileResp, error) {
+	if err := validateExperimentFileAccess(sc, purpose); err != nil {
+		return nil, err
+	}
+	if err := validateExperimentFile(fileName, contentType, fileSize, purpose); err != nil {
+		return nil, err
+	}
+	extension := strings.ToLower(filepath.Ext(fileName))
+	objectName := fmt.Sprintf("experiment/%s/%d/%d%s", purpose, sc.UserID, snowflake.Generate(), extension)
+	payload := new(bytes.Buffer)
+	if _, err := io.Copy(payload, reader); err != nil {
+		return nil, errcode.ErrInvalidParams.WithMessage("读取上传文件失败")
+	}
+	uploadedObject, err := storage.UploadFile(ctx, objectName, bytes.NewReader(payload.Bytes()), int64(payload.Len()), contentType)
+	if err != nil {
+		return nil, errcode.ErrMinIO.WithMessage("上传实验文件失败")
+	}
+	downloadURL, err := storage.GetFileURL(ctx, uploadedObject, time.Hour)
+	if err != nil {
+		return nil, errcode.ErrMinIO.WithMessage("生成实验文件下载地址失败")
+	}
+	return &dto.UploadExperimentFileResp{FileName: fileName, FileURL: uploadedObject, DownloadURL: downloadURL, FileSize: fileSize, FileType: contentType}, nil
+}
+
+func validateExperimentFileAccess(sc *svcctx.ServiceContext, purpose string) error {
+	switch purpose {
+	case experimentFilePurposeReport:
+		if sc.IsStudent() {
+			return nil
+		}
+	case experimentFilePurposeScenarioPack, experimentFilePurposeImageDoc:
+		if sc.IsTeacher() || sc.IsSchoolAdmin() || sc.IsSuperAdmin() {
+			return nil
+		}
+	default:
+		return errcode.ErrInvalidParams.WithMessage("不支持的实验文件用途")
+	}
+	return errcode.ErrForbidden
+}
+
+func validateExperimentFile(fileName string, contentType string, fileSize int64, purpose string) error {
+	if strings.TrimSpace(fileName) == "" || fileSize <= 0 {
+		return errcode.ErrInvalidParams.WithMessage("文件不能为空")
+	}
+	switch purpose {
+	case experimentFilePurposeReport, experimentFilePurposeImageDoc:
+		if !isExperimentDocumentType(contentType) {
+			return errcode.ErrInvalidParams.WithMessage("仅支持PDF/Word/PPT文档")
+		}
+		if fileSize > maxExperimentReportFileSize {
+			return errcode.ErrInvalidParams.WithMessage("报告文件不能超过50MB")
+		}
+	case experimentFilePurposeScenarioPack:
+		if fileSize > maxExperimentPackageFileSize {
+			return errcode.ErrInvalidParams.WithMessage("场景包不能超过100MB")
+		}
+	}
+	return nil
+}
+
+func isExperimentDocumentType(contentType string) bool {
+	switch contentType {
+	case "application/pdf",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return true
+	default:
+		return false
+	}
 }
 
 // NewInstanceService 创建实验实例服务实例
@@ -216,10 +303,11 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	if activeInstance != nil {
 		idStr := strconv.FormatInt(activeInstance.ID, 10)
 		return &dto.CreateInstanceResp{
-			InstanceID: &idStr,
-			Status:     activeInstance.Status,
-			StatusText: enum.GetInstanceStatusText(activeInstance.Status),
-			AttemptNo:  activeInstance.AttemptNo,
+			InstanceID:   &idStr,
+			SimSessionID: activeInstance.SimSessionID,
+			Status:       activeInstance.Status,
+			StatusText:   enum.GetInstanceStatusText(activeInstance.Status),
+			AttemptNo:    activeInstance.AttemptNo,
 		}, nil
 	}
 
@@ -930,12 +1018,13 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 	)
 
 	resp := &dto.InstanceDetailResp{
-		ID:         strconv.FormatInt(instance.ID, 10),
-		Status:     instance.Status,
-		StatusText: enum.GetInstanceStatusText(instance.Status),
-		AttemptNo:  instance.AttemptNo,
-		AccessURL:  instance.AccessURL,
-		CreatedAt:  instance.CreatedAt.Format(time.RFC3339),
+		ID:           strconv.FormatInt(instance.ID, 10),
+		Status:       instance.Status,
+		StatusText:   enum.GetInstanceStatusText(instance.Status),
+		AttemptNo:    instance.AttemptNo,
+		SimSessionID: instance.SimSessionID,
+		AccessURL:    instance.AccessURL,
+		CreatedAt:    instance.CreatedAt.Format(time.RFC3339),
 	}
 
 	if instance.StartedAt != nil {

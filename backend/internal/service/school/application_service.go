@@ -35,6 +35,7 @@ type ApplicationService interface {
 	Submit(ctx context.Context, req *dto.SubmitApplicationReq) (*dto.SubmitApplicationResp, error)
 	SendSMSCode(ctx context.Context, phone string) error
 	Query(ctx context.Context, phone string) (*dto.QueryApplicationResp, error)
+	GetReapplyDetail(ctx context.Context, previousID int64, phone string) (*dto.ReapplyDetailResp, error)
 	Reapply(ctx context.Context, previousID int64, req *dto.ReapplyReq) (*dto.SubmitApplicationResp, error)
 	List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ApplicationListReq) ([]*dto.ApplicationListItem, int64, error)
 	GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ApplicationDetailResp, error)
@@ -169,6 +170,36 @@ func (s *applicationService) Query(ctx context.Context, phone string) (*dto.Quer
 	}
 
 	return &dto.QueryApplicationResp{Applications: items}, nil
+}
+
+// GetReapplyDetail 获取拒绝申请的完整信息，用于重新申请页面预填。
+func (s *applicationService) GetReapplyDetail(ctx context.Context, previousID int64, phone string) (*dto.ReapplyDetailResp, error) {
+	app, err := s.appRepo.GetByID(ctx, previousID)
+	if err != nil {
+		return nil, errcode.ErrApplicationNotFound
+	}
+	if app.Status != enum.ApplicationStatusRejected {
+		return nil, errcode.ErrApplicationNotRejected
+	}
+	if app.ContactPhone != phone {
+		return nil, errcode.ErrForbidden.WithMessage("手机号与原申请不一致")
+	}
+
+	return &dto.ReapplyDetailResp{
+		ApplicationID: strconv.FormatInt(app.ID, 10),
+		SchoolName:    app.SchoolName,
+		SchoolCode:    app.SchoolCode,
+		SchoolAddress: app.SchoolAddress,
+		SchoolWebsite: app.SchoolWebsite,
+		SchoolLogoURL: app.SchoolLogoURL,
+		ContactName:   app.ContactName,
+		ContactPhone:  app.ContactPhone,
+		ContactEmail:  app.ContactEmail,
+		ContactTitle:  app.ContactTitle,
+		Status:        app.Status,
+		StatusText:    enum.GetApplicationStatusText(app.Status),
+		RejectReason:  app.RejectReason,
+	}, nil
 }
 
 // Reapply 重新申请（仅已拒绝的申请可重新提交）

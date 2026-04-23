@@ -44,15 +44,16 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, authH *handler.AuthHandler, userH *
 	users.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	users.Use(middleware.RequireSchoolAdminOrSuperAdmin())
 	{
-		users.GET("", userH.List)                              // 用户列表
-		users.GET("/:id", userH.Get)                           // 用户详情
-		users.POST("", userH.Create)                           // 手动创建用户
-		users.PUT("/:id", userH.Update)                        // 更新用户信息
-		users.DELETE("/:id", userH.Delete)                     // 删除用户（软删除）
-		users.PATCH("/:id/status", userH.UpdateStatus)         // 变更账号状态
-		users.POST("/:id/reset-password", userH.ResetPassword) // 重置用户密码
-		users.POST("/:id/unlock", userH.Unlock)                // 解锁账号
-		users.POST("/batch-delete", userH.BatchDelete)         // 批量删除
+		users.GET("", userH.List)                                                           // 用户列表
+		users.POST("/super-admins", middleware.RequireSuperAdmin(), userH.CreateSuperAdmin) // 创建超级管理员
+		users.GET("/:id", userH.Get)                                                        // 用户详情
+		users.POST("", userH.Create)                                                        // 手动创建用户
+		users.PUT("/:id", userH.Update)                                                     // 更新用户信息
+		users.DELETE("/:id", userH.Delete)                                                  // 删除用户（软删除）
+		users.PATCH("/:id/status", userH.UpdateStatus)                                      // 变更账号状态
+		users.POST("/:id/reset-password", userH.ResetPassword)                              // 重置用户密码
+		users.POST("/:id/unlock", userH.Unlock)                                             // 解锁账号
+		users.POST("/batch-delete", userH.BatchDelete)                                      // 批量删除
 	}
 
 	// ========== 3. 用户导入（仅校管） ==========

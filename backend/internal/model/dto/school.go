@@ -58,6 +58,30 @@ type ApplicationStatusItem struct {
 	RejectReason  *string `json:"reject_reason"`
 }
 
+// ReapplyDetailReq 获取重新申请预填详情请求
+// GET /api/v1/school-applications/:id/reapply-detail
+type ReapplyDetailReq struct {
+	Phone   string `form:"phone" binding:"required,phone"`
+	SMSCode string `form:"sms_code" binding:"required,len=6"`
+}
+
+// ReapplyDetailResp 重新申请预填详情响应
+type ReapplyDetailResp struct {
+	ApplicationID string  `json:"application_id"`
+	SchoolName    string  `json:"school_name"`
+	SchoolCode    string  `json:"school_code"`
+	SchoolAddress *string `json:"school_address"`
+	SchoolWebsite *string `json:"school_website"`
+	SchoolLogoURL *string `json:"school_logo_url"`
+	ContactName   string  `json:"contact_name"`
+	ContactPhone  string  `json:"contact_phone"`
+	ContactEmail  *string `json:"contact_email"`
+	ContactTitle  *string `json:"contact_title"`
+	Status        int16   `json:"status"`
+	StatusText    string  `json:"status_text"`
+	RejectReason  *string `json:"reject_reason"`
+}
+
 // ReapplyReq 重新申请请求
 // POST /api/v1/school-applications/:id/reapply
 type ReapplyReq struct {

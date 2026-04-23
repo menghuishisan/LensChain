@@ -665,6 +665,22 @@ func (h *CompetitionHandler) GenerateChallengeFromTemplate(c *gin.Context) {
 	response.SuccessWithMsg(c, "生成成功", respData)
 }
 
+// ImportExternalVulnerability 从外部真实漏洞源导入题目草稿。
+// POST /api/v1/ctf/challenges/import-external
+func (h *CompetitionHandler) ImportExternalVulnerability(c *gin.Context) {
+	var req dto.ImportExternalVulnerabilityReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	respData, err := h.challengeService.ImportExternalVulnerability(c.Request.Context(), sc, &req)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "导入成功", respData)
+}
+
 // ListPendingChallengeReviews 获取待审核题目列表。
 // GET /api/v1/ctf/challenge-reviews/pending
 func (h *CompetitionHandler) ListPendingChallengeReviews(c *gin.Context) {

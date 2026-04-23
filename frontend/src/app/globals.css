@@ -1,0 +1,70 @@
+/*
+ * globals.css
+ * 全局 Tailwind 样式与链镜基础视觉变量。
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
+  --background: 210 36% 97%;
+  --foreground: 217 42% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 217 42% 12%;
+  --primary: 176 78% 28%;
+  --primary-foreground: 180 100% 98%;
+  --secondary: 36 82% 92%;
+  --secondary-foreground: 32 42% 18%;
+  --muted: 208 28% 92%;
+  --muted-foreground: 216 16% 42%;
+  --accent: 18 88% 57%;
+  --accent-foreground: 22 100% 98%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 24% 86%;
+  --input: 214 24% 86%;
+  --ring: 176 78% 28%;
+  --radius-xl: 1.5rem;
+  --radius-lg: 1rem;
+  --radius-md: 0.75rem;
+}
+
+.dark {
+  --background: 218 42% 8%;
+  --foreground: 190 32% 94%;
+  --card: 218 38% 12%;
+  --card-foreground: 190 32% 94%;
+  --primary: 174 72% 42%;
+  --primary-foreground: 182 100% 8%;
+  --secondary: 218 26% 18%;
+  --secondary-foreground: 190 32% 94%;
+  --muted: 218 24% 18%;
+  --muted-foreground: 214 16% 68%;
+  --accent: 21 86% 59%;
+  --accent-foreground: 22 100% 98%;
+  --destructive: 0 72% 56%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 218 24% 24%;
+  --input: 218 24% 24%;
+  --ring: 174 72% 42%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, hsl(176 76% 88% / 0.95), transparent 34rem),
+    linear-gradient(135deg, hsl(var(--background)), hsl(40 68% 94%));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.18);
+}

@@ -1,4 +1,4 @@
-# 课程与教学模块 — API 接口设计
+﻿# 课程与教学模块 — API 接口设计
 
 > 模块状态：✅ 已确认
 > 文档版本：v1.0
@@ -58,6 +58,7 @@
 | PUT | /api/v1/chapters/:id/lessons/sort | 课时排序 | 课程教师 |
 | POST | /api/v1/lessons/:id/attachments | 上传课时附件 | 课程教师 |
 | DELETE | /api/v1/lesson-attachments/:id | 删除附件 | 课程教师 |
+| POST | /api/v1/course-files/upload | 上传课程文件 | 教师/学生 |
 
 ### 1.3 选课管理
 
@@ -406,7 +407,7 @@
     },
     {
       "question_id": "1780000000020004",
-      "answer_file_url": "https://oss.example.com/reports/xxx.pdf"
+      "answer_file_url": "course/assignment_report/1780000000000001/1780000000030001.pdf"
     }
   ]
 }
@@ -465,7 +466,7 @@
     },
     {
       "question_id": "1780000000020004",
-      "answer_file_url": "https://oss.example.com/reports/xxx.pdf"
+      "answer_file_url": "course/assignment_report/1780000000000001/1780000000030001.pdf"
     }
   ]
 }
@@ -725,7 +726,7 @@
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -801,7 +802,7 @@
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -1092,7 +1093,7 @@
       "page": 1,
       "page_size": 20,
       "total": 18,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -1540,7 +1541,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -1997,7 +1998,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 ```json
 {
   "file_name": "课件-区块链概述.pdf",
-  "file_url": "https://oss.example.com/files/lesson-1.pdf",
+  "file_url": "course/lesson_attachment/1780000000001001/1780000000013001.pdf",
   "file_size": 1048576,
   "file_type": "application/pdf"
 }
@@ -2005,7 +2006,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 
 **说明：**
 
-- 文件实际上传由对象存储完成，本接口只保存附件元数据
+- 文件实际上传必须先调用 `POST /api/v1/course-files/upload` 完成对象存储上传，再将返回的 `file_url` 写入本接口
 - 安全限制遵循验收标准：视频≤500MB，文档≤50MB
 
 **响应：**
@@ -2029,6 +2030,42 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 **说明：**
 
 - 删除附件记录，不删除关联课时主体
+
+---
+
+### 2.56A POST /api/v1/course-files/upload — 上传课程文件
+
+**权限：** 教师/学生
+
+**请求：** `multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| file | File | 是 | 待上传文件 |
+| purpose | string | 是 | `lesson_attachment` / `assignment_report` |
+
+**响应：**
+
+```json
+{
+  "code": 200,
+  "message": "上传成功",
+  "data": {
+    "file_name": "课件-区块链概述.pdf",
+    "file_url": "course/lesson_attachment/1780000000000001/1780000000013001.pdf",
+    "download_url": "https://minio.example.com/...",
+    "file_size": 1048576,
+    "file_type": "application/pdf"
+  }
+}
+```
+
+**说明：**
+
+- `file_url` 为对象存储键，提交课时附件或实验报告答案时使用
+- `download_url` 为短期预签名下载地址，仅用于当前页面即时展示，不得长期持久化
+- `lesson_attachment` 支持视频和文档：视频≤500MB，文档≤50MB
+- `assignment_report` 仅支持 PDF/Word/PPT 文档，≤50MB
 
 ---
 
@@ -2118,7 +2155,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -2200,7 +2237,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -2447,7 +2484,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -2604,7 +2641,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -2709,7 +2746,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }
@@ -2752,7 +2789,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
       "page": 1,
       "page_size": 20,
       "total": 1,
-      "total_page": 1
+      "total_pages": 1
     }
   }
 }

@@ -23,10 +23,11 @@ func RegisterSchoolRoutes(
 	// ========== 1. 入驻申请（公开，无需认证） ==========
 	applications := rg.Group("/school-applications")
 	{
-		applications.POST("", appH.Submit)                    // 提交入驻申请
-		applications.POST("/send-sms-code", appH.SendSMSCode) // 发送查询验证码
-		applications.GET("/query", appH.Query)                // 查询申请状态
-		applications.POST("/:id/reapply", appH.Reapply)       // 重新申请
+		applications.POST("", appH.Submit)                             // 提交入驻申请
+		applications.POST("/send-sms-code", appH.SendSMSCode)          // 发送查询验证码
+		applications.GET("/query", appH.Query)                         // 查询申请状态
+		applications.GET("/:id/reapply-detail", appH.GetReapplyDetail) // 获取重新申请预填详情
+		applications.POST("/:id/reapply", appH.Reapply)                // 重新申请
 	}
 
 	// ========== 2. 入驻审核（超管） ==========

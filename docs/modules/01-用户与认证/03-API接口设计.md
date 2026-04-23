@@ -13,6 +13,7 @@
 | **认证** | POST | /api/v1/auth/login | 手机号+密码登录 | 无需认证 |
 | | POST | /api/v1/auth/logout | 登出 | 已登录 |
 | | POST | /api/v1/auth/token/refresh | 刷新Token | 无需认证（需Refresh Token） |
+| | GET | /api/v1/auth/sso-schools | 获取已配置SSO学校列表 | 无需认证 |
 | | GET | /api/v1/auth/sso/:school_id/login | SSO登录跳转 | 无需认证 |
 | | GET | /api/v1/auth/sso/callback | SSO回调 | 无需认证 |
 | **密码** | POST | /api/v1/auth/change-password | 修改密码 | 已登录 |
@@ -20,6 +21,7 @@
 | **用户管理** | GET | /api/v1/users | 用户列表 | 超管/校管 |
 | | GET | /api/v1/users/:id | 用户详情 | 超管/校管 |
 | | POST | /api/v1/users | 手动创建用户 | 超管/校管 |
+| | POST | /api/v1/users/super-admins | 创建超级管理员 | 超管 |
 | | PUT | /api/v1/users/:id | 更新用户信息 | 超管/校管 |
 | | DELETE | /api/v1/users/:id | 删除用户（软删除） | 超管/校管 |
 | | PATCH | /api/v1/users/:id/status | 变更账号状态 | 超管/校管 |
@@ -173,6 +175,36 @@
 
 ---
 
+#### GET /api/v1/auth/sso-schools — 获取已配置SSO学校列表
+
+**权限：** 无需认证
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| keyword | string | 否 | 学校名称搜索关键词 |
+
+**成功响应：**
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "id": "1780000000000100",
+        "name": "XX大学",
+        "logo_url": "https://oss.example.com/schools/logo.png"
+      }
+    ]
+  }
+}
+```
+
+---
+
 #### GET /api/v1/auth/sso/callback — SSO回调
 
 **查询参数：** 由SSO系统回传（CAS的ticket / OAuth2的code等）
@@ -295,6 +327,83 @@
 ```
 
 > 学校管理员创建时 `school_id` 自动取当前用户所属学校。
+> 当前后端创建用户接口 `role` 仅支持 `teacher` / `student`；超级管理员账号创建需走初始化或后续专用管理能力，不通过该接口传 `super_admin`。
+
+**成功响应：**
+
+```json
+{
+  "code": 200,
+  "message": "用户创建成功",
+  "data": {
+    "id": "1780000000000001"
+  }
+}
+```
+
+---
+
+#### POST /api/v1/users/super-admins — 创建超级管理员
+
+**权限：** 超级管理员
+
+**请求体：**
+
+```json
+{
+  "phone": "13900139000",
+  "name": "平台管理员",
+  "password": "InitPass123",
+  "school_id": "1780000000000100",
+  "email": "platform-admin@example.com",
+  "remark": "新增平台超级管理员"
+}
+```
+
+**成功响应：**
+
+```json
+{
+  "code": 201,
+  "message": "created",
+  "data": {
+    "id": "1780000000000300"
+  }
+}
+```
+
+**业务规则：**
+1. 仅超级管理员可创建超级管理员
+2. 手机号全局唯一
+3. 密码必须满足当前安全策略
+4. 新账号角色固定为 `super_admin`
+5. 由于当前用户表 `school_id` 为必填且存在外键约束，新超管账号必须有 `school_id`；未传时后端回退创建者的 `school_id`，若创建者 Token 中也没有学校归属则返回参数错误
+6. 超级管理员权限边界由 `super_admin` 角色决定，不依赖 `school_id` 做数据范围收缩
+
+---
+
+#### PUT /api/v1/users/:id — 更新用户信息
+
+**权限：** 超级管理员 | 学校管理员
+
+**请求体（后端当前支持字段）：**
+
+```json
+{
+  "name": "张三",
+  "student_no": "2024001",
+  "college": "计算机学院",
+  "major": "软件工程",
+  "class_name": "软工2401",
+  "enrollment_year": 2024,
+  "education_level": 2,
+  "grade": 2024,
+  "email": "zhangsan@example.com",
+  "remark": "学籍信息更新"
+}
+```
+
+> 后端当前更新接口不支持修改手机号和角色；前端编辑页应将手机号和角色作为只读/不可改字段处理。
 
 ---
 
@@ -586,7 +695,15 @@
 
 **权限：** 超级管理员（全部） | 学校管理员（本校）
 
-**查询参数：** 同登录日志，额外支持 `action`（操作类型字符串筛选）
+**查询参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| page / page_size | int | 分页 |
+| operator_id | string | 按操作人筛选 |
+| action | string | 操作类型筛选 |
+| target_type | string | 目标资源类型筛选 |
+| created_from / created_to | string | 时间范围 |
 
 ---
 

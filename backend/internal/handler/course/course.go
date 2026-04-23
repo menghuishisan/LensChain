@@ -6,15 +6,20 @@
 package course
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lenschain/backend/internal/pkg/handlerctx"
 	"github.com/lenschain/backend/internal/pkg/pagination"
 
 	"github.com/lenschain/backend/internal/model/dto"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
 	svc "github.com/lenschain/backend/internal/service/course"
 )
+
+const maxCourseUploadSize = 500 << 20
 
 // CourseHandler 课程管理处理器
 // 处理课程 CRUD、发布、结束、归档、克隆、共享、邀请码等接口
@@ -403,6 +408,40 @@ func (h *CourseHandler) DeleteLesson(c *gin.Context) {
 		return
 	}
 	response.SuccessWithMsg(c, "删除成功", nil)
+}
+
+// UploadCourseFile 上传课程文件
+// POST /api/v1/course-files/upload
+// 负责解析 multipart 文件并交给 service 上传到对象存储
+func (h *CourseHandler) UploadCourseFile(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(maxCourseUploadSize); err != nil {
+		response.Error(c, errcode.ErrInvalidParams.WithMessage("文件大小不能超过500MB"))
+		return
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, errcode.ErrInvalidParams.WithMessage("请上传文件"))
+		return
+	}
+	src, err := file.Open()
+	if err != nil {
+		response.Error(c, errcode.ErrInternal.WithMessage("打开文件失败"))
+		return
+	}
+	defer src.Close()
+
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = http.DetectContentType([]byte(file.Filename))
+	}
+
+	sc := handlerctx.BuildServiceContext(c)
+	resp, err := h.contentService.UploadCourseFile(c.Request.Context(), sc, file.Filename, src, file.Size, contentType, c.PostForm("purpose"))
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "上传成功", resp)
 }
 
 // UploadAttachment 上传课时附件

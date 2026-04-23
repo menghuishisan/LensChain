@@ -71,6 +71,7 @@ func (s *service) GetStudentSemesterGrades(ctx context.Context, sc *svcctx.Servi
 		}
 		totalCredits += grade.Credits
 		items = append(items, dto.SemesterGradeItem{
+			GradeID:          fmt.Sprintf("%d", grade.ID),
 			CourseID:         fmt.Sprintf("%d", grade.CourseID),
 			CourseName:       course.Title,
 			TeacherName:      userName(teacherMap[course.TeacherID]),

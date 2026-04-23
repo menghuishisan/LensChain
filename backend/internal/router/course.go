@@ -24,6 +24,13 @@ type CourseHandlers struct {
 func RegisterCourseRoutes(rg *gin.RouterGroup, ch *CourseHandlers) {
 	courseMemberOnly := middleware.RequireRoles(middleware.RoleTeacher, middleware.RoleStudent)
 
+	courseFiles := rg.Group("/course-files")
+	courseFiles.Use(middleware.JWTAuth(), middleware.TenantIsolation())
+	courseFiles.Use(middleware.RequireRoles(middleware.RoleTeacher, middleware.RoleSchoolAdmin, middleware.RoleStudent, middleware.RoleSuperAdmin))
+	{
+		courseFiles.POST("/upload", ch.CourseHandler.UploadCourseFile)
+	}
+
 	// ========== 1. 课程管理（教师） ==========
 	courses := rg.Group("/courses")
 	courses.Use(middleware.JWTAuth(), middleware.TenantIsolation())

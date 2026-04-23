@@ -167,6 +167,42 @@ func (s *challengeService) GenerateFromTemplate(ctx context.Context, sc *svcctx.
 	return resp, nil
 }
 
+// ImportExternalVulnerability 从外部真实漏洞源导入题目草稿。
+// A级源可生成链上验证题，B级源生成待补全链上草稿，C级源按文档降级为 blockchain/misc 静态素材。
+func (s *challengeService) ImportExternalVulnerability(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImportExternalVulnerabilityReq) (*dto.ChallengeStatusResp, error) {
+	if err := s.ensureChallengeEditor(sc); err != nil {
+		return nil, err
+	}
+	if !isBaseScoreWithinDifficultyRange(req.Difficulty, req.BaseScore) {
+		return nil, errcode.ErrChallengeScoreInvalid.WithMessage("基础分值超出难度范围")
+	}
+	challenge, contracts, assertions := buildChallengeFromExternalSource(req, sc)
+	err := database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txChallengeRepo := ctfrepo.NewChallengeRepository(tx)
+		txContractRepo := ctfrepo.NewChallengeContractRepository(tx)
+		txAssertionRepo := ctfrepo.NewChallengeAssertionRepository(tx)
+		if err := txChallengeRepo.Create(ctx, challenge); err != nil {
+			return err
+		}
+		if len(contracts) > 0 {
+			if err := txContractRepo.BatchCreate(ctx, contracts); err != nil {
+				return err
+			}
+		}
+		if len(assertions) > 0 {
+			return txAssertionRepo.BatchCreate(ctx, assertions)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp := buildChallengeStatusResp(challenge)
+	resp.ContractsGenerated = intPtr(len(contracts))
+	resp.AssertionsGenerated = intPtr(len(assertions))
+	return resp, nil
+}
+
 // buildSWCRegistryItems 构建内置 SWC 样例列表。
 func buildSWCRegistryItems() []dto.SWCRegistryItem {
 	return []dto.SWCRegistryItem{
@@ -227,6 +263,82 @@ func buildChallengeFromSWC(req *dto.ImportSWCChallengeReq, sc *svcctx.ServiceCon
 			Description:   stringPtr("攻击成功后目标状态应被修改为 solved=true"),
 			SortOrder:     1,
 		},
+	}
+	return challenge, contracts, assertions
+}
+
+// buildChallengeFromExternalSource 根据外部真实漏洞源等级生成题目草稿。
+func buildChallengeFromExternalSource(req *dto.ImportExternalVulnerabilityReq, sc *svcctx.ServiceContext) (*entity.Challenge, []*entity.ChallengeContract, []*entity.ChallengeAssertion) {
+	challengeID := snowflake.Generate()
+	sourcePath := int16(enum.ChallengeSourceCustom)
+	category := req.Category
+	flagType := int16(enum.FlagTypeOnChain)
+	runtimeMode := int16(enum.RuntimeModeIsolated)
+	if req.SourceGrade == "C" {
+		if category == enum.ChallengeCategoryContract {
+			category = enum.ChallengeCategoryBlockchain
+		}
+		flagType = int16(enum.FlagTypeDynamic)
+	}
+	if req.SourceGrade == "A" && req.ChainConfig != nil && req.ChainConfig.Fork != nil && req.ChainConfig.Fork.BlockNumber > 0 {
+		runtimeMode = int16(enum.RuntimeModeForked)
+	}
+	metadata := map[string]interface{}{
+		"external_source": map[string]interface{}{
+			"source_grade":          req.SourceGrade,
+			"vulnerability_name":    req.VulnerabilityName,
+			"source_url":            req.SourceURL,
+			"confidence_score":      req.ConfidenceScore,
+			"reproducibility_score": req.ReproducibilityScore,
+			"reference_event":       req.ReferenceEvent,
+		},
+	}
+	challenge := &entity.Challenge{
+		ID:                challengeID,
+		Title:             req.Title,
+		Description:       "由外部真实漏洞源导入生成的题目草稿，等级：" + req.SourceGrade + "，来源：" + req.SourceURL,
+		Category:          category,
+		Difficulty:        req.Difficulty,
+		BaseScore:         req.BaseScore,
+		FlagType:          flagType,
+		RuntimeMode:       runtimeMode,
+		ChainConfig:       mustJSON(req.ChainConfig),
+		SetupTransactions: mustJSON(req.SetupTransactions),
+		SourcePath:        &sourcePath,
+		TemplateParams:    mustJSON(metadata),
+		AuthorID:          sc.UserID,
+		SchoolID:          sc.SchoolID,
+		Status:            enum.ChallengeStatusDraft,
+	}
+	if req.SourceGrade == "C" {
+		return challenge, nil, nil
+	}
+	sourceCode := derefString(req.SourceCode)
+	if strings.TrimSpace(sourceCode) == "" {
+		return challenge, nil, nil
+	}
+	contracts := []*entity.ChallengeContract{{
+		ID:          snowflake.Generate(),
+		ChallengeID: challengeID,
+		Name:        detectTemplateContractName(sourceCode),
+		SourceCode:  sourceCode,
+		ABI:         datatypes.JSON([]byte("[]")),
+		Bytecode:    "0x00",
+		DeployOrder: 1,
+	}}
+	assertions := []*entity.ChallengeAssertion(nil)
+	if req.SourceGrade == "A" {
+		assertions = []*entity.ChallengeAssertion{{
+			ID:            snowflake.Generate(),
+			ChallengeID:   challengeID,
+			AssertionType: enum.AssertionTypeCustomScript,
+			Target:        "external_poc",
+			Operator:      "eq",
+			ExpectedValue: "true",
+			Description:   stringPtr("A级外部源默认断言，教师需在预验证前补充精确断言。"),
+			ExtraParams:   mustJSON(map[string]interface{}{"poc_content": derefString(req.PocContent)}),
+			SortOrder:     1,
+		}}
 	}
 	return challenge, contracts, assertions
 }

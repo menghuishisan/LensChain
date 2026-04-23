@@ -35,6 +35,7 @@ type UserService interface {
 	List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.UserListReq) ([]*dto.UserListItem, int64, error)
 	GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.UserDetailResp, error)
 	Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateUserReq) (*dto.CreateUserResp, error)
+	CreateSuperAdmin(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateSuperAdminReq) (*dto.CreateUserResp, error)
 	Update(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateUserReq) error
 	Delete(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	BatchDelete(ctx context.Context, sc *svcctx.ServiceContext, ids []int64) error
@@ -210,6 +211,92 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 	return &dto.CreateUserResp{
 		ID: strconv.FormatInt(userID, 10),
 	}, nil
+}
+
+// CreateSuperAdmin 创建超级管理员账号。
+// 当前 users.school_id 存在非空外键约束，因此该接口显式接收 school_id，未传时回退当前操作者 school_id。
+// 超级管理员权限边界由 super_admin 角色决定，不依赖 school_id 做数据范围收缩。
+func (s *userService) CreateSuperAdmin(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateSuperAdminReq) (*dto.CreateUserResp, error) {
+	if !sc.IsSuperAdmin() {
+		return nil, errcode.ErrForbidden
+	}
+
+	schoolID := sc.SchoolID
+	if req.SchoolID != nil && *req.SchoolID != "" {
+		parsedSchoolID, err := snowflake.ParseString(*req.SchoolID)
+		if err != nil || parsedSchoolID <= 0 {
+			return nil, errcode.ErrInvalidParams.WithMessage("school_id 格式不正确")
+		}
+		schoolID = parsedSchoolID
+	}
+	if schoolID <= 0 {
+		return nil, errcode.ErrInvalidParams.WithMessage("创建超级管理员需要指定学校ID")
+	}
+
+	if existing, err := s.userRepo.GetByPhone(ctx, req.Phone); err == nil && existing != nil {
+		return nil, errcode.ErrDuplicatePhone
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errcode.ErrInternal.WithMessage("校验手机号失败")
+	}
+
+	if err := s.validatePasswordByPolicy(ctx, req.Password); err != nil {
+		return nil, err
+	}
+	hash, err := crypto.HashPassword(req.Password)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("密码加密失败")
+	}
+
+	role, err := s.roleRepo.GetByCode(ctx, enum.RoleSuperAdmin)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("超级管理员角色不存在")
+	}
+
+	userID := snowflake.Generate()
+	err = database.TransactionWithDB(ctx, s.db, func(tx *gorm.DB) error {
+		txUserRepo := authrepo.NewUserRepository(tx)
+		txProfileRepo := authrepo.NewProfileRepository(tx)
+		txRoleRepo := authrepo.NewRoleRepository(tx)
+
+		user := &entity.User{
+			ID:            userID,
+			Phone:         req.Phone,
+			PasswordHash:  hash,
+			Name:          req.Name,
+			SchoolID:      schoolID,
+			Status:        enum.UserStatusActive,
+			IsFirstLogin:  true,
+			IsSchoolAdmin: false,
+			CreatedBy:     &sc.UserID,
+		}
+		if err := txUserRepo.Create(ctx, user); err != nil {
+			return err
+		}
+
+		profile := &entity.UserProfile{
+			ID:     snowflake.Generate(),
+			UserID: userID,
+			Email:  req.Email,
+			Remark: req.Remark,
+		}
+		if err := txProfileRepo.Create(ctx, profile); err != nil {
+			return err
+		}
+
+		return txRoleRepo.AssignRole(ctx, userID, role.ID)
+	})
+	if err != nil {
+		logger.L.Error("创建超级管理员失败", zap.Error(err))
+		return nil, errcode.ErrInternal.WithMessage("创建超级管理员失败")
+	}
+
+	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "create_super_admin", "user", userID, map[string]interface{}{
+		"phone":     mask.Phone(req.Phone),
+		"name":      req.Name,
+		"school_id": schoolID,
+	})
+
+	return &dto.CreateUserResp{ID: strconv.FormatInt(userID, 10)}, nil
 }
 
 // Update 更新用户信息
