@@ -20,8 +20,9 @@ type CTFTeamBrief struct {
 
 // JeopardyScoringConfig 解题赛动态计分配置。
 type JeopardyScoringConfig struct {
-	DecayFactor     float64 `json:"decay_factor"`
-	MinScoreRatio   float64 `json:"min_score_ratio"`
+	DecayFactor   float64 `json:"decay_factor"`
+	MinScoreRatio float64 `json:"min_score_ratio"`
+	// FirstBloodBonus 表示额外奖励比例，例如 0.1 表示额外奖励当前分值的 10%。
 	FirstBloodBonus float64 `json:"first_blood_bonus"`
 }
 
@@ -60,12 +61,37 @@ type ChallengeChainAccount struct {
 	Balance string `json:"balance"`
 }
 
+// ChallengePinnedContract Fork 题目允许绑定的真实合约。
+type ChallengePinnedContract struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
+// ChallengeChainForkConfig Fork 模式链配置。
+type ChallengeChainForkConfig struct {
+	RPCURL               string                    `json:"rpc_url"`
+	ChainID              int64                     `json:"chain_id"`
+	BlockNumber          int64                     `json:"block_number"`
+	ImpersonatedAccounts []string                  `json:"impersonated_accounts,omitempty"`
+	PinnedContracts      []ChallengePinnedContract `json:"pinned_contracts,omitempty"`
+}
+
 // ChallengeChainConfig 智能合约题目链配置。
 type ChallengeChainConfig struct {
-	ChainType    string                  `json:"chain_type"`
-	ChainVersion string                  `json:"chain_version"`
-	BlockNumber  int64                   `json:"block_number"`
-	Accounts     []ChallengeChainAccount `json:"accounts"`
+	ChainType    string                    `json:"chain_type"`
+	ChainVersion string                    `json:"chain_version"`
+	BlockNumber  int64                     `json:"block_number"`
+	Fork         *ChallengeChainForkConfig `json:"fork,omitempty"`
+	Accounts     []ChallengeChainAccount   `json:"accounts"`
+}
+
+// ChallengeSetupTransaction 题目初始化交易定义。
+type ChallengeSetupTransaction struct {
+	From     string        `json:"from"`
+	To       string        `json:"to"`
+	Function string        `json:"function"`
+	Args     []interface{} `json:"args"`
+	Value    string        `json:"value"`
 }
 
 // ChallengeEnvironmentPort 非合约题目环境端口配置。
@@ -457,6 +483,21 @@ type CompetitionDetailResp struct {
 	CreatedAt           string                     `json:"created_at"`
 }
 
+// CompetitionCreateResp 创建竞赛响应。
+type CompetitionCreateResp struct {
+	ID                  string `json:"id"`
+	Title               string `json:"title"`
+	CompetitionType     int16  `json:"competition_type"`
+	CompetitionTypeText string `json:"competition_type_text"`
+	Scope               int16  `json:"scope"`
+	ScopeText           string `json:"scope_text"`
+	TeamMode            int16  `json:"team_mode"`
+	TeamModeText        string `json:"team_mode_text"`
+	Status              int16  `json:"status"`
+	StatusText          string `json:"status_text"`
+	CreatedAt           string `json:"created_at"`
+}
+
 // CompetitionStatusResp 竞赛状态响应。
 type CompetitionStatusResp struct {
 	ID         string `json:"id"`
@@ -489,7 +530,9 @@ type CreateChallengeReq struct {
 	FlagType          int16                       `json:"flag_type" binding:"required,oneof=1 2 3"`
 	StaticFlag        *string                     `json:"static_flag"`
 	DynamicFlagSecret *string                     `json:"dynamic_flag_secret"`
+	RuntimeMode       *int16                      `json:"runtime_mode" binding:"omitempty,oneof=1 2"`
 	ChainConfig       *ChallengeChainConfig       `json:"chain_config"`
+	SetupTransactions []ChallengeSetupTransaction `json:"setup_transactions"`
 	SourcePath        *int16                      `json:"source_path" binding:"omitempty,oneof=1 2 3"`
 	SwcID             *string                     `json:"swc_id"`
 	TemplateID        *string                     `json:"template_id"`
@@ -508,7 +551,9 @@ type UpdateChallengeReq struct {
 	FlagType          *int16                      `json:"flag_type" binding:"omitempty,oneof=1 2 3"`
 	StaticFlag        *string                     `json:"static_flag"`
 	DynamicFlagSecret *string                     `json:"dynamic_flag_secret"`
+	RuntimeMode       *int16                      `json:"runtime_mode" binding:"omitempty,oneof=1 2"`
 	ChainConfig       *ChallengeChainConfig       `json:"chain_config"`
+	SetupTransactions []ChallengeSetupTransaction `json:"setup_transactions"`
 	EnvironmentConfig *ChallengeEnvironmentConfig `json:"environment_config"`
 	AttachmentURLs    []string                    `json:"attachment_urls"`
 	IsPublic          *bool                       `json:"is_public"`
@@ -535,23 +580,25 @@ type ChallengeAuthorBrief struct {
 
 // ChallengeListItem 题目列表项。
 type ChallengeListItem struct {
-	ID             string                `json:"id"`
-	Title          string                `json:"title"`
-	Category       string                `json:"category"`
-	CategoryText   string                `json:"category_text"`
-	Difficulty     int16                 `json:"difficulty"`
-	DifficultyText string                `json:"difficulty_text"`
-	BaseScore      int                   `json:"base_score"`
-	FlagType       int16                 `json:"flag_type"`
-	FlagTypeText   string                `json:"flag_type_text"`
-	SourcePath     *int16                `json:"source_path"`
-	SourcePathText *string               `json:"source_path_text"`
-	Status         int16                 `json:"status"`
-	StatusText     string                `json:"status_text"`
-	IsPublic       bool                  `json:"is_public"`
-	UsageCount     int                   `json:"usage_count"`
-	Author         *ChallengeAuthorBrief `json:"author"`
-	CreatedAt      string                `json:"created_at"`
+	ID              string                `json:"id"`
+	Title           string                `json:"title"`
+	Category        string                `json:"category"`
+	CategoryText    string                `json:"category_text"`
+	Difficulty      int16                 `json:"difficulty"`
+	DifficultyText  string                `json:"difficulty_text"`
+	BaseScore       int                   `json:"base_score"`
+	FlagType        int16                 `json:"flag_type"`
+	FlagTypeText    string                `json:"flag_type_text"`
+	RuntimeMode     *int16                `json:"runtime_mode"`
+	RuntimeModeText *string               `json:"runtime_mode_text"`
+	SourcePath      *int16                `json:"source_path"`
+	SourcePathText  *string               `json:"source_path_text"`
+	Status          int16                 `json:"status"`
+	StatusText      string                `json:"status_text"`
+	IsPublic        bool                  `json:"is_public"`
+	UsageCount      int                   `json:"usage_count"`
+	Author          *ChallengeAuthorBrief `json:"author"`
+	CreatedAt       string                `json:"created_at"`
 }
 
 // ChallengeContractItem 题目合约项。
@@ -599,7 +646,10 @@ type ChallengeDetailResp struct {
 	BaseScore          int                         `json:"base_score"`
 	FlagType           int16                       `json:"flag_type"`
 	FlagTypeText       string                      `json:"flag_type_text"`
+	RuntimeMode        *int16                      `json:"runtime_mode"`
+	RuntimeModeText    *string                     `json:"runtime_mode_text"`
 	ChainConfig        *ChallengeChainConfig       `json:"chain_config"`
+	SetupTransactions  []ChallengeSetupTransaction `json:"setup_transactions"`
 	SourcePath         *int16                      `json:"source_path"`
 	SourcePathText     *string                     `json:"source_path_text"`
 	SwcID              *string                     `json:"swc_id"`
@@ -629,6 +679,8 @@ type ChallengeStatusResp struct {
 	BaseScore           int     `json:"base_score,omitempty"`
 	FlagType            int16   `json:"flag_type,omitempty"`
 	FlagTypeText        *string `json:"flag_type_text,omitempty"`
+	RuntimeMode         *int16  `json:"runtime_mode,omitempty"`
+	RuntimeModeText     *string `json:"runtime_mode_text,omitempty"`
 	SourcePath          *int16  `json:"source_path,omitempty"`
 	SourcePathText      *string `json:"source_path_text,omitempty"`
 	SwcID               *string `json:"swc_id,omitempty"`
@@ -705,6 +757,7 @@ type ChallengeAssertionResp struct {
 	ChallengeID   string `json:"challenge_id"`
 	AssertionType string `json:"assertion_type"`
 	Target        string `json:"target"`
+	Operator      string `json:"operator"`
 	ExpectedValue string `json:"expected_value"`
 	SortOrder     int    `json:"sort_order"`
 }
@@ -791,6 +844,7 @@ type VerifyChallengeReq struct {
 // VerifyChallengeResp 发起预验证响应。
 type VerifyChallengeResp struct {
 	VerificationID string `json:"verification_id"`
+	ChallengeID    string `json:"challenge_id"`
 	Status         int16  `json:"status"`
 	StatusText     string `json:"status_text"`
 	StartedAt      string `json:"started_at"`
@@ -854,28 +908,80 @@ type ChallengeReviewResp struct {
 	CreatedAt    string  `json:"created_at"`
 }
 
+// ReviewChallengeActionResp 题目审核动作响应。
+type ReviewChallengeActionResp struct {
+	ChallengeID string `json:"challenge_id"`
+	Status      int16  `json:"status"`
+	StatusText  string `json:"status_text"`
+	ReviewID    string `json:"review_id"`
+}
+
 // ========== 竞赛题目配置 ==========
+
+// CompetitionChallengeSummary 竞赛题目概要信息。
+type CompetitionChallengeSummary struct {
+	ID                 string                      `json:"id"`
+	Title              string                      `json:"title"`
+	Description        string                      `json:"description"`
+	Category           string                      `json:"category"`
+	CategoryText       string                      `json:"category_text"`
+	Difficulty         int16                       `json:"difficulty"`
+	DifficultyText     string                      `json:"difficulty_text"`
+	FlagType           int16                       `json:"flag_type"`
+	FlagTypeText       string                      `json:"flag_type_text"`
+	AttachmentURLs     []string                    `json:"attachment_urls"`
+	ChainConfig        *ChallengeChainConfig       `json:"chain_config,omitempty"`
+	SourcePath         *int16                      `json:"source_path,omitempty"`
+	SourcePathText     *string                     `json:"source_path_text,omitempty"`
+	SwcID              *string                     `json:"swc_id,omitempty"`
+	TemplateID         *string                     `json:"template_id,omitempty"`
+	EnvironmentConfig  *ChallengeEnvironmentConfig `json:"environment_config,omitempty"`
+	Status             *int16                      `json:"status,omitempty"`
+	StatusText         *string                     `json:"status_text,omitempty"`
+	IsPublic           *bool                       `json:"is_public,omitempty"`
+	UsageCount         *int                        `json:"usage_count,omitempty"`
+	Contracts          []ChallengeContractItem     `json:"contracts,omitempty"`
+	Assertions         []ChallengeAssertionItem    `json:"assertions,omitempty"`
+	LatestVerification *VerificationSummary        `json:"latest_verification,omitempty"`
+}
+
+// CompetitionChallengeFirstBloodTeam 竞赛题目首解团队信息。
+type CompetitionChallengeFirstBloodTeam struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
 
 // CompetitionChallengeListItem 竞赛题目列表项。
 type CompetitionChallengeListItem struct {
-	ID                string  `json:"id"`
-	ChallengeID       string  `json:"challenge_id"`
-	Title             string  `json:"title"`
-	Category          string  `json:"category"`
-	CategoryText      string  `json:"category_text"`
-	Difficulty        int16   `json:"difficulty"`
-	DifficultyText    string  `json:"difficulty_text"`
-	BaseScore         int     `json:"base_score"`
-	CurrentScore      *int    `json:"current_score"`
-	SolveCount        int     `json:"solve_count"`
-	SortOrder         int     `json:"sort_order"`
-	MyTeamSolved      bool    `json:"my_team_solved"`
-	MyTeamEnvironment *string `json:"my_team_environment"`
+	ID                string                              `json:"id"`
+	Challenge         CompetitionChallengeSummary         `json:"challenge"`
+	BaseScore         int                                 `json:"base_score"`
+	CurrentScore      *int                                `json:"current_score"`
+	SolveCount        int                                 `json:"solve_count"`
+	FirstBloodTeam    *CompetitionChallengeFirstBloodTeam `json:"first_blood_team,omitempty"`
+	FirstBloodAt      *string                             `json:"first_blood_at,omitempty"`
+	SortOrder         int                                 `json:"sort_order"`
+	MyTeamSolved      bool                                `json:"my_team_solved"`
+	MyTeamEnvironment *string                             `json:"my_team_environment"`
 }
 
 // AddCompetitionChallengeReq 添加题目到竞赛请求。
 type AddCompetitionChallengeReq struct {
 	ChallengeIDs []string `json:"challenge_ids" binding:"required,min=1"`
+}
+
+// AddedCompetitionChallengeItem 添加到竞赛的题目项。
+type AddedCompetitionChallengeItem struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// AddCompetitionChallengeResp 添加题目到竞赛响应。
+type AddCompetitionChallengeResp struct {
+	AddedCount    int                             `json:"added_count"`
+	CompetitionID string                          `json:"competition_id"`
+	Challenges    []AddedCompetitionChallengeItem `json:"challenges"`
 }
 
 // SortCompetitionChallengesReq 竞赛题目排序请求。
@@ -984,6 +1090,12 @@ type RegistrationListItem struct {
 	RegisteredAt string `json:"registered_at"`
 }
 
+// RegistrationListReq 报名列表查询参数。
+type RegistrationListReq struct {
+	Page     int `form:"page" binding:"omitempty,min=1"`
+	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
+}
+
 // ========== 提交与验证 ==========
 
 // SubmitCompetitionChallengeReq 提交 Flag/攻击交易请求。
@@ -1083,6 +1195,22 @@ type AdRoundListItem struct {
 	PhaseText   string `json:"phase_text"`
 }
 
+// AdRoundDetailResp 回合详情响应。
+type AdRoundDetailResp struct {
+	ID                string  `json:"id"`
+	CompetitionID     string  `json:"competition_id"`
+	GroupID           string  `json:"group_id"`
+	RoundNumber       int     `json:"round_number"`
+	Phase             int16   `json:"phase"`
+	PhaseText         string  `json:"phase_text"`
+	AttackStartAt     *string `json:"attack_start_at"`
+	AttackEndAt       *string `json:"attack_end_at"`
+	DefenseStartAt    *string `json:"defense_start_at"`
+	DefenseEndAt      *string `json:"defense_end_at"`
+	SettlementStartAt *string `json:"settlement_start_at"`
+	SettlementEndAt   *string `json:"settlement_end_at"`
+}
+
 // CurrentRoundResp 当前回合状态响应。
 type CurrentRoundResp struct {
 	GroupID          string                `json:"group_id"`
@@ -1127,6 +1255,14 @@ type AdAttackResp struct {
 	ErrorMessage         *string                       `json:"error_message"`
 }
 
+// AdAttackListReq 攻击记录查询参数。
+type AdAttackListReq struct {
+	Page        int    `form:"page" binding:"omitempty,min=1"`
+	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	ChallengeID string `form:"challenge_id"`
+	TeamID      string `form:"team_id"`
+}
+
 // AdAttackListItem 攻击记录列表项。
 type AdAttackListItem struct {
 	ID               string `json:"id"`
@@ -1158,6 +1294,14 @@ type AdDefenseResp struct {
 	TokenReward         *int    `json:"token_reward"`
 	TeamBalanceAfter    *int    `json:"team_balance_after"`
 	RejectionReason     *string `json:"rejection_reason"`
+}
+
+// AdDefenseListReq 防守记录查询参数。
+type AdDefenseListReq struct {
+	Page        int    `form:"page" binding:"omitempty,min=1"`
+	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	ChallengeID string `form:"challenge_id"`
+	TeamID      string `form:"team_id"`
 }
 
 // AdDefenseListItem 防守记录列表项。
@@ -1274,9 +1418,11 @@ type CtfAnnouncementItem struct {
 type CtfAnnouncementResp struct {
 	ID                   string  `json:"id"`
 	Title                string  `json:"title"`
+	Content              string  `json:"content,omitempty"`
 	AnnouncementType     int16   `json:"announcement_type"`
 	AnnouncementTypeText string  `json:"announcement_type_text"`
 	ChallengeID          *string `json:"challenge_id"`
+	ChallengeTitle       *string `json:"challenge_title,omitempty"`
 	PublishedByName      string  `json:"published_by_name"`
 	CreatedAt            string  `json:"created_at"`
 }

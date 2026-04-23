@@ -17,6 +17,7 @@ import (
 
 	"github.com/lenschain/backend/internal/config"
 	experimenthandler "github.com/lenschain/backend/internal/handler/experiment"
+	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
@@ -29,11 +30,12 @@ import (
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/router"
 	svc "github.com/lenschain/backend/internal/service/experiment"
+	notificationsvc "github.com/lenschain/backend/internal/service/notification"
 )
 
 // initExperimentModule 初始化模块04（实验环境）的 Handler。
 // 统一装配镜像、模板、实例、分组、监控、配额与 SimEngine/K8s 依赖。
-func initExperimentModule() *router.ExperimentHandlers {
+func initExperimentModule(notificationDispatcher notificationsvc.EventDispatcher) *router.ExperimentHandlers {
 	db := database.Get()
 
 	// ========== Repository 层 ==========
@@ -93,9 +95,7 @@ func initExperimentModule() *router.ExperimentHandlers {
 		userRepo:       userRepo,
 	}
 	schoolNameQuerier := &experimentSchoolNameQuerierAdapter{schoolRepo: schoolRepo}
-	// 模块07内部通知发送器暂不在此处注入。
-	// 原因：当前模块07的 /internal/send-event 仍未完成 service/handler 闭环，
-	// 先保持模块04的跨模块边界清晰，待模块07补齐后在此处按接口注入，不在模块04 service 内写跨模块写入逻辑。
+	experimentNotificationDispatcher := newExperimentNotificationDispatcher(notificationDispatcher)
 
 	// ========== 基础服务 ==========
 	k8sSvc, err := svc.NewK8sService(config.Get().K8s)
@@ -132,6 +132,7 @@ func initExperimentModule() *router.ExperimentHandlers {
 		templateTagRepo,
 		roleRepo,
 		userQuerier,
+		experimentNotificationDispatcher,
 	)
 	templateSubService := svc.NewTemplateSubService(
 		templateRepo,
@@ -183,6 +184,7 @@ func initExperimentModule() *router.ExperimentHandlers {
 		courseQuerier,
 		courseGradeSyncer,
 		enrollmentChecker,
+		experimentNotificationDispatcher,
 	)
 	groupService := svc.NewGroupService(
 		db,
@@ -247,16 +249,39 @@ func initExperimentModule() *router.ExperimentHandlers {
 	)
 
 	// ========== 定时任务注册 ==========
-	cronpkg.AddTask(cronpkg.CronExpAutoSnapshot, "实验自动快照", experimentScheduler.RunAutoSnapshot)
-	cronpkg.AddTask(cronpkg.CronExpIdleReclaim, "实验空闲回收", experimentScheduler.RunIdleReclaim)
-	cronpkg.AddTask(cronpkg.CronExpExpiredCleanup, "实验超时与课程结束回收", experimentScheduler.RunExpiredCleanup)
-	cronpkg.AddTask(cronpkg.CronExpRuntimeHealth, "实验运行时健康检查", experimentScheduler.RunRuntimeHealthCheck)
-	cronpkg.AddTask(cronpkg.CronExpImagePrePullSync, "实验镜像预拉取对账", experimentScheduler.RunImagePrePullReconcile)
+	if experimentScheduler != nil {
+		cronpkg.AddTask(cronpkg.CronExpAutoSnapshot, "实验自动快照", experimentScheduler.RunAutoSnapshot)
+		cronpkg.AddTask(cronpkg.CronExpIdleReclaim, "实验空闲回收", experimentScheduler.RunIdleReclaim)
+		cronpkg.AddTask(cronpkg.CronExpExpiredCleanup, "实验超时与课程结束回收", experimentScheduler.RunExpiredCleanup)
+		cronpkg.AddTask(cronpkg.CronExpRuntimeHealth, "实验运行时健康检查", experimentScheduler.RunRuntimeHealthCheck)
+		cronpkg.AddTask(cronpkg.CronExpImagePrePullSync, "实验镜像预拉取对账", experimentScheduler.RunImagePrePullReconcile)
+	}
 
 	return &router.ExperimentHandlers{
 		TemplateHandler: templateHandler,
 		InstanceHandler: instanceHandler,
 	}
+}
+
+// experimentNotificationDispatcherAdapter 跨模块适配器：转发模块04产生的通知事件到模块07。
+type experimentNotificationDispatcherAdapter struct {
+	dispatcher notificationsvc.EventDispatcher
+}
+
+// newExperimentNotificationDispatcher 创建模块04使用的通知事件分发器。
+func newExperimentNotificationDispatcher(dispatcher notificationsvc.EventDispatcher) svc.NotificationEventDispatcher {
+	if dispatcher == nil {
+		return nil
+	}
+	return &experimentNotificationDispatcherAdapter{dispatcher: dispatcher}
+}
+
+// DispatchEvent 将模块04内部事件转交给模块07统一生成站内信。
+func (a *experimentNotificationDispatcherAdapter) DispatchEvent(ctx context.Context, req *dto.InternalSendNotificationEventReq) error {
+	if a == nil || a.dispatcher == nil || req == nil {
+		return nil
+	}
+	return a.dispatcher.DispatchEvent(ctx, req)
 }
 
 // experimentUserQuerierAdapter 跨模块适配器：提供模块04所需的用户名称与摘要查询。

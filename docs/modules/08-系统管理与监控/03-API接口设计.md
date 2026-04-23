@@ -59,8 +59,8 @@
 | keyword | string | 否 | 关键词搜索（操作人姓名、操作类型、IP等） |
 | operator_id | string | 否 | 操作人ID |
 | action | string | 否 | 操作类型 |
-| date_from | string | 否 | 开始时间 |
-| date_to | string | 否 | 结束时间 |
+| date_from | string | 否 | 开始时间，RFC3339格式 |
+| date_to | string | 否 | 结束时间，RFC3339格式 |
 | ip | string | 否 | IP地址 |
 
 **成功响应：**
@@ -146,24 +146,33 @@
         "group": "platform",
         "group_text": "平台基本信息",
         "configs": [
-          { "key": "name", "value": "链镜", "value_type": 1, "description": "平台名称", "is_sensitive": false },
-          { "key": "logo_url", "value": "/static/logo.png", "value_type": 1, "description": "平台Logo", "is_sensitive": false },
-          { "key": "icp_number", "value": "京ICP备XXXXXXXX号", "value_type": 1, "description": "ICP备案号", "is_sensitive": false }
+          { "key": "name", "value": "链镜", "value_type": 1, "description": "平台名称", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "logo_url", "value": "", "value_type": 1, "description": "平台Logo URL", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "icp_number", "value": "", "value_type": 1, "description": "ICP备案号", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "copyright", "value": "", "value_type": 1, "description": "版权信息", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "description", "value": "", "value_type": 1, "description": "平台描述", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" }
         ]
       },
       {
         "group": "storage",
         "group_text": "存储配置",
         "configs": [
-          { "key": "default_school_quota_gb", "value": "100", "value_type": 2, "description": "学校默认存储配额(GB)", "is_sensitive": false }
+          { "key": "default_school_quota_gb", "value": "100", "value_type": 2, "description": "学校默认存储配额(GB)", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "max_upload_size_mb", "value": "50", "value_type": 2, "description": "单文件最大上传大小(MB)", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" }
         ]
       },
       {
         "group": "security",
         "group_text": "安全配置",
         "configs": [
-          { "key": "session_timeout_hours", "value": "24", "value_type": 2, "description": "会话超时(小时)", "is_sensitive": false },
-          { "key": "max_login_fail_count", "value": "5", "value_type": 2, "description": "最大登录失败次数", "is_sensitive": false }
+          { "key": "session_timeout_hours", "value": "24", "value_type": 2, "description": "会话超时(小时)", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "max_login_fail_count", "value": "5", "value_type": 2, "description": "最大登录失败次数", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "lock_duration_minutes", "value": "30", "value_type": 2, "description": "账号锁定时长(分钟)", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "password_min_length", "value": "8", "value_type": 2, "description": "密码最小长度", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "password_require_uppercase", "value": "true", "value_type": 3, "description": "密码是否要求大写字母", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "password_require_lowercase", "value": "true", "value_type": 3, "description": "密码是否要求小写字母", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "password_require_digit", "value": "true", "value_type": 3, "description": "密码是否要求数字", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" },
+          { "key": "password_require_special_char", "value": "false", "value_type": 3, "description": "密码是否要求特殊字符", "is_sensitive": false, "updated_at": "2026-04-09T10:00:00Z" }
         ]
       }
     ]
@@ -171,27 +180,55 @@
 }
 ```
 
-> 敏感配置（`is_sensitive=true`）的 `value` 返回 `"******"`。
+> 敏感配置（`is_sensitive=true`）的 `value` 返回 `"******"`；`updated_at` 用于前端提交更新时执行乐观锁控制，后端返回完整 RFC3339 时间戳（可能包含毫秒或微秒），前端应原样回传。
 
 #### PUT /api/v1/system/configs/:group/:key — 更新单个配置
 
 **请求体：**
 ```json
 {
-  "value": "链镜教学平台"
+  "value": "链镜教学平台",
+  "updated_at": "2026-04-09T10:00:00Z"
 }
 ```
 
 **后端逻辑：**
 1. 校验配置键存在
 2. 校验值类型匹配
-3. 记录变更到 `config_change_logs`（old_value, new_value, changed_by, ip）
-4. 更新配置值
-5. 刷新Redis缓存
+3. 校验 `updated_at` 与当前记录一致，避免并发覆盖
+4. 记录变更到 `config_change_logs`（old_value, new_value, changed_by, ip）
+5. 更新配置值
+6. 刷新Redis缓存
+
+> 当 `updated_at` 不匹配时，返回 `409 Conflict`，提示 `"配置已被修改，请刷新后重试"`。
+
+#### PUT /api/v1/system/configs/:group — 批量更新分组配置
+
+**请求体：**
+```json
+{
+  "configs": [
+    {
+      "key": "name",
+      "value": "链镜教学平台",
+      "updated_at": "2026-04-09T10:00:00Z"
+    },
+    {
+      "key": "logo_url",
+      "value": "/static/logo-new.png",
+      "updated_at": "2026-04-09T10:00:00Z"
+    }
+  ]
+}
+```
+
+> 每个配置项都必须携带对应的 `updated_at`，后端在同一事务中执行乐观锁校验；任一项冲突则整批回滚并返回 `409 Conflict`。
 
 #### GET /api/v1/system/configs/change-logs — 配置变更记录
 
 **查询参数：** `config_group`, `config_key`, `date_from`, `date_to`, `page`, `page_size`
+
+> `date_from`、`date_to` 统一使用 RFC3339 格式，例如 `2026-04-09T10:00:00Z`。
 
 **成功响应：**
 ```json
@@ -286,6 +323,8 @@
 #### GET /api/v1/system/alert-events — 告警事件列表
 
 **查询参数：** `rule_id`, `level`, `status`, `date_from`, `date_to`, `page`, `page_size`
+
+> `date_from`、`date_to` 统一使用 RFC3339 格式，例如 `2026-04-09T10:00:00Z`。
 
 **成功响应：**
 ```json
@@ -540,18 +579,65 @@
         "file_size_text": "1.0 GB",
         "started_at": "2026-04-09T10:00:00Z",
         "completed_at": "2026-04-09T10:05:00Z",
-        "duration_seconds": 300
+        "duration_seconds": 300,
+        "error_message": null
       }
     ],
     "pagination": { "page": 1, "page_size": 20, "total": 30, "total_pages": 2 },
     "backup_config": {
       "auto_enabled": true,
-      "cron": "0 2 * * *",
-      "retention_count": 30
+      "cron": "0 0 2 * * *",
+      "retention_count": 30,
+      "auto_enabled_updated_at": "2026-04-09T10:00:00Z",
+      "cron_updated_at": "2026-04-09T10:00:00Z",
+      "retention_count_updated_at": "2026-04-09T10:00:00Z"
     }
   }
 }
 ```
+
+#### GET /api/v1/system/backups/config — 获取备份配置
+
+**成功响应：**
+```json
+{
+  "code": 200,
+  "data": {
+    "auto_enabled": true,
+    "cron": "0 0 2 * * *",
+    "retention_count": 30,
+    "auto_enabled_updated_at": "2026-04-09T10:00:00Z",
+    "cron_updated_at": "2026-04-09T10:00:00Z",
+    "retention_count_updated_at": "2026-04-09T10:00:00Z"
+  }
+}
+```
+
+> `*_updated_at` 用于前端提交更新时执行乐观锁控制；后端返回完整 RFC3339 时间戳（可能包含毫秒或微秒），前端应原样回传。备份配置本质上写入 `system_configs` 的 `backup` 分组。
+
+#### PUT /api/v1/system/backups/config — 更新备份配置
+
+**请求体：**
+```json
+{
+  "auto_enabled": true,
+  "cron": "0 0 2 * * *",
+  "retention_count": 30,
+  "auto_enabled_updated_at": "2026-04-09T10:00:00Z",
+  "cron_updated_at": "2026-04-09T10:00:00Z",
+  "retention_count_updated_at": "2026-04-09T10:00:00Z"
+}
+```
+
+**后端逻辑：**
+1. 将请求映射为 `backup` 分组的三项配置更新
+2. 校验配置值类型和 `updated_at` 乐观锁
+3. 在同一事务中更新三项配置并写入 `config_change_logs`
+4. 刷新 Redis 缓存
+5. 根据新的 `auto_backup_enabled` 与 `auto_backup_cron` 重载自动备份定时任务
+
+> 任一 `updated_at` 不匹配时，三项配置均不更新，并返回 `409 Conflict`，提示 `"配置已被修改，请刷新后重试"`。
+> `cron` 必须使用平台统一的 6 段秒级 cron 表达式，例如每日 2:00 为 `"0 0 2 * * *"`；不接受 5 段表达式。
 
 ---
 

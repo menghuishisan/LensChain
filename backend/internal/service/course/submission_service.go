@@ -551,5 +551,35 @@ func (s *assignmentService) GradeSubmission(ctx context.Context, sc *svcctx.Serv
 		fields["score_after_deduction"] = totalScore
 	}
 
-	return s.submissionRepo.UpdateFields(ctx, id, fields)
+	if err := s.submissionRepo.UpdateFields(ctx, id, fields); err != nil {
+		return err
+	}
+	finalScore := totalScore
+	if scoreAfterDeduction, ok := fields["score_after_deduction"].(float64); ok {
+		finalScore = scoreAfterDeduction
+	}
+	return s.dispatchAssignmentGraded(ctx, assignment, submission, finalScore)
+}
+
+// dispatchAssignmentGraded 在教师批改完成后向学生发送作业批改通知。
+func (s *assignmentService) dispatchAssignmentGraded(
+	ctx context.Context,
+	assignment *entity.Assignment,
+	submission *entity.AssignmentSubmission,
+	finalScore float64,
+) error {
+	if s.eventDispatcher == nil || assignment == nil || submission == nil || submission.StudentID == 0 {
+		return nil
+	}
+	return s.eventDispatcher.DispatchEvent(ctx, &dto.InternalSendNotificationEventReq{
+		EventType:   "assignment.graded",
+		ReceiverIDs: []string{strconv.FormatInt(submission.StudentID, 10)},
+		Params: map[string]interface{}{
+			"assignment_name": assignment.Title,
+			"score":           finalScore,
+		},
+		SourceModule: "module_03",
+		SourceType:   "assignment_submission",
+		SourceID:     strconv.FormatInt(submission.ID, 10),
+	})
 }

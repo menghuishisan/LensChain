@@ -19,6 +19,7 @@ import (
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/pkg/storage"
@@ -327,8 +328,9 @@ func (s *instanceService) ManualGrade(ctx context.Context, sc *svcctx.ServiceCon
 	if err := s.syncCourseGradeIfNeeded(ctx, instance, template, req.OverallComment); err != nil {
 		return nil, err
 	}
-	// 文档要求手动评分完成后向模块07发送 experiment.graded 通知。
-	// 当前模块07内部通知接口仍未闭环，此处保留正确的成绩结算与回写，待后续模块完成后通过跨模块接口补入通知发送。
+	if err := s.dispatchExperimentGraded(ctx, instance, template.Title, totalScore); err != nil {
+		return nil, err
+	}
 
 	return &dto.ManualGradeResp{
 		InstanceID:  strconv.FormatInt(id, 10),
@@ -441,7 +443,9 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 	if err != nil {
 		return err
 	}
-	go s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, stringifySnapshotID(snapshot), releaseConcurrencyOnError)
+	cronpkg.RunAsync("模块04快照恢复环境重建", func(asyncCtx context.Context) {
+		s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, stringifySnapshotID(snapshot), releaseConcurrencyOnError)
+	})
 
 	detailPayload, _ := json.Marshal(map[string]interface{}{
 		"snapshot_id": strconv.FormatInt(snapshotID, 10),

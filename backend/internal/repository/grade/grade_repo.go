@@ -34,6 +34,7 @@ type StudentSemesterGradeRepository interface {
 	CourseGradeDistribution(ctx context.Context, schoolID, courseID int64) ([]*GradeDistributionItem, error)
 	CourseScoreDistribution(ctx context.Context, schoolID, courseID int64) ([]*ScoreDistributionItem, error)
 	SchoolAnalytics(ctx context.Context, schoolID, semesterID int64) (*SchoolGradeAnalytics, error)
+	SchoolFailRate(ctx context.Context, schoolID, semesterID int64) (float64, error)
 	SchoolGPADistribution(ctx context.Context, schoolID, semesterID int64) ([]*GPARangeDistributionItem, error)
 	SchoolCoursePerformance(ctx context.Context, schoolID, semesterID int64, ascending bool, limit int) ([]*CoursePerformanceItem, error)
 	PlatformAnalytics(ctx context.Context, semesterID int64) (*PlatformGradeAnalytics, error)
@@ -420,6 +421,21 @@ func (r *studentSemesterGradeRepository) SchoolAnalytics(ctx context.Context, sc
 		return nil, err
 	}
 	return &stats, nil
+}
+
+// SchoolFailRate 统计学校学期内不及格率。
+func (r *studentSemesterGradeRepository) SchoolFailRate(ctx context.Context, schoolID, semesterID int64) (float64, error) {
+	var result struct {
+		FailRate float64 `gorm:"column:fail_rate"`
+	}
+	err := r.db.WithContext(ctx).Model(&entity.StudentSemesterGrade{}).
+		Select("COALESCE(AVG(CASE WHEN final_score < 60 THEN 1.0 ELSE 0 END), 0) AS fail_rate").
+		Where("school_id = ? AND semester_id = ?", schoolID, semesterID).
+		Scan(&result).Error
+	if err != nil {
+		return 0, err
+	}
+	return result.FailRate, nil
 }
 
 // SchoolGPADistribution 按学生学期 GPA 统计学校 GPA 分布。

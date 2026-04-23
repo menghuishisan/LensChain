@@ -21,6 +21,7 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
@@ -97,6 +98,7 @@ type instanceService struct {
 	courseQuerier         CourseQuerier
 	courseGradeSyncer     CourseGradeSyncer
 	enrollmentChecker     EnrollmentChecker
+	eventDispatcher       NotificationEventDispatcher
 }
 
 // NewInstanceService 创建实验实例服务实例
@@ -129,6 +131,7 @@ func NewInstanceService(
 	courseQuerier CourseQuerier,
 	courseGradeSyncer CourseGradeSyncer,
 	enrollmentChecker EnrollmentChecker,
+	eventDispatcher NotificationEventDispatcher,
 ) InstanceService {
 	return &instanceService{
 		db:                    db,
@@ -159,6 +162,7 @@ func NewInstanceService(
 		courseQuerier:         courseQuerier,
 		courseGradeSyncer:     courseGradeSyncer,
 		enrollmentChecker:     enrollmentChecker,
+		eventDispatcher:       eventDispatcher,
 	}
 }
 
@@ -336,7 +340,9 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	if req.SnapshotID != nil {
 		snapshotID = *req.SnapshotID
 	}
-	go s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, snapshotID, true)
+	cronpkg.RunAsync("模块04实验环境创建", func(asyncCtx context.Context) {
+		s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, snapshotID, true)
+	})
 
 	// 记录操作日志
 	s.recordOpLog(ctx, instance.ID, sc.UserID, enum.ActionStart, nil, nil, nil, nil, nil)

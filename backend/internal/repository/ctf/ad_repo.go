@@ -201,6 +201,7 @@ type AdAttackRepository interface {
 	CountSuccessfulByChallenge(ctx context.Context, competitionID, groupID, challengeID int64) (int64, error)
 	HasSuccessfulByChallenge(ctx context.Context, competitionID, groupID, challengeID int64) (bool, error)
 	CountSuccessfulByTeam(ctx context.Context, competitionID, teamID int64) (int64, error)
+	CountSuccessfulByTeamsUntil(ctx context.Context, competitionID int64, teamIDs []int64, until time.Time) (map[int64]int64, error)
 }
 
 // AdAttackListParams 攻击记录列表查询参数。
@@ -306,6 +307,31 @@ func (r *adAttackRepository) CountSuccessfulByTeam(ctx context.Context, competit
 	return count, err
 }
 
+// CountSuccessfulByTeamsUntil 统计多个团队在指定时间点之前的成功攻击次数。
+func (r *adAttackRepository) CountSuccessfulByTeamsUntil(ctx context.Context, competitionID int64, teamIDs []int64, until time.Time) (map[int64]int64, error) {
+	result := make(map[int64]int64, len(teamIDs))
+	if len(teamIDs) == 0 {
+		return result, nil
+	}
+	type row struct {
+		TeamID int64 `gorm:"column:team_id"`
+		Count  int64 `gorm:"column:count"`
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).Model(&entity.AdAttack{}).
+		Select("attacker_team_id AS team_id, COUNT(*) AS count").
+		Where("competition_id = ? AND attacker_team_id IN ? AND is_successful = ? AND created_at <= ?", competitionID, teamIDs, true, until).
+		Group("attacker_team_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range rows {
+		result[item.TeamID] = item.Count
+	}
+	return result, nil
+}
+
 // AdDefenseRepository 攻防赛防守记录数据访问接口。
 type AdDefenseRepository interface {
 	Create(ctx context.Context, defense *entity.AdDefense) error
@@ -314,6 +340,7 @@ type AdDefenseRepository interface {
 	HasAcceptedPatch(ctx context.Context, teamID, challengeID int64) (bool, error)
 	HasFirstPatch(ctx context.Context, competitionID, groupID, challengeID int64) (bool, error)
 	CountAcceptedByTeam(ctx context.Context, competitionID, teamID int64) (int64, error)
+	CountAcceptedByTeamsUntil(ctx context.Context, competitionID int64, teamIDs []int64, until time.Time) (map[int64]int64, error)
 }
 
 // AdDefenseListParams 防守记录列表查询参数。
@@ -418,12 +445,38 @@ func (r *adDefenseRepository) CountAcceptedByTeam(ctx context.Context, competiti
 	return count, err
 }
 
+// CountAcceptedByTeamsUntil 统计多个团队在指定时间点之前的通过补丁数。
+func (r *adDefenseRepository) CountAcceptedByTeamsUntil(ctx context.Context, competitionID int64, teamIDs []int64, until time.Time) (map[int64]int64, error) {
+	result := make(map[int64]int64, len(teamIDs))
+	if len(teamIDs) == 0 {
+		return result, nil
+	}
+	type row struct {
+		TeamID int64 `gorm:"column:team_id"`
+		Count  int64 `gorm:"column:count"`
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).Model(&entity.AdDefense{}).
+		Select("team_id, COUNT(*) AS count").
+		Where("competition_id = ? AND team_id IN ? AND is_accepted = ? AND created_at <= ?", competitionID, teamIDs, true, until).
+		Group("team_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range rows {
+		result[item.TeamID] = item.Count
+	}
+	return result, nil
+}
+
 // AdTokenLedgerRepository Token 流水数据访问接口。
 type AdTokenLedgerRepository interface {
 	Create(ctx context.Context, ledger *entity.AdTokenLedger) error
 	BatchCreate(ctx context.Context, ledgers []*entity.AdTokenLedger) error
 	List(ctx context.Context, params *AdTokenLedgerListParams) ([]*entity.AdTokenLedger, int64, error)
 	GetLatestByTeamID(ctx context.Context, teamID int64) (*entity.AdTokenLedger, error)
+	CountByTeamsAndChangeTypeUntil(ctx context.Context, competitionID int64, teamIDs []int64, changeType int16, until time.Time) (map[int64]int64, error)
 }
 
 // AdTokenLedgerListParams Token 流水列表查询参数。
@@ -509,6 +562,31 @@ func (r *adTokenLedgerRepository) GetLatestByTeamID(ctx context.Context, teamID 
 		return nil, err
 	}
 	return &ledger, nil
+}
+
+// CountByTeamsAndChangeTypeUntil 统计多个团队在指定时间点前某类 Token 流水出现次数。
+func (r *adTokenLedgerRepository) CountByTeamsAndChangeTypeUntil(ctx context.Context, competitionID int64, teamIDs []int64, changeType int16, until time.Time) (map[int64]int64, error) {
+	result := make(map[int64]int64, len(teamIDs))
+	if len(teamIDs) == 0 {
+		return result, nil
+	}
+	type row struct {
+		TeamID int64 `gorm:"column:team_id"`
+		Count  int64 `gorm:"column:count"`
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).Model(&entity.AdTokenLedger{}).
+		Select("team_id, COUNT(*) AS count").
+		Where("competition_id = ? AND team_id IN ? AND change_type = ? AND created_at <= ?", competitionID, teamIDs, changeType, until).
+		Group("team_id").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range rows {
+		result[item.TeamID] = item.Count
+	}
+	return result, nil
 }
 
 // AdTeamChainRepository 攻防赛队伍链数据访问接口。

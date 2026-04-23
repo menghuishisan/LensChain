@@ -277,29 +277,20 @@ type ImportFailureRow struct {
 // ProfileResp 个人信息响应
 // GET /api/v1/profile
 type ProfileResp struct {
-	ID                 string           `json:"id"`
-	Phone              string           `json:"phone"`
-	Name               string           `json:"name"`
-	Nickname           *string          `json:"nickname"`
-	AvatarURL          *string          `json:"avatar_url"`
-	Email              *string          `json:"email"`
-	StudentNo          *string          `json:"student_no"`
-	SchoolName         string           `json:"school_name"`
-	College            *string          `json:"college"`
-	Major              *string          `json:"major"`
-	ClassName          *string          `json:"class_name"`
-	EducationLevel     *int16           `json:"education_level"`
-	EducationLevelText *string          `json:"education_level_text"`
-	Roles              []string         `json:"roles"`
-	LearningOverview   LearningOverview `json:"learning_overview"`
-}
-
-// LearningOverview 学习概览
-type LearningOverview struct {
-	CourseCount      int     `json:"course_count"`
-	ExperimentCount  int     `json:"experiment_count"`
-	CompetitionCount int     `json:"competition_count"`
-	TotalStudyHours  float64 `json:"total_study_hours"`
+	ID                 string   `json:"id"`
+	Phone              string   `json:"phone"`
+	Name               string   `json:"name"`
+	Nickname           *string  `json:"nickname"`
+	AvatarURL          *string  `json:"avatar_url"`
+	Email              *string  `json:"email"`
+	StudentNo          *string  `json:"student_no"`
+	SchoolName         string   `json:"school_name"`
+	College            *string  `json:"college"`
+	Major              *string  `json:"major"`
+	ClassName          *string  `json:"class_name"`
+	EducationLevel     *int16   `json:"education_level"`
+	EducationLevelText *string  `json:"education_level_text"`
+	Roles              []string `json:"roles"`
 }
 
 // UpdateProfileReq 更新个人信息请求

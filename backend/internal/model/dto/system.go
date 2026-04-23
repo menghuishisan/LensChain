@@ -8,7 +8,7 @@ package dto
 type AuditLogListReq struct {
 	Page       int    `form:"page" binding:"omitempty,min=1"`
 	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
-	Source     string `form:"source"`
+	Source     string `form:"source" binding:"omitempty,oneof=login operation experiment"`
 	Keyword    string `form:"keyword"`
 	OperatorID string `form:"operator_id"`
 	Action     string `form:"action"`
@@ -75,6 +75,7 @@ type SystemConfigItem struct {
 	ValueType   int16  `json:"value_type"`
 	Description string `json:"description"`
 	IsSensitive bool   `json:"is_sensitive"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // SystemConfigListResp 系统配置列表响应。
@@ -89,7 +90,8 @@ type SystemConfigGroupResp struct {
 
 // UpdateSystemConfigReq 更新单个配置请求。
 type UpdateSystemConfigReq struct {
-	Value string `json:"value" binding:"required"`
+	Value     string `json:"value" binding:"required"`
+	UpdatedAt string `json:"updated_at" binding:"required"`
 }
 
 // BatchUpdateSystemConfigsReq 批量更新分组配置请求。
@@ -99,8 +101,9 @@ type BatchUpdateSystemConfigsReq struct {
 
 // BatchUpdateSystemConfigItem 批量更新配置项。
 type BatchUpdateSystemConfigItem struct {
-	Key   string `json:"key" binding:"required"`
-	Value string `json:"value" binding:"required"`
+	Key       string `json:"key" binding:"required"`
+	Value     string `json:"value" binding:"required"`
+	UpdatedAt string `json:"updated_at" binding:"required"`
 }
 
 // ConfigChangeLogListReq 配置变更记录查询参数。
@@ -390,8 +393,8 @@ type DashboardRecentAlert struct {
 
 // StatisticsTrendReq 趋势数据查询参数。
 type StatisticsTrendReq struct {
-	Metric string `form:"metric"`
-	Period string `form:"period"`
+	Metric string `form:"metric" binding:"required,oneof=active_users new_users experiments api_requests"`
+	Period string `form:"period" binding:"omitempty,oneof=7d 30d 90d 365d"`
 }
 
 // StatisticsOverviewResp 统计总览响应。
@@ -469,13 +472,17 @@ type BackupListItem struct {
 	StartedAt       string  `json:"started_at"`
 	CompletedAt     *string `json:"completed_at"`
 	DurationSeconds *int    `json:"duration_seconds"`
+	ErrorMessage    *string `json:"error_message,omitempty"`
 }
 
 // BackupConfigResp 备份配置响应。
 type BackupConfigResp struct {
-	AutoEnabled    bool   `json:"auto_enabled"`
-	Cron           string `json:"cron"`
-	RetentionCount int    `json:"retention_count"`
+	AutoEnabled             bool   `json:"auto_enabled"`
+	Cron                    string `json:"cron"`
+	RetentionCount          int    `json:"retention_count"`
+	AutoEnabledUpdatedAt    string `json:"auto_enabled_updated_at"`
+	CronUpdatedAt           string `json:"cron_updated_at"`
+	RetentionCountUpdatedAt string `json:"retention_count_updated_at"`
 }
 
 // BackupListResp 备份列表响应。
@@ -487,7 +494,10 @@ type BackupListResp struct {
 
 // UpdateBackupConfigReq 更新备份配置请求。
 type UpdateBackupConfigReq struct {
-	AutoEnabled    bool   `json:"auto_enabled"`
-	Cron           string `json:"cron" binding:"required"`
-	RetentionCount int    `json:"retention_count" binding:"required,min=1"`
+	AutoEnabled             bool   `json:"auto_enabled"`
+	Cron                    string `json:"cron" binding:"required"`
+	RetentionCount          int    `json:"retention_count" binding:"required,min=1"`
+	AutoEnabledUpdatedAt    string `json:"auto_enabled_updated_at" binding:"required"`
+	CronUpdatedAt           string `json:"cron_updated_at" binding:"required"`
+	RetentionCountUpdatedAt string `json:"retention_count_updated_at" binding:"required"`
 }

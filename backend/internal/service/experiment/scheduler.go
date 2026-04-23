@@ -14,6 +14,7 @@ import (
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/cache"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/ws"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
@@ -49,7 +50,7 @@ func NewExperimentScheduler(
 ) *ExperimentScheduler {
 	concrete, ok := instanceSvc.(*instanceService)
 	if !ok || concrete == nil {
-		panic("experiment scheduler requires concrete *instanceService")
+		return nil
 	}
 	return &ExperimentScheduler{
 		instanceSvc:        concrete,
@@ -270,7 +271,9 @@ func (s *ExperimentScheduler) handleInstanceRuntimeFailure(ctx context.Context, 
 		"updated_at":    time.Now(),
 	})
 	instance.Status = enum.InstanceStatusInitializing
-	go s.instanceSvc.provisionEnvironment(context.Background(), instance, templateAggregate, strconv.FormatInt(snapshotID, 10), false)
+	cronpkg.RunAsync("模块04异常实例自动恢复", func(asyncCtx context.Context) {
+		s.instanceSvc.provisionEnvironment(asyncCtx, instance, templateAggregate, strconv.FormatInt(snapshotID, 10), false)
+	})
 }
 
 // scanAndReclaim 扫描运行中的实例，并按条件执行回收。

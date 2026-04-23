@@ -78,7 +78,9 @@ CREATE TABLE challenges (
     flag_type SMALLINT NOT NULL DEFAULT 1,
     static_flag VARCHAR(500) NULL,
     dynamic_flag_secret VARCHAR(200) NULL,
+    runtime_mode SMALLINT NOT NULL DEFAULT 1,
     chain_config JSONB NULL,
+    setup_transactions JSONB NULL,
     source_path SMALLINT NULL,
     swc_id VARCHAR(20) NULL,
     template_id BIGINT NULL,
@@ -103,6 +105,7 @@ CREATE INDEX idx_challenges_flag_type ON challenges(flag_type) WHERE deleted_at 
 CREATE INDEX idx_challenges_author_id ON challenges(author_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_challenges_school_id ON challenges(school_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_challenges_status ON challenges(status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_challenges_runtime_mode ON challenges(runtime_mode) WHERE deleted_at IS NULL;
 
 -- challenge_contracts：题目合约表。
 CREATE TABLE challenge_contracts (

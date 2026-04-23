@@ -25,7 +25,10 @@ type SubmissionRepository interface {
 	HasCorrectSubmission(ctx context.Context, competitionID, teamID, challengeID int64) (bool, error)
 	CountAttempts(ctx context.Context, competitionID, teamID, challengeID int64, since time.Time) (int64, error)
 	CountByCompetition(ctx context.Context, competitionID int64) (*SubmissionCountStats, error)
+	OverviewByCompetition(ctx context.Context, competitionID int64) (*SubmissionOverviewStats, error)
+	CountByCompetitionPerHour(ctx context.Context, competitionID int64, from, to *time.Time) ([]*SubmissionHourlyStat, error)
 	CountByChallenge(ctx context.Context, competitionID int64) ([]*ChallengeSubmissionStats, error)
+	AverageSolveMinutesByChallenge(ctx context.Context, competitionID int64, startAt time.Time) (map[int64]int, error)
 	CorrectSubmissionsByTeam(ctx context.Context, competitionID, teamID int64) ([]*entity.Submission, error)
 	LastCorrectSubmissionAt(ctx context.Context, competitionID, teamID int64) (*time.Time, error)
 }
@@ -52,11 +55,31 @@ type SubmissionCountStats struct {
 	CorrectSubmissions int64 `gorm:"column:correct_submissions"`
 }
 
+// SubmissionOverviewStats 竞赛提交总览统计。
+type SubmissionOverviewStats struct {
+	TotalSubmissions   int64 `gorm:"column:total_submissions"`
+	CorrectSubmissions int64 `gorm:"column:correct_submissions"`
+	FirstBloodCount    int64 `gorm:"column:first_blood_count"`
+	TeamsParticipated  int64 `gorm:"column:teams_participated"`
+}
+
+// SubmissionHourlyStat 提交按小时聚合统计。
+type SubmissionHourlyStat struct {
+	HourBucket time.Time `gorm:"column:hour_bucket"`
+	Count      int64     `gorm:"column:count"`
+}
+
 // ChallengeSubmissionStats 题目提交聚合统计。
 type ChallengeSubmissionStats struct {
 	ChallengeID  int64 `gorm:"column:challenge_id"`
 	AttemptCount int64 `gorm:"column:attempt_count"`
 	CorrectCount int64 `gorm:"column:correct_count"`
+}
+
+// ChallengeAverageSolveMinutesStat 题目平均解题分钟数聚合结果。
+type ChallengeAverageSolveMinutesStat struct {
+	ChallengeID         int64 `gorm:"column:challenge_id"`
+	AverageSolveMinutes int64 `gorm:"column:average_solve_minutes"`
 }
 
 type submissionRepository struct {
@@ -187,6 +210,47 @@ func (r *submissionRepository) CountByCompetition(ctx context.Context, competiti
 	return &stats, nil
 }
 
+// OverviewByCompetition 统计竞赛提交总数、正确数、First Blood 次数和实际参与提交的队伍数。
+func (r *submissionRepository) OverviewByCompetition(ctx context.Context, competitionID int64) (*SubmissionOverviewStats, error) {
+	var stats SubmissionOverviewStats
+	err := r.db.WithContext(ctx).Model(&entity.Submission{}).
+		Select(`
+			COUNT(*) AS total_submissions,
+			COALESCE(SUM(CASE WHEN is_correct THEN 1 ELSE 0 END), 0) AS correct_submissions,
+			COALESCE(SUM(CASE WHEN is_first_blood THEN 1 ELSE 0 END), 0) AS first_blood_count,
+			COUNT(DISTINCT team_id) AS teams_participated
+		`).
+		Where("competition_id = ?", competitionID).
+		Scan(&stats).Error
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+// CountByCompetitionPerHour 按小时聚合竞赛提交数量，供统计时间线接口直接复用。
+func (r *submissionRepository) CountByCompetitionPerHour(ctx context.Context, competitionID int64, from, to *time.Time) ([]*SubmissionHourlyStat, error) {
+	query := r.db.WithContext(ctx).Model(&entity.Submission{}).
+		Select(`
+			DATE_TRUNC('hour', created_at) AS hour_bucket,
+			COUNT(*) AS count
+		`).
+		Where("competition_id = ?", competitionID)
+	if from != nil {
+		query = query.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		query = query.Where("created_at <= ?", *to)
+	}
+
+	var stats []*SubmissionHourlyStat
+	err := query.
+		Group("DATE_TRUNC('hour', created_at)").
+		Order("hour_bucket asc").
+		Find(&stats).Error
+	return stats, err
+}
+
 // CountByChallenge 按题目统计提交次数和正确次数。
 func (r *submissionRepository) CountByChallenge(ctx context.Context, competitionID int64) ([]*ChallengeSubmissionStats, error) {
 	var stats []*ChallengeSubmissionStats
@@ -200,6 +264,31 @@ func (r *submissionRepository) CountByChallenge(ctx context.Context, competition
 		Group("challenge_id").
 		Find(&stats).Error
 	return stats, err
+}
+
+// AverageSolveMinutesByChallenge 按题目聚合平均解题耗时分钟数。
+// 仅统计正确提交，并以竞赛开始时间为统一起点。
+func (r *submissionRepository) AverageSolveMinutesByChallenge(ctx context.Context, competitionID int64, startAt time.Time) (map[int64]int, error) {
+	var stats []*ChallengeAverageSolveMinutesStat
+	err := r.db.WithContext(ctx).Model(&entity.Submission{}).
+		Select(`
+			challenge_id,
+			CAST(ROUND(AVG(EXTRACT(EPOCH FROM (created_at - ?)) / 60.0)) AS BIGINT) AS average_solve_minutes
+		`, startAt).
+		Where("competition_id = ? AND is_correct = ?", competitionID, true).
+		Group("challenge_id").
+		Find(&stats).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[int64]int, len(stats))
+	for _, item := range stats {
+		if item == nil {
+			continue
+		}
+		result[item.ChallengeID] = int(item.AverageSolveMinutes)
+	}
+	return result, nil
 }
 
 // CorrectSubmissionsByTeam 查询团队正确提交记录。
@@ -310,11 +399,14 @@ func (r *leaderboardSnapshotRepository) ListLatestByCompetition(ctx context.Cont
 		sub = sub.Where("is_frozen = ?", *isFrozen)
 	}
 	var snapshots []*entity.LeaderboardSnapshot
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Where("competition_id = ? AND snapshot_at = (?)", competitionID, sub).
-		Order("rank asc").
-		Limit(limit).
-		Find(&snapshots).Error
+		Order("rank asc")
+	// limit=0 表示不限制条数，供最终榜恢复整张快照使用。
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	err := query.Find(&snapshots).Error
 	return snapshots, err
 }
 

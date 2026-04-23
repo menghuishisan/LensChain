@@ -62,6 +62,14 @@ func AddTask(spec, name string, fn func()) (cronlib.EntryID, error) {
 	return id, nil
 }
 
+// RemoveTask 移除已注册的定时任务。
+func RemoveTask(id cronlib.EntryID) {
+	if scheduler == nil || id == 0 {
+		return
+	}
+	scheduler.Remove(id)
+}
+
 // Start 启动调度器
 func Start() {
 	if scheduler == nil {
@@ -99,6 +107,17 @@ const (
 	CronExpExpiredCleanup   = "0 * * * * *"   // 每分钟 — 实验超时、课程结束预警与回收
 	CronExpRuntimeHealth    = "0 * * * * *"   // 每分钟 — 运行中实例健康检查与异常恢复
 	CronExpImagePrePullSync = "0 */5 * * * *" // 每5分钟 — 镜像预拉取对账补拉
+
+	// 模块05 — CTF竞赛
+	CronCTFStatusTransition    = "0 * * * * *"    // 每分钟 — 竞赛状态流转（报名开始、竞赛开始、竞赛结束）
+	CronCTFLeaderboardFreeze   = "0 * * * * *"    // 每分钟 — 排行榜冻结标记维护
+	CronCTFLeaderboardSnap     = "0 */5 * * * *"  // 每5分钟 — 排行榜历史快照
+	CronCTFEnvRecycle          = "0 */5 * * * *"  // 每5分钟 — 题目环境回收
+	CronCTFVerificationCleanup = "0 */30 * * * *" // 每30分钟 — 预验证环境清理
+	CronCTFADRoundAdvance      = "*/10 * * * * *" // 每10秒 — 攻防赛回合阶段推进
+	CronCTFTokenSync           = "0 * * * * *"    // 每分钟 — 攻防赛 Token 余额同步
+	CronCTFDynamicScoreSync    = "0 * * * * *"    // 每分钟 — 解题赛动态分值同步
+	CronCTFArchiveCleanup      = "0 0 2 * * *"    // 每天凌晨2:00 — 已结束竞赛归档清理
 
 	// 模块06 — 评测与成绩
 	CronGPACacheRefresh   = "0 0 3 * * *" // 每天凌晨3:00 — GPA缓存刷新

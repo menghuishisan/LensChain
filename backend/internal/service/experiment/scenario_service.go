@@ -19,6 +19,7 @@ import (
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
@@ -296,7 +297,9 @@ func (s *scenarioService) Review(ctx context.Context, sc *svcctx.ServiceContext,
 		return err
 	}
 	if req.Action == "approve" {
-		go s.enqueueApprovedScenarioPrePull(detachContext(ctx), scenario)
+		cronpkg.RunAsync("模块04审核通过场景预拉取", func(asyncCtx context.Context) {
+			s.enqueueApprovedScenarioPrePull(detachContext(ctx), scenario)
+		})
 	}
 	return nil
 }

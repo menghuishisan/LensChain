@@ -21,6 +21,7 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/crypto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
@@ -585,7 +586,7 @@ func (s *authService) generateTokenPair(ctx context.Context, userID, schoolID in
 // asyncRecordLoginLog 异步记录登录日志。
 // 登录日志只由认证流程写入，失败不影响主业务流程。
 func asyncRecordLoginLog(loginLogRepo authrepo.LoginLogRepository, userID int64, action, loginMethod int16, ip, userAgent, failReason string) {
-	go func() {
+	cronpkg.RunAsync("认证登录日志写入", func(ctx context.Context) {
 		log := &entity.LoginLog{
 			ID:     snowflake.Generate(),
 			UserID: userID,
@@ -601,8 +602,8 @@ func asyncRecordLoginLog(loginLogRepo authrepo.LoginLogRepository, userID int64,
 		if failReason != "" {
 			log.FailReason = &failReason
 		}
-		if err := loginLogRepo.Create(context.Background(), log); err != nil {
+		if err := loginLogRepo.Create(ctx, log); err != nil {
 			logger.L.Error("记录登录日志失败", zap.Error(err))
 		}
-	}()
+	})
 }

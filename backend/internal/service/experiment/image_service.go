@@ -22,6 +22,7 @@ import (
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
@@ -437,7 +438,9 @@ func (s *imageService) Review(ctx context.Context, sc *svcctx.ServiceContext, id
 	// 审核通过后只负责触发异步预拉取，不把节点侧拉取结果并入审核事务。
 	// 这样可以保持“镜像状态变为正常”和“预拉取任务后台执行”两个业务节点语义清晰，
 	// 也与模块04关于状态页查询进度、离线节点后续补拉的文档约束一致。
-	go s.enqueueApprovedImagePrePull(detachContext(ctx), image.ID)
+	cronpkg.RunAsync("模块04审核通过镜像预拉取", func(asyncCtx context.Context) {
+		s.enqueueApprovedImagePrePull(detachContext(ctx), image.ID)
+	})
 	return nil
 }
 

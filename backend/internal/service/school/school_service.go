@@ -21,6 +21,7 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/audit"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
@@ -176,14 +177,14 @@ func (s *schoolService) Create(ctx context.Context, sc *svcctx.ServiceContext, r
 	// 刷新缓存
 	refreshSchoolStatusCache(ctx, schoolID, enum.SchoolStatusActive, &licenseEnd)
 
-	// 异步发送短信
-	go func() {
+	// 异步发送短信，统一走公共后台任务入口。
+	cronpkg.RunAsync("后台创建学校短信", func(context.Context) {
 		_ = sms.Send(req.ContactPhone, sms.TemplateSchoolApproved, map[string]string{
 			"school_name": req.Name,
 			"phone":       req.ContactPhone,
 			"password":    adminPassword,
 		})
-	}()
+	})
 
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "create_school", "school", schoolID, map[string]interface{}{
 		"name": req.Name,

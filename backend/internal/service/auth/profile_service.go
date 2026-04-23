@@ -28,12 +28,6 @@ type ProfileService interface {
 	UpdateProfile(ctx context.Context, sc *svcctx.ServiceContext, req *dto.UpdateProfileReq) error
 }
 
-// LearningOverviewQuerier 跨模块接口：查询学习概览
-// 由模块03/04/05按需聚合实现，避免模块01直接依赖其他模块 service
-type LearningOverviewQuerier interface {
-	GetLearningOverview(ctx context.Context, userID int64) (*dto.LearningOverview, error)
-}
-
 // profileService 个人中心服务实现
 type profileService struct {
 	db                *gorm.DB
@@ -41,7 +35,6 @@ type profileService struct {
 	profileRepo       authrepo.ProfileRepository
 	roleRepo          authrepo.RoleRepository
 	schoolNameQuerier SchoolNameQuerier
-	overviewQuerier   LearningOverviewQuerier
 }
 
 // NewProfileService 创建个人中心服务实例
@@ -51,7 +44,6 @@ func NewProfileService(
 	profileRepo authrepo.ProfileRepository,
 	roleRepo authrepo.RoleRepository,
 	schoolNameQuerier SchoolNameQuerier,
-	overviewQuerier LearningOverviewQuerier,
 ) ProfileService {
 	ps := &profileService{
 		db:                db,
@@ -59,7 +51,6 @@ func NewProfileService(
 		profileRepo:       profileRepo,
 		roleRepo:          roleRepo,
 		schoolNameQuerier: schoolNameQuerier,
-		overviewQuerier:   overviewQuerier,
 	}
 	return ps
 }
@@ -90,12 +81,6 @@ func (s *profileService) GetProfile(ctx context.Context, sc *svcctx.ServiceConte
 		StudentNo:  user.StudentNo,
 		SchoolName: "", // 下方通过跨模块查询填充
 		Roles:      roleCodes,
-		LearningOverview: dto.LearningOverview{
-			CourseCount:      0,
-			ExperimentCount:  0,
-			CompetitionCount: 0,
-			TotalStudyHours:  0,
-		},
 	}
 
 	// 扩展信息
@@ -116,14 +101,6 @@ func (s *profileService) GetProfile(ctx context.Context, sc *svcctx.ServiceConte
 	// 跨模块查询学校名称
 	if s.schoolNameQuerier != nil {
 		resp.SchoolName = s.schoolNameQuerier.GetSchoolName(ctx, user.SchoolID)
-	}
-
-	// 学习概览通过跨模块接口聚合，未实现的模块维持默认值
-	if s.overviewQuerier != nil {
-		overview, err := s.overviewQuerier.GetLearningOverview(ctx, sc.UserID)
-		if err == nil && overview != nil {
-			resp.LearningOverview = *overview
-		}
 	}
 
 	return resp, nil

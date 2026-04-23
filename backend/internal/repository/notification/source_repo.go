@@ -17,21 +17,35 @@ import (
 // NotificationSourceRepository 通知来源只读数据访问接口。
 type NotificationSourceRepository interface {
 	GetUser(ctx context.Context, id int64) (*entity.User, error)
+	GetCourse(ctx context.Context, id int64) (*entity.Course, error)
 	ListUsersBySchool(ctx context.Context, schoolID int64) ([]*entity.User, error)
 	ListUsersByIDs(ctx context.Context, ids []int64) ([]*entity.User, error)
 	ListCourseStudentIDs(ctx context.Context, courseID int64) ([]int64, error)
+	ListAssignmentDeadlineCandidates(ctx context.Context, now, deadline time.Time) ([]*AssignmentReminderCandidate, error)
+	ListAssignmentUnsubmittedStudentIDs(ctx context.Context, assignmentID int64) ([]int64, error)
 	ListCompetitionRegisteredStudentIDs(ctx context.Context, competitionID int64) ([]int64, error)
 	ListCompetitionUnregisteredStudentIDs(ctx context.Context, competitionID int64, schoolID int64) ([]int64, error)
 	ListCompetitionStartingCandidates(ctx context.Context, now, deadline time.Time) ([]*CompetitionReminderCandidate, error)
 	ListCompetitionRegistrationDeadlineCandidates(ctx context.Context, now, deadline time.Time) ([]*CompetitionReminderCandidate, error)
 }
 
+// AssignmentReminderCandidate 作业提醒候选项。
+type AssignmentReminderCandidate struct {
+	AssignmentID   int64     `gorm:"column:assignment_id"`
+	CourseID       int64     `gorm:"column:course_id"`
+	AssignmentName string    `gorm:"column:assignment_name"`
+	CourseName     string    `gorm:"column:course_name"`
+	DeadlineAt     time.Time `gorm:"column:deadline_at"`
+}
+
 // CompetitionReminderCandidate 竞赛提醒候选项。
 type CompetitionReminderCandidate struct {
-	CompetitionID int64  `gorm:"column:competition_id"`
-	Title         string `gorm:"column:title"`
-	Scope         int16  `gorm:"column:scope"`
-	SchoolID      *int64 `gorm:"column:school_id"`
+	CompetitionID     int64      `gorm:"column:competition_id"`
+	Title             string     `gorm:"column:title"`
+	Scope             int16      `gorm:"column:scope"`
+	SchoolID          *int64     `gorm:"column:school_id"`
+	StartAt           *time.Time `gorm:"column:start_at"`
+	RegistrationEndAt *time.Time `gorm:"column:registration_end_at"`
 }
 
 type notificationSourceRepository struct {
@@ -51,6 +65,16 @@ func (r *notificationSourceRepository) GetUser(ctx context.Context, id int64) (*
 		return nil, err
 	}
 	return &user, nil
+}
+
+// GetCourse 获取课程信息。
+func (r *notificationSourceRepository) GetCourse(ctx context.Context, id int64) (*entity.Course, error) {
+	var course entity.Course
+	err := r.db.WithContext(ctx).First(&course, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &course, nil
 }
 
 // ListUsersBySchool 查询学校用户。
@@ -86,6 +110,35 @@ func (r *notificationSourceRepository) ListCourseStudentIDs(ctx context.Context,
 	return studentIDs, err
 }
 
+// ListAssignmentDeadlineCandidates 查询即将截止的已发布作业。
+func (r *notificationSourceRepository) ListAssignmentDeadlineCandidates(ctx context.Context, now, deadline time.Time) ([]*AssignmentReminderCandidate, error) {
+	var items []*AssignmentReminderCandidate
+	err := r.db.WithContext(ctx).Table("assignments AS a").
+		Select("a.id AS assignment_id, a.course_id, a.title AS assignment_name, c.title AS course_name, a.deadline_at").
+		Joins("JOIN courses c ON c.id = a.course_id").
+		Where("a.is_published = ? AND a.deadline_at IS NOT NULL AND a.deadline_at > ? AND a.deadline_at <= ?", true, now, deadline).
+		Order("a.deadline_at asc").
+		Find(&items).Error
+	return items, err
+}
+
+// ListAssignmentUnsubmittedStudentIDs 查询某作业下尚未提交的选课学生 ID。
+func (r *notificationSourceRepository) ListAssignmentUnsubmittedStudentIDs(ctx context.Context, assignmentID int64) ([]int64, error) {
+	sub := r.db.WithContext(ctx).Table("assignment_submissions").
+		Select("DISTINCT student_id").
+		Where("assignment_id = ?", assignmentID)
+
+	var studentIDs []int64
+	err := r.db.WithContext(ctx).Table("course_enrollments AS ce").
+		Select("ce.student_id").
+		Joins("JOIN assignments a ON a.course_id = ce.course_id").
+		Where("a.id = ? AND ce.removed_at IS NULL", assignmentID).
+		Where("ce.student_id NOT IN (?)", sub).
+		Order("ce.student_id asc").
+		Pluck("ce.student_id", &studentIDs).Error
+	return studentIDs, err
+}
+
 // ListCompetitionRegisteredStudentIDs 查询竞赛已报名学生 ID。
 func (r *notificationSourceRepository) ListCompetitionRegisteredStudentIDs(ctx context.Context, competitionID int64) ([]int64, error) {
 	var studentIDs []int64
@@ -99,6 +152,7 @@ func (r *notificationSourceRepository) ListCompetitionRegisteredStudentIDs(ctx c
 }
 
 // ListCompetitionUnregisteredStudentIDs 查询竞赛未报名学生 ID。
+// schoolID 为 0 时表示平台级竞赛，需要面向全平台学生筛选未报名对象。
 func (r *notificationSourceRepository) ListCompetitionUnregisteredStudentIDs(ctx context.Context, competitionID int64, schoolID int64) ([]int64, error) {
 	sub := r.db.WithContext(ctx).Table("competition_registrations AS r").
 		Select("tm.student_id").
@@ -109,11 +163,13 @@ func (r *notificationSourceRepository) ListCompetitionUnregisteredStudentIDs(ctx
 		Select("users.id").
 		Joins("JOIN user_roles ur ON ur.user_id = users.id").
 		Joins("JOIN roles r ON r.id = ur.role_id").
-		Where("users.school_id = ?", schoolID).
 		Where("users.status = ?", enum.UserStatusActive).
 		Where("r.code = ?", enum.RoleStudent).
 		Where("users.id NOT IN (?)", sub).
 		Distinct()
+	if schoolID > 0 {
+		query = query.Where("users.school_id = ?", schoolID)
+	}
 
 	var studentIDs []int64
 	err := query.Order("users.id asc").Pluck("users.id", &studentIDs).Error
@@ -124,7 +180,7 @@ func (r *notificationSourceRepository) ListCompetitionUnregisteredStudentIDs(ctx
 func (r *notificationSourceRepository) ListCompetitionStartingCandidates(ctx context.Context, now, deadline time.Time) ([]*CompetitionReminderCandidate, error) {
 	var items []*CompetitionReminderCandidate
 	err := r.db.WithContext(ctx).Model(&entity.Competition{}).
-		Select("id AS competition_id, title, scope, school_id").
+		Select("id AS competition_id, title, scope, school_id, start_at, registration_end_at").
 		Where("status = ? AND start_at IS NOT NULL AND start_at > ? AND start_at <= ?", enum.CompetitionStatusRegistration, now, deadline).
 		Order("start_at asc").
 		Find(&items).Error
@@ -135,7 +191,7 @@ func (r *notificationSourceRepository) ListCompetitionStartingCandidates(ctx con
 func (r *notificationSourceRepository) ListCompetitionRegistrationDeadlineCandidates(ctx context.Context, now, deadline time.Time) ([]*CompetitionReminderCandidate, error) {
 	var items []*CompetitionReminderCandidate
 	err := r.db.WithContext(ctx).Model(&entity.Competition{}).
-		Select("id AS competition_id, title, scope, school_id").
+		Select("id AS competition_id, title, scope, school_id, start_at, registration_end_at").
 		Where("status = ? AND registration_end_at IS NOT NULL AND registration_end_at > ? AND registration_end_at <= ?", enum.CompetitionStatusRegistration, now, deadline).
 		Order("registration_end_at asc").
 		Find(&items).Error

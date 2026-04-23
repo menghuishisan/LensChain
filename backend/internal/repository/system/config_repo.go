@@ -6,6 +6,7 @@ package systemrepo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -22,7 +23,17 @@ type SystemConfigRepository interface {
 	List(ctx context.Context) ([]*entity.SystemConfig, error)
 	ListByGroup(ctx context.Context, group string) ([]*entity.SystemConfig, error)
 	Upsert(ctx context.Context, config *entity.SystemConfig) error
-	UpdateValue(ctx context.Context, group, key, value string, updatedBy *int64) error
+	UpdateValuesWithChangeLogs(ctx context.Context, updates []SystemConfigValueUpdate) (bool, error)
+}
+
+// SystemConfigValueUpdate 表示一次配置值更新及其审计日志写入请求。
+type SystemConfigValueUpdate struct {
+	Group             string
+	Key               string
+	Value             string
+	UpdatedBy         *int64
+	ExpectedUpdatedAt time.Time
+	ChangeLog         *entity.ConfigChangeLog
 }
 
 type systemConfigRepository struct {
@@ -81,15 +92,49 @@ func (r *systemConfigRepository) Upsert(ctx context.Context, config *entity.Syst
 	}).Create(config).Error
 }
 
-// UpdateValue 更新单个配置值。
-func (r *systemConfigRepository) UpdateValue(ctx context.Context, group, key, value string, updatedBy *int64) error {
-	return r.db.WithContext(ctx).Model(&entity.SystemConfig{}).
-		Where("config_group = ? AND config_key = ?", group, key).
-		Updates(map[string]interface{}{
-			"config_value": value,
-			"updated_by":   updatedBy,
-			"updated_at":   gorm.Expr("now()"),
-		}).Error
+var errSystemConfigConflict = errors.New("system config optimistic lock conflict")
+
+// UpdateValuesWithChangeLogs 在同一事务中批量更新配置值并写入变更日志。
+func (r *systemConfigRepository) UpdateValuesWithChangeLogs(ctx context.Context, updates []SystemConfigValueUpdate) (bool, error) {
+	if len(updates) == 0 {
+		return true, nil
+	}
+	var updated bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, item := range updates {
+			result := tx.Model(&entity.SystemConfig{}).
+				Where("config_group = ? AND config_key = ? AND updated_at = ?", item.Group, item.Key, item.ExpectedUpdatedAt.UTC()).
+				Updates(map[string]interface{}{
+					"config_value": item.Value,
+					"updated_by":   item.UpdatedBy,
+					"updated_at":   gorm.Expr("now()"),
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				updated = false
+				return errSystemConfigConflict
+			}
+			if item.ChangeLog != nil {
+				if item.ChangeLog.ID == 0 {
+					item.ChangeLog.ID = snowflake.Generate()
+				}
+				if err := tx.Create(item.ChangeLog).Error; err != nil {
+					return err
+				}
+			}
+		}
+		updated = true
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, errSystemConfigConflict) {
+			return false, nil
+		}
+		return false, err
+	}
+	return updated, nil
 }
 
 // ConfigChangeLogRepository 配置变更记录数据访问接口。

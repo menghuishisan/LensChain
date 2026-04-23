@@ -34,6 +34,7 @@ type GradeAppealListParams struct {
 	StudentID  int64
 	SemesterID int64
 	CourseID   int64
+	TeacherID  int64
 	Status     int16
 	From       *time.Time
 	To         *time.Time
@@ -94,6 +95,10 @@ func (r *gradeAppealRepository) List(ctx context.Context, params *GradeAppealLis
 	}
 	if params.CourseID > 0 {
 		query = query.Where("course_id = ?", params.CourseID)
+	}
+	if params.TeacherID > 0 {
+		query = query.Joins("JOIN courses c ON c.id = grade_appeals.course_id").
+			Where("c.teacher_id = ?", params.TeacherID)
 	}
 	if params.From != nil {
 		query = query.Where("created_at >= ?", *params.From)

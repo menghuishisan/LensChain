@@ -12,6 +12,7 @@ import (
 
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/cache"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 )
 
@@ -91,7 +92,9 @@ func (s *instanceService) activateNextQueuedInstance(ctx context.Context, course
 				_ = cache.Del(ctx, snapshotKey)
 			}
 		}
-		go s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, snapshotID, true)
+		cronpkg.RunAsync("模块04排队实例自动启动", func(asyncCtx context.Context) {
+			s.provisionEnvironment(detachContext(ctx), instance, templateAggregate, snapshotID, true)
+		})
 		return
 	}
 }

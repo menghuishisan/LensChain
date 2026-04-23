@@ -16,6 +16,7 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/pagination"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
 )
@@ -386,16 +387,7 @@ func paginatePullStatusItems(items []dto.ImagePullStatusItem, page, pageSize int
 
 // normalizePage 规范化分页参数。
 func normalizePage(page, pageSize int) (int, int) {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
-	return page, pageSize
+	return pagination.NormalizeValues(page, pageSize)
 }
 
 // collectTargetNodes 收集预拉取目标节点。

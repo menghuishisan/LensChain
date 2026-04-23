@@ -15,6 +15,7 @@ import (
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/sms"
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
@@ -92,14 +93,15 @@ func (s *SchoolScheduler) RunExpireToBuffering() {
 		s.createNotification(ctx, sch.ID, enum.SchoolNotifyBuffering, sch.ContactPhone,
 			fmt.Sprintf("学校「%s」授权已于 %s 到期，已进入7天缓冲期，请尽快续期", sch.Name, expireDate))
 
-		// 发送短信通知
-		go func(school *entity.School) {
+		// 发送短信通知，统一走公共后台任务入口。
+		school := sch
+		cronpkg.RunAsync("学校到期转缓冲期短信", func(context.Context) {
 			if school.ContactPhone != "" {
 				_ = sms.Send(school.ContactPhone, sms.TemplateLicenseExpired, map[string]string{
 					"school_name": school.Name,
 				})
 			}
-		}(sch)
+		})
 
 		count++
 		logger.L.Info("学校授权到期，已转为缓冲期",
@@ -158,7 +160,10 @@ func (s *SchoolScheduler) RunExpiryReminder() {
 		}
 
 		// 发送短信提醒给该校所有管理员；无管理员手机号时退回联系人手机号。
-		go func(school *entity.School, days int, phones []string) {
+		school := sch
+		days := remaining
+		phones := append([]string(nil), adminPhones...)
+		cronpkg.RunAsync("学校授权到期提醒短信", func(context.Context) {
 			for _, phone := range phones {
 				if phone == "" {
 					continue
@@ -168,7 +173,7 @@ func (s *SchoolScheduler) RunExpiryReminder() {
 					"remaining_days": strconv.Itoa(days),
 				})
 			}
-		}(sch, remaining, adminPhones)
+		})
 
 		count++
 		logger.L.Info("发送学校到期提醒",
@@ -231,14 +236,15 @@ func (s *SchoolScheduler) RunBufferingToFrozen() {
 		s.createNotification(ctx, sch.ID, enum.SchoolNotifyFrozen, sch.ContactPhone,
 			fmt.Sprintf("学校「%s」缓冲期已满7天，已自动冻结，如需恢复请联系管理员", sch.Name))
 
-		// 发送冻结通知短信
-		go func(school *entity.School) {
+		// 发送冻结通知短信，统一走公共后台任务入口。
+		school := sch
+		cronpkg.RunAsync("学校缓冲期冻结短信", func(context.Context) {
 			if school.ContactPhone != "" {
 				_ = sms.Send(school.ContactPhone, sms.TemplateSchoolFrozen, map[string]string{
 					"school_name": school.Name,
 				})
 			}
-		}(sch)
+		})
 
 		count++
 		logger.L.Info("学校缓冲期结束，已自动冻结",

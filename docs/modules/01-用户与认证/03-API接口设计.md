@@ -501,18 +501,13 @@
     "class_name": "软工2401",
     "education_level": 2,
     "education_level_text": "本科",
-    "roles": ["student"],
-    "learning_overview": {
-      "course_count": 3,
-      "experiment_count": 12,
-      "competition_count": 2,
-      "total_study_hours": 48.5
-    }
+    "roles": ["student"]
   }
 }
 ```
 
 > 手机号脱敏展示，仅显示前3位和后4位。
+> 学习概览不属于模块01接口职责，由模块06 `GET /api/v1/grades/my/learning-overview` 提供，前端个人中心页面组合调用。
 
 ---
 

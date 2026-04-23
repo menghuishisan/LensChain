@@ -55,7 +55,9 @@ type Challenge struct {
 	FlagType          int16          `gorm:"column:flag_type;type:smallint;not null;default:1;index" json:"flag_type"`
 	StaticFlag        *string        `gorm:"type:varchar(500)" json:"static_flag,omitempty"`
 	DynamicFlagSecret *string        `gorm:"type:varchar(200)" json:"dynamic_flag_secret,omitempty"`
+	RuntimeMode       int16          `gorm:"column:runtime_mode;type:smallint;not null;default:1;index" json:"runtime_mode"`
 	ChainConfig       datatypes.JSON `gorm:"column:chain_config;type:jsonb" json:"chain_config,omitempty"`
+	SetupTransactions datatypes.JSON `gorm:"column:setup_transactions;type:jsonb" json:"setup_transactions,omitempty"`
 	SourcePath        *int16         `gorm:"column:source_path;type:smallint" json:"source_path,omitempty"`
 	SwcID             *string        `gorm:"type:varchar(20)" json:"swc_id,omitempty"`
 	TemplateID        *int64         `gorm:"" json:"template_id,omitempty,string"`

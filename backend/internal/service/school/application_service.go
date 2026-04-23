@@ -21,6 +21,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/audit"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/logger"
@@ -382,9 +383,9 @@ func (s *applicationService) Approve(ctx context.Context, sc *svcctx.ServiceCont
 		logger.L.Error("创建审核通过通知记录失败", zap.Int64("school_id", schoolID), zap.Error(err))
 	}
 
-	// 异步发送短信通知
+	// 异步发送短信通知，统一走公共后台任务入口，避免业务层散落裸 goroutine。
 	smsSent := true
-	go func() {
+	cronpkg.RunAsync("学校入驻审核通过短信", func(context.Context) {
 		err := sms.Send(app.ContactPhone, sms.TemplateSchoolApproved, map[string]string{
 			"school_name": app.SchoolName,
 			"phone":       app.ContactPhone,
@@ -393,7 +394,7 @@ func (s *applicationService) Approve(ctx context.Context, sc *svcctx.ServiceCont
 		if err != nil {
 			logger.L.Error("发送审核通过短信失败", zap.String("phone", app.ContactPhone), zap.Error(err))
 		}
-	}()
+	})
 
 	// 记录操作日志
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "approve_application", "school_application", id, map[string]interface{}{
@@ -429,8 +430,8 @@ func (s *applicationService) Reject(ctx context.Context, sc *svcctx.ServiceConte
 		return errcode.ErrInternal.WithMessage("更新申请状态失败")
 	}
 
-	// 异步发送拒绝短信
-	go func() {
+	// 异步发送拒绝短信，统一走公共后台任务入口。
+	cronpkg.RunAsync("学校入驻审核拒绝短信", func(context.Context) {
 		err := sms.Send(app.ContactPhone, sms.TemplateSchoolRejected, map[string]string{
 			"school_name":   app.SchoolName,
 			"reject_reason": req.RejectReason,
@@ -438,7 +439,7 @@ func (s *applicationService) Reject(ctx context.Context, sc *svcctx.ServiceConte
 		if err != nil {
 			logger.L.Error("发送审核拒绝短信失败", zap.String("phone", app.ContactPhone), zap.Error(err))
 		}
-	}()
+	})
 
 	// 记录操作日志
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "reject_application", "school_application", id, map[string]interface{}{

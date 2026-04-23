@@ -493,6 +493,7 @@
   "difficulty": 2,
   "base_score": 300,
   "flag_type": 3,
+  "runtime_mode": 1,
   "chain_config": {
     "chain_type": "evm",
     "chain_version": "london",
@@ -502,6 +503,15 @@
       {"name": "attacker", "balance": "10 ether"}
     ]
   },
+  "setup_transactions": [
+    {
+      "from": "deployer",
+      "to": "VulnerableBank",
+      "function": "deposit",
+      "args": [],
+      "value": "10 ether"
+    }
+  ],
   "source_path": 3,
   "attachment_urls": []
 }
@@ -509,6 +519,7 @@
 
 > `flag_type=1`（静态Flag）时需填 `static_flag`；`flag_type=2`（动态Flag）时需填 `dynamic_flag_secret`；`flag_type=3`（链上验证）时需配置 contracts 和 assertions（通过子接口）。
 > `category` 非智能合约类型时使用 `environment_config` 代替 `chain_config`。
+> `runtime_mode=1` 表示独立链模式；`runtime_mode=2` 表示 Fork 模式。Fork 模式要求 `chain_config.fork.rpc_url` 和 `chain_config.fork.block_number` 均已配置。
 
 **响应：**
 
@@ -526,6 +537,8 @@
     "base_score": 300,
     "flag_type": 3,
     "flag_type_text": "链上状态验证",
+    "runtime_mode": 1,
+    "runtime_mode_text": "独立链模式",
     "source_path": 3,
     "source_path_text": "完全自定义",
     "status": 1,
@@ -583,6 +596,8 @@
         "base_score": 300,
         "flag_type": 3,
         "flag_type_text": "链上状态验证",
+        "runtime_mode": 1,
+        "runtime_mode_text": "独立链模式",
         "source_path": 3,
         "source_path_text": "完全自定义",
         "status": 3,
@@ -631,6 +646,8 @@
     "base_score": 300,
     "flag_type": 3,
     "flag_type_text": "链上状态验证",
+    "runtime_mode": 1,
+    "runtime_mode_text": "独立链模式",
     "chain_config": {
       "chain_type": "evm",
       "chain_version": "london",
@@ -640,6 +657,15 @@
         {"name": "attacker", "balance": "10 ether"}
       ]
     },
+    "setup_transactions": [
+      {
+        "from": "deployer",
+        "to": "VulnerableBank",
+        "function": "deposit",
+        "args": [],
+        "value": "10 ether"
+      }
+    ],
     "source_path": 3,
     "source_path_text": "完全自定义",
     "swc_id": null,
@@ -862,6 +888,7 @@
 ```
 
 > 平台自动根据 SWC 示例代码生成 contracts 和 assertions，教师可后续修改调整。
+> SWC 导入默认生成 `runtime_mode=1` 的独立链草稿题；如需复现依赖真实历史状态的案例，教师后续改为 Fork 模式并补充 setup_transactions。
 
 **错误响应：**
 
@@ -1012,6 +1039,8 @@
     "base_score": 500,
     "flag_type": 3,
     "flag_type_text": "链上状态验证",
+    "runtime_mode": 1,
+    "runtime_mode_text": "独立链模式",
     "source_path": 2,
     "source_path_text": "参数化模板",
     "template_id": "1780000000520001",
@@ -1063,6 +1092,7 @@
 ```
 
 > 预验证为异步任务，通过轮询 GET /api/v1/ctf/challenge-verifications/:id 获取进度。6步流程：部署测试环境 → 提交PoC → 正向验证 → 反向验证 → 通过/失败。
+> Fork 模式下，“部署测试环境”表示创建固定历史区块的临时 Fork 链；“反向验证”表示重置回同一 Fork 快照后重新执行断言。
 
 **错误响应：**
 
@@ -2719,8 +2749,8 @@ ws://api.lianjing.com/api/v1/ctf/ws?token={jwt_token}&competition_id={competitio
 
 ---
 
-*文档版本：v1.0*
+*文档版本：v1.1*
 *创建日期：2026-04-08*
-*更新日期：2026-04-08*
-*更新说明：v1.0 — 初始版本，涵盖23类接口总览（竞赛管理、题目管理、合约/断言管理、漏洞转化、预验证、审核、竞赛题目配置、团队管理、报名、提交验证、攻防赛分组/回合/攻击/防守/Token流水、排行榜、公告、资源配额、题目环境、队伍链、监控、统计），42个核心接口详细定义，4个WebSocket频道*
+*更新日期：2026-04-22*
+*更新说明：v1.1 — 扩展创建题目、题目详情、模板/SWC导入和预验证接口示例，新增 runtime_mode、setup_transactions 与 Fork 模式预验证语义*
 ```

@@ -57,6 +57,7 @@ type templateService struct {
 	templateTagRepo  experimentrepo.TemplateTagRepository
 	roleRepo         experimentrepo.RoleRepository
 	userNameQuerier  UserNameQuerier
+	eventDispatcher  NotificationEventDispatcher
 }
 
 // NewTemplateService 创建实验模板服务实例
@@ -75,6 +76,7 @@ func NewTemplateService(
 	templateTagRepo experimentrepo.TemplateTagRepository,
 	roleRepo experimentrepo.RoleRepository,
 	userNameQuerier UserNameQuerier,
+	eventDispatcher NotificationEventDispatcher,
 ) TemplateService {
 	return &templateService{
 		db: db, templateRepo: templateRepo,
@@ -84,6 +86,7 @@ func NewTemplateService(
 		scenarioRepo: scenarioRepo, linkGroupRepo: linkGroupRepo,
 		tagRepo: tagRepo, templateTagRepo: templateTagRepo,
 		roleRepo: roleRepo, userNameQuerier: userNameQuerier,
+		eventDispatcher: eventDispatcher,
 	}
 }
 
@@ -407,8 +410,6 @@ func (s *templateService) Publish(ctx context.Context, sc *svcctx.ServiceContext
 	if generated := buildTemplateK8sConfig(template); len(generated) > 0 {
 		fields["k8s_config"] = generated
 	}
-	// 文档要求模板发布后向模块07发送 experiment.published 站内通知。
-	// 当前模块07内部通知接口尚未完成，此处先收口正确业务状态变更，待模块07完成后通过跨模块接口补入通知发送。
 	return s.templateRepo.UpdateFields(ctx, id, fields)
 }
 

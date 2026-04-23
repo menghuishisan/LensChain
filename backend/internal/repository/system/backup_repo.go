@@ -23,6 +23,7 @@ type BackupRecordRepository interface {
 	List(ctx context.Context, params *BackupRecordListParams) ([]*entity.BackupRecord, int64, error)
 	Update(ctx context.Context, id int64, values map[string]interface{}) error
 	ListOldSuccessful(ctx context.Context, keepCount int) ([]*entity.BackupRecord, error)
+	DeleteByIDs(ctx context.Context, ids []int64) error
 }
 
 // BackupRecordListParams 备份记录列表查询参数。
@@ -100,4 +101,12 @@ func (r *backupRecordRepository) ListOldSuccessful(ctx context.Context, keepCoun
 		Order("started_at asc").
 		Find(&records).Error
 	return records, err
+}
+
+// DeleteByIDs 批量删除备份记录。
+func (r *backupRecordRepository) DeleteByIDs(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Where("id IN ?", ids).Delete(&entity.BackupRecord{}).Error
 }

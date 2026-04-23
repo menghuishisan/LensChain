@@ -270,6 +270,16 @@ func (m *Manager) BroadcastToRoom(room string, msg *Message) error {
 	return nil
 }
 
+// BroadcastRawToRoom 向房间广播已编码完成的原始消息。
+// 某些模块需要发送自定义消息信封时，可在 service/adapter 层自行序列化后复用这里的房间分发能力。
+func (m *Manager) BroadcastRawToRoom(room string, payload []byte) error {
+	if m == nil || room == "" || len(payload) == 0 {
+		return nil
+	}
+	m.broadcast <- &RoomMessage{Room: room, Message: payload}
+	return nil
+}
+
 // GetOnlineUserCount 获取在线用户数
 func (m *Manager) GetOnlineUserCount() int {
 	if m == nil {

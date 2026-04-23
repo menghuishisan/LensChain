@@ -9,6 +9,7 @@ import (
 	"context"
 
 	handler "github.com/lenschain/backend/internal/handler/course"
+	"github.com/lenschain/backend/internal/model/dto"
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/database"
 	authrepo "github.com/lenschain/backend/internal/repository/auth"
@@ -16,11 +17,17 @@ import (
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/router"
 	svc "github.com/lenschain/backend/internal/service/course"
+	notificationsvc "github.com/lenschain/backend/internal/service/notification"
 )
+
+// gradeCourseLockService 定义模块03接入模块06时所需的最小锁定查询契约。
+type gradeCourseLockService interface {
+	IsCourseGradeLocked(ctx context.Context, courseID int64) (bool, error)
+}
 
 // initCourseModule 初始化模块03（课程与教学）的 Handler
 // 按照 repository → adapter → service → handler 的顺序组装依赖
-func initCourseModule() *router.CourseHandlers {
+func initCourseModule(gradeService gradeCourseLockService, notificationDispatcher notificationsvc.EventDispatcher) *router.CourseHandlers {
 	db := database.Get()
 
 	// ========== Repository 层 ==========
@@ -59,6 +66,8 @@ func initCourseModule() *router.CourseHandlers {
 	// 复用 init_school.go 中定义的 newSchoolNameQuerier
 	schoolRepo := schoolrepo.NewSchoolRepository(db)
 	schoolNameQuerier := newSchoolNameQuerier(schoolRepo)
+	gradeLockChecker := newCourseGradeLockChecker(gradeService)
+	courseNotificationDispatcher := newCourseNotificationDispatcher(notificationDispatcher)
 
 	// ========== Service 层 ==========
 	courseService := svc.NewCourseService(
@@ -72,7 +81,7 @@ func initCourseModule() *router.CourseHandlers {
 	)
 	assignmentService := svc.NewAssignmentService(
 		courseRepo, assignmentRepo, questionRepo, submissionRepo,
-		draftRepo, answerRepo, enrollmentRepo, userNameQuerier, userNameQuerier,
+		draftRepo, answerRepo, enrollmentRepo, userNameQuerier, userNameQuerier, courseNotificationDispatcher,
 	)
 	discussionService := svc.NewDiscussionService(
 		courseRepo, discussionRepo, replyRepo, likeRepo,
@@ -85,13 +94,13 @@ func initCourseModule() *router.CourseHandlers {
 		gradeConfigRepo, gradeOverrideRepo,
 		scheduleRepo, userNameQuerier, userNameQuerier,
 	)
-	gradeService := svc.NewGradeService(
+	courseGradeService := svc.NewGradeService(
 		courseRepo, enrollmentRepo, assignmentRepo, submissionRepo,
-		gradeConfigRepo, gradeOverrideRepo, userNameQuerier, nil, progressService,
+		gradeConfigRepo, gradeOverrideRepo, userNameQuerier, gradeLockChecker, progressService,
 	)
 
 	// ========== Handler 层 ==========
-	courseHandler := handler.NewCourseHandler(courseService, gradeService, contentService, progressService)
+	courseHandler := handler.NewCourseHandler(courseService, courseGradeService, contentService, progressService)
 	assignmentHandler := handler.NewAssignmentHandler(assignmentService)
 	discussionHandler := handler.NewDiscussionHandler(discussionService)
 
@@ -105,6 +114,50 @@ func initCourseModule() *router.CourseHandlers {
 		AssignmentHandler: assignmentHandler,
 		DiscussionHandler: discussionHandler,
 	}
+}
+
+// courseNotificationDispatcherAdapter 跨模块适配器：转发模块03产生的通知事件到模块07。
+type courseNotificationDispatcherAdapter struct {
+	dispatcher notificationsvc.EventDispatcher
+}
+
+// newCourseNotificationDispatcher 创建模块03使用的通知事件分发器。
+func newCourseNotificationDispatcher(dispatcher notificationsvc.EventDispatcher) svc.NotificationEventDispatcher {
+	if dispatcher == nil {
+		return nil
+	}
+	return &courseNotificationDispatcherAdapter{dispatcher: dispatcher}
+}
+
+// DispatchEvent 将模块03内部事件转交给模块07统一生成站内信。
+func (a *courseNotificationDispatcherAdapter) DispatchEvent(ctx context.Context, req *dto.InternalSendNotificationEventReq) error {
+	if a == nil || a.dispatcher == nil || req == nil {
+		return nil
+	}
+	return a.dispatcher.DispatchEvent(ctx, req)
+}
+
+// courseGradeLockCheckerAdapter 跨模块 adapter：查询模块06中的成绩锁定状态。
+// 模块03只依赖本地接口，避免直接感知聚合层实现细节。
+type courseGradeLockCheckerAdapter struct {
+	gradeService gradeCourseLockService
+}
+
+// newCourseGradeLockChecker 创建模块03使用的成绩锁定检查器。
+// 当模块06未注入时返回 nil，模块03会回退到默认空实现。
+func newCourseGradeLockChecker(gradeService gradeCourseLockService) svc.GradeLockChecker {
+	if gradeService == nil {
+		return nil
+	}
+	return &courseGradeLockCheckerAdapter{gradeService: gradeService}
+}
+
+// IsCourseGradeLocked 调用模块06服务判断课程成绩是否已被锁定。
+func (a *courseGradeLockCheckerAdapter) IsCourseGradeLocked(ctx context.Context, courseID int64) (bool, error) {
+	if a == nil || a.gradeService == nil {
+		return false, nil
+	}
+	return a.gradeService.IsCourseGradeLocked(ctx, courseID)
 }
 
 // ========== UserNameQuerier Adapter ==========

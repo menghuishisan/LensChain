@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -63,6 +64,10 @@ type PlatformStatisticRepository interface {
 	ListTrend(ctx context.Context, metric string, dateFrom time.Time) ([]*StatisticTrendPoint, error)
 	Overview(ctx context.Context) (*PlatformStatisticsOverview, error)
 	SchoolActivityRanking(ctx context.Context, limit int) ([]*SchoolActivityRankingItem, error)
+	GetRealtimeCounts(ctx context.Context) (*RealtimeCounts, error)
+	CountRecentAPIRequests(ctx context.Context, since time.Time) (int64, error)
+	BuildDailyStatistic(ctx context.Context, statDate time.Time, storageUsedGB float64) (*entity.PlatformStatistic, error)
+	DeleteBeforeDate(ctx context.Context, beforeDate time.Time) error
 }
 
 // StatisticTrendPoint 统计趋势点位。
@@ -93,22 +98,21 @@ type SchoolActivityRankingItem struct {
 	ActivityScore float64 `gorm:"column:activity_score"`
 }
 
+// RealtimeCounts 平台实时计数聚合结果。
+type RealtimeCounts struct {
+	ActiveExperiments  int64 `gorm:"column:active_experiments"`
+	ActiveCompetitions int64 `gorm:"column:active_competitions"`
+}
+
 type platformStatisticRepository struct {
 	db *gorm.DB
 }
 
 var statisticMetricColumnMap = map[string]string{
-	"active_users":        "active_users",
-	"new_users":           "new_users",
-	"total_users":         "total_users",
-	"total_schools":       "total_schools",
-	"total_courses":       "total_courses",
-	"active_courses":      "active_courses",
-	"total_experiments":   "total_experiments",
-	"total_competitions":  "total_competitions",
-	"active_competitions": "active_competitions",
-	"storage_used_gb":     "storage_used_gb",
-	"api_request_count":   "api_request_count",
+	"active_users": "active_users",
+	"new_users":    "new_users",
+	"experiments":  "total_experiments",
+	"api_requests": "api_request_count",
 }
 
 // NewPlatformStatisticRepository 创建平台统计数据访问实例。
@@ -156,6 +160,9 @@ func (r *platformStatisticRepository) ListTrend(ctx context.Context, metric stri
 // Overview 查询统计总览。
 func (r *platformStatisticRepository) Overview(ctx context.Context) (*PlatformStatisticsOverview, error) {
 	var overview PlatformStatisticsOverview
+	now := time.Now().UTC()
+	start := now.Truncate(24 * time.Hour)
+	end := start.Add(24 * time.Hour)
 	err := r.db.WithContext(ctx).Raw(`
 		SELECT
 			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) AS total_users,
@@ -163,11 +170,11 @@ func (r *platformStatisticRepository) Overview(ctx context.Context) (*PlatformSt
 			(SELECT COUNT(*) FROM courses WHERE deleted_at IS NULL) AS total_courses,
 			(SELECT COUNT(*) FROM experiment_instances) AS total_experiments,
 			(SELECT COUNT(*) FROM competitions WHERE deleted_at IS NULL) AS total_competitions,
-			(SELECT COALESCE(active_users, 0) FROM platform_statistics ORDER BY stat_date DESC LIMIT 1) AS active_users,
-			(SELECT COALESCE(new_users, 0) FROM platform_statistics ORDER BY stat_date DESC LIMIT 1) AS new_users,
-			(SELECT COALESCE(total_experiments, 0) FROM platform_statistics ORDER BY stat_date DESC LIMIT 1) AS total_experiments_today,
-			(SELECT COALESCE(api_request_count, 0) FROM platform_statistics ORDER BY stat_date DESC LIMIT 1) AS api_request_count
-	`).Scan(&overview).Error
+			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND last_login_at >= ? AND last_login_at < ?) AS active_users,
+			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= ? AND created_at < ?) AS new_users,
+			(SELECT COUNT(*) FROM experiment_instances WHERE created_at >= ? AND created_at < ?) AS total_experiments_today,
+			(SELECT COALESCE(COUNT(*), 0) FROM operation_logs WHERE created_at >= ? AND created_at < ?) AS api_request_count
+	`, start, end, start, end, start, end, start, end).Scan(&overview).Error
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +203,102 @@ func (r *platformStatisticRepository) SchoolActivityRanking(ctx context.Context,
 	return items, err
 }
 
+// GetRealtimeCounts 查询仪表盘实时计数。
+func (r *platformStatisticRepository) GetRealtimeCounts(ctx context.Context) (*RealtimeCounts, error) {
+	var counts RealtimeCounts
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT
+			(SELECT COUNT(*) FROM experiment_instances WHERE status IN (?, ?, ?, ?)) AS active_experiments,
+			(SELECT COUNT(*) FROM competitions WHERE deleted_at IS NULL AND status = ?) AS active_competitions
+	`,
+		enum.InstanceStatusCreating,
+		enum.InstanceStatusInitializing,
+		enum.InstanceStatusQueued,
+		enum.InstanceStatusRunning,
+		enum.CompetitionStatusRunning,
+	).Scan(&counts).Error
+	if err != nil {
+		return nil, err
+	}
+	return &counts, nil
+}
+
+// CountRecentAPIRequests 统计指定时间点之后的 API 请求代理数量。
+func (r *platformStatisticRepository) CountRecentAPIRequests(ctx context.Context, since time.Time) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Table("operation_logs").
+		Where("created_at >= ?", since.UTC()).
+		Count(&count).Error
+	return count, err
+}
+
+// BuildDailyStatistic 按指定日期构建平台统计日快照。
+func (r *platformStatisticRepository) BuildDailyStatistic(ctx context.Context, statDate time.Time, storageUsedGB float64) (*entity.PlatformStatistic, error) {
+	start := statDate.UTC().Truncate(24 * time.Hour)
+	end := start.Add(24 * time.Hour)
+
+	type row struct {
+		TotalUsers         int64 `gorm:"column:total_users"`
+		NewUsers           int64 `gorm:"column:new_users"`
+		ActiveUsers        int64 `gorm:"column:active_users"`
+		TotalSchools       int64 `gorm:"column:total_schools"`
+		TotalCourses       int64 `gorm:"column:total_courses"`
+		ActiveCourses      int64 `gorm:"column:active_courses"`
+		TotalExperiments   int64 `gorm:"column:total_experiments"`
+		TotalCompetitions  int64 `gorm:"column:total_competitions"`
+		ActiveCompetitions int64 `gorm:"column:active_competitions"`
+		APIRequestCount    int64 `gorm:"column:api_request_count"`
+	}
+
+	var data row
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT
+			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) AS total_users,
+			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND created_at >= ? AND created_at < ?) AS new_users,
+			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND last_login_at >= ? AND last_login_at < ?) AS active_users,
+			(SELECT COUNT(*) FROM schools WHERE deleted_at IS NULL) AS total_schools,
+			(SELECT COUNT(*) FROM courses WHERE deleted_at IS NULL) AS total_courses,
+			(SELECT COUNT(*) FROM courses WHERE deleted_at IS NULL AND status = ?) AS active_courses,
+			(SELECT COUNT(*) FROM experiment_instances WHERE created_at >= ? AND created_at < ?) AS total_experiments,
+			(SELECT COUNT(*) FROM competitions WHERE deleted_at IS NULL) AS total_competitions,
+			(SELECT COUNT(*) FROM competitions WHERE deleted_at IS NULL AND status = ?) AS active_competitions,
+			(SELECT COALESCE(COUNT(*), 0) FROM operation_logs WHERE created_at >= ? AND created_at < ?) AS api_request_count
+	`,
+		start, end,
+		start, end,
+		enum.CourseStatusActive,
+		start, end,
+		enum.CompetitionStatusRunning,
+		start, end,
+	).Scan(&data).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &entity.PlatformStatistic{
+		StatDate:           start,
+		ActiveUsers:        int(data.ActiveUsers),
+		NewUsers:           int(data.NewUsers),
+		TotalUsers:         int(data.TotalUsers),
+		TotalSchools:       int(data.TotalSchools),
+		TotalCourses:       int(data.TotalCourses),
+		ActiveCourses:      int(data.ActiveCourses),
+		TotalExperiments:   int(data.TotalExperiments),
+		TotalCompetitions:  int(data.TotalCompetitions),
+		ActiveCompetitions: int(data.ActiveCompetitions),
+		StorageUsedGB:      storageUsedGB,
+		APIRequestCount:    data.APIRequestCount,
+	}, nil
+}
+
+// DeleteBeforeDate 删除指定日期之前的平台统计记录。
+func (r *platformStatisticRepository) DeleteBeforeDate(ctx context.Context, beforeDate time.Time) error {
+	return r.db.WithContext(ctx).
+		Where("stat_date < ?", beforeDate.UTC().Truncate(24*time.Hour)).
+		Delete(&entity.PlatformStatistic{}).Error
+}
+
 // AuditRepository 统一审计聚合数据访问接口。
 type AuditRepository interface {
 	List(ctx context.Context, params *AuditLogListParams) ([]*AuditLogItem, int64, *AuditSourceCounts, error)
@@ -220,6 +323,13 @@ type auditExperimentRow struct {
 	OperatorName *string `gorm:"column:operator_name"`
 }
 
+type auditQueryResult struct {
+	Source string
+	Items  []*AuditLogItem
+	Total  int64
+	Err    error
+}
+
 // NewAuditRepository 创建统一审计聚合数据访问实例。
 func NewAuditRepository(db *gorm.DB) AuditRepository {
 	return &auditRepository{db: db}
@@ -229,7 +339,25 @@ func NewAuditRepository(db *gorm.DB) AuditRepository {
 func (r *auditRepository) List(ctx context.Context, params *AuditLogListParams) ([]*AuditLogItem, int64, *AuditSourceCounts, error) {
 	var items []*AuditLogItem
 	counts := &AuditSourceCounts{}
-	if params.Source == "" || params.Source == "login" {
+	if params.Source == "" {
+		results := r.listAllSourcesConcurrently(ctx, params)
+		for _, result := range results {
+			if result.Err != nil {
+				return nil, 0, nil, result.Err
+			}
+			items = append(items, result.Items...)
+			switch result.Source {
+			case "login":
+				counts.Login = result.Total
+			case "operation":
+				counts.Operation = result.Total
+			case "experiment":
+				counts.Experiment = result.Total
+			}
+		}
+		return paginateAuditItems(items, params), int64(len(items)), counts, nil
+	}
+	if params.Source == "login" {
 		loginItems, total, err := r.listLoginLogs(ctx, params)
 		if err != nil {
 			return nil, 0, nil, err
@@ -237,7 +365,7 @@ func (r *auditRepository) List(ctx context.Context, params *AuditLogListParams) 
 		items = append(items, loginItems...)
 		counts.Login = total
 	}
-	if params.Source == "" || params.Source == "operation" {
+	if params.Source == "operation" {
 		opItems, total, err := r.listOperationLogs(ctx, params)
 		if err != nil {
 			return nil, 0, nil, err
@@ -245,7 +373,7 @@ func (r *auditRepository) List(ctx context.Context, params *AuditLogListParams) 
 		items = append(items, opItems...)
 		counts.Operation = total
 	}
-	if params.Source == "" || params.Source == "experiment" {
+	if params.Source == "experiment" {
 		expItems, total, err := r.listExperimentLogs(ctx, params)
 		if err != nil {
 			return nil, 0, nil, err
@@ -254,20 +382,49 @@ func (r *auditRepository) List(ctx context.Context, params *AuditLogListParams) 
 		counts.Experiment = total
 	}
 
+	paged := paginateAuditItems(items, params)
+	return paged, int64(len(items)), counts, nil
+}
+
+// listAllSourcesConcurrently 并行查询三类审计来源。
+func (r *auditRepository) listAllSourcesConcurrently(ctx context.Context, params *AuditLogListParams) []auditQueryResult {
+	results := make([]auditQueryResult, 3)
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		items, total, err := r.listLoginLogs(groupCtx, params)
+		results[0] = auditQueryResult{Source: "login", Items: items, Total: total, Err: err}
+		return nil
+	})
+	group.Go(func() error {
+		items, total, err := r.listOperationLogs(groupCtx, params)
+		results[1] = auditQueryResult{Source: "operation", Items: items, Total: total, Err: err}
+		return nil
+	})
+	group.Go(func() error {
+		items, total, err := r.listExperimentLogs(groupCtx, params)
+		results[2] = auditQueryResult{Source: "experiment", Items: items, Total: total, Err: err}
+		return nil
+	})
+	_ = group.Wait()
+	return results
+}
+
+// paginateAuditItems 按创建时间倒序排序并分页审计聚合结果。
+func paginateAuditItems(items []*AuditLogItem, params *AuditLogListParams) []*AuditLogItem {
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
-	total := int64(len(items))
 	page, pageSize := pagination.NormalizeValues(params.Page, params.PageSize)
 	start := pagination.Offset(page, pageSize)
 	if start >= len(items) {
-		return []*AuditLogItem{}, total, counts, nil
+		return []*AuditLogItem{}
 	}
 	end := start + pageSize
 	if end > len(items) {
 		end = len(items)
 	}
-	return items[start:end], total, counts, nil
+	return items[start:end]
 }
 
+// listLoginLogs 查询并映射登录日志来源的统一审计数据。
 func (r *auditRepository) listLoginLogs(ctx context.Context, params *AuditLogListParams) ([]*AuditLogItem, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.LoginLog{}).
 		Select("login_logs.*, users.name AS operator_name").
@@ -316,6 +473,7 @@ func (r *auditRepository) listLoginLogs(ctx context.Context, params *AuditLogLis
 	return items, int64(len(items)), nil
 }
 
+// listOperationLogs 查询并映射操作日志来源的统一审计数据。
 func (r *auditRepository) listOperationLogs(ctx context.Context, params *AuditLogListParams) ([]*AuditLogItem, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.OperationLog{}).
 		Select("operation_logs.*, users.name AS operator_name").
@@ -356,6 +514,7 @@ func (r *auditRepository) listOperationLogs(ctx context.Context, params *AuditLo
 	return items, int64(len(items)), nil
 }
 
+// listExperimentLogs 查询并映射实验操作日志来源的统一审计数据。
 func (r *auditRepository) listExperimentLogs(ctx context.Context, params *AuditLogListParams) ([]*AuditLogItem, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.InstanceOperationLog{}).
 		Select("instance_operation_logs.*, users.name AS operator_name").
@@ -397,6 +556,7 @@ func (r *auditRepository) listExperimentLogs(ctx context.Context, params *AuditL
 	return items, int64(len(items)), nil
 }
 
+// loginActionCode 将登录日志动作枚举转换为统一审计动作编码。
 func loginActionCode(action int16) string {
 	switch action {
 	case enum.LoginActionSuccess:
@@ -414,6 +574,7 @@ func loginActionCode(action int16) string {
 	}
 }
 
+// parseLoginActionCode 将统一审计动作编码转换为登录日志动作枚举。
 func parseLoginActionCode(action string) (int16, bool) {
 	switch action {
 	case "login_success":

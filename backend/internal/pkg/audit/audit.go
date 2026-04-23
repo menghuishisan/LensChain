@@ -7,12 +7,14 @@
 package audit
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
@@ -51,7 +53,7 @@ func Record(db *gorm.DB, entry *LogEntry) {
 	if db == nil || entry == nil {
 		return
 	}
-	go func() {
+	cronpkg.RunAsync("操作审计日志写入", func(ctx context.Context) {
 		log := &OperationLog{
 			ID:         snowflake.Generate(),
 			OperatorID: entry.OperatorID,
@@ -77,14 +79,14 @@ func Record(db *gorm.DB, entry *LogEntry) {
 			log.Detail = &detailStr
 		}
 
-		if err := db.Create(log).Error; err != nil {
+		if err := db.WithContext(ctx).Create(log).Error; err != nil {
 			logger.L.Error("写入操作日志失败",
 				zap.Error(err),
 				zap.String("action", entry.Action),
 				zap.Int64("operator_id", entry.OperatorID),
 			)
 		}
-	}()
+	})
 }
 
 // RecordSync 同步记录操作日志

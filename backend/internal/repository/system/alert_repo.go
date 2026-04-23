@@ -128,11 +128,12 @@ type AlertEventRepository interface {
 	Create(ctx context.Context, event *entity.AlertEvent) error
 	GetByID(ctx context.Context, id int64) (*entity.AlertEvent, error)
 	List(ctx context.Context, params *AlertEventListParams) ([]*entity.AlertEvent, int64, error)
-	GetLatestPendingByRule(ctx context.Context, ruleID int64) (*entity.AlertEvent, error)
+	GetLatestPendingByRuleAndTitle(ctx context.Context, ruleID int64, title string) (*entity.AlertEvent, error)
 	Handle(ctx context.Context, id, handledBy int64, note *string, handledAt time.Time) error
 	Ignore(ctx context.Context, id, handledBy int64, note *string, handledAt time.Time) error
 	StatusCounts(ctx context.Context, params *AlertEventListParams) (*AlertEventStatusCounts, error)
 	ListRecentPending(ctx context.Context, limit int) ([]*entity.AlertEvent, error)
+	ListLoginFailGroups(ctx context.Context, since time.Time, action int16, threshold int) ([]*LoginFailGroup, error)
 }
 
 // AlertEventListParams 告警事件列表查询参数。
@@ -151,6 +152,13 @@ type AlertEventStatusCounts struct {
 	Pending int64 `gorm:"column:pending"`
 	Handled int64 `gorm:"column:handled"`
 	Ignored int64 `gorm:"column:ignored"`
+}
+
+// LoginFailGroup 表示异常登录聚合结果。
+type LoginFailGroup struct {
+	GroupValue string `gorm:"column:group_value"`
+	EventCount int64  `gorm:"column:event_count"`
+	SamplesRaw []byte `gorm:"-"`
 }
 
 type alertEventRepository struct {
@@ -207,11 +215,11 @@ func (r *alertEventRepository) List(ctx context.Context, params *AlertEventListP
 	return events, total, nil
 }
 
-// GetLatestPendingByRule 获取规则最近一条未处理告警。
-func (r *alertEventRepository) GetLatestPendingByRule(ctx context.Context, ruleID int64) (*entity.AlertEvent, error) {
+// GetLatestPendingByRuleAndTitle 获取同规则同标题的最近一条未处理告警。
+func (r *alertEventRepository) GetLatestPendingByRuleAndTitle(ctx context.Context, ruleID int64, title string) (*entity.AlertEvent, error) {
 	var event entity.AlertEvent
 	err := r.db.WithContext(ctx).
-		Where("rule_id = ? AND status = ?", ruleID, enum.AlertEventStatusPending).
+		Where("rule_id = ? AND title = ? AND status = ?", ruleID, title, enum.AlertEventStatusPending).
 		Order("triggered_at desc").
 		First(&event).Error
 	if err != nil {
@@ -246,6 +254,9 @@ func (r *alertEventRepository) Ignore(ctx context.Context, id, handledBy int64, 
 
 // StatusCounts 查询告警状态统计。
 func (r *alertEventRepository) StatusCounts(ctx context.Context, params *AlertEventListParams) (*AlertEventStatusCounts, error) {
+	if params == nil {
+		params = &AlertEventListParams{}
+	}
 	query := r.db.WithContext(ctx).Model(&entity.AlertEvent{})
 	if params.RuleID > 0 {
 		query = query.Where("rule_id = ?", params.RuleID)
@@ -279,4 +290,63 @@ func (r *alertEventRepository) ListRecentPending(ctx context.Context, limit int)
 		Limit(limit).
 		Find(&events).Error
 	return events, err
+}
+
+// ListLoginFailGroups 查询时间窗口内按 IP 聚合的登录失败事件。
+func (r *alertEventRepository) ListLoginFailGroups(ctx context.Context, since time.Time, action int16, threshold int) ([]*LoginFailGroup, error) {
+	type row struct {
+		GroupValue string `gorm:"column:group_value"`
+		EventCount int64  `gorm:"column:event_count"`
+		Samples    []byte `gorm:"column:samples"`
+	}
+
+	var rows []*row
+	err := r.db.WithContext(ctx).Raw(`
+		WITH grouped AS (
+			SELECT
+				ip AS group_value,
+				COUNT(*) AS event_count
+			FROM login_logs
+			WHERE action = ? AND created_at >= ? AND ip <> ''
+			GROUP BY ip
+			HAVING COUNT(*) >= ?
+		)
+		SELECT
+			g.group_value,
+			g.event_count,
+			(
+				SELECT COALESCE(json_agg(sample_row ORDER BY sample_row.created_at DESC), '[]'::json)
+				FROM (
+					SELECT
+						ll.user_id,
+						ll.fail_reason,
+						ll.created_at
+					FROM login_logs ll
+					WHERE ll.action = ? AND ll.created_at >= ? AND ll.ip = g.group_value
+					ORDER BY ll.created_at DESC
+					LIMIT 5
+				) AS sample_row
+			) AS samples
+		FROM grouped g
+		ORDER BY g.event_count DESC, g.group_value ASC
+	`, action, since, threshold, action, since).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*LoginFailGroup, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		item := &LoginFailGroup{
+			GroupValue: row.GroupValue,
+			EventCount: row.EventCount,
+		}
+		if len(row.Samples) > 0 {
+			item.SamplesRaw = append(item.SamplesRaw, row.Samples...)
+		}
+		result = append(result, item)
+	}
+	return result, nil
 }

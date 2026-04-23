@@ -26,6 +26,28 @@ CREATE TABLE system_configs (
 CREATE UNIQUE INDEX uk_system_configs_group_key ON system_configs(config_group, config_key);
 CREATE INDEX idx_system_configs_group ON system_configs(config_group);
 
+-- system_configs：系统预置配置数据。
+INSERT INTO system_configs (id, config_group, config_key, config_value, value_type, description, is_sensitive)
+VALUES
+    (800000000000000001, 'platform', 'name', '链镜', 1, '平台名称', FALSE),
+    (800000000000000002, 'platform', 'logo_url', '', 1, '平台Logo URL', FALSE),
+    (800000000000000003, 'platform', 'icp_number', '', 1, 'ICP备案号', FALSE),
+    (800000000000000004, 'platform', 'copyright', '', 1, '版权信息', FALSE),
+    (800000000000000005, 'platform', 'description', '', 1, '平台描述', FALSE),
+    (800000000000000006, 'storage', 'default_school_quota_gb', '100', 2, '学校默认存储配额(GB)', FALSE),
+    (800000000000000007, 'storage', 'max_upload_size_mb', '50', 2, '单文件最大上传大小(MB)', FALSE),
+    (800000000000000008, 'security', 'session_timeout_hours', '24', 2, '会话超时时间(小时)', FALSE),
+    (800000000000000009, 'security', 'max_login_fail_count', '5', 2, '最大登录失败次数', FALSE),
+    (800000000000000010, 'security', 'lock_duration_minutes', '30', 2, '账号锁定时长(分钟)', FALSE),
+    (800000000000000011, 'security', 'password_min_length', '8', 2, '密码最小长度', FALSE),
+    (800000000000000012, 'security', 'password_require_uppercase', 'true', 3, '密码是否要求大写字母', FALSE),
+    (800000000000000013, 'security', 'password_require_lowercase', 'true', 3, '密码是否要求小写字母', FALSE),
+    (800000000000000014, 'security', 'password_require_digit', 'true', 3, '密码是否要求数字', FALSE),
+    (800000000000000015, 'security', 'password_require_special_char', 'false', 3, '密码是否要求特殊字符', FALSE),
+    (800000000000000016, 'backup', 'auto_backup_enabled', 'true', 3, '是否启用自动备份', FALSE),
+    (800000000000000017, 'backup', 'auto_backup_cron', '0 0 2 * * *', 1, '自动备份cron表达式（6段秒级格式）', FALSE),
+    (800000000000000018, 'backup', 'backup_retention_count', '30', 2, '备份保留份数', FALSE);
+
 -- config_change_logs：配置变更记录表。
 CREATE TABLE config_change_logs (
     id BIGINT PRIMARY KEY,

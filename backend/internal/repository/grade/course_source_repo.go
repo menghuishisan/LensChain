@@ -22,13 +22,22 @@ type CourseGradeSourceRepository interface {
 	ListLatestGradedSubmissions(ctx context.Context, courseID int64) ([]*CourseSubmissionScore, error)
 	ListGradeOverrides(ctx context.Context, courseID int64) ([]*entity.CourseGradeOverride, error)
 	CountReviewedCourses(ctx context.Context, schoolID, semesterID int64) (int64, error)
+	GetLearningOverview(ctx context.Context, studentID int64) (*LearningOverviewStats, error)
 }
 
 // CourseSubmissionScore 课程作业提交成绩。
 type CourseSubmissionScore struct {
 	AssignmentID int64   `gorm:"column:assignment_id"`
 	StudentID    int64   `gorm:"column:student_id"`
-	TotalScore   float64 `gorm:"column:total_score"`
+	FinalScore   float64 `gorm:"column:final_score"`
+}
+
+// LearningOverviewStats 学生学习概览聚合结果。
+type LearningOverviewStats struct {
+	CourseCount       int64 `gorm:"column:course_count"`
+	ExperimentCount   int64 `gorm:"column:experiment_count"`
+	CompetitionCount  int64 `gorm:"column:competition_count"`
+	TotalStudySeconds int64 `gorm:"column:total_study_seconds"`
 }
 
 type courseGradeSourceRepository struct {
@@ -84,7 +93,7 @@ func (r *courseGradeSourceRepository) GetGradeConfig(ctx context.Context, course
 func (r *courseGradeSourceRepository) ListLatestGradedSubmissions(ctx context.Context, courseID int64) ([]*CourseSubmissionScore, error) {
 	var scores []*CourseSubmissionScore
 	err := r.db.WithContext(ctx).Table("assignment_submissions AS s").
-		Select("s.assignment_id, s.student_id, COALESCE(s.total_score, 0) AS total_score").
+		Select("s.assignment_id, s.student_id, COALESCE(s.score_after_deduction, s.total_score, 0) AS final_score").
 		Joins("JOIN assignments a ON a.id = s.assignment_id").
 		Joins(`
 			JOIN (
@@ -119,4 +128,29 @@ func (r *courseGradeSourceRepository) CountReviewedCourses(ctx context.Context, 
 		Where("school_id = ? AND semester_id = ? AND status = ?", schoolID, semesterID, enum.GradeReviewStatusApproved).
 		Count(&count).Error
 	return count, err
+}
+
+// GetLearningOverview 聚合学生课程、实验、竞赛和学习时长。
+func (r *courseGradeSourceRepository) GetLearningOverview(ctx context.Context, studentID int64) (*LearningOverviewStats, error) {
+	var stats LearningOverviewStats
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT
+			(SELECT COUNT(DISTINCT course_id)
+			 FROM course_enrollments
+			 WHERE student_id = ? AND removed_at IS NULL) AS course_count,
+			(SELECT COUNT(*)
+			 FROM experiment_instances
+			 WHERE student_id = ?) AS experiment_count,
+			(SELECT COUNT(DISTINCT t.competition_id)
+			 FROM team_members tm
+			 JOIN teams t ON t.id = tm.team_id
+			 WHERE tm.student_id = ? AND t.status <> ?) AS competition_count,
+			(SELECT COALESCE(SUM(study_duration), 0)
+			 FROM learning_progresses
+			 WHERE student_id = ?) AS total_study_seconds
+	`, studentID, studentID, studentID, enum.TeamStatusDisbanded, studentID).Scan(&stats).Error
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
 }

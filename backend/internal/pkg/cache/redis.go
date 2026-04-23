@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -86,6 +87,42 @@ func Del(ctx context.Context, keys ...string) error {
 		return errRedisNotInitialized
 	}
 	return rdb.Del(ctx, keys...).Err()
+}
+
+// DeleteByPatterns 按通配模式批量删除键。
+// 该方法用于归档、租户回收等需要按业务前缀清理一组 Redis 键的场景，统一封装 SCAN + DEL，
+// 避免上层业务直接依赖 Redis 游标遍历细节。
+func DeleteByPatterns(ctx context.Context, patterns ...string) error {
+	if rdb == nil {
+		return errRedisNotInitialized
+	}
+	uniquePatterns := make(map[string]struct{}, len(patterns))
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		uniquePatterns[pattern] = struct{}{}
+	}
+	for pattern := range uniquePatterns {
+		var cursor uint64
+		for {
+			keys, nextCursor, err := rdb.Scan(ctx, cursor, pattern, 100).Result()
+			if err != nil {
+				return err
+			}
+			if len(keys) > 0 {
+				if err := rdb.Del(ctx, keys...).Err(); err != nil {
+					return err
+				}
+			}
+			cursor = nextCursor
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+	return nil
 }
 
 // Exists 检查键是否存在
@@ -188,6 +225,7 @@ const (
 	KeyCTFADRound       = "ctf:ad:round:"       // ctf:ad:round:{comp_id}:{group_id}
 	KeyCTFADToken       = "ctf:ad:token:"       // ctf:ad:token:{comp_id}:{team_id}
 	KeyCTFADExploit     = "ctf:ad:exploit:"     // ctf:ad:exploit:{comp}:{group}:{challenge}
+	KeyCTFADAttackLock  = "ctf:ad:attack_lock:" // ctf:ad:attack_lock:{round}:{target_team}:{challenge}
 	KeyCTFCompStatus    = "ctf:competition:"    // ctf:competition:{comp_id}:status
 	KeyCTFSolved        = "ctf:solved:"         // ctf:solved:{comp}:{team}:{challenge}
 

@@ -199,7 +199,7 @@ func (r *gradeReviewRepository) Unlock(ctx context.Context, id, unlockedBy int64
 			"unlocked_by":   unlockedBy,
 			"unlocked_at":   unlockedAt,
 			"unlock_reason": reason,
-			"status":        enum.GradeReviewStatusPending,
+			"status":        enum.GradeReviewStatusNotSubmitted,
 			"updated_at":    gorm.Expr("now()"),
 		}).Error
 }

@@ -208,6 +208,31 @@ func IsValidFlagType(value int16) bool {
 }
 
 const (
+	RuntimeModeIsolated = 1 // 独立链模式
+	RuntimeModeForked   = 2 // Fork模式
+)
+
+// RuntimeModeText 题目运行时模式文本映射。
+var RuntimeModeText = map[int16]string{
+	RuntimeModeIsolated: "独立链模式",
+	RuntimeModeForked:   "Fork模式",
+}
+
+// GetRuntimeModeText 获取题目运行时模式文本。
+func GetRuntimeModeText(value int16) string {
+	if text, ok := RuntimeModeText[value]; ok {
+		return text
+	}
+	return "未知"
+}
+
+// IsValidRuntimeMode 校验题目运行时模式是否合法。
+func IsValidRuntimeMode(value int16) bool {
+	_, ok := RuntimeModeText[value]
+	return ok
+}
+
+const (
 	ChallengeSourceSWC      = 1 // SWC导入
 	ChallengeSourceTemplate = 2 // 参数化模板
 	ChallengeSourceCustom   = 3 // 完全自定义

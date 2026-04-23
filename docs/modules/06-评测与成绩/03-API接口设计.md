@@ -29,6 +29,7 @@
 | | GET | /students/:id/gpa | 学生GPA | 教师/管理员/学生本人 |
 | | GET | /my/semester-grades | 我的学期成绩 | 学生 |
 | | GET | /my/gpa | 我的GPA | 学生 |
+| | GET | /my/learning-overview | 我的学习概览 | 学生 |
 | **成绩申诉** | POST | /appeals | 提交申诉 | 学生 |
 | | GET | /appeals | 申诉列表 | 教师/学生 |
 | | GET | /appeals/:id | 申诉详情 | 教师/学生 |
@@ -354,6 +355,25 @@
       { "semester_id": "...", "semester_name": "2025-2026学年第一学期", "gpa": 3.40, "credits": 15.0 }
     ],
     "gpa_trend": [3.10, 3.30, 3.40]
+  }
+}
+```
+
+#### GET /api/v1/grades/my/learning-overview — 我的学习概览
+
+**权限：** 学生
+
+**说明：** 此接口为个人中心页面提供聚合学习数据。模块06作为聚合层，只读模块03课程选课与学习进度、模块04实验实例、模块05竞赛团队成员数据；模块01 `/profile` 不再返回学习概览。
+
+**成功响应：**
+```json
+{
+  "code": 200,
+  "data": {
+    "course_count": 3,
+    "experiment_count": 12,
+    "competition_count": 2,
+    "total_study_hours": 48.5
   }
 }
 ```

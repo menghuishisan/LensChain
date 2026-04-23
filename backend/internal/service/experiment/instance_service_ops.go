@@ -19,6 +19,7 @@ import (
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/cache"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
+	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/pkg/ws"
@@ -141,8 +142,8 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 		s.refreshGroupStatus(ctx, *instance.GroupID)
 	}
 
-	// 异步恢复环境
-	go func() {
+	// 异步恢复环境，统一走公共后台任务入口。
+	cronpkg.RunAsync("实验实例恢复环境", func(context.Context) {
 		asyncCtx := detachContext(ctx)
 		templateAggregate, _ := loadTemplateAggregate(
 			asyncCtx,
@@ -161,7 +162,7 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 			return
 		}
 		s.provisionEnvironment(asyncCtx, instance, templateAggregate, stringifySnapshotID(snapshot), true)
-	}()
+	})
 
 	// 记录操作日志
 	s.recordOpLog(ctx, id, sc.UserID, enum.ActionResume, nil, nil, nil, nil, nil)
@@ -356,8 +357,9 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 		if err := s.syncCourseGradeIfNeeded(ctx, instance, template, nil); err != nil {
 			return nil, err
 		}
-		// 文档要求评分完成后向模块07发送 experiment.graded 通知。
-		// 纯自动评分场景在提交时即视为评分完成；待模块07内部通知接口落地后，在此节点通过跨模块接口发送事件。
+		if err := s.dispatchExperimentGraded(ctx, instance, template.Title, totalScore); err != nil {
+			return nil, err
+		}
 	}
 
 	return &dto.SubmitInstanceResp{
@@ -509,16 +511,18 @@ func (s *instanceService) Heartbeat(ctx context.Context, sc *svcctx.ServiceConte
 	manager := ws.GetManager()
 	if manager != nil {
 		if idleWarning {
-			// 文档同时要求“实验即将超时”进入模块07站内通知。
-			// 当前模块07尚未提供可用的内部通知 service，此处先保留模块04必需的 WebSocket 预警，后续在同一业务节点补发 experiment.expiring 事件。
+			if err := s.dispatchExperimentExpiring(ctx, instance, 5); err != nil {
+				return nil, err
+			}
 			_ = manager.SendToUser(instance.StudentID, buildInstanceWSMessage("idle_warning", map[string]interface{}{
 				"remaining_minutes": 5,
 				"message":           "您的实验环境将在5分钟后因空闲超时被回收，请继续操作或手动暂停",
 			}))
 		}
 		if remainingMinutes > 0 && remainingMinutes <= 10 {
-			// 最长时长预警与上方空闲预警属于同一类“即将超时”业务事件。
-			// 待模块07完成内部通知链路后，应在此处统一走 experiment.expiring 事件，而不是在其他层重复实现通知逻辑。
+			if err := s.dispatchExperimentExpiring(ctx, instance, remainingMinutes); err != nil {
+				return nil, err
+			}
 			_ = manager.SendToUser(instance.StudentID, buildInstanceWSMessage("duration_warning", map[string]interface{}{
 				"remaining_minutes": remainingMinutes,
 				"message":           fmt.Sprintf("实验剩余时间%d分钟，请尽快完成并提交", remainingMinutes),
@@ -551,4 +555,39 @@ func (s *instanceService) recordOpLog(ctx context.Context, instanceID, studentID
 		Detail:          datatypes.JSON(detail),
 	}
 	_ = s.opLogRepo.Create(ctx, log)
+}
+
+// dispatchExperimentExpiring 在实验即将超时时向当前学生发送站内信事件。
+func (s *instanceService) dispatchExperimentExpiring(ctx context.Context, instance *entity.ExperimentInstance, minutes int) error {
+	if s.eventDispatcher == nil || instance == nil || instance.StudentID == 0 || minutes <= 0 {
+		return nil
+	}
+	return s.eventDispatcher.DispatchEvent(ctx, &dto.InternalSendNotificationEventReq{
+		EventType:   "experiment.expiring",
+		ReceiverIDs: []string{strconv.FormatInt(instance.StudentID, 10)},
+		Params: map[string]interface{}{
+			"minutes": minutes,
+		},
+		SourceModule: "module_04",
+		SourceType:   "experiment_instance",
+		SourceID:     strconv.FormatInt(instance.ID, 10),
+	})
+}
+
+// dispatchExperimentGraded 在实验评分完成后向学生发送站内信事件。
+func (s *instanceService) dispatchExperimentGraded(ctx context.Context, instance *entity.ExperimentInstance, experimentName string, score float64) error {
+	if s.eventDispatcher == nil || instance == nil || instance.StudentID == 0 {
+		return nil
+	}
+	return s.eventDispatcher.DispatchEvent(ctx, &dto.InternalSendNotificationEventReq{
+		EventType:   "experiment.graded",
+		ReceiverIDs: []string{strconv.FormatInt(instance.StudentID, 10)},
+		Params: map[string]interface{}{
+			"experiment_name": experimentName,
+			"score":           score,
+		},
+		SourceModule: "module_04",
+		SourceType:   "experiment_instance",
+		SourceID:     strconv.FormatInt(instance.ID, 10),
+	})
 }

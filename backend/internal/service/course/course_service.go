@@ -57,6 +57,12 @@ type SchoolNameQuerier interface {
 	GetSchoolName(ctx context.Context, schoolID int64) string
 }
 
+// NotificationEventDispatcher 跨模块接口：向模块07发送站内信事件。
+// 模块03 只声明最小分发契约，具体通知生成与模板渲染由模块07负责。
+type NotificationEventDispatcher interface {
+	DispatchEvent(ctx context.Context, req *dto.InternalSendNotificationEventReq) error
+}
+
 // CourseService 课程管理服务接口
 type CourseService interface {
 	Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateCourseReq) (*dto.CreateCourseResp, error)

@@ -8,6 +8,8 @@ package experiment
 import (
 	"context"
 	"time"
+
+	"github.com/lenschain/backend/internal/model/dto"
 )
 
 // ExperimentUserSummary 模块04需要的用户摘要
@@ -86,8 +88,8 @@ type EndedCourseQuerier interface {
 	ListCourseIDsEndingWithin(ctx context.Context, within time.Duration) (map[int64]time.Time, error)
 }
 
-// 说明：
-// 模块07《通知与消息》文档要求模块04在“模板发布 / 实验即将超时 / 评分完成”三个业务节点发送内部通知事件。
-// 当前仓库内模块07的 handler/service 尚未完成，/internal/send-event 仍是路由占位，因此模块04暂不注入通知发送接口。
-// 后续模块07完成后，应在本文件新增通知发送接口，并由 cmd/server/init_experiment.go 注入 adapter，
-// 再由模板发布、超时预警和评分完成三个 service 节点统一调用，禁止在 handler 或 repository 层直接补写通知逻辑。
+// NotificationEventDispatcher 跨模块接口：向模块07发送站内信事件。
+// 模块04 只依赖通知分发契约，模板渲染、偏好过滤和去重由模块07统一处理。
+type NotificationEventDispatcher interface {
+	DispatchEvent(ctx context.Context, req *dto.InternalSendNotificationEventReq) error
+}

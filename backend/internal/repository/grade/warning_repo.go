@@ -24,12 +24,24 @@ type AcademicWarningRepository interface {
 	BatchCreate(ctx context.Context, warnings []*entity.AcademicWarning) error
 	GetByID(ctx context.Context, id int64) (*entity.AcademicWarning, error)
 	List(ctx context.Context, params *AcademicWarningListParams) ([]*entity.AcademicWarning, int64, error)
+	ListActiveBySemester(ctx context.Context, schoolID, semesterID int64) ([]*entity.AcademicWarning, error)
 	ListUnresolvedByStudent(ctx context.Context, schoolID, studentID int64) ([]*entity.AcademicWarning, error)
 	GetExisting(ctx context.Context, schoolID, studentID, semesterID int64, warningType int16) (*entity.AcademicWarning, error)
 	Handle(ctx context.Context, id, handledBy int64, note *string, handledAt time.Time) error
 	Resolve(ctx context.Context, id int64) error
 	UpdateDetail(ctx context.Context, id int64, detail datatypes.JSON) error
 	CountActiveBySemester(ctx context.Context, schoolID, semesterID int64) (int64, error)
+}
+
+// ListActiveBySemester 查询学期内所有未解除预警，供重算时自动解除。
+func (r *academicWarningRepository) ListActiveBySemester(ctx context.Context, schoolID, semesterID int64) ([]*entity.AcademicWarning, error) {
+	var warnings []*entity.AcademicWarning
+	err := r.db.WithContext(ctx).Model(&entity.AcademicWarning{}).
+		Scopes(database.WithSchoolID(schoolID)).
+		Where("semester_id = ? AND status <> ?", semesterID, enum.AcademicWarningStatusResolved).
+		Order("student_id asc, warning_type asc").
+		Find(&warnings).Error
+	return warnings, err
 }
 
 // AcademicWarningListParams 学业预警列表查询参数。

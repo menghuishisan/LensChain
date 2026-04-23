@@ -73,9 +73,12 @@ func (r *ctfAnnouncementRepository) ListByCompetitionID(ctx context.Context, com
 type CtfResourceQuotaRepository interface {
 	Create(ctx context.Context, quota *entity.CtfResourceQuota) error
 	GetByCompetitionID(ctx context.Context, competitionID int64) (*entity.CtfResourceQuota, error)
+	List(ctx context.Context) ([]*entity.CtfResourceQuota, error)
 	Upsert(ctx context.Context, quota *entity.CtfResourceQuota) error
 	UpdateFields(ctx context.Context, competitionID int64, fields map[string]interface{}) error
 	IncrementNamespaces(ctx context.Context, competitionID int64, delta int) error
+	TryAcquireNamespaceSlot(ctx context.Context, competitionID int64) (bool, error)
+	ReleaseNamespaceSlot(ctx context.Context, competitionID int64) error
 }
 
 type ctfResourceQuotaRepository struct {
@@ -105,6 +108,15 @@ func (r *ctfResourceQuotaRepository) GetByCompetitionID(ctx context.Context, com
 		return nil, err
 	}
 	return &quota, nil
+}
+
+// List 查询全部竞赛资源配额记录。
+func (r *ctfResourceQuotaRepository) List(ctx context.Context) ([]*entity.CtfResourceQuota, error) {
+	var quotas []*entity.CtfResourceQuota
+	err := r.db.WithContext(ctx).
+		Order("competition_id asc").
+		Find(&quotas).Error
+	return quotas, err
 }
 
 // Upsert 创建或更新竞赛资源配额。
@@ -139,6 +151,62 @@ func (r *ctfResourceQuotaRepository) IncrementNamespaces(ctx context.Context, co
 			"current_namespaces": gorm.Expr("current_namespaces + ?", delta),
 			"updated_at":         time.Now(),
 		}).Error
+}
+
+// TryAcquireNamespaceSlot 原子占用一个竞赛 Namespace 配额槽位。
+// 当竞赛未配置资源配额时，视为不限制 Namespace 数量。
+func (r *ctfResourceQuotaRepository) TryAcquireNamespaceSlot(ctx context.Context, competitionID int64) (bool, error) {
+	var acquired bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var quota entity.CtfResourceQuota
+		lockErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("competition_id = ?", competitionID).
+			First(&quota).Error
+		if lockErr != nil {
+			if lockErr == gorm.ErrRecordNotFound {
+				acquired = true
+				return nil
+			}
+			return lockErr
+		}
+		if quota.MaxNamespaces != nil && quota.CurrentNamespaces >= *quota.MaxNamespaces {
+			acquired = false
+			return nil
+		}
+		return tx.Model(&entity.CtfResourceQuota{}).
+			Where("competition_id = ?", competitionID).
+			Updates(map[string]interface{}{
+				"current_namespaces": gorm.Expr("current_namespaces + 1"),
+				"updated_at":         time.Now(),
+			}).Error
+	})
+	return acquired, err
+}
+
+// ReleaseNamespaceSlot 释放一个竞赛 Namespace 配额槽位。
+// 当竞赛未配置资源配额或当前计数已为 0 时，直接视为释放成功。
+func (r *ctfResourceQuotaRepository) ReleaseNamespaceSlot(ctx context.Context, competitionID int64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var quota entity.CtfResourceQuota
+		lockErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("competition_id = ?", competitionID).
+			First(&quota).Error
+		if lockErr != nil {
+			if lockErr == gorm.ErrRecordNotFound {
+				return nil
+			}
+			return lockErr
+		}
+		if quota.CurrentNamespaces <= 0 {
+			return nil
+		}
+		return tx.Model(&entity.CtfResourceQuota{}).
+			Where("competition_id = ?", competitionID).
+			Updates(map[string]interface{}{
+				"current_namespaces": gorm.Expr("current_namespaces - 1"),
+				"updated_at":         time.Now(),
+			}).Error
+	})
 }
 
 // ChallengeEnvironmentRepository 题目环境实例数据访问接口。

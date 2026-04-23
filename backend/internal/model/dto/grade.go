@@ -202,6 +202,14 @@ type GPAResp struct {
 	GPATrend          []float64         `json:"gpa_trend"`
 }
 
+// LearningOverviewResp 学习概览响应。
+type LearningOverviewResp struct {
+	CourseCount      int     `json:"course_count"`
+	ExperimentCount  int     `json:"experiment_count"`
+	CompetitionCount int     `json:"competition_count"`
+	TotalStudyHours  float64 `json:"total_study_hours"`
+}
+
 // GPASemesterItem GPA 学期项。
 // 该结构对应 GPA 接口的 semester_list 固定字段集合。
 type GPASemesterItem struct {

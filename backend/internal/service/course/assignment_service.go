@@ -57,6 +57,7 @@ type assignmentService struct {
 	enrollmentRepo     courserepo.EnrollmentRepository
 	userNameQuerier    UserNameQuerier
 	userSummaryQuerier UserSummaryQuerier
+	eventDispatcher    NotificationEventDispatcher
 }
 
 // NewAssignmentService 创建作业管理服务实例
@@ -70,12 +71,14 @@ func NewAssignmentService(
 	enrollmentRepo courserepo.EnrollmentRepository,
 	userNameQuerier UserNameQuerier,
 	userSummaryQuerier UserSummaryQuerier,
+	eventDispatcher NotificationEventDispatcher,
 ) AssignmentService {
 	return &assignmentService{
 		courseRepo: courseRepo, assignmentRepo: assignmentRepo,
 		questionRepo: questionRepo, submissionRepo: submissionRepo,
 		draftRepo: draftRepo, answerRepo: answerRepo, enrollmentRepo: enrollmentRepo,
 		userNameQuerier: userNameQuerier, userSummaryQuerier: userSummaryQuerier,
+		eventDispatcher: eventDispatcher,
 	}
 }
 
@@ -294,9 +297,16 @@ func (s *assignmentService) Publish(ctx context.Context, sc *svcctx.ServiceConte
 	if len(questions) == 0 {
 		return errcode.ErrInvalidParams.WithMessage("请至少添加一道题目后再发布")
 	}
-	return s.assignmentRepo.UpdateFields(ctx, id, map[string]interface{}{
+	if err := s.assignmentRepo.UpdateFields(ctx, id, map[string]interface{}{
 		"is_published": true, "updated_at": time.Now(),
-	})
+	}); err != nil {
+		return err
+	}
+	course, err := s.courseRepo.GetByID(ctx, assignment.CourseID)
+	if err != nil {
+		return err
+	}
+	return s.dispatchAssignmentPublished(ctx, assignment, course)
 }
 
 // ========== 题目管理 ==========
@@ -506,4 +516,38 @@ func stringifyOptionalJSON(raw datatypes.JSON) *string {
 	}
 	text := string(raw)
 	return &text
+}
+
+// dispatchAssignmentPublished 在作业发布后向课程学生发送模块07内部通知事件。
+func (s *assignmentService) dispatchAssignmentPublished(ctx context.Context, assignment *entity.Assignment, course *entity.Course) error {
+	if s.eventDispatcher == nil || assignment == nil || course == nil {
+		return nil
+	}
+	enrollments, err := s.enrollmentRepo.ListAllByCourse(ctx, assignment.CourseID)
+	if err != nil {
+		return err
+	}
+	receiverIDs := make([]string, 0, len(enrollments))
+	for _, enrollment := range enrollments {
+		if enrollment == nil || enrollment.StudentID == 0 {
+			continue
+		}
+		receiverIDs = append(receiverIDs, strconv.FormatInt(enrollment.StudentID, 10))
+	}
+	if len(receiverIDs) == 0 {
+		return nil
+	}
+	params := map[string]interface{}{
+		"course_name":     course.Title,
+		"assignment_name": assignment.Title,
+		"deadline":        assignment.DeadlineAt.UTC().Format("2006-01-02 15:04"),
+	}
+	return s.eventDispatcher.DispatchEvent(ctx, &dto.InternalSendNotificationEventReq{
+		EventType:    "assignment.published",
+		ReceiverIDs:  receiverIDs,
+		Params:       params,
+		SourceModule: "module_03",
+		SourceType:   "assignment",
+		SourceID:     strconv.FormatInt(assignment.ID, 10),
+	})
 }

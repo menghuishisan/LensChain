@@ -102,15 +102,17 @@ func main() {
 
 	// ========== 12. 组装业务模块依赖（DI） ==========
 	// 每个模块独立一个 init_xxx.go 文件，避免 main.go 膨胀
+	notificationHandlers, notificationDispatcher := initNotificationModule()
+	gradeHandlers, gradeService := initGradeModule(notificationDispatcher)
 	handlers := &router.Handlers{
-		Auth:       initAuthModule(),       // 模块01 — 用户与认证（init_auth.go）
-		School:     initSchoolModule(),     // 模块02 — 学校与租户管理（init_school.go）
-		Course:     initCourseModule(),     // 模块03 — 课程与教学（init_course.go）
-		Experiment: initExperimentModule(), // 模块04 — 实验环境（init_experiment.go）
-		// CTF:          initCTFModule(),           // 模块05（待实现）
-		// Grade:        initGradeModule(),         // 模块06（待实现）
-		// Notification: initNotificationModule(), // 模块07（待实现）
-		// System:       initSystemModule(),       // 模块08（待实现）
+		Auth:         initAuthModule(),                                       // 模块01 — 用户与认证（init_auth.go）
+		School:       initSchoolModule(),                                     // 模块02 — 学校与租户管理（init_school.go）
+		Course:       initCourseModule(gradeService, notificationDispatcher), // 模块03 — 课程与教学（init_course.go）
+		Experiment:   initExperimentModule(notificationDispatcher),           // 模块04 — 实验环境（init_experiment.go）
+		CTF:          initCTFModule(notificationDispatcher),                  // 模块05 — CTF竞赛（init_ctf.go）
+		Grade:        gradeHandlers,                                          // 模块06 — 评测与成绩（init_grade.go）
+		Notification: notificationHandlers,                                   // 模块07 — 通知与消息（init_notification.go）
+		System:       initSystemModule(cfg, notificationDispatcher),          // 模块08 — 系统管理与监控（init_system.go）
 	}
 
 	// 13. 初始化路由

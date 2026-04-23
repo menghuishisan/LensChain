@@ -13,12 +13,10 @@ import (
 	"gorm.io/gorm"
 
 	handler "github.com/lenschain/backend/internal/handler/auth"
-	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	authrepo "github.com/lenschain/backend/internal/repository/auth"
-	courserepo "github.com/lenschain/backend/internal/repository/course"
 	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	"github.com/lenschain/backend/internal/router"
 	svc "github.com/lenschain/backend/internal/service/auth"
@@ -40,12 +38,8 @@ func initAuthModule() *router.AuthHandlers {
 	// 跨模块依赖：学校名称查询（模块02 → 模块01）
 	schoolRepo := schoolrepo.NewSchoolRepository(db)
 	ssoConfigRepo := schoolrepo.NewSSOConfigRepository(db)
-	courseRepo := courserepo.NewCourseRepository(db)
-	progressRepo := courserepo.NewProgressRepository(db)
 	schoolNameQuerier := &profileContextAdapter{
 		schoolNameQuerierAdapter: schoolNameQuerierAdapter{schoolRepo: schoolRepo},
-		courseRepo:               courseRepo,
-		progressRepo:             progressRepo,
 	}
 	schoolStatusChecker := &schoolStatusCheckerAdapter{schoolRepo: schoolRepo}
 	schoolSSOQuerier := &schoolSSOQuerierAdapter{ssoConfigRepo: ssoConfigRepo}
@@ -59,7 +53,7 @@ func initAuthModule() *router.AuthHandlers {
 	// userService: 用户管理 CRUD，操作日志通过 pkg/audit 直接写入，不再需要 opLogRepo
 	userService := svc.NewUserService(db, userRepo, profileRepo, roleRepo)
 	// profileService: 个人中心
-	profileService := svc.NewProfileService(db, userRepo, profileRepo, roleRepo, schoolNameQuerier, schoolNameQuerier)
+	profileService := svc.NewProfileService(db, userRepo, profileRepo, roleRepo, schoolNameQuerier)
 	// importService: 用户导入，操作日志通过 pkg/audit 直接写入
 	importService := svc.NewImportService(db, userRepo, profileRepo, roleRepo)
 	// securityService: 安全策略与日志查询，需要 loginLogRepo/opLogRepo 做查询
@@ -77,38 +71,10 @@ func initAuthModule() *router.AuthHandlers {
 	}
 }
 
-// profileContextAdapter 个人中心跨模块 adapter
-// 同时提供学校名称与学习概览聚合能力，避免模块01直接依赖模块03实现
+// profileContextAdapter 个人中心跨模块 adapter。
+// 仅提供学校名称查询能力，学习概览归属模块06聚合层。
 type profileContextAdapter struct {
 	schoolNameQuerierAdapter
-	courseRepo   courserepo.CourseRepository
-	progressRepo courserepo.ProgressRepository
-}
-
-// GetLearningOverview 获取学习概览
-func (a *profileContextAdapter) GetLearningOverview(ctx context.Context, userID int64) (*dto.LearningOverview, error) {
-	courses, total, err := a.courseRepo.ListByStudentID(ctx, userID, &courserepo.StudentCourseListParams{
-		Page: 1, PageSize: 100,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var totalStudySeconds int
-	for _, course := range courses {
-		duration, err := a.progressRepo.SumStudyDurationByStudent(ctx, userID, course.ID)
-		if err != nil {
-			return nil, err
-		}
-		totalStudySeconds += duration
-	}
-
-	return &dto.LearningOverview{
-		CourseCount:      int(total),
-		ExperimentCount:  0,
-		CompetitionCount: 0,
-		TotalStudyHours:  float64(totalStudySeconds) / 3600,
-	}, nil
 }
 
 // schoolStatusCheckerAdapter 跨模块 adapter：校验学校登录状态
