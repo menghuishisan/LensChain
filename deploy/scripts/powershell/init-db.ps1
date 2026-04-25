@@ -13,6 +13,12 @@ $DB_PASSWORD = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { "lenschain" }
 $DB_NAME = if ($env:DB_NAME) { $env:DB_NAME } else { "lenschain" }
 
 $env:PGPASSWORD = $DB_PASSWORD
+$env:LENSCHAIN_DATABASE_HOST = $DB_HOST
+$env:LENSCHAIN_DATABASE_PORT = $DB_PORT
+$env:LENSCHAIN_DATABASE_USER = $DB_USER
+$env:LENSCHAIN_DATABASE_PASSWORD = $DB_PASSWORD
+$env:LENSCHAIN_DATABASE_DBNAME = $DB_NAME
+$env:LENSCHAIN_DATABASE_SSLMODE = if ($env:LENSCHAIN_DATABASE_SSLMODE) { $env:LENSCHAIN_DATABASE_SSLMODE } else { "disable" }
 
 function Require-Command {
     param(
@@ -41,7 +47,8 @@ while ($true) {
 }
 
 Write-Host "==> Creating database if not exists"
-$dbExists = (& psql -h $DB_HOST -p $DB_PORT -U $DB_USER -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'").Trim()
+$dbExistsOutput = (& psql -h $DB_HOST -p $DB_PORT -U $DB_USER -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | Out-String)
+$dbExists = $dbExistsOutput.Trim()
 if ($dbExists -ne "1") {
     & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "CREATE DATABASE $DB_NAME"
 }

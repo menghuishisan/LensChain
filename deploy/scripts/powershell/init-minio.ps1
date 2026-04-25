@@ -10,6 +10,19 @@ $MinioUser = if ($env:MINIO_USER) { $env:MINIO_USER } else { "minioadmin" }
 $MinioPassword = if ($env:MINIO_PASSWORD) { $env:MINIO_PASSWORD } else { "minioadmin" }
 $buckets = @("attachments", "reports", "snapshots", "images", "exports", "backups")
 
+function Require-Command {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+        throw "缺少依赖命令: $Name"
+    }
+}
+
+Require-Command -Name "mc"
+
 Write-Host "==> Configuring MinIO client alias"
 & mc alias set local "http://${MinioHost}:${MinioPort}" $MinioUser $MinioPassword
 if ($LASTEXITCODE -ne 0) {
@@ -29,4 +42,3 @@ foreach ($bucket in $buckets) {
 }
 
 Write-Host "==> MinIO initialization complete"
-

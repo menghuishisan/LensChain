@@ -38,7 +38,10 @@ foreach ($manifest in $manifests) {
         }
     }
     catch {
-        $statusCode = $_.Exception.Response.StatusCode.value__
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
         if (-not $statusCode) {
             $statusCode = "ERR"
         }

@@ -125,6 +125,24 @@ BACKEND_URL=http://localhost:8080/api/v1 ADMIN_TOKEN='<token>' ./deploy/scripts/
 $env:BACKEND_URL="http://localhost:8080/api/v1"; $env:ADMIN_TOKEN="<token>"; .\deploy\scripts\powershell\seed-images.ps1
 ```
 
+## 本地镜像预拉取
+
+```bash
+./deploy/scripts/bash/docker-prepull.sh
+```
+
+```powershell
+.\deploy\scripts\powershell\docker-prepull.ps1
+```
+
+```bash
+PHASE_FILTER=1 ./deploy/scripts/bash/docker-prepull.sh
+```
+
+```powershell
+$env:PHASE_FILTER="1"; .\deploy\scripts\powershell\docker-prepull.ps1
+```
+
 ## 镜像怎么完整拉取 / 预拉取
 
 ### 1. 平台服务镜像

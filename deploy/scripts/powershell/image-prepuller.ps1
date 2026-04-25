@@ -10,6 +10,19 @@ $ReconcileInterval = if ($env:RECONCILE_INTERVAL) { [int]$env:RECONCILE_INTERVAL
 $BackendUrl = if ($env:BACKEND_URL) { $env:BACKEND_URL.TrimEnd('/') } else { "" }
 $NodeName = if ($env:NODE_NAME) { $env:NODE_NAME } else { "unknown" }
 
+function Require-Command {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
+        throw "缺少依赖命令: $Name"
+    }
+}
+
+Require-Command -Name "crictl"
+
 function Get-ManifestImages {
     $registry = ""
     $project = ""
@@ -100,4 +113,3 @@ while ($true) {
     Write-Host "==> sleep ${ReconcileInterval}s before next reconcile"
     Start-Sleep -Seconds $ReconcileInterval
 }
-

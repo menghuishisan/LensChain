@@ -7,7 +7,7 @@
 set -euo pipefail
 
 MINIO_HOST=${MINIO_HOST:-localhost}
-MINIO_PORT=${MINIO_PORT:-9000}
+MINIO_PORT=${MINIO_PORT:-9010}
 MINIO_USER=${MINIO_USER:-minioadmin}
 MINIO_PASSWORD=${MINIO_PASSWORD:-minioadmin}
 
