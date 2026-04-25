@@ -44,6 +44,35 @@ type casAttribute struct {
 	Value   string `xml:",chardata"`
 }
 
+// ListSSOSchools 获取登录页可见的 SSO 学校列表。
+// 该能力归属模块01，对外使用 /api/v1/auth/sso-schools；学校数据通过跨模块只读接口查询。
+func (s *authService) ListSSOSchools(ctx context.Context, keyword string) ([]*dto.SSOSchoolItem, error) {
+	if s.schoolPublicSSO == nil {
+		return nil, errcode.ErrInternal.WithMessage("SSO学校列表查询器未初始化")
+	}
+
+	schools, err := s.schoolPublicSSO.GetEnabledSSOSchools(ctx)
+	if err != nil {
+		return nil, errcode.ErrInternal.WithMessage("查询SSO学校列表失败")
+	}
+
+	normalizedKeyword := strings.TrimSpace(keyword)
+	items := make([]*dto.SSOSchoolItem, 0, len(schools))
+	for _, school := range schools {
+		if normalizedKeyword != "" && !strings.Contains(school.Name, normalizedKeyword) {
+			continue
+		}
+
+		items = append(items, &dto.SSOSchoolItem{
+			ID:      strconv.FormatInt(school.ID, 10),
+			Name:    school.Name,
+			LogoURL: school.LogoURL,
+		})
+	}
+
+	return items, nil
+}
+
 // SSOLoginURL 构建学校SSO登录地址
 func (s *authService) SSOLoginURL(ctx context.Context, schoolID int64) (string, error) {
 	config, err := s.getEnabledSchoolSSOConfig(ctx, schoolID)

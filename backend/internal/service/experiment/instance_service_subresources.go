@@ -455,6 +455,47 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 	return nil
 }
 
+// DeleteSnapshot 删除指定快照。
+func (s *instanceService) DeleteSnapshot(ctx context.Context, sc *svcctx.ServiceContext, id, snapshotID int64) error {
+	instance, err := s.getAccessibleInstance(ctx, sc, id)
+	if err != nil {
+		return err
+	}
+
+	allowed := instance.StudentID == sc.UserID
+	if !allowed {
+		allowed, err = s.canTeachInstance(ctx, sc, instance)
+		if err != nil {
+			return err
+		}
+	}
+	if !allowed {
+		return errcode.ErrForbidden
+	}
+
+	snapshot, err := s.snapshotRepo.GetByID(ctx, snapshotID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errcode.ErrSnapshotNotFound
+		}
+		return err
+	}
+	if snapshot.InstanceID != id {
+		return errcode.ErrSnapshotNotFound
+	}
+
+	s.deleteSnapshotArchive(ctx, snapshot)
+	if err := s.snapshotRepo.Delete(ctx, snapshotID); err != nil {
+		return err
+	}
+
+	detailPayload, _ := json.Marshal(map[string]interface{}{
+		"snapshot_id": strconv.FormatInt(snapshotID, 10),
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotDelete, nil, nil, nil, nil, detailPayload)
+	return nil
+}
+
 // ListOperationLogs 获取实例操作日志列表。
 func (s *instanceService) ListOperationLogs(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.InstanceOpLogListReq) ([]dto.InstanceOpLogItem, int64, error) {
 	_, err := s.getAccessibleInstance(ctx, sc, id)

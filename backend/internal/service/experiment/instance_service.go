@@ -66,6 +66,7 @@ type InstanceService interface {
 	ListSnapshots(ctx context.Context, sc *svcctx.ServiceContext, id int64) ([]dto.SnapshotResp, error)
 	CreateSnapshot(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.CreateSnapshotReq) (*dto.SnapshotResp, error)
 	RestoreSnapshot(ctx context.Context, sc *svcctx.ServiceContext, id, snapshotID int64) error
+	DeleteSnapshot(ctx context.Context, sc *svcctx.ServiceContext, id, snapshotID int64) error
 	ListOperationLogs(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.InstanceOpLogListReq) ([]dto.InstanceOpLogItem, int64, error)
 	CreateReport(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.CreateReportReq) (*dto.ReportResp, error)
 	GetReport(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ReportResp, error)

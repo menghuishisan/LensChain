@@ -41,6 +41,7 @@ type LoginResult struct {
 // AuthService 认证服务接口
 type AuthService interface {
 	Login(ctx context.Context, phone, password, ip, userAgent string) (*LoginResult, error)
+	ListSSOSchools(ctx context.Context, keyword string) ([]*dto.SSOSchoolItem, error)
 	SSOLoginURL(ctx context.Context, schoolID int64) (string, error)
 	SSOCallback(ctx context.Context, schoolID int64, query map[string]string, ip, userAgent string) (*LoginResult, error)
 	Logout(ctx context.Context, userID int64, jti, ip, userAgent string) error
@@ -65,6 +66,11 @@ type SchoolSSOConfigQuerier interface {
 	GetSchoolSSOConfig(ctx context.Context, schoolID int64) (*SchoolSSOConfig, error)
 }
 
+// SchoolPublicSSOQuerier 跨模块接口：查询公开可用的 SSO 学校列表
+type SchoolPublicSSOQuerier interface {
+	GetEnabledSSOSchools(ctx context.Context) ([]*PublicSSOSchool, error)
+}
+
 // SchoolSSOConfig 学校SSO配置
 type SchoolSSOConfig struct {
 	SchoolID  int64
@@ -72,6 +78,13 @@ type SchoolSSOConfig struct {
 	IsEnabled bool
 	IsTested  bool
 	Config    map[string]interface{}
+}
+
+// PublicSSOSchool 公开 SSO 学校信息
+type PublicSSOSchool struct {
+	ID      int64
+	Name    string
+	LogoURL *string
 }
 
 // authService 认证服务实现
@@ -84,6 +97,7 @@ type authService struct {
 	schoolNameQuerier   SchoolNameQuerier
 	schoolStatusChecker SchoolStatusChecker
 	schoolSSOQuerier    SchoolSSOConfigQuerier
+	schoolPublicSSO     SchoolPublicSSOQuerier
 	policyProvider      runtimePolicyProvider
 }
 
@@ -97,6 +111,7 @@ func NewAuthService(
 	schoolNameQuerier SchoolNameQuerier,
 	schoolStatusChecker SchoolStatusChecker,
 	schoolSSOQuerier SchoolSSOConfigQuerier,
+	schoolPublicSSO SchoolPublicSSOQuerier,
 ) AuthService {
 	return &authService{
 		db:                  db,
@@ -107,6 +122,7 @@ func NewAuthService(
 		schoolNameQuerier:   schoolNameQuerier,
 		schoolStatusChecker: schoolStatusChecker,
 		schoolSSOQuerier:    schoolSSOQuerier,
+		schoolPublicSSO:     schoolPublicSSO,
 		policyProvider:      &cacheRuntimePolicyProvider{},
 	}
 }

@@ -170,6 +170,7 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 		instances.GET("/:id/snapshots", eh.InstanceHandler.ListSnapshots)
 		instances.POST("/:id/snapshots", eh.InstanceHandler.CreateSnapshot)
 		instances.POST("/:id/snapshots/:snapshot_id/restore", eh.InstanceHandler.RestoreSnapshot)
+		instances.DELETE("/:id/snapshots/:snapshot_id", eh.InstanceHandler.DeleteSnapshot)
 		instances.GET("/:id/operation-logs", eh.InstanceHandler.ListOperationLogs)
 		instances.POST("/:id/report", eh.InstanceHandler.CreateReport)
 		instances.GET("/:id/report", eh.InstanceHandler.GetReport)

@@ -472,10 +472,10 @@ export function submitExperimentInstance(instanceID: ID) {
 }
 
 /**
- * destroyExperimentInstance 对应 DELETE /api/v1/experiment-instances/:id/destroy，用于销毁实例。
+ * destroyExperimentInstance 对应 POST /api/v1/experiment-instances/:id/destroy，用于销毁实例。
  */
 export function destroyExperimentInstance(instanceID: ID) {
-  return apiClient.delete<null>(`/experiment-instances/${instanceID}/destroy`);
+  return apiClient.post<null>(`/experiment-instances/${instanceID}/destroy`);
 }
 
 /**

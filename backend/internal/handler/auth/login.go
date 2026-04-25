@@ -57,6 +57,24 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 }
 
+// ListSSOSchools 获取已配置 SSO 的学校列表
+// GET /api/v1/auth/sso-schools
+// 登录页公开接口，支持按学校名称关键字过滤
+func (h *AuthHandler) ListSSOSchools(c *gin.Context) {
+	var req dto.SSOSchoolListReq
+	if !validator.BindQuery(c, &req) {
+		return
+	}
+
+	items, err := h.authService.ListSSOSchools(c.Request.Context(), req.Keyword)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"list": items})
+}
+
 // Logout 登出
 // POST /api/v1/auth/logout
 // 将当前 Access Token 加入黑名单，删除 Session

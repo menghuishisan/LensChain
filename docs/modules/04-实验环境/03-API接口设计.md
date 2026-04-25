@@ -145,6 +145,7 @@
 | GET | /api/v1/experiment-instances/:id/snapshots | 快照列表 | 学生/教师 |
 | POST | /api/v1/experiment-instances/:id/snapshots | 手动创建快照 | 实例所属学生 |
 | POST | /api/v1/experiment-instances/:id/snapshots/:snapshot_id/restore | 从快照恢复 | 实例所属学生 |
+| DELETE | /api/v1/experiment-instances/:id/snapshots/:snapshot_id | 删除快照 | 实例所属学生/课程教师 |
 
 ### 1.14 操作日志
 
@@ -1056,6 +1057,44 @@
 ```
 
 > 混合模式下总分 = 自动得分率 × auto_weight + 手动得分率 × manual_weight，映射到 total_score。
+
+---
+
+### 2.14A DELETE /api/v1/experiment-instances/:id/snapshots/:snapshot_id — 删除快照
+
+**权限：** 实例所属学生 / 课程教师
+
+**路径参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| id | string | 实验实例 ID |
+| snapshot_id | string | 快照 ID |
+
+**成功响应：**
+
+```json
+{
+  "code": 200,
+  "message": "删除成功",
+  "data": null
+}
+```
+
+**业务规则：**
+
+1. 只能删除当前实验实例下的快照
+2. 学生仅可删除自己实验实例的快照
+3. 课程教师可删除其课程下学生实验实例的快照
+4. 删除时同步清理对象存储中的快照文件和数据库记录
+5. 已删除快照不会再出现在快照列表中，也不可再被恢复
+
+**错误响应：**
+
+| code | message | 场景 |
+|------|---------|------|
+| 40301 | 无权限访问该资源 | 非实例所属学生且非课程教师 |
+| 40425 | 快照不存在 | `snapshot_id` 不存在或不属于该实例 |
 
 ---
 

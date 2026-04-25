@@ -675,6 +675,7 @@ const (
 	ActionSimTimeControl  = "sim_time_control" // 仿真时间控制
 	ActionManualGrade     = "manual_grade"     // 手动评分
 	ActionSnapshotCreate  = "snapshot_create"  // 创建快照
+	ActionSnapshotDelete  = "snapshot_delete"  // 删除快照
 	ActionSnapshotRestore = "snapshot_restore" // 恢复快照
 	ActionReportSubmit    = "report_submit"    // 提交报告
 	ActionReportUpdate    = "report_update"    // 更新报告
@@ -696,6 +697,7 @@ var OperationActionText = map[string]string{
 	ActionSimTimeControl:  "仿真时间控制",
 	ActionManualGrade:     "手动评分",
 	ActionSnapshotCreate:  "创建快照",
+	ActionSnapshotDelete:  "删除快照",
 	ActionSnapshotRestore: "恢复快照",
 	ActionReportSubmit:    "提交报告",
 	ActionReportUpdate:    "更新报告",

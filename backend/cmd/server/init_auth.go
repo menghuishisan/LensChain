@@ -43,12 +43,13 @@ func initAuthModule() *router.AuthHandlers {
 	}
 	schoolStatusChecker := &schoolStatusCheckerAdapter{schoolRepo: schoolRepo}
 	schoolSSOQuerier := &schoolSSOQuerierAdapter{ssoConfigRepo: ssoConfigRepo}
+	schoolPublicSSOQuerier := &schoolPublicSSOQuerierAdapter{schoolRepo: schoolRepo}
 
 	// Service 层
 	// authService: 认证流程（登录/登出/Token/改密），需要 loginLogRepo 记录登录日志
 	authService := svc.NewAuthService(
 		db, userRepo, roleRepo, loginLogRepo, ssoBindingRepo,
-		schoolNameQuerier, schoolStatusChecker, schoolSSOQuerier,
+		schoolNameQuerier, schoolStatusChecker, schoolSSOQuerier, schoolPublicSSOQuerier,
 	)
 	// userService: 用户管理 CRUD，操作日志通过 pkg/audit 直接写入，不再需要 opLogRepo
 	userService := svc.NewUserService(db, userRepo, profileRepo, roleRepo)
@@ -142,4 +143,28 @@ func (a *schoolSSOQuerierAdapter) GetSchoolSSOConfig(ctx context.Context, school
 		IsTested:  config.IsTested,
 		Config:    configMap,
 	}, nil
+}
+
+// schoolPublicSSOQuerierAdapter 跨模块 adapter：查询公开可见的 SSO 学校列表
+type schoolPublicSSOQuerierAdapter struct {
+	schoolRepo schoolrepo.SchoolRepository
+}
+
+// GetEnabledSSOSchools 获取已启用且通过测试的学校 SSO 列表
+func (a *schoolPublicSSOQuerierAdapter) GetEnabledSSOSchools(ctx context.Context) ([]*svc.PublicSSOSchool, error) {
+	schools, err := a.schoolRepo.GetSSOEnabledSchools(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]*svc.PublicSSOSchool, 0, len(schools))
+	for _, school := range schools {
+		items = append(items, &svc.PublicSSOSchool{
+			ID:      school.ID,
+			Name:    school.Name,
+			LogoURL: school.LogoURL,
+		})
+	}
+
+	return items, nil
 }

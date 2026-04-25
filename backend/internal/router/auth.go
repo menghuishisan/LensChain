@@ -20,6 +20,7 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, authH *handler.AuthHandler, userH *
 	{
 		auth.POST("/login", authH.Login)                  // 手机号+密码登录
 		auth.POST("/token/refresh", authH.RefreshToken)   // 刷新Token
+		auth.GET("/sso-schools", authH.ListSSOSchools)    // 获取已配置SSO学校列表
 		auth.GET("/sso/:school_id/login", authH.SSOLogin) // SSO登录跳转
 		auth.GET("/sso/callback", authH.SSOCallback)      // SSO回调
 	}

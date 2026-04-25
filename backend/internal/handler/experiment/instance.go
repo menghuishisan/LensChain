@@ -328,6 +328,25 @@ func (h *InstanceHandler) RestoreSnapshot(c *gin.Context) {
 	response.SuccessWithMsg(c, "恢复成功", nil)
 }
 
+// DeleteSnapshot 删除实例快照。
+// DELETE /api/v1/experiment-instances/:id/snapshots/:snapshot_id
+func (h *InstanceHandler) DeleteSnapshot(c *gin.Context) {
+	id, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	snapshotID, ok := validator.ParsePathID(c, "snapshot_id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	if err := h.instanceService.DeleteSnapshot(c.Request.Context(), sc, id, snapshotID); err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.SuccessWithMsg(c, "删除成功", nil)
+}
+
 // ListOperationLogs 获取实例操作日志列表。
 // GET /api/v1/experiment-instances/:id/operation-logs
 func (h *InstanceHandler) ListOperationLogs(c *gin.Context) {

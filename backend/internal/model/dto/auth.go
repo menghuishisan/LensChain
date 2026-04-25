@@ -64,6 +64,12 @@ type SSOCallbackReq struct {
 	State    string `form:"state"`
 }
 
+// SSOSchoolListReq SSO 学校列表查询参数
+// GET /api/v1/auth/sso-schools
+type SSOSchoolListReq struct {
+	Keyword string `form:"keyword"`
+}
+
 // ========== 密码接口 DTO ==========
 
 // ChangePasswordReq 修改密码请求
