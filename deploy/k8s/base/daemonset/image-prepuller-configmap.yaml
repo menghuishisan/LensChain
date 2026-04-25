@@ -1,3 +1,6 @@
+# deploy/k8s/base/daemonset/image-prepuller-configmap.yaml
+# 镜像预拉取清单 ConfigMap
+# 供 image-prepuller DaemonSet 读取，声明当前需要预拉取到节点的镜像集合
 apiVersion: v1
 kind: ConfigMap
 metadata:

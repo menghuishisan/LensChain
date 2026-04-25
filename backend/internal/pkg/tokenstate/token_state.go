@@ -18,10 +18,17 @@ import (
 
 const tokenValidAfterTTL = 7 * 24 * time.Hour
 
+// normalizeTokenValidAfter 将 Token 生效基线统一到秒级精度。
+// JWT iat 默认按秒序列化，若这里保留纳秒精度，会导致刚签发的 token 被误判为“早于有效基线”。
+func normalizeTokenValidAfter(validAfter time.Time) time.Time {
+	return validAfter.UTC().Truncate(time.Second)
+}
+
 // SetTokenValidAfter 缓存用户Token生效时间基线
 // 任何早于该时间签发的 Access Token 都应视为失效。
 func SetTokenValidAfter(ctx context.Context, userID int64, validAfter time.Time) error {
-	return cache.Set(ctx, cache.KeyTokenValidAfter+strconv.FormatInt(userID, 10), validAfter.Format(time.RFC3339Nano), tokenValidAfterTTL)
+	normalized := normalizeTokenValidAfter(validAfter)
+	return cache.Set(ctx, cache.KeyTokenValidAfter+strconv.FormatInt(userID, 10), normalized.Format(time.RFC3339Nano), tokenValidAfterTTL)
 }
 
 // GetTokenValidAfter 读取用户Token生效时间基线缓存

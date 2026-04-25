@@ -5,6 +5,7 @@
 # 幂等：新增镜像自动插入，已有镜像更新元数据
 
 set -euo pipefail
+shopt -s globstar nullglob
 
 BACKEND_URL=${BACKEND_URL:-http://localhost:8080/api/v1}
 ADMIN_TOKEN=${ADMIN_TOKEN:?"ADMIN_TOKEN is required"}
@@ -15,10 +16,14 @@ FAILED=0
 
 echo "==> Scanning manifest files in $DEPLOY_DIR/images/"
 
-for MANIFEST in "$DEPLOY_DIR"/images/**/manifest.yaml; do
-  if [ ! -f "$MANIFEST" ]; then
-    continue
-  fi
+MANIFESTS=("$DEPLOY_DIR"/images/**/manifest.yaml)
+
+if [ ${#MANIFESTS[@]} -eq 0 ]; then
+  echo "==> No manifest.yaml files found under $DEPLOY_DIR/images/"
+  exit 0
+fi
+
+for MANIFEST in "${MANIFESTS[@]}"; do
 
   NAME=$(basename "$(dirname "$MANIFEST")")
   echo "    Syncing: $NAME"

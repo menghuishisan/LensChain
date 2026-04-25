@@ -1,3 +1,6 @@
+# backend.yml
+# 后端服务 CI 流水线
+# 负责后端代码的 lint、测试、镜像构建、漏洞扫描和生产签名
 name: backend
 
 on:

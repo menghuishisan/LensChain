@@ -34,7 +34,18 @@ backend/.gocache/
 
 # Runtime data
 /tmp/
+deploy/docker-compose/data/
 
 # SimEngine local dependencies
 sim-engine/renderers/node_modules/
 sim-engine/renderers/package-lock.json
+
+# Internal guidance / local assistant docs
+AGENTS.md
+CLAUDE.md
+**/AGENTS.md
+**/CLAUDE.md
+
+# Non-project local notes / temporary docs
+docs/superpowers/
+docs/frontend-implementation-audit.md

@@ -48,8 +48,12 @@ type K8sConfig struct {
 	InCluster              bool          `mapstructure:"in_cluster"`
 	// KubeConfigPath 集群外模式使用的 kubeconfig 路径。
 	KubeConfigPath         string        `mapstructure:"kubeconfig_path"`
+	// PlatformNamespace 平台核心服务所在命名空间。
+	PlatformNamespace      string        `mapstructure:"platform_namespace"`
 	// NamespacePrefix 实验环境命名空间前缀。
 	NamespacePrefix        string        `mapstructure:"namespace_prefix"`
+	// ImagePullSecretName 动态实验/竞赛命名空间复用的镜像拉取 Secret 名称。
+	ImagePullSecretName    string        `mapstructure:"image_pull_secret_name"`
 	// DefaultCPU 默认 CPU 资源配额。
 	DefaultCPU             string        `mapstructure:"default_cpu"`
 	// DefaultMemory 默认内存资源配额。

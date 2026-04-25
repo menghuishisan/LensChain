@@ -29,11 +29,13 @@ echo "==> Running migrations"
 cd "$(dirname "$0")/../../backend"
 go run cmd/migrate/main.go up
 
-echo "==> Seeding base data"
-if [ -f cmd/seed/main.go ]; then
-  go run cmd/seed/main.go
+DEMO_SEED_FILE="migrations/010_seed_demo_data.up.sql"
+
+if [ -f "$DEMO_SEED_FILE" ]; then
+  echo "==> Seeding demo data from $DEMO_SEED_FILE"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$DEMO_SEED_FILE"
 else
-  echo "    No seed script found, skipping"
+  echo "==> Demo seed file not found, skipping"
 fi
 
 echo "==> Database initialization complete"

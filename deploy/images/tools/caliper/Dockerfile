@@ -21,4 +21,4 @@ RUN npm install -g @hyperledger/caliper-cli@0.6.0 && \
 USER lenschain
 WORKDIR /home/lenschain
 
-CMD ["caliper", "--help"]
+CMD ["sleep", "infinity"]

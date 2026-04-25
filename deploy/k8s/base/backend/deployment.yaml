@@ -1,3 +1,6 @@
+# deploy/k8s/base/backend/deployment.yaml
+# 后端服务 Deployment
+# 提供平台 REST API、WebSocket 能力和动态实验/竞赛运行时入口
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -7,6 +7,8 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	govalidator "github.com/go-playground/validator/v10"
 
 	authhandler "github.com/lenschain/backend/internal/handler/auth"
 	ctfhandler "github.com/lenschain/backend/internal/handler/ctf"
@@ -16,6 +18,7 @@ import (
 	schoolhandler "github.com/lenschain/backend/internal/handler/school"
 	systemhandler "github.com/lenschain/backend/internal/handler/system"
 	"github.com/lenschain/backend/internal/middleware"
+	appvalidator "github.com/lenschain/backend/internal/pkg/validator"
 )
 
 // AuthHandlers 模块01（用户与认证）的 Handler 集合
@@ -79,6 +82,7 @@ type Handlers struct {
 // 返回配置好的 Gin Engine 实例
 func Setup(mode string, h *Handlers) *gin.Engine {
 	gin.SetMode(mode)
+	registerCustomValidators()
 
 	r := gin.New()
 
@@ -132,8 +136,26 @@ func Setup(mode string, h *Handlers) *gin.Engine {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+	r.GET("/readyz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ready"})
+	})
+	r.GET("/startupz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "started"})
+	})
 
 	return r
+}
+
+// registerCustomValidators 在 Gin 默认校验器上注册项目级自定义规则。
+func registerCustomValidators() {
+	engine, ok := binding.Validator.Engine().(*govalidator.Validate)
+	if !ok || engine == nil {
+		return
+	}
+	_ = appvalidator.RegisterCustomValidators(engine)
 }
 
 // RegisterInternalRoutes 注册内部接口路由

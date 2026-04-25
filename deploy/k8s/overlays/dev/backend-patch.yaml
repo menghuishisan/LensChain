@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/dev/backend-patch.yaml
+# 开发环境后端补丁
+# 覆盖 backend 副本数和资源配置，使其适合本地或轻量集群调试
 apiVersion: apps/v1
 kind: Deployment
 metadata:

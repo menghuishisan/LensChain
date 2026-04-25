@@ -5,6 +5,7 @@
 
 FROM golang:1.22-bullseye
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="go-dev"
 LABEL org.opencontainers.image.description="Go 区块链开发环境镜像"
@@ -15,7 +16,8 @@ LABEL lenschain.io/category="base"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git make gcc && \
     rm -rf /var/lib/apt/lists/*
@@ -28,4 +30,4 @@ USER developer
 ENV GOPATH=/home/developer/go
 WORKDIR /home/developer
 
-CMD ["bash"]
+CMD ["sleep", "infinity"]

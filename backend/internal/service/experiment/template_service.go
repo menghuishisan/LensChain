@@ -394,6 +394,9 @@ func (s *templateService) Publish(ctx context.Context, sc *svcctx.ServiceContext
 	if len(template.Checkpoints) == 0 {
 		return errcode.ErrInvalidParams.WithMessage("请至少配置一个检查点")
 	}
+	if publishErr := validateTemplatePublishReadiness(template); publishErr != nil {
+		return publishErr
+	}
 
 	validation, err := s.Validate(ctx, sc, id, &dto.ValidateTemplateReq{})
 	if err != nil {
@@ -411,6 +414,40 @@ func (s *templateService) Publish(ctx context.Context, sc *svcctx.ServiceContext
 		fields["k8s_config"] = generated
 	}
 	return s.templateRepo.UpdateFields(ctx, id, fields)
+}
+
+// validateTemplatePublishReadiness 校验模板是否满足拓扑模式对应的发布前置条件。
+func validateTemplatePublishReadiness(template *TemplateAggregate) error {
+	if template == nil || template.Template == nil {
+		return errcode.ErrTemplateNotFound
+	}
+	topologyMode := int16(0)
+	if template.Template.TopologyMode != nil {
+		topologyMode = *template.Template.TopologyMode
+	}
+	if topologyMode != enum.TopologyModeShared {
+		return nil
+	}
+
+	sharedCount := 0
+	instanceCount := 0
+	for _, container := range template.Containers {
+		if container == nil {
+			continue
+		}
+		if container.DeploymentScope == enum.ContainerDeploymentScopeShared {
+			sharedCount++
+			continue
+		}
+		instanceCount++
+	}
+	if sharedCount == 0 {
+		return errcode.ErrInvalidParams.WithMessage("共享基础设施模板至少需要一个共享容器")
+	}
+	if instanceCount == 0 {
+		return errcode.ErrInvalidParams.WithMessage("共享基础设施模板至少需要一个学生实例容器")
+	}
+	return nil
 }
 
 // Unpublish 下架实验模板
@@ -917,6 +954,41 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 			result.Issues = append(result.Issues, dto.ValidationIssue{
 				Code:    "L1_ROLE_CONTAINER_TOPOLOGY_INVALID",
 				Message: "仅多人协作组网拓扑允许配置角色专属容器",
+			})
+		}
+	}
+	if topologyMode == enum.TopologyModeShared {
+		sharedCount := 0
+		instanceCount := 0
+		for _, container := range template.Containers {
+			if container == nil {
+				continue
+			}
+			if container.DeploymentScope == enum.ContainerDeploymentScopeShared {
+				sharedCount++
+				if container.RoleID != nil {
+					result.Passed = false
+					result.Issues = append(result.Issues, dto.ValidationIssue{
+						Code:    "L1_SHARED_CONTAINER_ROLE_INVALID",
+						Message: fmt.Sprintf("共享容器 %s 不允许绑定协作角色", container.ContainerName),
+					})
+				}
+				continue
+			}
+			instanceCount++
+		}
+		if sharedCount == 0 {
+			result.Passed = false
+			result.Issues = append(result.Issues, dto.ValidationIssue{
+				Code:    "L1_SHARED_TOPOLOGY_SHARED_CONTAINER_MISSING",
+				Message: "共享基础设施模板必须至少配置一个共享容器",
+			})
+		}
+		if instanceCount == 0 {
+			result.Passed = false
+			result.Issues = append(result.Issues, dto.ValidationIssue{
+				Code:    "L1_SHARED_TOPOLOGY_INSTANCE_CONTAINER_MISSING",
+				Message: "共享基础设施模板必须至少配置一个学生实例容器",
 			})
 		}
 	}

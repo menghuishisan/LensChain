@@ -1,3 +1,6 @@
+# deploy/k8s/base/minio/kustomization.yaml
+# MinIO 基础资源清单
+# 汇总对象存储的 StatefulSet 与 Service
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

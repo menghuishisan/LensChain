@@ -1,3 +1,6 @@
+# offline-bundle.yml
+# 离线镜像包构建流水线
+# 在发布 tag 时打包 Phase 1 镜像，供学校私有化部署离线导入
 name: offline-bundle
 
 on:

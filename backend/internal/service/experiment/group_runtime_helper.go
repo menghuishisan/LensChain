@@ -9,14 +9,18 @@ import (
 	"fmt"
 
 	"github.com/lenschain/backend/internal/model/entity"
+	"github.com/lenschain/backend/internal/model/enum"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 )
 
 // runtimeContainerPlan 表示实例启动时的容器部署计划。
 type runtimeContainerPlan struct {
-	Containers           []entity.TemplateContainer
-	ContainerNameSet     map[string]struct{}
-	ServiceDiscoveryEnvs map[string]string
+	Containers                []entity.TemplateContainer
+	ContainerNameSet          map[string]struct{}
+	ServiceDiscoveryEnvs      map[string]string
+	SharedContainers          []entity.TemplateContainer
+	SharedContainerNameSet    map[string]struct{}
+	SharedServiceDiscoveryEnvs map[string]string
 }
 
 // resolveRuntimeContainerPlan 根据实例与分组上下文生成本次实际部署的容器计划。
@@ -26,10 +30,21 @@ func (s *instanceService) resolveRuntimeContainerPlan(
 	template *TemplateAggregate,
 ) (*runtimeContainerPlan, error) {
 	allContainers := flattenTemplateContainers(template)
+	sharedContainers := filterContainersByDeploymentScope(allContainers, enum.ContainerDeploymentScopeShared)
 	plan := &runtimeContainerPlan{
-		Containers:           allContainers,
-		ContainerNameSet:     buildContainerNameSet(allContainers),
-		ServiceDiscoveryEnvs: buildServiceDiscoveryEnvVars(allContainers),
+		Containers:                 allContainers,
+		ContainerNameSet:           buildContainerNameSet(allContainers),
+		ServiceDiscoveryEnvs:       buildServiceDiscoveryEnvVars(allContainers),
+		SharedContainers:           sharedContainers,
+		SharedContainerNameSet:     buildContainerNameSet(sharedContainers),
+		SharedServiceDiscoveryEnvs: buildServiceDiscoveryEnvVars(sharedContainers),
+	}
+	if template != nil && template.Template != nil && template.Template.TopologyMode != nil && *template.Template.TopologyMode == enum.TopologyModeShared {
+		instanceContainers := filterContainersByDeploymentScope(allContainers, enum.ContainerDeploymentScopeInstance)
+		plan.Containers = instanceContainers
+		plan.ContainerNameSet = buildContainerNameSet(instanceContainers)
+		plan.ServiceDiscoveryEnvs = buildServiceDiscoveryEnvVars(instanceContainers)
+		return plan, nil
 	}
 	if instance == nil || instance.GroupID == nil {
 		return plan, nil
@@ -71,6 +86,22 @@ func (s *instanceService) resolveRuntimeContainerPlan(
 	)
 
 	return plan, nil
+}
+
+// filterContainersByDeploymentScope 根据部署范围过滤容器。
+func filterContainersByDeploymentScope(containers []entity.TemplateContainer, scope int16) []entity.TemplateContainer {
+	filtered := make([]entity.TemplateContainer, 0, len(containers))
+	for _, container := range containers {
+		currentScope := container.DeploymentScope
+		if currentScope == 0 {
+			currentScope = enum.ContainerDeploymentScopeInstance
+		}
+		if currentScope != scope {
+			continue
+		}
+		filtered = append(filtered, container)
+	}
+	return filtered
 }
 
 // flattenTemplateContainers 将模板容器切片转换为值类型切片，方便运行时规划复用。

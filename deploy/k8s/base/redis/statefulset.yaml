@@ -1,3 +1,6 @@
+# deploy/k8s/base/redis/statefulset.yaml
+# Redis StatefulSet
+# 承载平台缓存和会话数据，提供基础持久化能力
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

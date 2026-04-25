@@ -25,9 +25,9 @@ func NewEnvironmentHandler(environmentService svc.EnvironmentService) *Environme
 }
 
 // StartChallengeEnvironment 启动题目环境。
-// POST /api/v1/ctf/competitions/:comp_id/challenges/:challenge_id/environment
+// POST /api/v1/ctf/competitions/:id/challenges/:challenge_id/environment
 func (h *EnvironmentHandler) StartChallengeEnvironment(c *gin.Context) {
-	competitionID, ok := validator.ParsePathID(c, "comp_id")
+	competitionID, ok := validator.ParsePathID(c, "id")
 	if !ok {
 		return
 	}

@@ -19,6 +19,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -94,10 +95,61 @@ func (k *k8sClient) CreateNamespace(ctx context.Context, name string, labels map
 	}
 	_, err := k.clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			if err := k.ensureNamespaceRegistryPullSecret(ctx, name); err != nil {
+				return err
+			}
+			return nil
+		}
 		return fmt.Errorf("%w: %v", errcode.ErrK8sNamespaceCreateFailed, err)
+	}
+	if err := k.ensureNamespaceRegistryPullSecret(ctx, name); err != nil {
+		return err
 	}
 	if err := k.applyNamespaceResourceIsolation(ctx, name, resourceSpec); err != nil {
 		return err
+	}
+	return nil
+}
+
+// ensureNamespaceRegistryPullSecret 将平台命名空间中的镜像拉取 Secret 同步到动态运行时命名空间。
+func (k *k8sClient) ensureNamespaceRegistryPullSecret(ctx context.Context, namespace string) error {
+	secretName := strings.TrimSpace(k.cfg.ImagePullSecretName)
+	if secretName == "" {
+		return nil
+	}
+	platformNamespace := strings.TrimSpace(k.cfg.PlatformNamespace)
+	if platformNamespace == "" {
+		platformNamespace = "lenschain"
+	}
+
+	if _, err := k.clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{}); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("查询运行时命名空间镜像拉取 Secret 失败: %w", err)
+	}
+
+	source, err := k.clientset.CoreV1().Secrets(platformNamespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("平台命名空间缺少镜像拉取 Secret %s", secretName)
+		}
+		return fmt.Errorf("读取平台镜像拉取 Secret 失败: %w", err)
+	}
+
+	cloned := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      source.Name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "lenschain",
+			},
+		},
+		Type: source.Type,
+		Data: maps.Clone(source.Data),
+	}
+	if _, err := k.clientset.CoreV1().Secrets(namespace).Create(ctx, cloned, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("复制镜像拉取 Secret 失败: %w", err)
 	}
 	return nil
 }
@@ -302,6 +354,9 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 			},
 		},
 	}
+	if secretName := strings.TrimSpace(k.cfg.ImagePullSecretName); secretName != "" {
+		pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: secretName})
+	}
 
 	createdPod, err := k.clientset.CoreV1().Pods(req.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
@@ -400,12 +455,36 @@ func (k *k8sClient) applyNetworkPolicy(ctx context.Context, req *DeployPodReques
 	}
 
 	// Egress 规则
-	if len(req.NetworkPolicy.AllowEgress) > 0 || req.NetworkPolicy.AllowSameNamespace || len(req.NetworkPolicy.AllowNamespaceLabelSelectors) > 0 {
+	if len(req.NetworkPolicy.AllowEgress) > 0 || req.NetworkPolicy.AllowDNS || req.NetworkPolicy.AllowSameNamespace || len(req.NetworkPolicy.AllowNamespaceLabelSelectors) > 0 {
 		var egressRules []networkingv1.NetworkPolicyEgressRule
 		namespacePeers := buildNamespacePeers(req.Namespace, req.NetworkPolicy)
 		if len(namespacePeers) > 0 {
 			egressRules = append(egressRules, networkingv1.NetworkPolicyEgressRule{
 				To: namespacePeers,
+			})
+		}
+		if req.NetworkPolicy.AllowDNS {
+			dnsPortUDP := intstr.FromInt(53)
+			dnsPortTCP := intstr.FromInt(53)
+			egressRules = append(egressRules, networkingv1.NetworkPolicyEgressRule{
+				To: []networkingv1.NetworkPolicyPeer{
+					{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"kubernetes.io/metadata.name": "kube-system",
+							},
+						},
+						PodSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"k8s-app": "kube-dns",
+							},
+						},
+					},
+				},
+				Ports: []networkingv1.NetworkPolicyPort{
+					{Port: &dnsPortUDP, Protocol: protocolPtr(corev1.ProtocolUDP)},
+					{Port: &dnsPortTCP, Protocol: protocolPtr(corev1.ProtocolTCP)},
+				},
 			})
 		}
 		for _, cidr := range req.NetworkPolicy.AllowEgress {
@@ -1086,6 +1165,11 @@ func (k *k8sClient) resolveReadyPrePullNodes(ctx context.Context, requested []st
 // boolPtr 返回布尔指针，便于填充 K8s 安全上下文字段。
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+// protocolPtr 返回协议指针，便于拼装 NetworkPolicy 端口。
+func protocolPtr(protocol corev1.Protocol) *corev1.Protocol {
+	return &protocol
 }
 
 // appendResourceQuantity 将合法的资源量写入 K8s 资源列表。

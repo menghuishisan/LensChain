@@ -1,3 +1,6 @@
+# images.yml
+# 实验环境镜像批量构建流水线
+# 按 deploy/images/** 路径变更触发，对受影响镜像执行 lint、校验、构建和扫描
 name: images
 
 on:

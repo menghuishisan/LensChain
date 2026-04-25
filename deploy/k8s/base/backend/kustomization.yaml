@@ -1,3 +1,6 @@
+# deploy/k8s/base/backend/kustomization.yaml
+# 后端服务基础资源清单
+# 汇总 Deployment、Service、ConfigMap 和占位 Secret
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -5,4 +8,3 @@ resources:
   - deployment.yaml
   - service.yaml
   - configmap.yaml
-  - secret.yaml

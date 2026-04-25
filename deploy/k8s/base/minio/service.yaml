@@ -1,3 +1,6 @@
+# deploy/k8s/base/minio/service.yaml
+# MinIO Service
+# 为对象存储 API 与 Console 提供集群内访问入口
 apiVersion: v1
 kind: Service
 metadata:
@@ -21,16 +24,3 @@ spec:
       targetPort: 9001
       protocol: TCP
       name: console
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-secret
-  namespace: lenschain
-  labels:
-    app.kubernetes.io/name: minio
-    app.kubernetes.io/part-of: lenschain
-type: Opaque
-stringData:
-  root-user: minioadmin
-  root-password: CHANGE_ME

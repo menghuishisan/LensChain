@@ -1,3 +1,6 @@
+# deploy/k8s/base/rbac/sim-engine-clusterrole.yaml
+# SimEngine 运行时权限
+# 为仿真引擎动态管理场景运行资源提供最小必要权限
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

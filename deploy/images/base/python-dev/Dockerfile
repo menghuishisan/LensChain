@@ -5,6 +5,7 @@
 
 FROM python:3.11-slim-bookworm
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="python-dev"
 LABEL org.opencontainers.image.description="Python 区块链开发环境镜像"
@@ -15,16 +16,17 @@ LABEL lenschain.io/category="base"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git gcc && \
     pip install --no-cache-dir \
         web3 eth-brownie eth-ape vyper && \
-    rm -rf /var/lib/apt/lists/*
+        rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash -u 1001 developer
 
 USER developer
 WORKDIR /home/developer
 
-CMD ["bash"]
+CMD ["sleep", "infinity"]

@@ -1,3 +1,6 @@
+# deploy/k8s/base/cronjobs/db-backup.yaml
+# 数据库备份 CronJob
+# 定时执行数据库备份并将结果上传到对象存储
 apiVersion: batch/v1
 kind: CronJob
 metadata:

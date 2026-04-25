@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/hpa.yaml
+# 生产环境自动扩缩容配置
+# 为 backend、frontend、sim-engine 提供资源利用率驱动的 HPA 规则
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/pdb.yaml
+# 生产环境 PodDisruptionBudget
+# 限制平台核心服务在维护和驱逐过程中的最小可用实例数
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

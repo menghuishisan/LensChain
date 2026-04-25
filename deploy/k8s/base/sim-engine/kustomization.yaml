@@ -1,3 +1,6 @@
+# deploy/k8s/base/sim-engine/kustomization.yaml
+# SimEngine 基础资源清单
+# 汇总 sim-engine 的 Deployment 与 Service
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

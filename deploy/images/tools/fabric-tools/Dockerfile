@@ -16,4 +16,4 @@ LABEL lenschain.io/category="tools"
 
 ENV TZ=UTC
 
-CMD ["bash"]
+CMD ["sleep", "infinity"]

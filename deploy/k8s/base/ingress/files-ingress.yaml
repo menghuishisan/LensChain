@@ -1,3 +1,6 @@
+# deploy/k8s/base/ingress/files-ingress.yaml
+# 文件访问 Ingress
+# 对外暴露对象存储 API，支撑预签名上传和文件下载访问
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

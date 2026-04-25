@@ -24,4 +24,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=20s \
         --post-data='{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
         --header='Content-Type: application/json' || exit 1
 
-CMD ["--dev", "--http", "--http.addr", "0.0.0.0", "--http.api", "eth,net,web3,personal,debug", "--http.corsdomain", "*", "--ws", "--ws.addr", "0.0.0.0", "--ws.api", "eth,net,web3"]
+CMD ["--dev", "--http", "--http.addr", "0.0.0.0", "--http.api", "eth,net,web3,personal,debug", "--http.corsdomain", "*", "--http.vhosts", "*", "--ws", "--ws.addr", "0.0.0.0", "--ws.api", "eth,net,web3"]

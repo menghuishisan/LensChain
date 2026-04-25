@@ -153,6 +153,33 @@ func IsValidTopologyMode(m int16) bool {
 	return ok
 }
 
+// ========== 容器部署范围（template_containers.deployment_scope） ==========
+
+const (
+	ContainerDeploymentScopeInstance = 1 // 实例独享
+	ContainerDeploymentScopeShared   = 2 // 共享基础设施
+)
+
+// ContainerDeploymentScopeText 容器部署范围文本映射
+var ContainerDeploymentScopeText = map[int16]string{
+	ContainerDeploymentScopeInstance: "实例独享",
+	ContainerDeploymentScopeShared:   "共享基础设施",
+}
+
+// GetContainerDeploymentScopeText 获取容器部署范围文本
+func GetContainerDeploymentScopeText(scope int16) string {
+	if text, ok := ContainerDeploymentScopeText[scope]; ok {
+		return text
+	}
+	return "未知"
+}
+
+// IsValidContainerDeploymentScope 校验容器部署范围是否合法
+func IsValidContainerDeploymentScope(scope int16) bool {
+	_, ok := ContainerDeploymentScopeText[scope]
+	return ok
+}
+
 // ========== 判题模式（experiment_templates.judge_mode） ==========
 
 const (

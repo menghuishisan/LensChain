@@ -1,3 +1,6 @@
+# deploy/k8s/base/cronjobs/image-version-gc.yaml
+# 镜像版本清理 CronJob
+# 周期性清理旧镜像版本，配合版本保留策略控制 Registry 占用
 apiVersion: batch/v1
 kind: CronJob
 metadata:

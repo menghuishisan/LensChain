@@ -1,3 +1,6 @@
+# deploy-staging.yml
+# staging 环境自动部署流水线
+# 当 deploy/k8s 或 deploy/scripts 变更并进入 main 后，自动应用 staging overlay 并执行基础 smoke test
 name: deploy-staging
 
 on:

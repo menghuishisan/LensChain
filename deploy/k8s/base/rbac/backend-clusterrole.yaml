@@ -1,3 +1,6 @@
+# deploy/k8s/base/rbac/backend-clusterrole.yaml
+# 后端运行时编排权限
+# 允许后端动态创建实验与竞赛所需的 Namespace、Pod、Service、PVC 和网络策略
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

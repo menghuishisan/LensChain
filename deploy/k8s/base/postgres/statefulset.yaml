@@ -1,3 +1,6 @@
+# deploy/k8s/base/postgres/statefulset.yaml
+# PostgreSQL StatefulSet
+# 承载平台主数据库，提供持久化存储和基础探针能力
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

@@ -18,16 +18,61 @@ import (
 )
 
 const groupNamespaceLabelKey = "lenschain/group-id"
+const (
+	namespaceTypeLabelKey      = "lenschain.io/namespace-type"
+	templateIDLabelKey         = "lenschain.io/template-id"
+	lessonIDLabelKey           = "lenschain.io/lesson-id"
+	sharedNamespaceLabelKey    = "lenschain.io/shared-namespace"
+	namespaceTypeExperiment    = "experiment"
+	namespaceTypeExperimentShared = "experiment-shared"
+	namespaceTypeExperimentStudent = "experiment-student"
+)
 
 // buildInstanceNamespaceLabels 构建实例命名空间标签，用于资源隔离与同组互通。
 func buildInstanceNamespaceLabels(instance *entity.ExperimentInstance) map[string]string {
 	labels := map[string]string{
-		"app":         "lenschain-experiment",
-		"instance-id": fmt.Sprintf("%d", instance.ID),
-		"school-id":   fmt.Sprintf("%d", instance.SchoolID),
+		"app":                   "lenschain-experiment",
+		"instance-id":           fmt.Sprintf("%d", instance.ID),
+		"school-id":             fmt.Sprintf("%d", instance.SchoolID),
+		"app.kubernetes.io/managed-by": "lenschain",
+		namespaceTypeLabelKey:   namespaceTypeExperiment,
 	}
 	if instance.GroupID != nil {
 		labels[groupNamespaceLabelKey] = fmt.Sprintf("%d", *instance.GroupID)
+	}
+	return labels
+}
+
+// buildSharedNamespaceName 构建共享基础设施命名空间名称。
+func buildSharedNamespaceName(templateID, lessonID int64) string {
+	return fmt.Sprintf("exp-shared-%d-%d", templateID, lessonID)
+}
+
+// buildSharedNamespaceLabels 构建共享基础设施命名空间标签。
+func buildSharedNamespaceLabels(instance *entity.ExperimentInstance) map[string]string {
+	labels := map[string]string{
+		"app":                 "lenschain-experiment",
+		"school-id":           fmt.Sprintf("%d", instance.SchoolID),
+		"app.kubernetes.io/managed-by": "lenschain",
+		namespaceTypeLabelKey: namespaceTypeExperimentShared,
+		templateIDLabelKey:    fmt.Sprintf("%d", instance.TemplateID),
+	}
+	if instance.LessonID != nil {
+		labels[lessonIDLabelKey] = fmt.Sprintf("%d", *instance.LessonID)
+	}
+	return labels
+}
+
+// buildStudentNamespaceLabels 构建共享基础设施学生实例命名空间标签。
+func buildStudentNamespaceLabels(instance *entity.ExperimentInstance, sharedNamespace string) map[string]string {
+	labels := buildInstanceNamespaceLabels(instance)
+	labels[namespaceTypeLabelKey] = namespaceTypeExperimentStudent
+	labels[templateIDLabelKey] = fmt.Sprintf("%d", instance.TemplateID)
+	if instance.LessonID != nil {
+		labels[lessonIDLabelKey] = fmt.Sprintf("%d", *instance.LessonID)
+	}
+	if strings.TrimSpace(sharedNamespace) != "" {
+		labels[sharedNamespaceLabelKey] = sharedNamespace
 	}
 	return labels
 }
@@ -39,6 +84,7 @@ func buildInstanceNetworkPolicy(instance *entity.ExperimentInstance) *NetworkPol
 		return nil
 	}
 	policy := &NetworkPolicySpec{
+		AllowDNS:          true,
 		AllowSameNamespace: true,
 	}
 	if instance.GroupID != nil {
@@ -47,6 +93,50 @@ func buildInstanceNetworkPolicy(instance *entity.ExperimentInstance) *NetworkPol
 		})
 	}
 	return policy
+}
+
+// buildSharedStudentNetworkPolicy 为共享基础设施模式中的学生实例构建网络策略。
+func buildSharedStudentNetworkPolicy(instance *entity.ExperimentInstance) *NetworkPolicySpec {
+	if instance == nil || instance.LessonID == nil {
+		return buildInstanceNetworkPolicy(instance)
+	}
+	return &NetworkPolicySpec{
+		AllowDNS:          true,
+		AllowSameNamespace: false,
+		AllowNamespaceLabelSelectors: []map[string]string{
+			{
+				namespaceTypeLabelKey: namespaceTypeExperimentShared,
+				templateIDLabelKey:    fmt.Sprintf("%d", instance.TemplateID),
+				lessonIDLabelKey:      fmt.Sprintf("%d", *instance.LessonID),
+			},
+		},
+	}
+}
+
+// buildSharedNamespaceNetworkPolicy 为共享基础设施命名空间内的共享容器构建网络策略。
+// 共享容器允许同命名空间和所属课时/模板的学生实例命名空间访问。
+func buildSharedNamespaceNetworkPolicy(instance *entity.ExperimentInstance) *NetworkPolicySpec {
+	if instance == nil || instance.LessonID == nil {
+		return &NetworkPolicySpec{AllowSameNamespace: true}
+	}
+	return &NetworkPolicySpec{
+		AllowDNS:          true,
+		AllowSameNamespace: true,
+		AllowNamespaceLabelSelectors: []map[string]string{
+			{
+				namespaceTypeLabelKey: namespaceTypeExperimentStudent,
+				templateIDLabelKey:    fmt.Sprintf("%d", instance.TemplateID),
+				lessonIDLabelKey:      fmt.Sprintf("%d", *instance.LessonID),
+			},
+		},
+	}
+}
+
+// buildSharedRuntimeServiceDiscoveryEnvVars 生成学生实例访问共享基础设施的服务发现变量。
+func buildSharedRuntimeServiceDiscoveryEnvVars(sharedNamespace string, containers []entity.TemplateContainer) map[string]string {
+	return buildServiceDiscoveryEnvVarsWithHostResolver(containers, func(container entity.TemplateContainer) string {
+		return fmt.Sprintf("%s.%s.svc.cluster.local", container.ContainerName, sharedNamespace)
+	})
 }
 
 // buildCollectorInjectionPlan 根据混合实验模板和容器生态确定是否需要注入 Collector sidecar。

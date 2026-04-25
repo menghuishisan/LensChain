@@ -1,3 +1,6 @@
+# deploy/k8s/base/namespace.yaml
+# 链镜平台基础 Namespace 定义
+# 提供平台、系统运维和监控三类长期存在的命名空间
 apiVersion: v1
 kind: Namespace
 metadata:

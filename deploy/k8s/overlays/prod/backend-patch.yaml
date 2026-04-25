@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/backend-patch.yaml
+# 生产环境后端补丁
+# 提升副本数和资源规格，满足正式环境的高可用与并发要求
 apiVersion: apps/v1
 kind: Deployment
 metadata:

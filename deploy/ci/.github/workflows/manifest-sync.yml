@@ -1,3 +1,6 @@
+# manifest-sync.yml
+# 镜像清单同步流水线
+# 当 deploy/images/**/manifest.yaml 变更时，调用种子脚本将镜像元数据同步到平台数据库
 name: manifest-sync
 
 on:

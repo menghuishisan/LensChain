@@ -1,3 +1,6 @@
+# deploy/k8s/base/nats/statefulset.yaml
+# NATS StatefulSet
+# 承载平台消息总线与 JetStream 持久化能力
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

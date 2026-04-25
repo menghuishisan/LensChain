@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
@@ -293,6 +294,9 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	// 模板必须已发布
 	if template.Status != enum.TemplateStatusPublished {
 		return nil, errcode.ErrTemplateNotPublished
+	}
+	if template.TopologyMode != nil && *template.TopologyMode == enum.TopologyModeShared && req.LessonID == nil {
+		return nil, errcode.ErrInvalidParams.WithMessage("共享基础设施实验启动时必须提供课时ID")
 	}
 
 	// 同一模板已有活动实例时复用现有实例，避免重复创建。
@@ -646,12 +650,76 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 		nsName := fmt.Sprintf("exp-%d", instance.ID)
 		ns := nsName
 		_ = s.instanceRepo.UpdateFields(ctx, instance.ID, map[string]interface{}{"namespace": ns})
+		networkPolicy := buildInstanceNetworkPolicy(instance)
+		serviceDiscoveryEnv := containerPlan.ServiceDiscoveryEnvs
 
-		// 创建命名空间
-		labels := buildInstanceNamespaceLabels(instance)
-		if err := s.k8sSvc.CreateNamespace(ctx, nsName, labels, buildNamespaceResourceSpec(template.Template)); err != nil {
-			errMsg = fmt.Sprintf("创建命名空间失败: %v", err)
-			return
+		sharedNamespace := ""
+		if template.Template.TopologyMode != nil && *template.Template.TopologyMode == enum.TopologyModeShared {
+			sharedNamespace = buildSharedNamespaceName(instance.TemplateID, *instance.LessonID)
+			if err := s.k8sSvc.CreateNamespace(ctx, sharedNamespace, buildSharedNamespaceLabels(instance), buildNamespaceResourceSpec(template.Template)); err != nil {
+				errMsg = fmt.Sprintf("创建共享命名空间失败: %v", err)
+				return
+			}
+			for _, tc := range containerPlan.SharedContainers {
+				sharedPodName := fmt.Sprintf("%s-%s", sharedNamespace, tc.ContainerName)
+				existingStatus, statusErr := s.k8sSvc.GetPodStatus(ctx, sharedNamespace, sharedPodName)
+				if statusErr == nil {
+					if existingStatus != nil && (existingStatus.Status == "Running" || existingStatus.Status == "Pending") {
+						continue
+					}
+					errMsg = fmt.Sprintf("共享容器 %s 已存在但状态不可复用: %s", tc.ContainerName, existingStatus.Status)
+					return
+				}
+				if !apierrors.IsNotFound(statusErr) {
+					errMsg = fmt.Sprintf("查询共享容器 %s 状态失败: %v", tc.ContainerName, statusErr)
+					return
+				}
+
+				containerSpec, collectorSpec, err := s.buildContainerSpecWithServiceDiscovery(
+					ctx,
+					tc,
+					template,
+					containerPlan.SharedServiceDiscoveryEnvs,
+				)
+				if err != nil {
+					errMsg = fmt.Sprintf("构建共享容器 %s 规格失败: %v", tc.ContainerName, err)
+					return
+				}
+				if collectorSpec != nil {
+					collectorSpec.SessionID = simSessionID
+					collectorSpec.CoreWebSocketURL = collectorWebSocketURL
+				}
+				deployReq := &DeployPodRequest{
+					Namespace:     sharedNamespace,
+					PodName:       sharedPodName,
+					Containers:    []ContainerSpec{containerSpec},
+					Labels: map[string]string{
+						"app":            "lenschain-experiment",
+						"template-id":    strconv.FormatInt(instance.TemplateID, 10),
+						"container-name": tc.ContainerName,
+						"scope":          "shared",
+					},
+					NetworkPolicy: buildSharedNamespaceNetworkPolicy(instance),
+					Collector:     collectorSpec,
+				}
+				if _, err := s.k8sSvc.DeployPod(ctx, deployReq); err != nil {
+					errMsg = fmt.Sprintf("部署共享容器 %s 失败: %v", tc.ContainerName, err)
+					return
+				}
+			}
+			networkPolicy = buildSharedStudentNetworkPolicy(instance)
+			serviceDiscoveryEnv = mergeStringMap(serviceDiscoveryEnv, buildSharedRuntimeServiceDiscoveryEnvVars(sharedNamespace, containerPlan.SharedContainers))
+			labels := buildStudentNamespaceLabels(instance, sharedNamespace)
+			if err := s.k8sSvc.CreateNamespace(ctx, nsName, labels, buildNamespaceResourceSpec(template.Template)); err != nil {
+				errMsg = fmt.Sprintf("创建学生命名空间失败: %v", err)
+				return
+			}
+		} else {
+			labels := buildInstanceNamespaceLabels(instance)
+			if err := s.k8sSvc.CreateNamespace(ctx, nsName, labels, buildNamespaceResourceSpec(template.Template)); err != nil {
+				errMsg = fmt.Sprintf("创建命名空间失败: %v", err)
+				return
+			}
 		}
 
 		// 部署容器
@@ -660,7 +728,7 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 				ctx,
 				tc,
 				template,
-				containerPlan.ServiceDiscoveryEnvs,
+				serviceDiscoveryEnv,
 			)
 			if err != nil {
 				errMsg = fmt.Sprintf("构建容器 %s 规格失败: %v", tc.ContainerName, err)
@@ -680,7 +748,7 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 				PodName:       fmt.Sprintf("%s-%s", nsName, tc.ContainerName),
 				Containers:    []ContainerSpec{containerSpec},
 				Labels:        podLabels,
-				NetworkPolicy: buildInstanceNetworkPolicy(instance),
+				NetworkPolicy: networkPolicy,
 				Collector:     collectorSpec,
 			}
 
@@ -710,16 +778,23 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 		// 新建环境执行初始化脚本；从快照恢复时跳过，避免覆盖恢复态数据。
 		if restoreSnapshot == nil {
 			for _, script := range template.InitScripts {
+				targetNamespace := nsName
 				if _, ok := containerPlan.ContainerNameSet[script.TargetContainer]; !ok {
-					continue
+					if sharedNamespace == "" {
+						continue
+					}
+					if _, sharedOK := containerPlan.SharedContainerNameSet[script.TargetContainer]; !sharedOK {
+						continue
+					}
+					targetNamespace = sharedNamespace
 				}
-				podName := fmt.Sprintf("%s-%s", nsName, script.TargetContainer)
+				podName := fmt.Sprintf("%s-%s", targetNamespace, script.TargetContainer)
 				scriptCtx := ctx
 				cancel := func() {}
 				if script.Timeout > 0 {
 					scriptCtx, cancel = context.WithTimeout(ctx, time.Duration(script.Timeout)*time.Second)
 				}
-				_, _ = s.k8sSvc.ExecInPod(scriptCtx, nsName, podName, script.TargetContainer, script.ScriptContent)
+				_, _ = s.k8sSvc.ExecInPod(scriptCtx, targetNamespace, podName, script.TargetContainer, script.ScriptContent)
 				cancel()
 			}
 		} else if err := s.restoreInstanceRuntimeState(ctx, instance, restoreSnapshot); err != nil {

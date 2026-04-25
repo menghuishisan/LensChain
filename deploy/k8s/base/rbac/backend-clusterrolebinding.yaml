@@ -1,3 +1,6 @@
+# deploy/k8s/base/rbac/backend-clusterrolebinding.yaml
+# 后端编排权限绑定
+# 将动态实验/竞赛运行时所需的 ClusterRole 绑定给 lenschain-backend ServiceAccount
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

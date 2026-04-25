@@ -1,3 +1,6 @@
+# deploy/k8s/base/sim-engine/deployment.yaml
+# SimEngine Core Deployment
+# 提供仿真会话调度、状态同步和场景运行时协调能力
 apiVersion: apps/v1
 kind: Deployment
 metadata:

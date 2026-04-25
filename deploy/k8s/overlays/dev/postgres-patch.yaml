@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/dev/postgres-patch.yaml
+# 开发环境 PostgreSQL 补丁
+# 缩小存储申请和资源规格，降低本地开发环境开销
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

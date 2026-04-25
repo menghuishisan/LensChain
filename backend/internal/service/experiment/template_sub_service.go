@@ -72,6 +72,23 @@ func (s *templateSubService) ensureCollaborativeTemplate(ctx context.Context, te
 	return nil
 }
 
+// validateContainerDeploymentScope 校验容器部署范围与模板拓扑的组合是否合法。
+func validateContainerDeploymentScope(template *entity.ExperimentTemplate, deploymentScope int16) error {
+	if !enum.IsValidContainerDeploymentScope(deploymentScope) {
+		return errcode.ErrInvalidParams.WithMessage("容器部署范围不合法")
+	}
+	if template == nil || template.TopologyMode == nil {
+		return errcode.ErrInvalidParams.WithMessage("当前模板未配置拓扑模式")
+	}
+	if *template.TopologyMode == enum.TopologyModeShared {
+		return nil
+	}
+	if deploymentScope != enum.ContainerDeploymentScopeInstance {
+		return errcode.ErrInvalidParams.WithMessage("仅共享基础设施拓扑允许配置共享容器")
+	}
+	return nil
+}
+
 // ensureTemplateSupportsContainerConfig 校验模板类型是否允许配置容器。
 // 纯仿真实验完全由 SimEngine 驱动，不允许保留任何容器、工具或初始化脚本配置。
 func ensureTemplateSupportsContainerConfig(template *entity.ExperimentTemplate) error {
@@ -293,20 +310,27 @@ func (s *templateSubService) CreateContainer(ctx context.Context, sc *svcctx.Ser
 	}
 
 	container := &entity.TemplateContainer{
-		ID:             snowflake.Generate(),
-		TemplateID:     templateID,
-		ImageVersionID: imageVersionID,
-		ContainerName:  req.ContainerName,
-		EnvVars:        datatypes.JSON(mustMarshalRawJSON(req.EnvVars)),
-		Ports:          datatypes.JSON(mustMarshalRawJSON(req.Ports)),
-		Volumes:        datatypes.JSON(mustMarshalRawJSON(req.Volumes)),
-		CPULimit:       req.CPULimit,
-		MemoryLimit:    req.MemoryLimit,
-		DependsOn:      datatypes.JSON(mustMarshalRawJSON(req.DependsOn)),
-		StartupOrder:   req.StartupOrder,
-		IsPrimary:      req.IsPrimary,
+		ID:              snowflake.Generate(),
+		TemplateID:      templateID,
+		ImageVersionID:  imageVersionID,
+		ContainerName:   req.ContainerName,
+		DeploymentScope: req.DeploymentScope,
+		EnvVars:         datatypes.JSON(mustMarshalRawJSON(req.EnvVars)),
+		Ports:           datatypes.JSON(mustMarshalRawJSON(req.Ports)),
+		Volumes:         datatypes.JSON(mustMarshalRawJSON(req.Volumes)),
+		CPULimit:        req.CPULimit,
+		MemoryLimit:     req.MemoryLimit,
+		DependsOn:       datatypes.JSON(mustMarshalRawJSON(req.DependsOn)),
+		StartupOrder:    req.StartupOrder,
+		IsPrimary:       req.IsPrimary,
+	}
+	if err := validateContainerDeploymentScope(template, req.DeploymentScope); err != nil {
+		return nil, err
 	}
 	if req.RoleID != nil {
+		if req.DeploymentScope == enum.ContainerDeploymentScopeShared {
+			return nil, errcode.ErrInvalidParams.WithMessage("共享容器不允许绑定协作角色")
+		}
 		roleID, err := s.resolveContainerRoleID(ctx, templateID, req.RoleID)
 		if err != nil {
 			return nil, err
@@ -349,7 +373,18 @@ func (s *templateSubService) UpdateContainer(ctx context.Context, sc *svcctx.Ser
 	if req.ContainerName != nil {
 		fields["container_name"] = *req.ContainerName
 	}
+	deploymentScope := container.DeploymentScope
+	if req.DeploymentScope != nil {
+		deploymentScope = *req.DeploymentScope
+		if err := validateContainerDeploymentScope(template, deploymentScope); err != nil {
+			return err
+		}
+		fields["deployment_scope"] = deploymentScope
+	}
 	if req.RoleID != nil {
+		if deploymentScope == enum.ContainerDeploymentScopeShared {
+			return errcode.ErrInvalidParams.WithMessage("共享容器不允许绑定协作角色")
+		}
 		roleID, err := s.resolveContainerRoleID(ctx, container.TemplateID, req.RoleID)
 		if err != nil {
 			return err

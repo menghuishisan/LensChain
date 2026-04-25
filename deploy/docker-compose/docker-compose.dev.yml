@@ -1,6 +1,7 @@
 # docker-compose.dev.yml
 # 链镜平台本地开发环境
 # 用途：启动中间件依赖（PG/Redis/MinIO/NATS），后端和前端由开发者本地进程运行
+# 说明：宿主机端口为避免与其他项目冲突统一偏移 +10；容器内标准端口保持不变
 # 使用：docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
 # 完整模式（含 SimEngine）：docker compose -f deploy/docker-compose/docker-compose.dev.yml --profile full up -d
 # 清理：docker compose -f deploy/docker-compose/docker-compose.dev.yml down -v && rm -rf deploy/docker-compose/data/
@@ -15,7 +16,7 @@ services:
       POSTGRES_PASSWORD: lenschain
       TZ: UTC
     ports:
-      - "5432:5432"
+      - "5442:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -31,7 +32,7 @@ services:
     environment:
       TZ: UTC
     ports:
-      - "6379:6379"
+      - "6389:6379"
     volumes:
       - ./data/redis:/data
     healthcheck:
@@ -48,8 +49,8 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
       TZ: UTC
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9010:9000"
+      - "9011:9001"
     volumes:
       - ./data/minio:/data
     command: server /data --console-address ":9001"
@@ -65,8 +66,8 @@ services:
     environment:
       TZ: UTC
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "4232:4222"
+      - "8232:8222"
     command: ["-js", "-m", "8222"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
@@ -81,8 +82,8 @@ services:
     environment:
       TZ: UTC
     ports:
-      - "50051:50051"
-      - "50052:50052"
+      - "50061:50051"
+      - "50062:50052"
     depends_on:
       postgres:
         condition: service_healthy

@@ -130,6 +130,7 @@ CREATE TABLE template_containers (
     template_id BIGINT NOT NULL,
     image_version_id BIGINT NOT NULL,
     container_name VARCHAR(100) NOT NULL,
+    deployment_scope SMALLINT NOT NULL DEFAULT 1,
     role_id BIGINT NULL,
     env_vars JSONB NULL,
     ports JSONB NULL,
@@ -147,6 +148,7 @@ CREATE TABLE template_containers (
 );
 CREATE INDEX idx_template_containers_template_id ON template_containers(template_id);
 CREATE INDEX idx_template_containers_image_version_id ON template_containers(image_version_id);
+CREATE INDEX idx_template_containers_deployment_scope ON template_containers(deployment_scope);
 
 -- template_checkpoints：检查点定义表。
 CREATE TABLE template_checkpoints (

@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/ingress-patch.yaml
+# 生产环境 Ingress 补丁
+# 注入正式域名和 TLS 证书配置，对外提供稳定访问入口
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

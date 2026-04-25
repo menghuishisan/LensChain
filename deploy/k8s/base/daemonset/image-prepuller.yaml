@@ -1,3 +1,6 @@
+# deploy/k8s/base/daemonset/image-prepuller.yaml
+# 镜像预拉取 DaemonSet
+# 在所有节点上执行镜像预拉取，缩短实验和竞赛环境的冷启动时间
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

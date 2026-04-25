@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/frontend-patch.yaml
+# 生产环境前端补丁
+# 调整 frontend 副本数和资源规格，满足正式访问流量需求
 apiVersion: apps/v1
 kind: Deployment
 metadata:

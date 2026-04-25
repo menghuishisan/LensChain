@@ -516,8 +516,12 @@ func buildTemplateK8sConfig(template *TemplateAggregate) json.RawMessage {
 		item := map[string]any{
 			"container_name":   container.ContainerName,
 			"image_version_id": strconv.FormatInt(container.ImageVersionID, 10),
+			"deployment_scope": container.DeploymentScope,
 			"is_primary":       container.IsPrimary,
 			"startup_order":    container.StartupOrder,
+		}
+		if container.RoleID != nil {
+			item["role_id"] = strconv.FormatInt(*container.RoleID, 10)
 		}
 		if container.CPULimit != nil {
 			item["cpu_limit"] = *container.CPULimit
@@ -537,6 +541,16 @@ func buildTemplateK8sConfig(template *TemplateAggregate) json.RawMessage {
 	topologyMode := int16(0)
 	if template.Template.TopologyMode != nil {
 		topologyMode = *template.Template.TopologyMode
+	}
+	if topologyMode == enum.TopologyModeShared {
+		payload, _ := json.Marshal(map[string]any{
+			"experiment_type":           template.Template.ExperimentType,
+			"topology_mode":             topologyMode,
+			"shared_namespace_pattern":  "exp-shared-{template_id}-{lesson_id}",
+			"student_namespace_pattern": "exp-{instance_id}",
+			"containers":                containers,
+		})
+		return payload
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"experiment_type": template.Template.ExperimentType,
@@ -925,4 +939,19 @@ func parseDependsOn(raw json.RawMessage) []string {
 		return nil
 	}
 	return values
+}
+
+// mergeStringMap 合并两个字符串 map，后者覆盖前者。
+func mergeStringMap(base map[string]string, extra map[string]string) map[string]string {
+	if len(base) == 0 && len(extra) == 0 {
+		return map[string]string{}
+	}
+	merged := make(map[string]string, len(base)+len(extra))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range extra {
+		merged[key] = value
+	}
+	return merged
 }

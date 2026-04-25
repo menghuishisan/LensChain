@@ -69,7 +69,7 @@ func RegisterCTFRoutes(rg *gin.RouterGroup, ch *CTFHandlers) {
 		competitions.PUT("/:id/resource-quota", middleware.RequireSuperAdmin(), ch.CompetitionHandler.UpdateResourceQuota) // 设置竞赛资源配额
 
 		// 题目环境
-		competitions.POST("/:comp_id/challenges/:challenge_id/environment", ch.EnvironmentHandler.StartChallengeEnvironment) // 启动题目环境
+		competitions.POST("/:id/challenges/:challenge_id/environment", ch.EnvironmentHandler.StartChallengeEnvironment) // 启动题目环境
 		competitions.GET("/:id/my-environments", ch.EnvironmentHandler.ListMyEnvironments)                                   // 我的所有题目环境
 
 		// 竞赛监控

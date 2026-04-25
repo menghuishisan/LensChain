@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/kustomization.yaml
+# 生产环境 overlay
+# 在 base 基础上叠加高可用、自动扩缩容和正式 Ingress 配置
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

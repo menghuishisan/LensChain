@@ -4,6 +4,7 @@
 
 FROM python:3.11-slim-bookworm
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="ctf-tools"
 LABEL org.opencontainers.image.description="CTF 常用工具集"
@@ -15,7 +16,8 @@ LABEL lenschain.io/scope="ctf"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git wget netcat-openbsd nmap \
         binwalk foremost steghide exiftool john hashcat \
@@ -28,4 +30,4 @@ RUN useradd -m -s /bin/bash -u 1001 ctfplayer
 USER ctfplayer
 WORKDIR /home/ctfplayer
 
-CMD ["bash"]
+CMD ["sleep", "infinity"]

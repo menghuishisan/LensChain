@@ -1,3 +1,6 @@
+# security-scan.yml
+# 安全扫描流水线
+# 定时扫描平台镜像与实验镜像，输出漏洞报告供后续处理
 name: security-scan
 
 on:
@@ -50,8 +53,8 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
       - name: Scan all experiment images
         run: |
+          shopt -s globstar nullglob
           for MANIFEST in deploy/images/**/manifest.yaml; do
-            [ ! -f "$MANIFEST" ] && continue
             PROJECT=$(grep '^registry_project:' "$MANIFEST" | awk '{print $2}' | tr -d '"')
             NAME=$(grep '^name:' "$MANIFEST" | head -1 | awk '{print $2}' | tr -d '"')
             TAG=$(grep '    tag:' "$MANIFEST" | head -1 | awk '{print $2}' | tr -d '"')

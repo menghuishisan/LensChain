@@ -22,8 +22,8 @@ server:
 database:
   # host: PostgreSQL 主机地址
   host: "localhost"
-  # port: PostgreSQL 端口
-  port: 5432
+  # port: PostgreSQL 端口（本地开发映射端口，容器内标准端口仍为 5432）
+  port: 5442
   # user: PostgreSQL 用户名
   user: "lenschain"
   # password: PostgreSQL 密码
@@ -44,8 +44,8 @@ database:
 redis:
   # host: Redis 主机地址
   host: "localhost"
-  # port: Redis 端口
-  port: 6379
+  # port: Redis 端口（本地开发映射端口，容器内标准端口仍为 6379）
+  port: 6389
   # password: Redis 密码；未启用密码时留空
   password: ""
   # db: Redis 逻辑库编号
@@ -71,7 +71,7 @@ jwt:
 
 minio:
   # endpoint: MinIO 访问地址，格式一般为 host:port
-  endpoint: "localhost:9000"
+  endpoint: "localhost:9010"
   # access_key: MinIO Access Key
   access_key: "minioadmin"
   # secret_key: MinIO Secret Key
@@ -85,7 +85,7 @@ minio:
 
 nats:
   # url: NATS 服务连接地址
-  url: "nats://localhost:4222"
+  url: "nats://localhost:4232"
   # max_reconnects: 最大重连次数
   max_reconnects: 60
   # reconnect_wait: 每次重连等待时间
@@ -157,29 +157,31 @@ rate_limit:
   burst: 200
 
 k8s:
-  # in_cluster: 是否使用集群内配置；true 表示运行在 K8s 集群内
+  # in_cluster: 是否使用集群内 ServiceAccount 连接 Kubernetes
   in_cluster: false
-  # kubeconfig_path: 集群外模式使用的 kubeconfig 路径；为空时走默认路径
+  # kubeconfig_path: 集群外模式的 kubeconfig 路径
   kubeconfig_path: ""
-  # namespace_prefix: 实验环境命名空间前缀
-  namespace_prefix: "lenschain-exp"
-  # default_cpu: K8s 默认 CPU 配额
-  default_cpu: "500m"
-  # default_memory: K8s 默认内存配额
+  # platform_namespace: 平台核心服务所在命名空间
+  platform_namespace: "lenschain"
+  # namespace_prefix: 实验运行时命名空间前缀
+  namespace_prefix: "exp"
+  # image_pull_secret_name: 动态实验/竞赛命名空间需同步的镜像拉取 Secret
+  image_pull_secret_name: "registry-pull-secret"
+  # default_cpu: 未显式声明时的默认 CPU 配额
+  default_cpu: "250m"
+  # default_memory: 未显式声明时的默认内存配额
   default_memory: "512Mi"
-  # collector_image_template: 混合实验采集器镜像模板
-  # - %s 占位符填入链适配器编码：ethereum / fabric / chainmaker / fisco
-  # - 镜像命名规范详见 docs/modules/09-部署与运维/03-镜像与容器设计.md §9.2
+  # collector_image_template: Collector sidecar 镜像模板
   collector_image_template: "registry.lianjing.com/lenschain/collector-agent-%s:v1.0.0"
-  # timeout: 调用 K8s API 的超时时间
-  timeout: "30s"
+  # timeout: 调用 K8s API 超时时间
+  timeout: "15s"
 
 sim_engine:
   # grpc_addr: SimEngine Core 的 gRPC 服务地址（后端内部调用）
-  grpc_addr: "localhost:50051"
+  grpc_addr: "localhost:50061"
   # ws_addr: SimEngine Core 的 WebSocket 服务地址（供前端渲染器实时推送）
   # - 生产环境由后端反代或 Ingress 暴露；本地开发直接指向 SimEngine Core
-  ws_addr: "localhost:50052"
+  ws_addr: "localhost:50062"
   # timeout: SimEngine gRPC 调用超时时间
   timeout: "10s"
   # max_retries: SimEngine 调用失败后的最大重试次数

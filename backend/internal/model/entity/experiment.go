@@ -154,6 +154,7 @@ type TemplateContainer struct {
 	TemplateID     int64          `gorm:"not null;index" json:"template_id,string"`
 	ImageVersionID int64          `gorm:"not null;index" json:"image_version_id,string"`
 	ContainerName  string         `gorm:"type:varchar(100);not null" json:"container_name"`
+	DeploymentScope int16         `gorm:"column:deployment_scope;type:smallint;not null;default:1" json:"deployment_scope"`
 	RoleID         *int64         `gorm:"" json:"role_id,omitempty,string"`
 	EnvVars        datatypes.JSON `gorm:"column:env_vars;type:jsonb" json:"env_vars,omitempty"`
 	Ports          datatypes.JSON `gorm:"column:ports;type:jsonb" json:"ports,omitempty"`

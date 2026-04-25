@@ -1,3 +1,6 @@
+# frontend.yml
+# 前端服务 CI 流水线
+# 负责前端 lint、构建检查、镜像构建与漏洞扫描
 name: frontend
 
 on:

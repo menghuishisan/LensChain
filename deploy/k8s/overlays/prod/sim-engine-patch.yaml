@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/prod/sim-engine-patch.yaml
+# 生产环境 SimEngine 补丁
+# 提升仿真引擎副本数和资源规格，保障多会话运行能力
 apiVersion: apps/v1
 kind: Deployment
 metadata:

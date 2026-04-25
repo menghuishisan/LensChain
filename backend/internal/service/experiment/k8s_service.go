@@ -81,6 +81,7 @@ type VolumeSpec struct {
 type NetworkPolicySpec struct {
 	AllowIngress                 []string
 	AllowEgress                  []string
+	AllowDNS                     bool
 	AllowSameNamespace           bool
 	AllowNamespaceLabelSelectors []map[string]string
 }

@@ -8,9 +8,11 @@
 # ============================
 FROM debian:bookworm-slim AS builder
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         python3 python3-pip gcc g++ ruby ruby-dev make && \
     pip3 install --no-cache-dir --break-system-packages --prefix=/install-py \
@@ -23,6 +25,7 @@ RUN apt-get update && \
 # ============================
 FROM debian:bookworm-slim
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="ctf-pwn"
 LABEL org.opencontainers.image.description="CTF Pwn 方向基础镜像"
@@ -34,13 +37,14 @@ LABEL lenschain.io/scope="ctf"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git python3 ruby \
         gdb gdbserver gcc g++ make nasm \
         libc6-dbg libc6-dev \
         ltrace strace file xxd netcat-openbsd socat && \
-    rm -rf /var/lib/apt/lists/*
+        rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install-py /usr/local
 COPY --from=builder /install-gem /usr/local/lib/ruby/gems
@@ -50,4 +54,4 @@ RUN useradd -m -s /bin/bash -u 1001 ctfplayer
 USER ctfplayer
 WORKDIR /home/ctfplayer
 
-CMD ["bash"]
+CMD ["sleep", "infinity"]

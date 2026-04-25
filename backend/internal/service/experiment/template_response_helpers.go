@@ -31,18 +31,20 @@ func buildTemplateContainerRespBase(
 	}
 
 	resp := &dto.ContainerResp{
-		ID:             strconv.FormatInt(c.ID, 10),
-		TemplateID:     strconv.FormatInt(c.TemplateID, 10),
-		ImageVersionID: strconv.FormatInt(c.ImageVersionID, 10),
-		ContainerName:  c.ContainerName,
-		EnvVars:        envVars,
-		Ports:          ports,
-		Volumes:        volumes,
-		CPULimit:       cpuLimit,
-		MemoryLimit:    memoryLimit,
-		DependsOn:      dependsOn,
-		StartupOrder:   c.StartupOrder,
-		IsPrimary:      c.IsPrimary,
+		ID:                  strconv.FormatInt(c.ID, 10),
+		TemplateID:          strconv.FormatInt(c.TemplateID, 10),
+		ImageVersionID:      strconv.FormatInt(c.ImageVersionID, 10),
+		ContainerName:       c.ContainerName,
+		DeploymentScope:     c.DeploymentScope,
+		DeploymentScopeText: enum.GetContainerDeploymentScopeText(c.DeploymentScope),
+		EnvVars:             envVars,
+		Ports:               ports,
+		Volumes:             volumes,
+		CPULimit:            cpuLimit,
+		MemoryLimit:         memoryLimit,
+		DependsOn:           dependsOn,
+		StartupOrder:        c.StartupOrder,
+		IsPrimary:           c.IsPrimary,
 	}
 	if c.RoleID != nil {
 		roleID := strconv.FormatInt(*c.RoleID, 10)

@@ -1,3 +1,6 @@
+# deploy/k8s/base/postgres/service.yaml
+# PostgreSQL Service
+# 提供数据库访问入口及 StatefulSet 所需的服务发现能力
 apiVersion: v1
 kind: Service
 metadata:
@@ -35,15 +38,3 @@ spec:
     - port: 5432
       targetPort: 5432
       name: postgres
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-  namespace: lenschain
-  labels:
-    app.kubernetes.io/name: postgres
-    app.kubernetes.io/part-of: lenschain
-type: Opaque
-stringData:
-  password: CHANGE_ME

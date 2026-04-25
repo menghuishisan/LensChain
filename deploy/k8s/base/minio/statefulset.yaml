@@ -1,3 +1,6 @@
+# deploy/k8s/base/minio/statefulset.yaml
+# MinIO StatefulSet
+# 承载平台对象存储，保存附件、快照、导出文件和备份等数据
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

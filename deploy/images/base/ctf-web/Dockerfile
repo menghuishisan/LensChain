@@ -17,6 +17,7 @@ RUN npm install -g express && \
 # ============================
 FROM debian:bookworm-slim
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="ctf-web"
 LABEL org.opencontainers.image.description="CTF Web 方向基础镜像"
@@ -28,7 +29,8 @@ LABEL lenschain.io/scope="ctf"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git nginx \
         php8.2 php8.2-fpm php8.2-mysql php8.2-sqlite3 php8.2-curl \

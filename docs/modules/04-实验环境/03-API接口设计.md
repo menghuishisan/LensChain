@@ -573,6 +573,7 @@
 {
   "image_version_id": "1780000000200101",
   "container_name": "geth-node",
+  "deployment_scope": 2,
   "role_id": null,
   "env_vars": [
     { "key": "NETWORK_ID", "value": "1337" },
@@ -603,6 +604,7 @@
     "id": "1780000000300101",
     "container_name": "geth-node",
     "image_version_id": "1780000000200101",
+    "deployment_scope": 2,
     "is_primary": true,
     "startup_order": 0
   }

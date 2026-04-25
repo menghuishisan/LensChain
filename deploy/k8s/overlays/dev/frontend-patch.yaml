@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/dev/frontend-patch.yaml
+# 开发环境前端补丁
+# 调整 frontend 资源与副本配置，适配最小开发环境
 apiVersion: apps/v1
 kind: Deployment
 metadata:

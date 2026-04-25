@@ -4,6 +4,7 @@
 
 FROM node:20-bullseye-slim
 
+ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="circom-dev"
 LABEL org.opencontainers.image.description="Circom 零知识证明开发环境镜像"
@@ -14,7 +15,8 @@ LABEL lenschain.io/category="base"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git make gcc g++ && \
     npm install -g snarkjs circomlib && \
@@ -25,4 +27,4 @@ RUN useradd -m -s /bin/bash -u 1001 developer
 USER developer
 WORKDIR /home/developer
 
-CMD ["bash"]
+CMD ["sleep", "infinity"]

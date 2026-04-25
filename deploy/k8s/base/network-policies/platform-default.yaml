@@ -1,3 +1,6 @@
+# deploy/k8s/base/network-policies/platform-default.yaml
+# 平台 Namespace 默认网络策略
+# 约束平台内部服务的基础入站与出站访问边界
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

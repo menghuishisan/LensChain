@@ -1,3 +1,6 @@
+# deploy/k8s/base/cronjobs/pv-cleanup.yaml
+# 实验卷清理 CronJob
+# 对已结束实例的遗留存储执行延迟清理，避免立即删除影响取证与回查
 apiVersion: batch/v1
 kind: CronJob
 metadata:

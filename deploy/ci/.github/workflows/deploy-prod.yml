@@ -1,3 +1,6 @@
+# deploy-prod.yml
+# 生产环境部署流水线
+# 在发布 tag 后执行生产环境部署，具体执行受 environment 审批控制
 name: deploy-prod
 
 on:

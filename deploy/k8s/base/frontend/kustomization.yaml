@@ -1,3 +1,6 @@
+# deploy/k8s/base/frontend/kustomization.yaml
+# 前端服务基础资源清单
+# 汇总 frontend 的 Deployment 和 Service
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

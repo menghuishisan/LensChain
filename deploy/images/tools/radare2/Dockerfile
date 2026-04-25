@@ -17,4 +17,4 @@ LABEL lenschain.io/scope="ctf"
 
 ENV TZ=UTC
 
-CMD ["r2", "-h"]
+CMD ["sleep", "infinity"]

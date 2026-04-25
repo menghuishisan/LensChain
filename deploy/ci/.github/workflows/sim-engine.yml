@@ -1,3 +1,6 @@
+# sim-engine.yml
+# SimEngine Core CI 流水线
+# 负责仿真引擎核心服务的测试、镜像构建和推送
 name: sim-engine
 
 on:

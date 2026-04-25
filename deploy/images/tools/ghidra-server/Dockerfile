@@ -4,6 +4,7 @@
 
 FROM eclipse-temurin:17-jdk-jammy
 
+ARG UBUNTU_MIRROR=mirrors.ustc.edu.cn
 ARG VERSION=v1.0.0
 ARG GHIDRA_VERSION=11.0.3
 LABEL org.opencontainers.image.title="ghidra-server"
@@ -17,7 +18,8 @@ LABEL lenschain.io/scope="ctf"
 
 ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
+RUN sed -i "s|archive.ubuntu.com|${UBUNTU_MIRROR}|g; s|security.ubuntu.com|${UBUNTU_MIRROR}|g" /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl unzip && \
     curl -fsSL "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_20240410.zip" \

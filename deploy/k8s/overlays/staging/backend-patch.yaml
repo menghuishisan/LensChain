@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/staging/backend-patch.yaml
+# staging 环境后端补丁
+# 使用较低副本数和测试规格，便于集成测试验证
 apiVersion: apps/v1
 kind: Deployment
 metadata:

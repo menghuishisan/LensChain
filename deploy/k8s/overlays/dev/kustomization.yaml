@@ -1,3 +1,6 @@
+# deploy/k8s/overlays/dev/kustomization.yaml
+# 开发环境 overlay
+# 在 base 基础上覆盖最小资源和本地化入口配置
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

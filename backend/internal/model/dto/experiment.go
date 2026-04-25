@@ -529,6 +529,7 @@ type ValidationSuggestion struct {
 type CreateContainerReq struct {
 	ImageVersionID string                `json:"image_version_id" binding:"required"`
 	ContainerName  string                `json:"container_name" binding:"required,max=100"`
+	DeploymentScope int16                `json:"deployment_scope" binding:"required,oneof=1 2"`
 	RoleID         *string               `json:"role_id"`
 	EnvVars        []ContainerEnvVarItem `json:"env_vars"`
 	Ports          []ContainerPortItem   `json:"ports"`
@@ -545,6 +546,7 @@ type CreateContainerReq struct {
 type UpdateContainerReq struct {
 	ImageVersionID *string               `json:"image_version_id"`
 	ContainerName  *string               `json:"container_name" binding:"omitempty,max=100"`
+	DeploymentScope *int16               `json:"deployment_scope" binding:"omitempty,oneof=1 2"`
 	RoleID         *string               `json:"role_id"`
 	EnvVars        []ContainerEnvVarItem `json:"env_vars"`
 	Ports          []ContainerPortItem   `json:"ports"`
@@ -563,6 +565,8 @@ type ContainerResp struct {
 	ImageVersionID string                     `json:"image_version_id"`
 	ImageVersion   *ContainerImageVersionResp `json:"image_version,omitempty"`
 	ContainerName  string                     `json:"container_name"`
+	DeploymentScope int16                     `json:"deployment_scope"`
+	DeploymentScopeText string                `json:"deployment_scope_text"`
 	RoleID         *string                    `json:"role_id"`
 	EnvVars        []ContainerEnvVarItem      `json:"env_vars"`
 	Ports          []ContainerPortItem        `json:"ports"`
