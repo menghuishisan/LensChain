@@ -45,6 +45,24 @@ export function GpaTrendCard() {
           <MetricBlock title="累计GPA" value={formatGPA(gpa.cumulative_gpa)} />
           <MetricBlock title="累计学分" value={formatScore(gpa.cumulative_credits)} />
         </div>
+        <Card className="border-border/70 bg-muted/25">
+          <CardHeader>
+            <CardTitle>GPA趋势</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2">
+              {gpa.semester_list.map((item) => (
+                <div key={item.semester_id} className="flex items-center gap-3 text-sm">
+                  <span className="w-40 text-muted-foreground">{item.semester_name}</span>
+                  <div className="h-2 flex-1 rounded-full bg-muted">
+                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, (item.gpa / 4) * 100)}%` }} />
+                  </div>
+                  <span className="w-16 text-right font-semibold">{formatGPA(item.gpa)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
         <div className="space-y-3">
           {gpa.semester_list.map((item, index) => (
             <div key={item.semester_id} className="rounded-xl border border-border p-4">

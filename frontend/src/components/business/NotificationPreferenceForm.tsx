@@ -39,6 +39,7 @@ export function NotificationPreferenceForm() {
             </label>
           );
         })}
+        <p className="text-sm text-muted-foreground">系统通知和成绩通知属于强制分类，不允许关闭。</p>
         <Button
           onClick={() =>
             mutation.mutate(

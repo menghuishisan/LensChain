@@ -67,6 +67,7 @@ export function SchoolApplicationQueryPanel() {
                 <Button
                   type="button"
                   variant="outline"
+                  disabled={phone.trim().length !== 11}
                   isLoading={smsMutation.isPending}
                   onClick={() =>
                     smsMutation.mutate(
@@ -102,6 +103,8 @@ export function SchoolApplicationQueryPanel() {
                   </div>
                   <SchoolApplicationStatusBadge status={item.status} text={item.status_text} />
                 </div>
+                {item.status === 1 ? <p className="mt-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">申请已提交，当前正在等待平台管理员审核。</p> : null}
+                {item.status === 2 ? <p className="mt-3 rounded-lg bg-emerald-500/10 p-3 text-sm text-emerald-700">审核已通过，请留意短信中的账号与初始密码通知。</p> : null}
                 {item.reject_reason ? <p className="mt-3 rounded-lg bg-destructive/8 p-3 text-sm text-destructive">拒绝原因：{item.reject_reason}</p> : null}
                 {item.status === 3 ? (
                   <Link

@@ -1,7 +1,7 @@
 // page.tsx
 // 教师作业管理页，对应模块03 P-06。
 
-import { AssignmentListPanel } from "@/components/business/CoursePanels";
+import { AssignmentListPanel } from "@/components/business/AssignmentListPanel";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

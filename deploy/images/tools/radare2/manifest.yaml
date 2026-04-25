@@ -1,0 +1,47 @@
+name: radare2
+category: tools
+ecosystem: general
+description: radare2 逆向分析工具
+maintainer: lenschain-platform
+license: LGPL-3.0
+official_source: radareorg/radare2
+registry_project: tools
+
+versions:
+  - version: "5.9"
+    tag: "v5.9.0"
+    upstream_tag: "5.9.0"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "r2", "-v"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/radare2
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

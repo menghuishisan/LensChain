@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: files
+  namespace: lenschain
+  labels:
+    app.kubernetes.io/name: files-ingress
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: files.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: minio
+                port:
+                  number: 9000

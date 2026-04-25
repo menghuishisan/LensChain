@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: image-version-gc
+  namespace: lenschain-system
+  labels:
+    app.kubernetes.io/name: image-version-gc
+    app.kubernetes.io/component: ops
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "0 3 * * 0"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: gc
+              image: registry.lianjing.com/lenschain/image-gc:v1.0.0
+              env:
+                - name: TZ
+                  value: UTC
+                - name: KEEP_VERSIONS
+                  value: "3"
+                - name: REGISTRY_URL
+                  value: https://registry.lianjing.com
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+          restartPolicy: OnFailure

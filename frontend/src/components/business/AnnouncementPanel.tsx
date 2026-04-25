@@ -109,6 +109,7 @@ export function AnnouncementPanel({ mode, announcementID }: AnnouncementPanelPro
           <FormField label="定时发布">
             <Input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
           </FormField>
+          <p className="text-sm text-muted-foreground">如不设置定时发布时间，则公告保存后可由管理员手动发布。</p>
           <Button onClick={() => mutations.create.mutate({ title, content, scheduled_at: scheduledAt || null })} isLoading={mutations.create.isPending}>创建公告</Button>
         </CardContent>
       </Card>
@@ -133,6 +134,7 @@ export function AnnouncementPanel({ mode, announcementID }: AnnouncementPanelPro
                 <div>
                   <p className="font-semibold">{item.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(item.published_at ?? item.created_at)}</p>
+                  {item.is_pinned ? <p className="mt-1 text-xs text-primary">置顶公告</p> : null}
                 </div>
                 <div className="flex gap-2">
                   {item.status_text ? <Badge variant="outline">{item.status_text}</Badge> : null}

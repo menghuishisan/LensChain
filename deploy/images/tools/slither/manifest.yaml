@@ -1,0 +1,49 @@
+name: slither
+category: tools
+ecosystem: ethereum
+description: Slither 智能合约静态分析工具
+maintainer: lenschain-platform
+license: AGPL-3.0
+official_source: crytic/slither
+registry_project: tools
+
+versions:
+  - version: "0.10"
+    tag: "v0.10.1"
+    upstream_tag: "0.10.1"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended:
+    - image: solidity-dev
+      reason: Solidity 开发环境
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "slither", "--version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/slither
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

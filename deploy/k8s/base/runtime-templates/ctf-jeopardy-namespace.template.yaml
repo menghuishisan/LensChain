@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${NAMESPACE}
-  labels:
-    lenschain.io/runtime-type: ctf-jeopardy
-    lenschain.io/competition-id: ${COMPETITION_ID}
-    lenschain.io/team-id: ${TEAM_ID}
-    lenschain.io/challenge-id: ${CHALLENGE_ID}

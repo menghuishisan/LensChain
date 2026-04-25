@@ -9,10 +9,10 @@ import { LoginForm, SSOLoginButton } from "@/components/business/AuthPanels";
 import { Card, CardContent } from "@/components/ui/Card";
 
 const FEATURE_ITEMS = [
-  { label: "多链教学覆盖", icon: Network },
-  { label: "动态实验环境", icon: FlaskConical },
-  { label: "CTF竞赛实战", icon: Trophy },
-  { label: "统一权限审计", icon: ShieldCheck },
+  { label: "课程教学组织", icon: Network },
+  { label: "实验实践训练", icon: FlaskConical },
+  { label: "竞赛活动支持", icon: Trophy },
+  { label: "学习过程留痕", icon: ShieldCheck },
 ] as const;
 
 /**
@@ -35,13 +35,13 @@ export function LoginShell() {
 
         <div className="relative z-10 max-w-2xl animate-fade-up">
           <div className="mb-8 inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white/76 backdrop-blur">
-            教学、实验、竞赛三位一体
+            面向学校的区块链教学平台
           </div>
           <h1 className="font-display text-6xl font-semibold leading-tight tracking-tight">
-            把区块链课堂变成可观测、可演练、可评测的学习现场。
+            把区块链教学、实践与竞赛训练放到同一平台中。
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-8 text-white/72">
-            统一承载课程教学、实验实践和攻防竞赛，多角色协同管理，多租户隔离运行。
+            覆盖课程学习、实验训练、竞赛实践与学习反馈，帮助教师组织教学，也帮助学生持续实践。
           </p>
           <div className="mt-10 grid max-w-xl grid-cols-2 gap-3">
             {FEATURE_ITEMS.map((item) => {

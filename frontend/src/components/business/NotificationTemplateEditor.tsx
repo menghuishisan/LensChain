@@ -39,7 +39,7 @@ export function NotificationTemplateEditor({ templateID }: NotificationTemplateE
     return (
       <Card>
         <CardHeader>
-          <CardTitle>消息模板管理</CardTitle>
+          <CardTitle>通知内容模板</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {(templatesQuery.data?.list ?? []).map((item) => (
@@ -48,6 +48,7 @@ export function NotificationTemplateEditor({ templateID }: NotificationTemplateE
                 <div>
                   <p className="font-semibold">{item.event_type}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{item.title_template}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.category_text} · {item.is_enabled ? "已启用" : "已停用"}</p>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/notifications/templates?id=${item.id}`)}>编辑</Button>
               </div>
@@ -62,18 +63,19 @@ export function NotificationTemplateEditor({ templateID }: NotificationTemplateE
     <div className="space-y-5">
       <Card>
         <CardHeader>
-          <CardTitle>编辑模板</CardTitle>
+          <CardTitle>编辑通知模板</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <FormField label="标题模板">
+          <FormField label="标题文案">
             <Input value={titleTemplate} onChange={(event) => setTitleTemplate(event.target.value)} />
           </FormField>
-          <FormField label="内容模板">
+          <FormField label="内容文案">
             <Textarea value={contentTemplate} onChange={(event) => setContentTemplate(event.target.value)} rows={10} />
           </FormField>
           <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
-            可用变量：{(detailQuery.data?.variables ?? []).map((item) => `{${item.name}}`).join("、") || "无"}
+            可插入内容：{(detailQuery.data?.variables ?? []).map((item) => `{${item.name}}`).join("、") || "无"}
           </div>
+          <p className="text-sm text-muted-foreground">修改后会影响之后新发送的通知，历史消息内容不会同步变化。</p>
           <div className="flex gap-2">
             <Button onClick={() => mutations.update.mutate({ title_template: titleTemplate, content_template: contentTemplate, is_enabled: detailQuery.data?.is_enabled ?? true })} isLoading={mutations.update.isPending}>保存</Button>
             <Button variant="outline" onClick={() => mutations.preview.mutate({ course_name: "区块链原理", assignment_name: "作业1", deadline: "2026-04-15 23:59" })} isLoading={mutations.preview.isPending}>预览</Button>
@@ -84,7 +86,7 @@ export function NotificationTemplateEditor({ templateID }: NotificationTemplateE
       {mutations.preview.data ? (
         <Card>
           <CardHeader>
-            <CardTitle>安全预览</CardTitle>
+            <CardTitle>预览效果</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="rounded-xl border border-border p-4">

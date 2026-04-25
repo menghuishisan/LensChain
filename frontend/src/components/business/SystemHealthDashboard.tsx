@@ -52,13 +52,13 @@ export function SystemHealthDashboard() {
     null;
 
   if (isInitialLoading) {
-    return <LoadingState title="正在加载运维仪表盘" description="链镜正在汇总平台健康状态、资源使用与告警摘要。" />;
+    return <LoadingState title="正在加载运行总览" description="正在汇总平台状态、资源使用和运行提醒。" />;
   }
 
   if (blockingError !== null) {
     return (
       <ErrorState
-        title="运维仪表盘加载失败"
+        title="运行总览加载失败"
         description={blockingError.message}
         action={
           <Button
@@ -90,12 +90,12 @@ export function SystemHealthDashboard() {
             <div className="max-w-2xl space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/6 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-emerald-200/85 uppercase">
                 <Gauge className="h-3.5 w-3.5" />
-                运维仪表盘
+                运行总览
               </div>
               <div>
                 <h2 className="font-display text-3xl font-semibold tracking-tight">平台健康总览</h2>
                 <p className="mt-2 text-sm leading-7 text-slate-300">
-                  聚合 API、PostgreSQL、Redis、NATS、MinIO 与 K8s 集群状态，按文档约定每 30 秒自动刷新。
+                  统一查看核心服务、资源占用和平台提醒，帮助快速判断当前运行情况。
                 </p>
               </div>
             </div>
@@ -138,7 +138,7 @@ export function SystemHealthDashboard() {
         <DashboardMetricCard
           title="活跃实验"
           value={formatNumber(realtime?.active_experiments ?? 0)}
-          description="正在运行中的实验实例"
+          description="当前正在进行的实验数量"
           icon={<DatabaseZap className="h-5 w-5" />}
         />
         <DashboardMetricCard
@@ -258,7 +258,7 @@ export function SystemHealthDashboard() {
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div className="space-y-1">
             <CardTitle>最近告警</CardTitle>
-            <CardDescription>展示实时指标接口返回的最近待处理告警，可直接跳转到告警事件页面。</CardDescription>
+            <CardDescription>展示最近需要关注的运行提醒，可直接进入详情页继续处理。</CardDescription>
           </div>
           <Link href="/super/system/alert-events" className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
             查看全部

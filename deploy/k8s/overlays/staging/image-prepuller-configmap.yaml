@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: image-manifest
+  namespace: lenschain-system
+data:
+  manifest.yaml: |
+    # Staging 环境仅预拉取 Phase 1 主线镜像
+    registry: registry.lianjing.com
+    images:
+      - project: chain-nodes
+        name: geth
+        tag: v1.14.0
+      - project: chain-nodes
+        name: ganache
+        tag: v7.9.2
+      - project: chain-nodes
+        name: fabric-peer
+        tag: v2.5
+      - project: chain-nodes
+        name: fisco-bcos
+        tag: v3.6.0
+      - project: middleware
+        name: postgres
+        tag: v15
+      - project: middleware
+        name: redis
+        tag: v7-alpine
+      - project: tools
+        name: code-server
+        tag: v4.89.1
+      - project: tools
+        name: remix-ide
+        tag: v0.35.0
+      - project: base
+        name: solidity-dev
+        tag: v1.0.0

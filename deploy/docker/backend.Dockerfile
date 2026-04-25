@@ -1,28 +1,63 @@
 # backend.Dockerfile
-# 链镜平台后端服务镜像构建文件
-# 负责构建 backend/cmd/server 并提供生产运行镜像
+# 链镜平台后端 Go API 服务镜像
+# 多阶段构建：golang:1.22-alpine 构建 → alpine:3.19 运行
+# 监听端口：8080
 
-FROM golang:1.25-bookworm AS builder
-WORKDIR /workspace
+# ============================
+# 构建阶段
+# ============================
+FROM golang:1.22-alpine AS builder
 
-COPY backend/go.mod backend/go.sum ./backend/
-COPY sim-engine/proto/gen/go/go.mod ./sim-engine/proto/gen/go/
-WORKDIR /workspace/backend
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+
+WORKDIR /src
+
+# 依赖层（利用 Docker cache）
+COPY go.mod go.sum ./
 RUN go mod download
 
-WORKDIR /workspace
-COPY backend ./backend
-COPY sim-engine/proto ./sim-engine/proto
+# 源码层
+COPY . .
 
-WORKDIR /workspace/backend
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/backend-server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT_SHA}" \
+    -o /out/lenschain-backend \
+    ./cmd/server
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# ============================
+# 运行阶段
+# ============================
+FROM alpine:3.19
+
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+
+LABEL org.opencontainers.image.title="lenschain-backend"
+LABEL org.opencontainers.image.description="链镜平台后端 Go API 服务"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
+LABEL org.opencontainers.image.vendor="LensChain"
+LABEL lenschain.io/service="backend"
+
+ENV TZ=UTC
+
+RUN apk add --no-cache ca-certificates tzdata curl && \
+    addgroup -S -g 1001 lenschain && \
+    adduser -S -u 1001 -G lenschain lenschain && \
+    mkdir -p /app/configs /app/logs && \
+    chown -R lenschain:lenschain /app
+
 WORKDIR /app
-COPY --from=builder /out/backend-server /app/backend-server
-COPY --from=builder /workspace/backend/configs /app/configs
 
-ENV LENSCHAIN_CONFIG=/app/configs/config.yaml
-EXPOSE 3000
+COPY --from=builder --chown=lenschain:lenschain /out/lenschain-backend /app/lenschain-backend
 
-ENTRYPOINT ["/app/backend-server"]
+USER lenschain
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=20s \
+    CMD curl -fsS http://localhost:8080/healthz || exit 1
+
+ENTRYPOINT ["/app/lenschain-backend"]
+CMD ["--config", "/app/configs/config.yaml"]

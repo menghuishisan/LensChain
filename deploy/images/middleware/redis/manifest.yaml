@@ -1,0 +1,57 @@
+name: redis
+category: middleware
+ecosystem: general
+description: Redis 内存缓存数据库
+maintainer: lenschain-platform
+license: BSD-3-Clause
+official_source: redis/redis
+registry_project: middleware
+
+versions:
+  - version: "7"
+    tag: "v7-alpine"
+    upstream_tag: "7-alpine"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 6379
+    protocol: tcp
+    name: Redis
+    description: Redis 服务端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /data
+    purpose: db_data
+    size: 2Gi
+    description: 数据持久化
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "redis-cli", "ping"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 5s
+
+documentation_url: /docs/images/redis
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

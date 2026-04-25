@@ -1,0 +1,72 @@
+name: solidity-dev
+category: base
+ecosystem: ethereum
+description: Solidity 开发环境镜像
+maintainer: lenschain-platform
+license: MIT
+official_source: lenschain/solidity-dev
+registry_project: base
+
+versions:
+  - version: "1.0"
+    tag: "v1.0.0"
+    upstream_tag: "v1.0.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports: []
+
+default_env_vars:
+  - key: SOLC_VERSION
+    default_value: "0.8.25"
+    description: Solidity 编译器版本
+    required: false
+
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /home/developer/project
+    purpose: project_data
+    size: 5Gi
+    description: 项目工作目录
+
+typical_companions:
+  required: []
+  recommended:
+    - image: geth
+      reason: 本地以太坊节点
+    - image: remix-ide
+      reason: Solidity IDE
+  optional:
+    - image: slither
+      reason: 静态分析
+    - image: mythril
+      reason: 安全分析
+
+required_dependencies: []
+
+supported_tools:
+  - remix-ide
+  - slither
+  - mythril
+  - echidna
+  - blockscout
+
+healthcheck:
+  test: ["CMD", "node", "--version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/solidity-dev
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

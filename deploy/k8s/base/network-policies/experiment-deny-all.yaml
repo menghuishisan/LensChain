@@ -1,0 +1,15 @@
+# 实验 Namespace deny-all 模板
+# 后端动态创建 exp-* Namespace 时应用此策略
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  labels:
+    app.kubernetes.io/name: experiment-deny-all
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

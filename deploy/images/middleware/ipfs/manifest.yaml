@@ -1,0 +1,61 @@
+name: ipfs
+category: middleware
+ecosystem: general
+description: IPFS 分布式存储节点
+maintainer: lenschain-platform
+license: MIT
+official_source: ipfs/kubo
+registry_project: middleware
+
+versions:
+  - version: "0.27"
+    tag: "v0.27.0"
+    upstream_tag: "v0.27.0"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 5001
+    protocol: tcp
+    name: API
+    description: IPFS API
+  - port: 8080
+    protocol: tcp
+    name: Gateway
+    description: IPFS Gateway
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /data/ipfs
+    purpose: ipfs_data
+    size: 10Gi
+    description: IPFS 数据持久化
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "ipfs", "id"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
+documentation_url: /docs/images/ipfs
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

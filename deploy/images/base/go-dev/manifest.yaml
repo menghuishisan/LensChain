@@ -1,0 +1,58 @@
+name: go-dev
+category: base
+ecosystem: fabric
+description: Go 区块链开发环境镜像
+maintainer: lenschain-platform
+license: MIT
+official_source: lenschain/go-dev
+registry_project: base
+
+versions:
+  - version: "1.0"
+    tag: "v1.0.0"
+    upstream_tag: "v1.0.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /home/developer/project
+    purpose: project_data
+    size: 5Gi
+    description: 项目工作目录
+
+typical_companions:
+  required: []
+  recommended:
+    - image: fabric-peer
+      reason: Fabric 网络
+  optional:
+    - image: fabric-tools
+      reason: Fabric CLI
+
+required_dependencies: []
+supported_tools:
+  - fabric-tools
+  - caliper
+
+healthcheck:
+  test: ["CMD", "go", "version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/go-dev
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

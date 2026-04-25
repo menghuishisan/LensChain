@@ -1,0 +1,48 @@
+name: nginx
+category: middleware
+ecosystem: general
+description: Nginx Web 服务器和反向代理
+maintainer: lenschain-platform
+license: BSD-2-Clause
+official_source: nginx/nginx
+registry_project: middleware
+versions:
+  - version: "1.25"
+    tag: "v1.25-alpine"
+    upstream_tag: "1.25-alpine"
+    min_cpu: "0.05"
+    min_memory: "64Mi"
+    recommended_cpu: "0.1"
+    recommended_memory: "128Mi"
+    is_default: true
+default_ports:
+  - port: 80
+    protocol: tcp
+    name: HTTP
+    description: HTTP 服务
+  - port: 443
+    protocol: tcp
+    name: HTTPS
+    description: HTTPS 服务
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+required_dependencies: []
+supported_tools: []
+healthcheck:
+  test: ["CMD", "curl", "-fsS", "http://localhost/"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 5s
+documentation_url: /docs/images/nginx
+prepull_phase: 1
+prepull_node_tier: light
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

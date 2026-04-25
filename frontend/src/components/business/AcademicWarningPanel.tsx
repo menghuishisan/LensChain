@@ -80,11 +80,24 @@ export function AcademicWarningPanel({ warningID }: AcademicWarningPanelProps) {
             <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
               {warningQuery.data.detail.semester_courses?.map((course) => `${course.course_name} ${course.score}`).join("；") ?? warningQuery.data.detail.failed_courses?.map((course) => `${course.course_name} ${course.score}`).join("；") ?? "暂无课程明细"}
             </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-border p-4 text-sm">
+                <p className="text-muted-foreground">预警类型</p>
+                <p className="mt-1 font-semibold">{warningQuery.data.warning_type_text}</p>
+              </div>
+              <div className="rounded-xl border border-border p-4 text-sm">
+                <p className="text-muted-foreground">当前状态</p>
+                <p className="mt-1 font-semibold">{warningQuery.data.status_text}</p>
+              </div>
+              <div className="rounded-xl border border-border p-4 text-sm">
+                <p className="text-muted-foreground">创建时间</p>
+                <p className="mt-1 font-semibold">{formatDateTime(warningQuery.data.created_at)}</p>
+              </div>
+            </div>
             <FormField label="处理备注">
               <Textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} />
             </FormField>
             <Button onClick={() => mutations.handle.mutate({ handle_note: note })} isLoading={mutations.handle.isPending}>标记已处理</Button>
-            <p className="text-xs text-muted-foreground">创建时间：{formatDateTime(warningQuery.data.created_at)}</p>
           </CardContent>
         </Card>
       ) : null}

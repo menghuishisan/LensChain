@@ -69,6 +69,12 @@ export function SchoolProfilePanel() {
             });
           }}
         >
+          <div className="rounded-xl border border-border bg-muted/25 p-4">
+            <p className="text-xs text-muted-foreground">学校名称</p>
+            <p className="mt-1 text-sm font-semibold">{query.data.name}</p>
+            <p className="mt-3 text-xs text-muted-foreground">学校编码</p>
+            <p className="mt-1 text-sm font-semibold">{query.data.code}</p>
+          </div>
           <FormField label="LOGO URL">
             <Input value={form.logo_url ?? ""} onChange={(event) => setForm((current) => ({ ...current, logo_url: event.target.value }))} />
           </FormField>
@@ -128,6 +134,7 @@ export function SchoolLicensePanel() {
             <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
           </div>
         </div>
+        <p className="text-sm text-muted-foreground">如需续期、解冻或处理缓冲期问题，请联系平台管理员。</p>
       </CardContent>
     </Card>
   );

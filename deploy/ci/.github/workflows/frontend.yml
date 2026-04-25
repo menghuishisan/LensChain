@@ -1,0 +1,72 @@
+name: frontend
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['frontend/**', 'deploy/docker/frontend.Dockerfile']
+  pull_request:
+    paths: ['frontend/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - name: Lint
+        run: cd frontend && npm run lint
+      - name: Type Check
+        run: cd frontend && npx tsc --noEmit
+      - name: Build
+        run: cd frontend && npm run build
+
+  build:
+    needs: test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.lianjing.com
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: registry.lianjing.com/lenschain/frontend
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/main' }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          file: deploy/docker/frontend.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            NEXT_PUBLIC_API_BASE_URL=${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+            NEXT_PUBLIC_WS_BASE_URL=${{ secrets.NEXT_PUBLIC_WS_BASE_URL }}
+          cache-from: type=registry,ref=registry.lianjing.com/lenschain/frontend:cache
+          cache-to: type=registry,ref=registry.lianjing.com/lenschain/frontend:cache,mode=max
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: registry.lianjing.com/lenschain/frontend:sha-${{ github.sha }}
+          severity: CRITICAL
+          exit-code: '1'
+      - name: Cosign Sign
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: cosign sign --key env://COSIGN_KEY registry.lianjing.com/lenschain/frontend:${{ github.ref_name }}

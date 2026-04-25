@@ -1,8 +1,0 @@
-# image.yaml
-# CTF 竞赛 — Foundry 工具链镜像元数据
-
-name: foundry
-module: ctf
-category: middleware
-runtime: evm-tools
-description: 用于智能合约安全题目构建、PoC 执行与预验证的 Foundry 工具链镜像。

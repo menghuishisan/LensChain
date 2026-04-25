@@ -5,10 +5,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getStoredAuthSession } from "@/lib/auth-session";
 import type { ID } from "@/types/api";
 import type { CtfRealtimeMessage } from "@/types/ctf";
 import type { RealtimeStatus } from "@/types/experiment";
+import { buildWebSocketURL } from "@/lib/ws-url";
 
 const MAX_MESSAGES = 200;
 const PING_INTERVAL_MS = 30_000;
@@ -24,19 +24,6 @@ export interface UseCtfRealtimeResult {
   hasSnapshotSynced: boolean;
   reconnect: () => void;
   subscribe: (channel: string, params?: Record<string, string>) => boolean;
-}
-
-function buildCtfWSURL(competitionID: ID) {
-  const baseURL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
-  const rawURL = `${baseURL}/ctf/ws`;
-  const url = new URL(rawURL, typeof window === "undefined" ? "http://localhost" : window.location.origin);
-  const session = getStoredAuthSession();
-  if (session.accessToken !== null) {
-    url.searchParams.set("token", session.accessToken);
-  }
-  url.searchParams.set("competition_id", competitionID);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
 }
 
 function parseMessage(data: string): CtfRealtimeMessage {
@@ -90,7 +77,7 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
     setStatus(reconnectCountRef.current > 0 ? "reconnecting" : "connecting");
     setError(null);
 
-    const socket = new WebSocket(buildCtfWSURL(stableCompetitionID));
+    const socket = new WebSocket(buildWebSocketURL("/ctf/ws", { competition_id: stableCompetitionID }));
     socketRef.current = socket;
 
     socket.onopen = () => {

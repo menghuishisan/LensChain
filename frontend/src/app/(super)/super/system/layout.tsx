@@ -14,44 +14,44 @@ import { cn } from "@/lib/utils";
 const SYSTEM_NAV_ITEMS = [
   {
     href: "/super/system/dashboard",
-    label: "运维仪表盘",
-    description: "健康状态、资源使用和最近告警",
+    label: "运行总览",
+    description: "查看平台状态、资源占用和最新提醒",
     icon: Gauge,
   },
   {
     href: "/super/system/audit",
-    label: "统一审计",
-    description: "跨模块日志聚合查询与导出",
+    label: "操作记录",
+    description: "查看平台关键操作与处理记录",
     icon: ScrollText,
   },
   {
     href: "/super/system/configs",
-    label: "全局配置",
-    description: "平台默认值、安全基线和变更记录",
+    label: "平台设置",
+    description: "维护平台规则、默认设置与调整记录",
     icon: Settings2,
   },
   {
     href: "/super/system/alert-rules",
-    label: "告警规则",
-    description: "阈值、事件和服务状态规则",
+    label: "提醒规则",
+    description: "设置状态、事件和服务提醒条件",
     icon: BellRing,
   },
   {
     href: "/super/system/alert-events",
-    label: "告警事件",
-    description: "事件详情、处理和忽略记录",
+    label: "运行提醒",
+    description: "查看提醒详情和后续处理情况",
     icon: FileClock,
   },
   {
     href: "/super/system/statistics",
-    label: "平台统计",
-    description: "趋势图与学校活跃排行",
+    label: "数据概览",
+    description: "查看平台趋势和学校使用情况",
     icon: BarChart3,
   },
   {
     href: "/super/system/backups",
-    label: "数据备份",
-    description: "备份配置、触发、下载与历史",
+    label: "数据保障",
+    description: "管理备份策略、执行记录与下载",
     icon: HardDriveDownload,
   },
 ] as const;
@@ -72,10 +72,10 @@ export default function SuperSystemLayout({ children }: { children: ReactNode })
         <div className="rounded-[2rem] border border-border/70 bg-card/80 p-4 shadow-panel backdrop-blur lg:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">System Management</p>
-              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-foreground">系统管理与监控</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Platform Operations</p>
+              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-foreground">平台运行中心</h1>
               <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">
-                统一审计、全局配置、告警规则、告警事件、运维仪表盘、平台统计与数据备份入口全部收口在同一导航层。
+                在同一入口查看平台状态、设置、提醒、数据概览与备份保障，便于持续支持学校侧运行。
               </p>
             </div>
           </div>

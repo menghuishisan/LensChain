@@ -99,6 +99,13 @@ export function DirectNotificationPanel() {
           <FormField label="内容">
             <Textarea value={content} onChange={(event) => setContent(event.target.value)} rows={8} />
           </FormField>
+          <p className="text-sm text-muted-foreground">
+            {targetType === "all_school"
+              ? "当前将向本校全部用户发送通知。"
+              : targetType === "course"
+                ? "当前将向指定课程的学生发送通知。"
+                : "当前将向指定用户发送通知。"}
+          </p>
           <Button disabled={!title || !content || !targetID} onClick={() => mutation.mutate({ title, content, target_type: targetType, target_id: targetID, category })} isLoading={mutation.isPending}>
             发送通知
           </Button>
@@ -124,7 +131,7 @@ export function NotificationStatisticsPanel() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-primary" />
-              分类统计
+              分类概览
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -135,6 +142,19 @@ export function NotificationStatisticsPanel() {
                   <span className="text-sm text-muted-foreground">{Math.round(item.read_rate * 100)}%</span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">发送 {item.sent}，已读 {item.read}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>每日趋势</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(data?.daily_trend ?? []).map((item) => (
+              <div key={item.date} className="flex items-center justify-between rounded-xl border border-border p-4 text-sm">
+                <span>{item.date}</span>
+                <span>发送 {item.sent} / 已读 {item.read}</span>
               </div>
             ))}
           </CardContent>

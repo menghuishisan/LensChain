@@ -1,0 +1,62 @@
+name: jupyter-notebook
+category: tools
+ecosystem: general
+description: Jupyter Notebook 交互式编程环境
+maintainer: lenschain-platform
+license: BSD-3-Clause
+official_source: jupyter/docker-stacks
+registry_project: tools
+
+versions:
+  - version: "3.11"
+    tag: "python-3.11"
+    upstream_tag: "python-3.11"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 8888
+    protocol: tcp
+    name: HTTP
+    description: Jupyter Web 访问端口
+
+default_env_vars:
+  - key: JUPYTER_TOKEN
+    default_value: ""
+    description: 访问 Token（空则免认证）
+    required: false
+
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /home/jovyan/work
+    purpose: project_data
+    size: 5Gi
+    description: 工作目录
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:8888/api"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
+documentation_url: /docs/images/jupyter-notebook
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

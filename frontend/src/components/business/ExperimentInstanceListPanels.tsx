@@ -55,11 +55,11 @@ export function StudentExperimentListPanel() {
   };
 
   if (instancesQuery.isLoading) {
-    return <LoadingState title="正在加载我的实验" description="读取实验实例、状态和报告入口。" />;
+    return <LoadingState title="正在加载我的实验" description="正在整理实验记录、状态和报告入口。" />;
   }
 
   if (instancesQuery.isError) {
-    return <ErrorState title="实验实例加载失败" description="请稍后重试。" />;
+    return <ErrorState title="实验列表加载失败" description="请稍后重试。" />;
   }
 
   const instances = instancesQuery.data?.list ?? [];
@@ -94,7 +94,7 @@ export function StudentExperimentListPanel() {
         </CardContent>
       </Card>
       {instances.length === 0 ? (
-        <EmptyState title="暂无实验实例" description="选择已发布模板后启动实验。" />
+        <EmptyState title="还没有实验记录" description="选择实验内容后即可开始操作。" />
       ) : (
         <TableContainer>
           <Table>
@@ -158,11 +158,11 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
   };
 
   if (templateQuery.isLoading) {
-    return <LoadingState title="正在加载实验模板" description="读取实验要求、时长和评分规则。" />;
+    return <LoadingState title="正在加载实验内容" description="正在读取实验要求、时长和评分方式。" />;
   }
 
   if (!templateQuery.data) {
-    return <ErrorState title="实验模板不存在" description="请确认模板已发布且当前账号可访问。" />;
+    return <ErrorState title="实验内容不存在" description="请确认内容已开放，且当前账号可以查看。" />;
   }
 
   const template = templateQuery.data;
@@ -186,10 +186,10 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
           <CardTitle>启动参数</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-          <FormField label="课程 ID" description="从课程或作业进入时填写；未填写则按后端模板权限校验。">
+          <FormField label="课程 ID" description="从课程或作业进入时可自动带入；未填写时按当前可用范围启动。">
             <Input value={courseID} onChange={(event) => setCourseID(event.target.value)} />
           </FormField>
-          <FormField label="分组 ID" description="多人协作实验必须填写后端分组 ID。">
+          <FormField label="分组 ID" description="多人协作实验可填写对应分组标识。">
             <Input value={groupID} onChange={(event) => setGroupID(event.target.value)} />
           </FormField>
           <Button className="self-end" onClick={launch} isLoading={lifecycle.create.isPending}>
@@ -200,10 +200,10 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
       {createResult?.status === 10 ? (
         <Card>
           <CardHeader>
-            <CardTitle>资源排队中</CardTitle>
+            <CardTitle>正在等待实验资源</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            当前排队位置 {createResult.queue_position ?? "-"}，预计等待 {createResult.estimated_wait_seconds ?? "-"} 秒。页面不会伪造实例入口，后端返回实例后才能进入实验操作页。
+            当前排队位置 {createResult.queue_position ?? "-"}，预计等待 {createResult.estimated_wait_seconds ?? "-"} 秒。实验准备完成后即可进入操作页面。
           </CardContent>
         </Card>
       ) : null}
@@ -222,7 +222,7 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
   const router = useRouter();
 
   if (monitorQuery.isLoading) {
-    return <LoadingState title="正在加载课程实验监控" description="读取学生运行状态、检查点和资源使用。" />;
+    return <LoadingState title="正在加载课堂实验观察" description="正在整理学生进度、评分情况和资源使用。" />;
   }
 
   const monitor = monitorQuery.data;
@@ -231,8 +231,8 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-semibold">课程实验监控</h1>
-          <p className="mt-2 text-sm text-muted-foreground">实时查看学生实例状态、终端流、检查点和资源占用。</p>
+          <h1 className="font-display text-3xl font-semibold">课堂实验观察</h1>
+          <p className="mt-2 text-sm text-muted-foreground">实时查看学生进度、实验状态和资源使用情况。</p>
         </div>
         <Badge variant={realtime.status === "open" ? "success" : "outline"}>{realtime.status === "open" ? "实时连接" : "未连接"}</Badge>
       </div>
@@ -284,7 +284,7 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" />
-            实验统计
+            实验数据概览
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -307,14 +307,14 @@ export function TeacherExperimentStatisticsPanel({ courseID }: { courseID: ID })
   const statisticsQuery = useCourseExperimentStatistics(courseID);
 
   if (statisticsQuery.isLoading) {
-    return <LoadingState title="正在加载实验统计" description="读取模板维度、得分和检查点通过率。" />;
+    return <LoadingState title="正在加载实验数据" description="正在整理实验完成情况、得分和通过率。" />;
   }
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">实验统计</h1>
+      <h1 className="font-display text-3xl font-semibold">实验数据概览</h1>
       {(statisticsQuery.data?.templates ?? []).length === 0 ? (
-        <EmptyState title="暂无统计数据" description="学生提交实验后会生成模板维度统计。" />
+        <EmptyState title="暂无实验数据" description="学生提交实验后，这里会显示完成情况和得分概览。" />
       ) : (
         <div className="space-y-4">
           {(statisticsQuery.data?.templates ?? []).map((template) => (
@@ -363,12 +363,12 @@ export function ExperimentOperationHistoryPanel({ instanceID }: { instanceID: ID
   const logsQuery = useExperimentOperationLogs(instanceID, { page: 1, page_size: 50 });
 
   if (logsQuery.isLoading) {
-    return <LoadingState title="正在加载操作历史" description="读取终端命令、生命周期和评分审计记录。" />;
+    return <LoadingState title="正在加载操作记录" description="正在整理实验过程中的关键操作记录。" />;
   }
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">实验操作历史</h1>
+      <h1 className="font-display text-3xl font-semibold">实验操作记录</h1>
       <TableContainer>
         <Table>
           <TableHeader>
@@ -412,7 +412,7 @@ export function ExperimentGroupManagementPanel() {
       <h1 className="font-display text-3xl font-semibold">实验分组</h1>
       <Card>
         <CardHeader>
-          <CardTitle>创建与随机分组</CardTitle>
+          <CardTitle>创建分组与自动分配</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
           <FormField label="模板 ID">

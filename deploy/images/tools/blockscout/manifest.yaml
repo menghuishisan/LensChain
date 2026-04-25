@@ -1,0 +1,65 @@
+name: blockscout
+category: tools
+ecosystem: ethereum
+description: Blockscout EVM 区块链浏览器
+maintainer: lenschain-platform
+license: GPL-3.0
+official_source: blockscout/blockscout
+registry_project: tools
+
+versions:
+  - version: "6.3"
+    tag: "v6.3.0"
+    upstream_tag: "6.3.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports:
+  - port: 4000
+    protocol: tcp
+    name: HTTP
+    description: 浏览器 Web 访问端口
+
+default_env_vars:
+  - key: ETHEREUM_JSONRPC_HTTP_URL
+    default_value: http://geth:8545
+    description: EVM 节点 RPC 地址
+    required: true
+
+conditional_env_vars: []
+
+default_volumes: []
+
+typical_companions:
+  required:
+    - image: geth
+      reason: 需要连接 EVM 节点
+    - image: postgres
+      reason: 数据存储
+  recommended: []
+  optional: []
+
+required_dependencies:
+  - geth
+  - postgres
+
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:4000/api/v2/stats"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+documentation_url: /docs/images/blockscout
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

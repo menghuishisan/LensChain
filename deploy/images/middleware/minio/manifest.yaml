@@ -1,0 +1,52 @@
+name: minio
+category: middleware
+ecosystem: general
+description: MinIO 对象存储
+maintainer: lenschain-platform
+license: AGPL-3.0
+official_source: minio/minio
+registry_project: middleware
+versions:
+  - version: "2024.10"
+    tag: "RELEASE.2024-10-13T13-34-11Z"
+    upstream_tag: "RELEASE.2024-10-13T13-34-11Z"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+default_ports:
+  - port: 9000
+    protocol: tcp
+    name: API
+    description: S3 兼容 API
+  - port: 9001
+    protocol: tcp
+    name: Console
+    description: 管理控制台
+default_env_vars: []
+conditional_env_vars: []
+default_volumes:
+  - mount_path: /data
+    purpose: object_data
+    size: 50Gi
+    description: 对象存储数据
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+required_dependencies: []
+supported_tools: []
+healthcheck:
+  test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/ready"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+documentation_url: /docs/images/minio
+prepull_phase: 1
+prepull_node_tier: light
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

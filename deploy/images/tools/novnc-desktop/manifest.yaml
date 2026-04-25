@@ -1,0 +1,57 @@
+name: novnc-desktop
+category: tools
+ecosystem: general
+description: noVNC 图形化桌面
+maintainer: lenschain-platform
+license: MPL-2.0
+official_source: novnc/noVNC
+registry_project: tools
+
+versions:
+  - version: "1.4"
+    tag: "v1.4.0"
+    upstream_tag: "1.4.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports:
+  - port: 6080
+    protocol: tcp
+    name: HTTP
+    description: noVNC Web 访问端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /home/user
+    purpose: user_data
+    size: 5Gi
+    description: 用户数据
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:6080/"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
+documentation_url: /docs/images/novnc-desktop
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

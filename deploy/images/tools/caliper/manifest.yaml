@@ -1,0 +1,53 @@
+name: caliper
+category: tools
+ecosystem: general
+description: Hyperledger Caliper 区块链性能测试工具
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: hyperledger/caliper
+registry_project: tools
+
+versions:
+  - version: "0.6"
+    tag: "v0.6.0"
+    upstream_tag: "v0.6.0"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended: []
+  optional:
+    - image: fabric-peer
+      reason: Fabric 性能测试
+    - image: fisco-bcos
+      reason: FISCO 性能测试
+    - image: geth
+      reason: Ethereum 性能测试
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "caliper", "--version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/caliper
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

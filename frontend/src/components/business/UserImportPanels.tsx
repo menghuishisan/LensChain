@@ -247,11 +247,11 @@ export function UserImportPreviewPanel() {
         </CardContent>
       </Card>
       <Dialog open={result !== null} onOpenChange={(open) => !open && setResult(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>导入完成</DialogTitle>
-            <DialogDescription>后端已执行导入并返回统计结果。</DialogDescription>
-          </DialogHeader>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>导入完成</DialogTitle>
+          <DialogDescription>系统已经完成导入，并生成本次结果统计。</DialogDescription>
+        </DialogHeader>
           {result ? (
             <div className="grid grid-cols-2 gap-3">
               <Stat label="成功" value={result.success_count} />

@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-default
+  namespace: lenschain
+  labels:
+    app.kubernetes.io/name: platform-default
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: lenschain
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: platform
+  egress:
+    - {}

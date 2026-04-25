@@ -1,0 +1,61 @@
+name: aptos-node
+category: chain-nodes
+ecosystem: move
+description: Aptos 验证节点
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: aptoslabs/aptos-core
+registry_project: chain-nodes
+
+versions:
+  - version: "mainnet"
+    tag: "mainnet"
+    upstream_tag: "mainnet_b5e6bf0d"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports:
+  - port: 8080
+    protocol: tcp
+    name: REST-API
+    description: REST API
+  - port: 9101
+    protocol: tcp
+    name: Metrics
+    description: 指标端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /opt/aptos/data
+    purpose: chain_data
+    size: 10Gi
+    description: 链数据持久化
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:8080/v1"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+documentation_url: /docs/images/aptos-node
+prepull_phase: 3
+prepull_node_tier: heavy
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

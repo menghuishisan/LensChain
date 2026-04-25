@@ -1,7 +1,7 @@
 // page.tsx
 // 管理端镜像审核详情页。
 
-import { ExperimentImageReviewPanel } from "@/components/business/ExperimentTemplatePanels";
+import { ExperimentImageReviewPanel } from "@/components/business/ExperimentAssetPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 import React from "react";
 

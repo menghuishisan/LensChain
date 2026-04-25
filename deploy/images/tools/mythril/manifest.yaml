@@ -1,0 +1,49 @@
+name: mythril
+category: tools
+ecosystem: ethereum
+description: Mythril 智能合约安全分析工具
+maintainer: lenschain-platform
+license: MIT
+official_source: Consensys/mythril
+registry_project: tools
+
+versions:
+  - version: "0.24"
+    tag: "v0.24.7"
+    upstream_tag: "0.24.7"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended:
+    - image: solidity-dev
+      reason: Solidity 开发环境
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "myth", "version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/mythril
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

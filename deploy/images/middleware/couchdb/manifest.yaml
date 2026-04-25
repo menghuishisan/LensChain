@@ -1,0 +1,59 @@
+name: couchdb
+category: middleware
+ecosystem: fabric
+description: CouchDB 文档数据库（Fabric 状态数据库）
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: apache/couchdb
+registry_project: middleware
+
+versions:
+  - version: "3.3"
+    tag: "v3.3"
+    upstream_tag: "3.3"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 5984
+    protocol: tcp
+    name: HTTP
+    description: CouchDB HTTP API
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /opt/couchdb/data
+    purpose: db_data
+    size: 5Gi
+    description: 数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: fabric-peer
+      reason: Fabric Peer 使用 CouchDB 作为状态数据库
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:5984/_up"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+documentation_url: /docs/images/couchdb
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

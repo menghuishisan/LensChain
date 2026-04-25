@@ -37,7 +37,7 @@ export function AdminExperimentDashboardPanel() {
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">实验资源治理</h1>
+      <h1 className="font-display text-3xl font-semibold">实验支持总览</h1>
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard title="总实例" value={dashboard.overview.data?.total_instances ?? 0} />
         <MetricCard title="运行实例" value={dashboard.overview.data?.running_instances ?? 0} />
@@ -86,7 +86,7 @@ export function AdminExperimentDashboardPanel() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>实例</TableHead>
+              <TableHead>实验</TableHead>
               <TableHead>学生</TableHead>
               <TableHead>状态</TableHead>
               <TableHead>学校</TableHead>
@@ -116,7 +116,7 @@ export function AdminExperimentInstancesPanel() {
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">全平台实验实例</h1>
+      <h1 className="font-display text-3xl font-semibold">全平台实验记录</h1>
       <TableContainer>
         <Table>
           <TableHeader>
@@ -408,14 +408,14 @@ export function SchoolExperimentMonitorPanel() {
   const monitorQuery = useSchoolExperimentMonitor();
 
   if (monitorQuery.isLoading) {
-    return <LoadingState title="正在加载本校实验监控" description="读取本校实验实例和资源使用。" />;
+    return <LoadingState title="正在加载本校实验概览" description="正在整理本校实验进度和资源使用情况。" />;
   }
 
   const monitor = monitorQuery.data;
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">本校实验监控</h1>
+      <h1 className="font-display text-3xl font-semibold">本校实验概览</h1>
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard title="总学生" value={monitor?.summary.total_students ?? 0} />
         <MetricCard title="运行中" value={monitor?.summary.running ?? 0} />

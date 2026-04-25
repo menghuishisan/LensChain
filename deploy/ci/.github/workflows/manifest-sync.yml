@@ -1,0 +1,18 @@
+name: manifest-sync
+
+on:
+  push:
+    branches: [main]
+    paths: ['deploy/images/**/manifest.yaml']
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync manifests to database
+        run: ./deploy/scripts/seed-images.sh
+        env:
+          BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+          ADMIN_TOKEN: ${{ secrets.STAGING_ADMIN_TOKEN }}

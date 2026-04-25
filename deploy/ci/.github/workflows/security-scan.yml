@@ -1,0 +1,66 @@
+name: security-scan
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  scan-platform-images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - lenschain/backend
+          - lenschain/frontend
+          - lenschain/sim-engine-core
+          - lenschain/scenario-base
+          - lenschain/collector-agent-ethereum
+          - lenschain/collector-agent-fabric
+          - lenschain/collector-agent-chainmaker
+          - lenschain/collector-agent-fisco
+      fail-fast: false
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.lianjing.com
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: registry.lianjing.com/${{ matrix.image }}:staging
+          format: json
+          output: trivy-${{ matrix.image }}.json
+          severity: CRITICAL,HIGH
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ strategy.job-index }}
+          path: trivy-*.json
+
+  scan-experiment-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.lianjing.com
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Scan all experiment images
+        run: |
+          for MANIFEST in deploy/images/**/manifest.yaml; do
+            [ ! -f "$MANIFEST" ] && continue
+            PROJECT=$(grep '^registry_project:' "$MANIFEST" | awk '{print $2}' | tr -d '"')
+            NAME=$(grep '^name:' "$MANIFEST" | head -1 | awk '{print $2}' | tr -d '"')
+            TAG=$(grep '    tag:' "$MANIFEST" | head -1 | awk '{print $2}' | tr -d '"')
+            ALLOW_CRITICAL=$(grep 'allow_critical:' "$MANIFEST" | awk '{print $2}')
+            echo "==> Scanning ${PROJECT}/${NAME}:${TAG}"
+            EXIT_CODE=1
+            if [ "$ALLOW_CRITICAL" = "true" ]; then EXIT_CODE=0; fi
+            docker run --rm aquasec/trivy image \
+              --severity CRITICAL \
+              --exit-code $EXIT_CODE \
+              "registry.lianjing.com/${PROJECT}/${NAME}:${TAG}" || true
+          done

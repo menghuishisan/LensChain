@@ -19,7 +19,7 @@ export function LearningOverviewPanel() {
   const overviewQuery = useMyLearningOverview();
 
   if (overviewQuery.isLoading) {
-    return <LoadingState title="正在加载学习概览" description="从模块06聚合层读取课程、实验、竞赛和学习时长。" />;
+    return <LoadingState title="正在加载学习概览" description="正在整理你的课程、实验、竞赛和学习时长。" />;
   }
 
   if (overviewQuery.isError) {
@@ -27,7 +27,7 @@ export function LearningOverviewPanel() {
   }
 
   if (!overviewQuery.data) {
-    return <EmptyState title="暂无学习概览数据" description="待模块06聚合到课程、实验和竞赛学习记录后展示。" />;
+    return <EmptyState title="暂无学习概览数据" description="当产生课程、实验或竞赛记录后，这里会自动显示你的学习概况。" />;
   }
 
   const overview = overviewQuery.data;

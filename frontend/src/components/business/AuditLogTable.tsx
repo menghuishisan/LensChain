@@ -92,12 +92,12 @@ export function AuditLogTable() {
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal-100/90">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                统一审计中心
+                操作记录中心
               </div>
               <div>
-                <h2 className="font-display text-3xl font-semibold tracking-tight">跨模块审计聚合检索</h2>
+                <h2 className="font-display text-3xl font-semibold tracking-tight">平台操作记录查询</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                  聚合模块 01 的登录日志、操作日志和模块 04 的实验操作日志；当选择“全部来源”时，前端强制要求时间范围，避免默认全量拉取。
+                  可按来源、时间、操作人和关键词查看平台关键记录，帮助定位问题与追踪变更。
                 </p>
               </div>
             </div>
@@ -131,7 +131,7 @@ export function AuditLogTable() {
                     {
                       onSuccess: (result) => {
                         saveDownloadedFile(result.blob, result.filename ?? "audit_logs.xlsx");
-                        showToast({ title: "审计日志已开始导出", variant: "success" });
+                        showToast({ title: "记录已开始导出", variant: "success" });
                       },
                       onError: (error) => {
                         showToast({ title: "导出失败", description: error.message, variant: "destructive" });
@@ -276,7 +276,7 @@ export function AuditLogTable() {
                 setParams(buildAuditParams(nextDraft));
               }}
             >
-              重置为最近7天
+              重置为最近 7 天
             </Button>
           </div>
         </CardContent>
@@ -284,8 +284,8 @@ export function AuditLogTable() {
 
       <Card>
         <CardHeader>
-          <CardTitle>来源统计</CardTitle>
-          <CardDescription>当前结果页对应的聚合来源命中数量。</CardDescription>
+          <CardTitle>来源概览</CardTitle>
+          <CardDescription>展示当前结果中各类记录的数量分布。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <SourceCountPill label="登录日志" value={query.data?.source_counts.login ?? 0} />
@@ -294,18 +294,18 @@ export function AuditLogTable() {
         </CardContent>
       </Card>
 
-      {query.isLoading && query.data === undefined ? <LoadingState title="正在查询审计日志" description="链镜正在并行检索各来源日志并按时间排序。" /> : null}
+      {query.isLoading && query.data === undefined ? <LoadingState title="正在查询操作记录" description="正在整理不同来源的记录并按时间排序。" /> : null}
       {query.isError && query.data === undefined ? <ErrorState description={query.error.message} /> : null}
 
       {query.data !== undefined && query.data.list.length === 0 ? (
-        <EmptyState title="暂无审计日志" description="当前筛选条件下没有匹配的聚合日志记录。" className="min-h-72" />
+        <EmptyState title="暂无操作记录" description="当前筛选条件下没有匹配的记录。" className="min-h-72" />
       ) : null}
 
       {query.data !== undefined && query.data.list.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>审计结果</CardTitle>
-            <CardDescription>点击任意行可展开查看完整 JSON detail 内容。</CardDescription>
+            <CardTitle>查询结果</CardTitle>
+            <CardDescription>点击任意一行可展开查看更完整的记录详情。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <TableContainer>
@@ -355,7 +355,7 @@ export function AuditLogTable() {
                                   <DetailLine label="User-Agent" value={item.user_agent ?? "—"} />
                                 </div>
                                 <div className="space-y-2 rounded-2xl border border-border/70 bg-slate-950 p-4 text-slate-100">
-                                  <p className="text-sm font-semibold text-white">detail JSON</p>
+                                  <p className="text-sm font-semibold text-white">详细内容</p>
                                   <pre className="max-h-80 overflow-auto rounded-xl bg-black/25 p-4 text-xs leading-6">
                                     {JSON.stringify(item.detail, null, 2)}
                                   </pre>

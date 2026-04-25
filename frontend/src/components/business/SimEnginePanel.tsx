@@ -91,7 +91,7 @@ export function SimEnginePanel({ sessionID, scenes, onLayoutChange, className }:
       </CardHeader>
       <CardContent className="space-y-5 p-5">
         {realtime.error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{realtime.error}</div> : null}
-        {sessionID.length === 0 ? <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">当前实例尚未分配 SimEngine 会话。</div> : null}
+        {sessionID.length === 0 ? <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-100">可视化内容还在准备中，请稍后刷新查看。</div> : null}
 
         <div className="flex flex-wrap items-end gap-3 rounded-xl border border-white/10 bg-white/7 p-4">
           <Button size="sm" variant="secondary" onClick={() => realtime.sendControl(activeSceneCode, "play")} disabled={realtime.status !== "open"}>
@@ -143,8 +143,8 @@ export function SimEnginePanel({ sessionID, scenes, onLayoutChange, className }:
               <div className="mt-4 grid min-h-44 place-items-center rounded-xl border border-cyan-300/10 bg-black/30">
                 <div className="text-center">
                   <div className="mx-auto h-16 w-16 rounded-full border border-cyan-300/30 bg-cyan-300/10 shadow-[0_0_45px_rgba(34,211,238,0.28)]" />
-                  <p className="mt-3 text-sm text-slate-300">Renderer: {scene.scenario?.code ?? "未绑定"}</p>
-                  <p className="mt-1 text-xs text-slate-500">后续由 sim-engine/renderers 包接管 Canvas/SVG 绘制。</p>
+                  <p className="mt-3 text-sm text-slate-300">当前内容：{scene.scenario?.name ?? "暂未命名"}</p>
+                  <p className="mt-1 text-xs text-slate-500">可视化画面会根据实验进度实时更新。</p>
                 </div>
               </div>
             </div>
@@ -152,9 +152,9 @@ export function SimEnginePanel({ sessionID, scenes, onLayoutChange, className }:
         </div>
 
         <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-          <p className="text-sm font-semibold text-slate-100">实时事件</p>
+          <p className="text-sm font-semibold text-slate-100">实时动态</p>
           <div className="mt-3 max-h-48 space-y-2 overflow-y-auto text-xs text-slate-300">
-            {realtime.messages.length === 0 ? <p className="text-slate-500">尚无 SimEngine 消息。</p> : null}
+            {realtime.messages.length === 0 ? <p className="text-slate-500">当前还没有新的动态。</p> : null}
             {realtime.messages.slice(-20).map((message, index) => (
               <pre key={`${message.type}-${index}`} className="rounded-lg bg-white/5 p-2">
                 {JSON.stringify(message, null, 2)}

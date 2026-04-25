@@ -51,13 +51,13 @@ export function SystemStatisticsPanel() {
     null;
 
   if (isInitialLoading) {
-    return <LoadingState title="正在加载平台统计" description="链镜正在汇总全平台使用指标、趋势和学校活跃排行。" />;
+    return <LoadingState title="正在加载数据概览" description="正在整理平台趋势和学校使用情况。" />;
   }
 
   if (blockingError !== null) {
     return (
       <ErrorState
-        title="平台统计加载失败"
+        title="数据概览加载失败"
         description={blockingError.message}
         action={
           <Button
@@ -87,12 +87,12 @@ export function SystemStatisticsPanel() {
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100/90">
                 <Activity className="h-3.5 w-3.5" />
-                平台使用统计
+                数据概览
               </div>
               <div>
-                <h2 className="font-display text-3xl font-semibold tracking-tight">运营趋势与活跃度洞察</h2>
+                <h2 className="font-display text-3xl font-semibold tracking-tight">平台趋势与学校活跃度</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                  聚合模块 01 至模块 05 的统计数据，辅助超级管理员理解平台增长、活跃趋势与学校使用分布。
+                  通过平台整体趋势和学校使用情况，帮助你判断运行状态和服务重点。
                 </p>
               </div>
             </div>
@@ -106,7 +106,7 @@ export function SystemStatisticsPanel() {
               }}
             >
               <RefreshCcw className="h-4 w-4" />
-              刷新统计
+              刷新数据
             </Button>
           </div>
 
@@ -174,11 +174,11 @@ export function SystemStatisticsPanel() {
         <Card>
           <CardHeader>
             <CardTitle>学校活跃度排行</CardTitle>
-            <CardDescription>按学校活跃用户与活跃度分数排序，帮助识别高活跃租户。</CardDescription>
+            <CardDescription>按学校活跃用户与活跃度分数排序，帮助识别使用表现突出的学校。</CardDescription>
           </CardHeader>
           <CardContent>
             {ranking.length === 0 ? (
-              <EmptyState title="暂无学校排行数据" description="当前没有可展示的学校活跃度统计。" className="min-h-64" />
+              <EmptyState title="暂无学校排行数据" description="当前还没有可展示的学校使用情况。" className="min-h-64" />
             ) : (
               <div className="space-y-3">
                 {ranking.map((item) => (

@@ -1,0 +1,63 @@
+name: fabric-orderer
+category: chain-nodes
+ecosystem: fabric
+description: Hyperledger Fabric Orderer 排序节点
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: hyperledger/fabric-orderer
+registry_project: chain-nodes
+
+versions:
+  - version: "2.5"
+    tag: "v2.5"
+    upstream_tag: "2.5"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 7050
+    protocol: tcp
+    name: gRPC
+    description: Orderer gRPC 服务
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /var/hyperledger/production/orderer
+    purpose: chain_data
+    size: 10Gi
+    description: Orderer 数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: fabric-peer
+      reason: Peer 节点
+  optional:
+    - image: fabric-explorer
+      reason: Fabric 浏览器
+
+required_dependencies: []
+supported_tools:
+  - fabric-explorer
+  - fabric-tools
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:8443/healthz"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+documentation_url: /docs/images/fabric-orderer
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

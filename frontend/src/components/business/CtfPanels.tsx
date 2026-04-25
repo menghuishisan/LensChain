@@ -55,7 +55,7 @@ export function CtfHallPanel() {
     <div className="space-y-6">
       <div className="overflow-hidden rounded-3xl border border-amber-500/20 bg-gradient-to-br from-slate-950 via-zinc-950 to-amber-950 p-8 text-white">
         <p className="font-display text-4xl font-semibold">链镜 CTF 竞赛平台</p>
-        <p className="mt-3 max-w-2xl text-white/65">区块链安全解题赛与链上攻防对抗赛，所有判题结果以后端验证为准。</p>
+        <p className="mt-3 max-w-2xl text-white/65">区块链安全解题赛与链上攻防对抗赛，在这里参与挑战、组队协作与结果追踪。</p>
       </div>
       {competitions.length === 0 ? <EmptyState title="暂无可见竞赛" description="报名中或进行中的竞赛会显示在这里。" /> : null}
       <div className="grid gap-5 xl:grid-cols-2">
@@ -326,7 +326,7 @@ export function CtfAdminCompetitionListPanel() {
     <div className="space-y-5">
       <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">CTF竞赛管理</h1><Button onClick={() => router.push("/admin/ctf/competitions/create")}><Plus className="h-4 w-4" />创建竞赛</Button></div>
       <TableContainer><Table><TableHeader><TableRow><TableHead>竞赛</TableHead><TableHead>类型</TableHead><TableHead>状态</TableHead><TableHead>队伍</TableHead><TableHead>操作</TableHead></TableRow></TableHeader><TableBody>
-        {(competitionsQuery.data?.list ?? []).map((competition) => <TableRow key={competition.id}><TableCell>{competition.title}</TableCell><TableCell>{competition.competition_type_text}</TableCell><TableCell><Badge>{competition.status_text}</Badge></TableCell><TableCell>{competition.registered_teams}/{competition.max_teams ?? "不限"}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => router.push(`/admin/ctf/competitions/${competition.id}/monitor`)}>监控</Button></TableCell></TableRow>)}
+        {(competitionsQuery.data?.list ?? []).map((competition) => <TableRow key={competition.id}><TableCell>{competition.title}</TableCell><TableCell>{competition.competition_type_text}</TableCell><TableCell><Badge>{competition.status_text}</Badge></TableCell><TableCell>{competition.registered_teams}/{competition.max_teams ?? "不限"}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => router.push(`/admin/ctf/competitions/${competition.id}/monitor`)}>查看运行情况</Button></TableCell></TableRow>)}
       </TableBody></Table></TableContainer>
     </div>
   );
@@ -358,11 +358,15 @@ export function CtfCompetitionEditorPanel() {
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">创建竞赛</h1>
-      <div className="flex items-center gap-3 text-sm font-semibold">
-        <Badge variant={step === 1 ? "default" : "outline"}>Step 1 基本信息</Badge>
-        <Badge variant={step === 2 ? "default" : "outline"}>Step 2 题目配置</Badge>
-        <Badge variant={step === 3 ? "default" : "outline"}>Step 3 确认</Badge>
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(28_46%_28%))] p-6 text-primary-foreground">
+        <p className="text-sm text-primary-foreground/75">竞赛配置</p>
+        <h1 className="mt-2 font-display text-3xl font-semibold">创建或编辑 CTF 竞赛</h1>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-primary-foreground/80">按基本信息、题目安排和发布确认三步完成竞赛设置。</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 text-sm font-semibold">
+        <Badge variant={step === 1 ? "default" : "outline"}>基本信息</Badge>
+        <Badge variant={step === 2 ? "default" : "outline"}>题目配置</Badge>
+        <Badge variant={step === 3 ? "default" : "outline"}>发布确认</Badge>
       </div>
       {step === 1 ? (
         <Card><CardContent className="grid gap-4 p-5 md:grid-cols-2">
@@ -394,6 +398,9 @@ export function CtfCompetitionEditorPanel() {
               <FormField label="总回合数"><Input type="number" value={form.ad_config?.total_rounds ?? 10} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), total_rounds: Number(event.target.value) } }))} /></FormField>
               <FormField label="攻击时长"><Input type="number" value={form.ad_config?.attack_duration_minutes ?? 10} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), attack_duration_minutes: Number(event.target.value) } }))} /></FormField>
               <FormField label="防守时长"><Input type="number" value={form.ad_config?.defense_duration_minutes ?? 10} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), defense_duration_minutes: Number(event.target.value) } }))} /></FormField>
+              <FormField label="初始 Token"><Input type="number" value={form.ad_config?.initial_token ?? 10000} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), initial_token: Number(event.target.value) } }))} /></FormField>
+              <FormField label="攻击奖励比例"><Input type="number" step="0.01" value={form.ad_config?.attack_bonus_ratio ?? 0.05} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), attack_bonus_ratio: Number(event.target.value) } }))} /></FormField>
+              <FormField label="每组最大队伍数"><Input type="number" value={form.ad_config?.max_teams_per_group ?? 8} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), max_teams_per_group: Number(event.target.value) } }))} /></FormField>
             </div>
           )}
           <div className="flex gap-2 md:col-span-2">
@@ -435,6 +442,11 @@ export function CtfCompetitionEditorPanel() {
               <Button disabled={selectedChallengeIDs.length === 0} onClick={() => mutations.addChallenges.mutate(selectedChallengeIDs)} isLoading={mutations.addChallenges.isPending}>添加选中题目</Button>
             </div>
           </div>
+          <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
+            {form.competition_type === 2
+              ? "攻防赛请确认所选题目适合按分组环境初始化，并在发布前检查攻防配置、回合数和 Token 参数。"
+              : "解题赛发布后题目会向参赛队伍开放，排行榜和分值会自动更新。"}
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setStep(1)}>上一步</Button>
             <Button onClick={() => setStep(3)}>下一步</Button>
@@ -443,7 +455,7 @@ export function CtfCompetitionEditorPanel() {
       ) : null}
       {step === 3 ? (
         <Card><CardContent className="space-y-4 p-5">
-          <p className="font-semibold">竞赛确认</p>
+          <p className="font-semibold">发布确认</p>
           <div className="grid gap-3 md:grid-cols-4">
             <MetricCard title="赛制" value={form.competition_type === 2 ? "攻防赛" : "解题赛"} />
             <MetricCard title="范围" value={form.scope === 2 ? "校级" : "平台级"} />
@@ -451,6 +463,14 @@ export function CtfCompetitionEditorPanel() {
             <MetricCard title="题目数" value={selectedChallengesQuery.data?.list.length ?? 0} />
           </div>
           <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground whitespace-pre-wrap">{form.description || "暂无描述"}</div>
+          {form.competition_type === 2 ? (
+            <div className="grid gap-3 md:grid-cols-4">
+              <MetricCard title="总回合数" value={form.ad_config?.total_rounds ?? 0} />
+              <MetricCard title="攻击时长" value={`${form.ad_config?.attack_duration_minutes ?? 0} 分钟`} />
+              <MetricCard title="防守时长" value={`${form.ad_config?.defense_duration_minutes ?? 0} 分钟`} />
+              <MetricCard title="初始 Token" value={form.ad_config?.initial_token ?? 0} />
+            </div>
+          ) : null}
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setStep(2)}>上一步</Button>
             <Button onClick={() => mutations.publish.mutate()} isLoading={mutations.publish.isPending} disabled={competitionID.length === 0}>发布竞赛</Button>
@@ -468,7 +488,7 @@ export function CtfCompetitionMonitorPanel({ competitionID }: { competitionID: I
   const competitionMutations = useCtfCompetitionMutations(competitionID);
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">竞赛监控</h1>
+      <h1 className="font-display text-3xl font-semibold">竞赛运行情况</h1>
       <div className="grid gap-3 md:grid-cols-4"><MetricCard title="参赛队伍" value={monitorQuery.data?.overview.registered_teams ?? 0} /><MetricCard title="总提交" value={monitorQuery.data?.overview.total_submissions ?? 0} /><MetricCard title="正确提交" value={monitorQuery.data?.overview.correct_submissions ?? 0} /><MetricCard title="运行环境" value={monitorQuery.data?.overview.running_environments ?? 0} /></div>
       <Card><CardHeader><CardTitle>资源使用</CardTitle></CardHeader><CardContent className="space-y-2">
         <MetricBar label="CPU" used={monitorQuery.data?.resource_usage.cpu_used ?? "0"} total={monitorQuery.data?.resource_usage.cpu_max ?? "0"} ratio={percentFromText(monitorQuery.data?.resource_usage.cpu_used, monitorQuery.data?.resource_usage.cpu_max)} />
@@ -544,7 +564,11 @@ export function CtfChallengeEditorPanel() {
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">{hasDraft ? "编辑题目" : "创建题目"}</h1>
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(28_44%_28%))] p-6 text-primary-foreground">
+        <p className="text-sm text-primary-foreground/75">题目配置</p>
+        <h1 className="mt-2 font-display text-3xl font-semibold">{hasDraft ? "编辑题目" : "创建题目"}</h1>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-primary-foreground/80">按基本信息、合约与断言、验证与审核三部分完成题目设置。</p>
+      </div>
       <Tabs defaultValue="basic">
         <TabsList>
           <TabsTrigger value="basic">基本信息</TabsTrigger>
@@ -555,9 +579,14 @@ export function CtfChallengeEditorPanel() {
           <Card><CardContent className="grid gap-4 p-5 md:grid-cols-2">
             <FormField label="题目名称"><Input value={form.title || currentChallenge?.title || ""} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} /></FormField>
             <FormField label="运行时模式"><Select value={String(form.runtime_mode ?? currentChallenge?.runtime_mode ?? 1)} onValueChange={(value) => setForm((current) => ({ ...current, runtime_mode: Number(value) as 1 | 2 }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">isolated 独立链</SelectItem><SelectItem value="2">forked 固定区块 Fork</SelectItem></SelectContent></Select></FormField>
-            <FormField label="分类"><Input value={form.category || currentChallenge?.category || "contract"} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as CreateCtfChallengeRequest["category"] }))} /></FormField>
+            <FormField label="分类"><Select value={form.category || currentChallenge?.category || "contract"} onValueChange={(value) => setForm((current) => ({ ...current, category: value as CreateCtfChallengeRequest["category"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contract">智能合约</SelectItem><SelectItem value="blockchain">链上分析</SelectItem><SelectItem value="crypto">密码学</SelectItem><SelectItem value="web">Web</SelectItem><SelectItem value="reverse">逆向</SelectItem><SelectItem value="misc">综合</SelectItem></SelectContent></Select></FormField>
             <FormField label="基础分"><Input type="number" value={form.base_score || currentChallenge?.base_score || 300} onChange={(event) => setForm((current) => ({ ...current, base_score: Number(event.target.value) }))} /></FormField>
+            <FormField label="难度"><Select value={String(form.difficulty || currentChallenge?.difficulty || 2)} onValueChange={(value) => setForm((current) => ({ ...current, difficulty: Number(value) as CreateCtfChallengeRequest["difficulty"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">Warmup</SelectItem><SelectItem value="2">Easy</SelectItem><SelectItem value="3">Medium</SelectItem><SelectItem value="4">Hard</SelectItem><SelectItem value="5">Insane</SelectItem></SelectContent></Select></FormField>
+            <FormField label="Flag 类型"><Select value={String(form.flag_type || currentChallenge?.flag_type || 3)} onValueChange={(value) => setForm((current) => ({ ...current, flag_type: Number(value) as CreateCtfChallengeRequest["flag_type"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">静态 Flag</SelectItem><SelectItem value="2">动态 Flag</SelectItem><SelectItem value="3">链上状态验证</SelectItem></SelectContent></Select></FormField>
             <FormField label="描述" className="md:col-span-2"><Textarea value={form.description || currentChallenge?.description || ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={8} /></FormField>
+            <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground md:col-span-2">
+              链上验证题需在后续步骤补充合约、断言和链配置；发起预验证前至少保存一次题目草稿。
+            </div>
             <Button className="md:col-span-2" disabled={!((form.title || currentChallenge?.title) && (form.description || currentChallenge?.description))} onClick={saveDraft} isLoading={mutations.create.isPending || mutations.update.isPending}>{hasDraft ? "保存修改" : "保存题目草稿"}</Button>
           </CardContent></Card>
         </TabsContent>
@@ -567,12 +596,14 @@ export function CtfChallengeEditorPanel() {
               <FormField label="合约名称"><Input value={contractName} onChange={(event) => setContractName(event.target.value)} /></FormField>
               <FormField label="源码"><Textarea value={contractSource} onChange={(event) => setContractSource(event.target.value)} rows={14} className="font-mono" /></FormField>
               <Button onClick={() => assetMutations.createContract.mutate({ name: contractName, source_code: contractSource, abi: [], bytecode: "0x00", constructor_args: [], deploy_order: 1 })} isLoading={assetMutations.createContract.isPending}>添加合约</Button>
+              <div className="space-y-2">
+                {(assetsQuery.contracts.data?.list ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.name} · 部署顺序 {item.deploy_order}</div>)}
+              </div>
             </CardContent></Card>
             <Card><CardHeader><CardTitle>添加断言</CardTitle></CardHeader><CardContent className="space-y-4">
               <FormField label="断言目标"><Input value={assertionTarget} onChange={(event) => setAssertionTarget(event.target.value)} /></FormField>
               <Button onClick={() => assetMutations.createAssertion.mutate({ assertion_type: "storage_check", target: assertionTarget, operator: "eq", expected_value: "true", description: "漏洞利用后应设置 solved=true", extra_params: {}, sort_order: 1 })} isLoading={assetMutations.createAssertion.isPending}>添加断言</Button>
               <div className="space-y-2">
-                {(assetsQuery.contracts.data?.list ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.name} · 部署顺序 {item.deploy_order}</div>)}
                 {(assetsQuery.assertions.data?.list ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.assertion_type} · {item.target} {item.operator} {item.expected_value}</div>)}
               </div>
             </CardContent></Card>
@@ -585,6 +616,11 @@ export function CtfChallengeEditorPanel() {
               <Button variant="outline" onClick={() => mutations.submitReview.mutate()} isLoading={mutations.submitReview.isPending}>提交审核</Button>
             </div>
             <p className="text-sm text-muted-foreground">链上验证题目必须完成预验证后才能审核通过。当前状态：{currentChallenge?.status_text ?? "草稿"}</p>
+            {currentChallenge?.latest_verification ? (
+              <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
+                最近一次预验证：{currentChallenge.latest_verification.status_text}
+              </div>
+            ) : null}
           </CardContent></Card>
         </TabsContent>
       </Tabs>

@@ -1,0 +1,65 @@
+name: cosmos-node
+category: chain-nodes
+ecosystem: cosmos
+description: Cosmos SDK 节点
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: cosmos/cosmos-sdk
+registry_project: chain-nodes
+
+versions:
+  - version: "0.50"
+    tag: "v0.50.0"
+    upstream_tag: "v0.50.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports:
+  - port: 26657
+    protocol: tcp
+    name: RPC
+    description: Tendermint RPC
+  - port: 1317
+    protocol: tcp
+    name: REST
+    description: REST API
+  - port: 9090
+    protocol: tcp
+    name: gRPC
+    description: gRPC API
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /root/.simapp
+    purpose: chain_data
+    size: 10Gi
+    description: 链数据持久化
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:26657/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+documentation_url: /docs/images/cosmos-node
+prepull_phase: 2
+prepull_node_tier: heavy
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

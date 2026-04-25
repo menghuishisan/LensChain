@@ -1,28 +1,11 @@
-# dev overlay
-# 开发环境建议：单副本、较低资源、允许使用 latest 或开发镜像标签。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
 resources:
-  - ../../base/platform/namespace.yaml
-  - ../../base/platform/backend-configmap.yaml
-  - ../../base/platform/backend-deployment.yaml
-  - ../../base/platform/backend-service.yaml
-  - ../../base/platform/backend-hpa.yaml
-  - ../../base/platform/backend-pdb.yaml
-  - ../../base/platform/backend-secret.example.yaml
-  - ../../base/platform/sim-engine-configmap.yaml
-  - ../../base/platform/sim-engine-deployment.yaml
-  - ../../base/platform/sim-engine-service.yaml
-  - ../../base/platform/sim-engine-hpa.yaml
-  - ../../base/platform/sim-engine-pdb.yaml
-  - ../../base/platform/sim-engine-secret.example.yaml
-  - ../../base/platform/postgres-statefulset.yaml
-  - ../../base/platform/postgres-service.yaml
-  - ../../base/platform/redis-deployment.yaml
-  - ../../base/platform/redis-service.yaml
-  - ../../base/platform/minio-deployment.yaml
-  - ../../base/platform/minio-service.yaml
-  - ../../base/platform/minio-bootstrap-job.yaml
-  - ../../base/platform/nats-deployment.yaml
-  - ../../base/platform/nats-service.yaml
-  - ../../base/platform/platform-infra-secret.example.yaml
-  - ../../base/platform/network-policy.yaml
+  - ../../base
+
+patches:
+  - path: backend-patch.yaml
+  - path: frontend-patch.yaml
+  - path: postgres-patch.yaml
+  - path: ingress-patch.yaml

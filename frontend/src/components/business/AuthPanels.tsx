@@ -84,6 +84,9 @@ export function LoginForm() {
       {authMessage ? (
         <div className="rounded-xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">{authMessage}</div>
       ) : null}
+      {mutation.isError && mutation.error.message.includes("还剩") ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-700">{mutation.error.message}</div>
+      ) : null}
       <FormField id="phone" label="手机号" required error={errors.phone}>
         <Input id="phone" inputMode="numeric" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="请输入11位手机号" hasError={Boolean(errors.phone)} />
       </FormField>
@@ -185,7 +188,7 @@ export function SsoCallbackPanel() {
       <ErrorState
         className="mx-auto mt-16 max-w-xl"
         title="SSO认证失败"
-        description={mutation.error.message}
+        description={mutation.error.message.includes("未开通") ? "账号未开通，请联系管理员" : mutation.error.message}
         action={
           <Link className={buttonClassName({ variant: "primary" })} href="/login">
             返回登录
@@ -250,6 +253,7 @@ export function ForceChangePasswordForm() {
       <form className="space-y-5" onSubmit={handleSubmit}>
         <PasswordInputs newPassword={newPassword} confirmPassword={confirmPassword} onNewPasswordChange={setNewPassword} onConfirmPasswordChange={setConfirmPassword} />
         <PasswordRuleList password={newPassword} />
+        {validation.errors.confirmPassword ? <p className="text-sm text-destructive">{validation.errors.confirmPassword}</p> : null}
         <Button type="submit" fullWidth disabled={!validation.isValid} isLoading={mutation.isPending}>
           确认修改
         </Button>

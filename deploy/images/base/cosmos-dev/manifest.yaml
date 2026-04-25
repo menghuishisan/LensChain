@@ -1,0 +1,54 @@
+name: cosmos-dev
+category: base
+ecosystem: cosmos
+description: Cosmos 开发环境镜像
+maintainer: lenschain-platform
+license: MIT
+official_source: lenschain/cosmos-dev
+registry_project: base
+
+versions:
+  - version: "1.0"
+    tag: "v1.0.0"
+    upstream_tag: "v1.0.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /home/developer/project
+    purpose: project_data
+    size: 5Gi
+    description: 项目工作目录
+
+typical_companions:
+  required: []
+  recommended:
+    - image: cosmos-node
+      reason: Cosmos 本地节点
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "go", "version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/cosmos-dev
+prepull_phase: 2
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

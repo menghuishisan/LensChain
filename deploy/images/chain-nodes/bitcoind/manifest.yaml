@@ -1,0 +1,70 @@
+name: bitcoind
+category: chain-nodes
+ecosystem: bitcoin
+description: Bitcoin Core 全节点客户端
+maintainer: lenschain-platform
+license: MIT
+official_source: bitcoin/bitcoin
+registry_project: chain-nodes
+
+versions:
+  - version: "26"
+    tag: "v26"
+    upstream_tag: "26"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 8332
+    protocol: tcp
+    name: RPC
+    description: JSON-RPC API
+  - port: 8333
+    protocol: tcp
+    name: P2P
+    description: P2P 网络通信
+  - port: 18332
+    protocol: tcp
+    name: Testnet-RPC
+    description: Testnet JSON-RPC
+
+default_env_vars: []
+
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /root/.bitcoin
+    purpose: chain_data
+    size: 10Gi
+    description: 链数据持久化
+
+typical_companions:
+  required: []
+  recommended: []
+  optional:
+    - image: code-server
+      reason: Web IDE 编写比特币脚本
+
+required_dependencies: []
+
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "bitcoin-cli -regtest getblockchaininfo"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+documentation_url: /docs/images/bitcoind
+
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

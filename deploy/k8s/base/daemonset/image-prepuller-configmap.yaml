@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: image-manifest
+  namespace: lenschain-system
+  labels:
+    app.kubernetes.io/name: image-manifest
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+data:
+  manifest.yaml: |
+    # 镜像预拉取清单（由 preload-images.sh 或 CI 自动更新）
+    registry: registry.lianjing.com
+    images:
+      # Phase 1 链节点
+      - project: chain-nodes
+        name: bitcoind
+        tag: v26
+      - project: chain-nodes
+        name: geth
+        tag: v1.14.0
+      - project: chain-nodes
+        name: besu
+        tag: v24.3.0
+      - project: chain-nodes
+        name: ganache
+        tag: v7.9.2
+      - project: chain-nodes
+        name: hardhat-node
+        tag: v2.22.0
+      - project: chain-nodes
+        name: fabric-peer
+        tag: v2.5
+      - project: chain-nodes
+        name: fabric-orderer
+        tag: v2.5
+      - project: chain-nodes
+        name: fabric-ca
+        tag: v1.5
+      - project: chain-nodes
+        name: chainmaker-node
+        tag: v2.3.0
+      - project: chain-nodes
+        name: fisco-bcos
+        tag: v3.6.0
+      # Phase 1 中间件
+      - project: middleware
+        name: couchdb
+        tag: v3.3
+      - project: middleware
+        name: mysql
+        tag: v8.0
+      - project: middleware
+        name: postgres
+        tag: v15
+      - project: middleware
+        name: redis
+        tag: v7-alpine
+      - project: middleware
+        name: nginx
+        tag: v1.25-alpine

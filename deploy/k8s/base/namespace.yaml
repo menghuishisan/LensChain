@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lenschain
+  labels:
+    app.kubernetes.io/managed-by: lenschain
+    lenschain.io/namespace-type: platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lenschain-system
+  labels:
+    app.kubernetes.io/managed-by: lenschain
+    lenschain.io/namespace-type: system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/managed-by: lenschain
+    lenschain.io/namespace-type: monitoring

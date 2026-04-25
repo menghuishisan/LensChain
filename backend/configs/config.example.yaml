@@ -9,7 +9,7 @@ server:
   # host: HTTP 服务监听地址；本地开发一般使用 0.0.0.0，生产可按部署环境调整
   host: "0.0.0.0"
   # port: HTTP 服务监听端口
-  port: 3000
+  port: 8080
   # mode: Gin 运行模式，可选 debug / release / test
   mode: "debug"
   # read_timeout: HTTP 请求读取超时时间
@@ -167,14 +167,19 @@ k8s:
   default_cpu: "500m"
   # default_memory: K8s 默认内存配额
   default_memory: "512Mi"
-  # collector_image_template: 混合实验采集器镜像模板，通常使用 %s 作为占位符
-  collector_image_template: "registry.lianjing.com/collector-agents/%s:latest"
+  # collector_image_template: 混合实验采集器镜像模板
+  # - %s 占位符填入链适配器编码：ethereum / fabric / chainmaker / fisco
+  # - 镜像命名规范详见 docs/modules/09-部署与运维/03-镜像与容器设计.md §9.2
+  collector_image_template: "registry.lianjing.com/lenschain/collector-agent-%s:v1.0.0"
   # timeout: 调用 K8s API 的超时时间
   timeout: "30s"
 
 sim_engine:
-  # grpc_addr: SimEngine Core 的 gRPC 服务地址
+  # grpc_addr: SimEngine Core 的 gRPC 服务地址（后端内部调用）
   grpc_addr: "localhost:50051"
+  # ws_addr: SimEngine Core 的 WebSocket 服务地址（供前端渲染器实时推送）
+  # - 生产环境由后端反代或 Ingress 暴露；本地开发直接指向 SimEngine Core
+  ws_addr: "localhost:50052"
   # timeout: SimEngine gRPC 调用超时时间
   timeout: "10s"
   # max_retries: SimEngine 调用失败后的最大重试次数

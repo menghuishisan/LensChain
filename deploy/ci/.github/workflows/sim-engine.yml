@@ -1,0 +1,63 @@
+name: sim-engine
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['sim-engine/**', 'deploy/docker/sim-engine-core.Dockerfile']
+  pull_request:
+    paths: ['sim-engine/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: cd sim-engine/core && go mod download
+      - name: Lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          working-directory: sim-engine/core
+      - name: Test
+        run: cd sim-engine/core && go test ./... -race
+
+  build:
+    needs: test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.lianjing.com
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: registry.lianjing.com/lenschain/sim-engine-core
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/main' }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: sim-engine/core
+          file: deploy/docker/sim-engine-core.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT_SHA=${{ github.sha }}
+          cache-from: type=registry,ref=registry.lianjing.com/lenschain/sim-engine-core:cache
+          cache-to: type=registry,ref=registry.lianjing.com/lenschain/sim-engine-core:cache,mode=max
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: registry.lianjing.com/lenschain/sim-engine-core:sha-${{ github.sha }}
+          severity: CRITICAL
+          exit-code: '1'

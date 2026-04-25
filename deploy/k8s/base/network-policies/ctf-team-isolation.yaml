@@ -1,0 +1,71 @@
+# CTF 攻防赛队伍间隔离策略模板
+# 队伍 Namespace 之间完全禁止互访
+# 仅允许 judge Namespace 的 judge-service 访问队伍链 RPC
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ctf-team-deny-all
+  labels:
+    app.kubernetes.io/name: ctf-team-isolation
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 允许裁判 Namespace 的 judge-service 访问队伍链 RPC
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ctf-allow-judge-ingress
+  labels:
+    app.kubernetes.io/name: ctf-judge-ingress
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: ctf-judge
+      ports:
+        - port: 8545
+          protocol: TCP
+---
+# 允许队伍 Namespace 出站到 DNS + Registry + 后端 API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ctf-team-egress
+  labels:
+    app.kubernetes.io/name: ctf-team-egress
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - port: 8080
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP

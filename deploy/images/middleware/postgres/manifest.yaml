@@ -1,0 +1,57 @@
+name: postgres
+category: middleware
+ecosystem: general
+description: PostgreSQL 关系型数据库
+maintainer: lenschain-platform
+license: PostgreSQL
+official_source: postgres
+registry_project: middleware
+
+versions:
+  - version: "15"
+    tag: "v15"
+    upstream_tag: "15"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 5432
+    protocol: tcp
+    name: PostgreSQL
+    description: PostgreSQL 服务端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /var/lib/postgresql/data
+    purpose: db_data
+    size: 10Gi
+    description: 数据持久化
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "pg_isready", "-U", "postgres"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+documentation_url: /docs/images/postgres
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

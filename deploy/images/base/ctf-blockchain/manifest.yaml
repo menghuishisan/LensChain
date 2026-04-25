@@ -1,0 +1,55 @@
+name: ctf-blockchain
+category: base
+ecosystem: ethereum
+description: CTF 区块链方向基础镜像
+maintainer: lenschain-platform
+license: MIT
+official_source: lenschain/ctf-blockchain
+registry_project: base
+
+versions:
+  - version: "1.0"
+    tag: "v1.0.0"
+    upstream_tag: "v1.0.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended:
+    - image: ganache
+      reason: 本地 EVM 节点
+    - image: foundry
+      reason: Foundry 工具套件
+  optional: []
+
+required_dependencies: []
+
+supported_tools:
+  - foundry
+  - slither
+  - mythril
+
+healthcheck:
+  test: ["CMD", "node", "--version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/ctf-blockchain
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: true
+  allow_high: true

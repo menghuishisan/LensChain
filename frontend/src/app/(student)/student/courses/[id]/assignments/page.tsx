@@ -1,7 +1,7 @@
 // page.tsx
 // 学生作业列表页，对应模块03 P-24。
 
-import { AssignmentListPanel } from "@/components/business/CoursePanels";
+import { AssignmentListPanel } from "@/components/business/AssignmentListPanel";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

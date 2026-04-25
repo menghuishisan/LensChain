@@ -1,0 +1,59 @@
+name: prometheus
+category: tools
+ecosystem: general
+description: Prometheus 指标采集服务
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: prometheus/prometheus
+registry_project: tools
+
+versions:
+  - version: "2.51"
+    tag: "v2.51.0"
+    upstream_tag: "v2.51.0"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 9090
+    protocol: tcp
+    name: HTTP
+    description: Prometheus Web 和 API 端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /prometheus
+    purpose: metrics_data
+    size: 5Gi
+    description: 指标数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: grafana
+      reason: 可视化仪表盘
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+documentation_url: /docs/images/prometheus
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

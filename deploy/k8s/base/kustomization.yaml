@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - backend/
+  - frontend/
+  - sim-engine/
+  - postgres/
+  - redis/
+  - minio/
+  - nats/
+  - ingress/app-ingress.yaml
+  - ingress/api-ingress.yaml
+  - ingress/files-ingress.yaml
+  - ingress/console-ingress.yaml
+  - rbac/backend-serviceaccount.yaml
+  - rbac/backend-clusterrole.yaml
+  - rbac/backend-clusterrolebinding.yaml
+  - rbac/sim-engine-clusterrole.yaml
+  - rbac/image-prepuller-role.yaml
+  - network-policies/platform-default.yaml
+  - network-policies/experiment-deny-all.yaml
+  - network-policies/experiment-egress-registry.yaml
+  - network-policies/experiment-egress-backend.yaml
+  - network-policies/ctf-team-isolation.yaml
+  - daemonset/image-prepuller.yaml
+  - daemonset/image-prepuller-configmap.yaml
+  - cronjobs/pv-cleanup.yaml
+  - cronjobs/image-version-gc.yaml
+  - cronjobs/db-backup.yaml

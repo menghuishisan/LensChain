@@ -1,9 +1,0 @@
-# image.yaml
-name: caliper
-module: experiment
-category: tools
-runtime: benchmark
-resource_recommendation:
-  cpu: 0.5
-  memory: 512Mi
-description: 区块链性能测试镜像。

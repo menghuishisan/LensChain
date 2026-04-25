@@ -8,7 +8,7 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 export default function TeacherExperimentGradePage({ params }: { params: { id: string } }) {
   return (
     <PermissionGate allowedRoles={["teacher"]}>
-      <ExperimentInstancePanel instanceID={params.id} canGrade terminalReadOnly />
+      <ExperimentInstancePanel instanceID={params.id} mode="grade" />
     </PermissionGate>
   );
 }

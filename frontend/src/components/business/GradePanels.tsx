@@ -114,6 +114,7 @@ export function StudentGradeAppealsPanel() {
                 </div>
                 <Badge variant={getGradeAppealStatusVariant(item.status)}>{item.status_text}</Badge>
               </div>
+              <p className="mt-2 text-sm text-muted-foreground">申诉提交时间：{item.created_at.slice(0, 10)}</p>
             </div>
           ))}
         </CardContent>
@@ -190,7 +191,12 @@ export function TeacherGradeAppealsPanel() {
             <CardTitle>申诉详情</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground whitespace-pre-wrap">{appealQuery.data.appeal_reason}</div>
+          <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground whitespace-pre-wrap">{appealQuery.data.appeal_reason}</div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <Metric title="原成绩" value={formatScore(appealQuery.data.original_score)} />
+              <Metric title="当前状态" value={appealQuery.data.status_text} />
+              <Metric title="申诉时间" value={appealQuery.data.created_at ? appealQuery.data.created_at.slice(0, 10) : "-"} />
+            </div>
             <div className="grid gap-3 md:grid-cols-[160px_1fr]">
               <FormField label="新成绩">
                 <Input type="number" value={newScore} onChange={(event) => setNewScore(event.target.value)} />
@@ -285,6 +291,7 @@ export function AdminSemestersPanel() {
           </TableBody>
         </Table>
       </TableContainer>
+      <p className="text-sm text-muted-foreground">有课程关联的学期不可删除；设为当前学期后，其他学期会自动取消当前标记。</p>
     </div>
   );
 }
@@ -328,6 +335,7 @@ export function AdminLevelConfigsPanel() {
             ))}
           </div>
         </div>
+        <p className="text-sm text-muted-foreground">保存前请确保所有区间完整覆盖 0-100 且互不重叠，绩点范围为 0-4。</p>
       </CardContent>
     </Card>
   );
@@ -397,6 +405,20 @@ export function AdminGradeAnalyticsPanel() {
         <CardContent className="grid gap-4 md:grid-cols-2">
           <ListBlock title="最高平均分课程" items={analytics?.top_courses.map((item) => `${item.course_name} ${formatScore(item.average_score)}`) ?? []} />
           <ListBlock title="最低平均分课程" items={analytics?.bottom_courses.map((item) => `${item.course_name} ${formatScore(item.average_score)}`) ?? []} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>GPA分布</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {(analytics?.gpa_distribution ?? []).map((item) => (
+            <div key={item.range} className="flex items-center gap-3 text-sm">
+              <span className="w-24">{item.range}</span>
+              <div className="h-2 flex-1 rounded-full bg-muted">
+                <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, item.count * 5)}%` }} />
+              </div>
+              <span>{item.count}</span>
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>

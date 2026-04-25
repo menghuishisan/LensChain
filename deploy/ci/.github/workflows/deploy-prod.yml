@@ -1,0 +1,37 @@
+name: deploy-prod
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.PROD_KUBECONFIG }}" | base64 -d > ~/.kube/config
+      - name: Deploy backend first
+        run: |
+          kubectl apply -k deploy/k8s/overlays/prod/
+          kubectl -n lenschain rollout status deployment/backend --timeout=10m
+      - name: Verify backend health
+        run: |
+          BACKEND_URL=$(kubectl -n lenschain get svc backend -o jsonpath='{.spec.clusterIP}')
+          kubectl run health-check --rm -i --restart=Never \
+            --image=curlimages/curl:8.5.0 -- \
+            curl -fsS "http://${BACKEND_URL}:8080/healthz"
+      - name: Deploy frontend and sim-engine
+        run: |
+          kubectl -n lenschain rollout status deployment/frontend --timeout=10m
+          kubectl -n lenschain rollout status deployment/sim-engine --timeout=10m
+      - name: Final verification
+        run: |
+          kubectl -n lenschain get pods
+          kubectl -n lenschain get hpa
+          kubectl -n lenschain get pdb

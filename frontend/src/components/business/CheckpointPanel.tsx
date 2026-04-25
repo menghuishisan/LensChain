@@ -32,7 +32,7 @@ export function CheckpointPanel({ instanceID, canGrade = false }: CheckpointPane
   const [scoreDraft, setScoreDraft] = useState<Record<ID, string>>({});
 
   if (instanceQuery.isLoading) {
-    return <LoadingState title="正在加载检查点" description="读取实验实例与检查点结果。" />;
+    return <LoadingState title="正在加载检查点" description="正在整理当前实验的检查结果。" />;
   }
 
   const checkpoints = instanceQuery.data?.checkpoints ?? [];
@@ -50,7 +50,7 @@ export function CheckpointPanel({ instanceID, canGrade = false }: CheckpointPane
       </CardHeader>
       <CardContent className="space-y-3">
         {checkpoints.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">当前实例没有配置检查点。</div>
+          <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">当前实验还没有设置检查点。</div>
         ) : null}
         {checkpoints.map((checkpoint) => {
           const isPassed = checkpoint.result?.is_passed ?? false;
@@ -72,7 +72,7 @@ export function CheckpointPanel({ instanceID, canGrade = false }: CheckpointPane
               </div>
               {canGrade ? (
                 <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
-                  <FormField label="教师手动评分" description="手动评分将刷新实例总分和检查点结果。">
+                  <FormField label="教师手动评分" description="手动评分会同步更新当前实验的总分和检查结果。">
                     <Input
                       type="number"
                       min={0}

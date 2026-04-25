@@ -1,0 +1,52 @@
+name: xterm-server
+category: tools
+ecosystem: general
+description: Web 终端服务
+maintainer: lenschain-platform
+license: MIT
+official_source: lenschain/xterm-server
+registry_project: tools
+
+versions:
+  - version: "1.0"
+    tag: "v1.0.0"
+    upstream_tag: "v1.0.0"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 3000
+    protocol: tcp
+    name: HTTP
+    description: Web 终端访问端口
+
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:3000/healthz"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+
+documentation_url: /docs/images/xterm-server
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

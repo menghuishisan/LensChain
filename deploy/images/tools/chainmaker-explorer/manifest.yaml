@@ -1,0 +1,56 @@
+name: chainmaker-explorer
+category: tools
+ecosystem: chainmaker
+description: 长安链浏览器
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: chainmaker/chainmaker-explorer
+registry_project: tools
+
+versions:
+  - version: "2.3"
+    tag: "v2.3.0"
+    upstream_tag: "v2.3.0"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 8080
+    protocol: tcp
+    name: HTTP
+    description: 浏览器 Web 访问端口
+
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required:
+    - image: chainmaker-node
+      reason: 需要连接长安链节点
+  recommended: []
+  optional: []
+
+required_dependencies:
+  - chainmaker-node
+
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:8080/"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+documentation_url: /docs/images/chainmaker-explorer
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

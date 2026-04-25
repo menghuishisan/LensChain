@@ -1,0 +1,70 @@
+name: fisco-bcos
+category: chain-nodes
+ecosystem: fisco
+description: FISCO BCOS 联盟链节点
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: fiscoorg/fiscobcos
+registry_project: chain-nodes
+
+versions:
+  - version: "3.6"
+    tag: "v3.6.0"
+    upstream_tag: "v3.6.0"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 20200
+    protocol: tcp
+    name: Channel
+    description: Channel 协议端口
+  - port: 8545
+    protocol: tcp
+    name: JSON-RPC
+    description: JSON-RPC API
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /data
+    purpose: chain_data
+    size: 10Gi
+    description: 链数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: webase-front
+      reason: WeBase 前端管理
+    - image: webase-web
+      reason: WeBase Web 管理
+  optional:
+    - image: caliper
+      reason: 性能测试
+
+required_dependencies: []
+supported_tools:
+  - webase-front
+  - webase-web
+  - caliper
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:8545"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+documentation_url: /docs/images/fisco-bcos
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

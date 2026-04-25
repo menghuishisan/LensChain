@@ -1,0 +1,60 @@
+name: fabric-ca
+category: chain-nodes
+ecosystem: fabric
+description: Hyperledger Fabric CA 证书颁发服务
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: hyperledger/fabric-ca
+registry_project: chain-nodes
+
+versions:
+  - version: "1.5"
+    tag: "v1.5"
+    upstream_tag: "1.5"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 7054
+    protocol: tcp
+    name: HTTP
+    description: CA 服务端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /etc/hyperledger/fabric-ca-server
+    purpose: config_data
+    size: 1Gi
+    description: CA 配置和证书数据
+
+typical_companions:
+  required: []
+  recommended:
+    - image: fabric-peer
+      reason: Peer 节点需要 CA 颁发证书
+  optional: []
+
+required_dependencies: []
+supported_tools:
+  - fabric-tools
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:7054/healthz"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+documentation_url: /docs/images/fabric-ca
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

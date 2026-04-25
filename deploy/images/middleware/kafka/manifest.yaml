@@ -1,0 +1,61 @@
+name: kafka
+category: middleware
+ecosystem: general
+description: Apache Kafka 消息队列
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: confluentinc/cp-kafka
+registry_project: middleware
+
+versions:
+  - version: "7.6"
+    tag: "v7.6.0"
+    upstream_tag: "7.6.0"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 9092
+    protocol: tcp
+    name: Kafka
+    description: Kafka Broker 端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /var/lib/kafka/data
+    purpose: message_data
+    size: 10Gi
+    description: 消息数据持久化
+
+typical_companions:
+  required:
+    - image: zookeeper
+      reason: Kafka 依赖 ZooKeeper
+  recommended: []
+  optional: []
+
+required_dependencies:
+  - zookeeper
+
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+documentation_url: /docs/images/kafka
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

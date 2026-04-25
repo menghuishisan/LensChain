@@ -9,7 +9,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { AssignmentEditor } from "@/components/business/AssignmentEditor";
 import { CourseCard } from "@/components/business/CourseCard";
-import { CourseEditorForm } from "@/components/business/CourseEditorForm";
 import { DiscussionThread } from "@/components/business/DiscussionThread";
 import { LessonContentEditor } from "@/components/business/LessonContentEditor";
 import { SubmissionReviewPanel } from "@/components/business/SubmissionReviewPanel";
@@ -25,7 +24,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
 import { buildAssignmentAnswersPayload, persistAssignmentDraftLocal, useAssignmentAutosave } from "@/hooks/useAssignmentAutosave";
 import { useAssignment, useAssignmentDraft, useAssignments, useCourseGrades, useGradeMutations, useMySubmissions, useSaveAssignmentDraftMutation, useSubmitAssignmentMutation, useSubmissions } from "@/hooks/useAssignments";
-import { useAddCourseStudentMutation, useBatchAddCourseStudentsMutation, useCourse, useCourseLifecycleMutations, useCourseProgress, useCourses, useCourseSchedule, useCourseStatistics, useExportCourseStatisticsMutation, useJoinCourseMutation, useMyCourses, useMySchedule, useRemoveCourseStudentMutation, useSetCourseScheduleMutation, useSharedCourse, useSharedCourses, useCourseStudents } from "@/hooks/useCourses";
+import { useAddCourseStudentMutation, useBatchAddCourseStudentsMutation, useCourse, useCourseLifecycleMutations, useCourseProgress, useCourses, useJoinCourseMutation, useMyCourses, useMySchedule, useRemoveCourseStudentMutation, useSharedCourse, useCourseStudents, useCourseStatistics, useExportCourseStatisticsMutation } from "@/hooks/useCourses";
 import { useCourseChapters, useCourseContentMutations, useLesson, useUploadCourseFileMutation } from "@/hooks/useCourseContent";
 import { useAnnouncementMutations, useAnnouncements, useDiscussionMutations, useDiscussions, useEvaluations, useEvaluationMutations } from "@/hooks/useDiscussions";
 import { buildLessonProgressPayload, buildLessonUnloadProgressPayload, getLessonResumeSecond, shouldReportVideoProgress } from "@/hooks/useLessonVideoProgress";
@@ -34,7 +33,7 @@ import { formatDateTime } from "@/lib/format";
 import { resolveAdjacentLessons } from "@/lib/course-navigation";
 import { buildWeeklyScheduleGrid } from "@/lib/schedule-grid";
 import type { ID } from "@/types/api";
-import type { AssignmentListParams, SubmissionListParams } from "@/types/courseAssignment";
+import type { SubmissionListParams } from "@/types/courseAssignment";
 
 /**
  * TeacherCourseListPanel 教师课程列表组件。
@@ -87,59 +86,6 @@ export function JoinCoursePanel() {
         <Button disabled={inviteCode.length !== 6} isLoading={mutation.isPending} onClick={() => mutation.mutate({ invite_code: inviteCode }, { onSuccess: () => showToast({ title: "加入课程成功", variant: "success" }), onError: (error) => showToast({ title: "加入失败", description: error.message, variant: "destructive" }) })}>加入</Button>
       </CardContent>
     </Card>
-  );
-}
-
-/**
- * CourseOverviewPanel 教师课程管理主页。
- */
-export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
-  const query = useCourse(courseID);
-  const lifecycle = useCourseLifecycleMutations(courseID);
-  const stats = useCourseStatistics(courseID);
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState description={query.error.message} />;
-  if (!query.data) return null;
-  return (
-    <div className="space-y-5">
-      <Card>
-        <CardHeader><CardTitle>{query.data.title}</CardTitle><CardDescription>{query.data.status_text} · 邀请码：{query.data.invite_code ?? "仅教师可见"}</CardDescription></CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/content`}>内容</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/assignments`}>作业</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/students`}>学生</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/grades`}>成绩</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/statistics`}>统计</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/discussions`}>讨论</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/announcements`}>公告</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/evaluations`}>评价</Link>
-          <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/settings`}>设置</Link>
-          <Button variant="secondary" onClick={() => lifecycle.publish.mutate()}>发布</Button>
-          <Button variant="outline" onClick={() => lifecycle.end.mutate()}>结束</Button>
-          <Button variant="outline" onClick={() => lifecycle.archive.mutate()}>归档</Button>
-          <Button variant="outline" onClick={() => lifecycle.refreshInvite.mutate()}>刷新邀请码</Button>
-        </CardContent>
-      </Card>
-      <div className="grid gap-4 md:grid-cols-4">
-        <Stat title="学生" value={query.data.student_count} />
-        <Stat title="课时" value={stats.overview.data?.lesson_count ?? query.data.chapters.reduce((count, chapter) => count + chapter.lessons.length, 0)} />
-        <Stat title="作业" value={stats.overview.data?.assignment_count ?? 0} />
-        <Stat title="完课率" value={`${stats.overview.data?.completion_rate ?? 0}%`} />
-      </div>
-      <div className="grid gap-4 md:grid-cols-3">
-        <Stat title="平均分" value={stats.overview.data?.avg_score ?? 0} />
-        <Stat title="活跃度" value={`${stats.overview.data?.activity_rate ?? 0}%`} />
-        <Stat title="累计学习时长" value={`${stats.overview.data?.total_study_hours ?? 0}h`} />
-      </div>
-      <Card>
-        <CardHeader><CardTitle>最近动态</CardTitle><CardDescription>基于课程统计和当前配置聚合的教学概览。</CardDescription></CardHeader>
-        <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>课程当前共有 {query.data.student_count} 名学生，已配置 {stats.overview.data?.lesson_count ?? 0} 个课时与 {stats.overview.data?.assignment_count ?? 0} 份作业。</p>
-          <p>课程平均学习进度 {stats.overview.data?.avg_progress ?? 0}% ，完课率 {stats.overview.data?.completion_rate ?? 0}% 。</p>
-          <p>课程已进入 {query.data.status_text} 阶段，教师可继续通过上方快捷入口管理内容、作业、学生、成绩和统计。</p>
-        </CardContent>
-      </Card>
-    </div>
   );
 }
 
@@ -352,25 +298,6 @@ function ChapterContentBlock({ courseID, chapter, index, chapters }: { courseID:
         </Button>
       </div>
     </div>
-  );
-}
-
-/**
- * AssignmentListPanel 作业列表组件。
- */
-export function AssignmentListPanel({ courseID, role }: { courseID: ID; role: "teacher" | "student" }) {
-  const [page, setPage] = useState(1);
-  const query = useAssignments(courseID, { page, page_size: 20 } satisfies AssignmentListParams);
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState description={query.error.message} />;
-  return (
-    <Card>
-      <CardHeader><CardTitle>作业列表</CardTitle>{role === "teacher" ? <Link className={buttonClassName()} href={`/teacher/assignments/new/edit?course_id=${courseID}`}>创建作业</Link> : null}</CardHeader>
-      <CardContent className="space-y-3">
-        {(query.data?.list ?? []).map((item) => <Link key={item.id} className="block rounded-xl border border-border p-4" href={role === "teacher" ? `/teacher/assignments/${item.id}/edit?course_id=${courseID}` : `/student/assignments/${item.id}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{item.title}</p><p className="mt-1 text-sm text-muted-foreground">{item.assignment_type_text} · 截止 {item.deadline_at ? formatDateTime(item.deadline_at) : "未设置"}</p></div><div className="flex gap-2"><Badge variant={item.is_published ? "success" : "outline"}>{item.is_published ? "已发布" : "未发布"}</Badge>{role === "student" ? <Badge variant={resolveAssignmentAvailability(item.deadline_at) === "进行中" ? "outline" : "destructive"}>{resolveAssignmentAvailability(item.deadline_at)}</Badge> : null}</div></div>{role === "teacher" ? <p className="mt-2 text-sm text-muted-foreground">提交 {item.submit_count}/{item.total_students}</p> : <p className="mt-2 text-sm text-muted-foreground">{item.total_score} 分 · 查看作答与提交历史</p>}</Link>)}
-        {query.data?.pagination ? <Pagination page={query.data.pagination.page} totalPages={query.data.pagination.total_pages} total={query.data.pagination.total} onPageChange={setPage} /> : null}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -595,27 +522,6 @@ export function AnnouncementPanel({ courseID }: { courseID: ID }) {
 }
 
 /**
- * GradePanel 课程成绩组件。
- */
-export function GradePanel({ courseID, role }: { courseID: ID; role: "teacher" | "student" }) {
-  const grades = useCourseGrades(courseID);
-  const assignments = useAssignments(courseID, { page: 1, page_size: 100 });
-  const mutations = useGradeMutations(courseID);
-  const [weights, setWeights] = useState<Record<string, number>>({});
-  useEffect(() => {
-    if (assignments.data?.list && Object.keys(weights).length === 0) {
-      setWeights(Object.fromEntries(assignments.data.list.map((item) => [item.id, 0])));
-    }
-  }, [assignments.data?.list, weights]);
-  if (grades.summary.isLoading || grades.mine.isLoading) return <LoadingState />;
-  const studentRows = grades.summary.data?.students ?? [];
-  const mine = grades.mine.data;
-  return (
-    <Card><CardHeader><CardTitle>{role === "teacher" ? "课程成绩管理" : "我的成绩"}</CardTitle></CardHeader><CardContent className="space-y-4">{role === "teacher" ? <><div className="grid gap-2">{assignments.data?.list.map((assignment) => <div key={assignment.id} className="grid gap-2 md:grid-cols-[1fr_8rem]"><span className="rounded-lg bg-muted/60 p-2 text-sm">{assignment.title}</span><Input type="number" value={weights[assignment.id] ?? 0} onChange={(event) => setWeights((current) => ({ ...current, [assignment.id]: Number(event.target.value) }))} /></div>)}</div><div className="flex gap-2"><Button disabled={Object.values(weights).reduce((sum, value) => sum + value, 0) !== 100} onClick={() => mutations.setConfig.mutate((assignments.data?.list ?? []).map((item) => ({ assignment_id: item.id, name: item.title, weight: weights[item.id] ?? 0 })))}>保存权重</Button><Button variant="outline" onClick={() => mutations.exportGrades.mutate()}>导出成绩</Button></div>{studentRows.map((item) => <div key={item.student_id} className="rounded-lg bg-muted/60 p-3">{item.student_name} · {item.final_score}</div>)}</> : <div className="space-y-3"><div>最终成绩：{mine?.final_score ?? "暂无"}</div><div>加权总分：{mine?.weighted_total ?? "暂无"}</div>{mine?.is_adjusted ? <Badge variant="outline">已调整</Badge> : null}<div className="grid gap-2">{(assignments.data?.list ?? []).map((assignment) => <div key={assignment.id} className="flex items-center justify-between rounded-lg border border-border p-3 text-sm"><span>{assignment.title}</span><span>{mine?.scores?.[assignment.id] ?? "-"}</span></div>)}</div></div>}</CardContent></Card>
-  );
-}
-
-/**
  * EvaluationPanel 课程评价组件。
  */
 export function EvaluationPanel({ courseID, role }: { courseID: ID; role: "teacher" | "student" }) {
@@ -625,23 +531,6 @@ export function EvaluationPanel({ courseID, role }: { courseID: ID; role: "teach
   const [comment, setComment] = useState("");
   return (
     <Card><CardHeader><CardTitle>课程评价</CardTitle><CardDescription>课程结束后学生可评价，教师可查看统计。</CardDescription></CardHeader><CardContent className="space-y-4">{role === "student" ? <div className="grid gap-2"><Input type="number" min={1} max={5} value={rating} onChange={(event) => setRating(Number(event.target.value))} /><Textarea value={comment} onChange={(event) => setComment(event.target.value)} /><Button onClick={() => mutations.create.mutate({ rating, comment })}>提交评价</Button></div> : null}<div className="rounded-xl bg-muted/60 p-4">平均评分：{query.data?.summary.avg_rating ?? 0} · 共{query.data?.summary.total_count ?? 0}条</div>{query.data?.items.map((item) => <div key={item.id} className="rounded-xl border border-border p-4">{item.student_name} · {item.rating}星<p className="mt-2 text-sm">{item.comment}</p></div>)}</CardContent></Card>
-  );
-}
-
-/**
- * CourseSettingsPanel 课程设置组件，包含基础信息、共享、克隆、删除和课程表。
- */
-export function CourseSettingsPanel({ courseID }: { courseID: ID }) {
-  const course = useCourse(courseID);
-  const lifecycle = useCourseLifecycleMutations(courseID);
-  const schedule = useCourseSchedule(courseID);
-  const setSchedule = useSetCourseScheduleMutation(courseID);
-  const [day, setDay] = useState(3);
-  const [start, setStart] = useState("08:00");
-  const [end, setEnd] = useState("09:40");
-  const [location, setLocation] = useState("");
-  return (
-    <div className="space-y-5"><CourseEditorForm courseID={courseID} /><Card><CardHeader><CardTitle>共享与生命周期</CardTitle><CardDescription>草稿不可共享，删除仅允许草稿课程。</CardDescription></CardHeader><CardContent className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => lifecycle.share.mutate(!(course.data?.is_shared ?? false))}>{course.data?.is_shared ? "取消共享" : "共享到课程库"}</Button><Button variant="outline" onClick={() => lifecycle.clone.mutate()}>克隆课程</Button><Button variant="destructive" onClick={() => lifecycle.remove.mutate()}>删除课程</Button></div><div className="grid gap-3 md:grid-cols-3"><Stat title="当前状态" value={course.data?.status_text ?? "-"} /><Stat title="共享状态" value={course.data?.is_shared ? "已共享" : "未共享"} /><Stat title="邀请码" value={course.data?.invite_code ?? "未生成"} /></div></CardContent></Card><Card><CardHeader><CardTitle>课程表</CardTitle></CardHeader><CardContent className="space-y-3"><div className="grid gap-2 md:grid-cols-4"><Input type="number" min={1} max={7} value={day} onChange={(event) => setDay(Number(event.target.value))} /><Input value={start} onChange={(event) => setStart(event.target.value)} /><Input value={end} onChange={(event) => setEnd(event.target.value)} /><Input placeholder="地点" value={location} onChange={(event) => setLocation(event.target.value)} /></div><Button onClick={() => setSchedule.mutate({ schedules: [{ day_of_week: day, start_time: start, end_time: end, location }] })}>保存课程表</Button><div className="grid gap-3 md:grid-cols-2">{schedule.data?.map((item) => <div key={item.id} className="rounded-lg border border-border p-3 text-sm text-muted-foreground">周{item.day_of_week} {item.start_time}-{item.end_time} {item.location}</div>)}</div></CardContent></Card></div>
   );
 }
 
@@ -658,16 +547,6 @@ export function SharedCourseDetailPanel({ courseID }: { courseID: ID }) {
 }
 
 /**
- * CourseStatisticsPanel 课程统计组件。
- */
-export function CourseStatisticsPanel({ courseID }: { courseID: ID }) {
-  const stats = useCourseStatistics(courseID);
-  const exportMutation = useExportCourseStatisticsMutation(courseID);
-  if (stats.overview.isLoading || stats.assignments.isLoading) return <LoadingState />;
-  return <Card><CardHeader><CardTitle>课程统计</CardTitle><CardDescription>课程概览与作业统计。</CardDescription></CardHeader><CardContent className="space-y-5"><div className="grid gap-3 md:grid-cols-4"><Stat title="学生数" value={stats.overview.data?.student_count ?? 0} /><Stat title="课时数" value={stats.overview.data?.lesson_count ?? 0} /><Stat title="完课率" value={`${stats.overview.data?.completion_rate ?? 0}%`} /><Stat title="平均分" value={stats.overview.data?.avg_score ?? 0} /></div><div className="grid gap-3 md:grid-cols-3"><Stat title="活跃度" value={`${stats.overview.data?.activity_rate ?? 0}%`} /><Stat title="平均进度" value={`${stats.overview.data?.avg_progress ?? 0}%`} /><Stat title="累计学习时长" value={`${stats.overview.data?.total_study_hours ?? 0}h`} /></div><div className="grid gap-3 md:grid-cols-3"><Stat title="未开始占比" value={`${stats.overview.data?.progress_distribution.not_started_rate ?? 0}%`} /><Stat title="进行中占比" value={`${stats.overview.data?.progress_distribution.in_progress_rate ?? 0}%`} /><Stat title="已完成占比" value={`${stats.overview.data?.progress_distribution.completed_rate ?? 0}%`} /></div><div className="space-y-3">{(stats.assignments.data?.assignments ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="font-semibold">{item.title}</p><Badge variant="outline">提交率 {item.submit_rate}%</Badge></div><p className="mt-2 text-sm text-muted-foreground">提交 {item.submit_count}/{item.total_students} · 平均分 {item.avg_score} · 最高分 {item.max_score} · 最低分 {item.min_score}</p></div>)}</div><Button onClick={() => exportMutation.mutate()}>导出统计报告</Button></CardContent></Card>;
-}
-
-/**
  * SchedulePanel 我的课程表组件。
  */
 export function SchedulePanel() {
@@ -677,23 +556,8 @@ export function SchedulePanel() {
   return <Card><CardHeader><CardTitle>我的课程表</CardTitle></CardHeader><CardContent className="grid gap-4 lg:grid-cols-7">{weeklyGrid.map((day) => <div key={day.dayOfWeek} className="rounded-xl border border-border bg-muted/25 p-3"><p className="font-semibold">{day.dayLabel}</p><div className="mt-3 grid gap-3">{day.items.length === 0 ? <p className="text-sm text-muted-foreground">暂无课程</p> : day.items.map((item) => <Link key={`${item.course_id}-${item.start_time}`} href={`/student/courses/${item.course_id}`} className="rounded-lg border border-border bg-background p-3"><p className="font-semibold">{item.course_title}</p><p className="mt-1 text-sm text-muted-foreground">{item.start_time}-{item.end_time}</p><p className="mt-1 text-xs text-muted-foreground">{item.location ?? "地点待定"}</p></Link>)}</div></div>)}</CardContent></Card>;
 }
 
-/**
- * SharedCoursesPanel 共享课程库组件。
- */
-export function SharedCoursesPanel() {
-  const query = useSharedCourses({ page: 1, page_size: 20 });
-  return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{query.data?.list.map((item) => <CourseCard key={item.id} course={item} href={`/shared-courses/${item.id}`} />)}</div>;
-}
-
 function Stat({ title, value }: { title: string; value: string | number }) {
   return <Card><CardHeader><CardDescription>{title}</CardDescription><CardTitle>{value}</CardTitle></CardHeader></Card>;
-}
-
-function resolveAssignmentAvailability(deadlineAt: string | null) {
-  if (!deadlineAt) {
-    return "进行中";
-  }
-  return new Date(deadlineAt).getTime() > Date.now() ? "进行中" : "已截止";
 }
 
 function parseQuestionOptions(options?: string | null) {

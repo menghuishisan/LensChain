@@ -1,7 +1,7 @@
 // page.tsx
 // 课程统计页，对应模块03 P-11。
 
-import { CourseStatisticsPanel } from "@/components/business/CoursePanels";
+import { CourseStatisticsPanel } from "@/components/business/CourseStatisticsPanel";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

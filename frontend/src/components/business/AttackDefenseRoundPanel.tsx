@@ -4,13 +4,12 @@
 // 模块05攻防赛回合面板，展示回合阶段、攻击/防守提交、攻击结果、补丁验证和 Token 状态。
 
 import { ShieldCheck, Swords, Timer } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { FormField } from "@/components/ui/FormField";
-import { Input } from "@/components/ui/Input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { useAdAttacks, useAdBattleMutations, useAdDefenses, useAdGroups, useCurrentAdRound } from "@/hooks/useCtfBattle";
@@ -44,6 +43,19 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
   const current = roundQuery.data;
   const attackResult = battleMutations.attack.data;
   const defenseResult = battleMutations.defense.data;
+  const availableTeams = useMemo(
+    () => (leaderboardQuery.data?.rankings ?? []).filter((team) => team.team_id !== current?.my_team?.id),
+    [current?.my_team?.id, leaderboardQuery.data?.rankings],
+  );
+  const attackChallengeOptions = useMemo(
+    () =>
+      (attacksQuery.data?.list ?? [])
+        .map((item) => ({ id: item.challenge_id, title: item.challenge_title, reward: item.token_reward ?? 0 }))
+        .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index),
+    [attacksQuery.data?.list],
+  );
+  const selectedTarget = availableTeams.find((team) => team.team_id === targetTeamID);
+  const selectedChallenge = attackChallengeOptions.find((item) => item.id === challengeID);
 
   return (
     <div className="space-y-5">
@@ -83,16 +95,44 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Swords className="h-5 w-5 text-red-500" />
-              提交攻击
+              发起攻击
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField label="目标队伍 ID">
-              <Input value={targetTeamID} onChange={(event) => setTargetTeamID(event.target.value)} />
+            <FormField label="选择目标队伍">
+              <Select value={targetTeamID} onValueChange={setTargetTeamID}>
+                <SelectTrigger><SelectValue placeholder="选择目标队伍" /></SelectTrigger>
+                <SelectContent>
+                  {availableTeams.map((team) => (
+                    <SelectItem key={team.team_id} value={team.team_id}>
+                      {team.team_name} · Token {team.token_balance ?? 0}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FormField>
-            <FormField label="漏洞题目 ID">
-              <Input value={challengeID} onChange={(event) => setChallengeID(event.target.value)} />
+            <FormField label="选择攻击漏洞">
+              <Select value={challengeID} onValueChange={setChallengeID}>
+                <SelectTrigger><SelectValue placeholder="选择目标漏洞" /></SelectTrigger>
+                <SelectContent>
+                  {attackChallengeOptions.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FormField>
+            {selectedTarget ? (
+              <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
+                目标队伍：{selectedTarget.team_name} · 当前排名 #{selectedTarget.rank} · Token {selectedTarget.token_balance ?? 0}
+              </div>
+            ) : null}
+            {selectedChallenge ? (
+              <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
+                攻击漏洞：{selectedChallenge.title} · 参考奖励 {selectedChallenge.reward} Token
+              </div>
+            ) : null}
             <FormField label="攻击交易数据">
               <Textarea value={attackTxData} onChange={(event) => setAttackTxData(event.target.value)} rows={7} className="font-mono" />
             </FormField>
@@ -100,7 +140,7 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
               提交攻击
             </Button>
             {attackResult ? (
-              <ResultBox ok={attackResult.is_successful} okText={`攻击成功，奖励 ${attackResult.token_reward ?? 0} Token`} failText={attackResult.error_message ?? "攻击失败，后端未返回原因"} />
+              <ResultBox ok={attackResult.is_successful} okText={`攻击成功，奖励 ${attackResult.token_reward ?? 0} Token`} failText={attackResult.error_message ?? "攻击失败，请检查提交内容后重试"} />
             ) : null}
           </CardContent>
         </Card>
@@ -113,17 +153,31 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField label="漏洞题目 ID">
-              <Input value={challengeID} onChange={(event) => setChallengeID(event.target.value)} />
+            <FormField label="选择修复漏洞">
+              <Select value={challengeID} onValueChange={setChallengeID}>
+                <SelectTrigger><SelectValue placeholder="选择待修复漏洞" /></SelectTrigger>
+                <SelectContent>
+                  {attackChallengeOptions.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FormField>
-            <FormField label="补丁合约源码">
-              <Textarea value={patchSourceCode} onChange={(event) => setPatchSourceCode(event.target.value)} rows={11} className="font-mono" />
-            </FormField>
+            <div className="grid gap-4 xl:grid-cols-2">
+              <FormField label="原始合约（只读）">
+                <Textarea value={"这里展示题目提供的只读参考内容，方便你对照修复。"} readOnly rows={11} className="font-mono" />
+              </FormField>
+              <FormField label="补丁合约（可编辑）">
+                <Textarea value={patchSourceCode} onChange={(event) => setPatchSourceCode(event.target.value)} rows={11} className="font-mono" />
+              </FormField>
+            </div>
             <Button disabled={current?.phase !== 2 || !challengeID || !patchSourceCode} onClick={() => battleMutations.defense.mutate({ challenge_id: challengeID, patch_source_code: patchSourceCode })} isLoading={battleMutations.defense.isPending}>
               提交补丁
             </Button>
             {defenseResult ? (
-              <ResultBox ok={defenseResult.is_accepted} okText={`补丁通过，奖励 ${defenseResult.token_reward ?? 0} Token`} failText={defenseResult.rejection_reason ?? "补丁未通过，后端未返回原因"} />
+              <ResultBox ok={defenseResult.is_accepted} okText={`补丁通过，奖励 ${defenseResult.token_reward ?? 0} Token`} failText={defenseResult.rejection_reason ?? "补丁未通过，请根据提示继续调整"} />
             ) : null}
           </CardContent>
         </Card>

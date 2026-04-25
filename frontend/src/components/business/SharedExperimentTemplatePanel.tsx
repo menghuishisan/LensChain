@@ -17,12 +17,12 @@ export function SharedExperimentTemplatePanel() {
   const router = useRouter();
 
   if (templatesQuery.isLoading) {
-    return <LoadingState title="正在加载共享模板" description="读取平台共享实验模板库。" />;
+    return <LoadingState title="正在加载共享实验内容" description="正在整理平台共享的实验内容。" />;
   }
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">共享实验模板库</h1>
+      <h1 className="font-display text-3xl font-semibold">共享实验内容</h1>
       <div className="grid gap-4 xl:grid-cols-2">
         {(templatesQuery.data?.list ?? []).map((template) => (
           <ExperimentTemplateCard key={template.id} template={template} onOpen={(id) => router.push(`/teacher/experiment-templates/${id}`)} />

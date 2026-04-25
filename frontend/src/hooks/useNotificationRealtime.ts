@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { getStoredAuthSession } from "@/lib/auth-session";
+import { buildWebSocketURL } from "@/lib/ws-url";
 import type { NotificationRealtimeMessage } from "@/types/notification";
 import type { RealtimeStatus } from "@/types/experiment";
 
@@ -20,18 +20,6 @@ export interface UseNotificationRealtimeResult {
   latestMessage: NotificationRealtimeMessage | null;
   error: string | null;
   reconnect: () => void;
-}
-
-function buildNotificationWSURL() {
-  const baseURL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
-  const rawURL = `${baseURL}/ws/notifications`;
-  const url = new URL(rawURL, typeof window === "undefined" ? "http://localhost" : window.location.origin);
-  const session = getStoredAuthSession();
-  if (session.accessToken !== null) {
-    url.searchParams.set("token", session.accessToken);
-  }
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
 }
 
 function parseNotificationMessage(raw: string) {
@@ -82,7 +70,7 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
     manualCloseRef.current = false;
     setStatus("connecting");
     setError(null);
-    const socket = new WebSocket(buildNotificationWSURL());
+    const socket = new WebSocket(buildWebSocketURL("/ws/notifications"));
     socketRef.current = socket;
 
     socket.onopen = () => {

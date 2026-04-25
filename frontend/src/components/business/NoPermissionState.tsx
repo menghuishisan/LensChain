@@ -21,7 +21,7 @@ export interface NoPermissionStateProps {
  */
 export function NoPermissionState({
   title = "无权访问该页面",
-  description = "当前账号没有该功能入口权限；后端 RBAC 仍是最终权限边界。",
+  description = "当前账号暂时没有这个页面的访问权限，请联系管理员确认权限范围。",
   action,
 }: NoPermissionStateProps) {
   return (

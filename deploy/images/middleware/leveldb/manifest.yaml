@@ -1,0 +1,47 @@
+name: leveldb
+category: middleware
+ecosystem: general
+description: LevelDB 工具镜像
+maintainer: lenschain-platform
+license: BSD-3-Clause
+official_source: google/leveldb
+registry_project: middleware
+
+versions:
+  - version: "1.0"
+    tag: "v1.0.0"
+    upstream_tag: "v1.0.0"
+    min_cpu: "0.05"
+    min_memory: "64Mi"
+    recommended_cpu: "0.1"
+    recommended_memory: "128Mi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended: []
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "true"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/leveldb
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

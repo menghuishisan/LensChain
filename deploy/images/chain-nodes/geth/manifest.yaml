@@ -1,0 +1,97 @@
+name: geth
+category: chain-nodes
+ecosystem: ethereum
+description: Go-Ethereum 全功能客户端
+maintainer: lenschain-platform
+license: GPL-3.0
+official_source: ethereum/client-go
+registry_project: chain-nodes
+
+versions:
+  - version: "1.14"
+    tag: "v1.14.0"
+    upstream_tag: "v1.14.0"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: true
+  - version: "1.13"
+    tag: "v1.13.15"
+    upstream_tag: "v1.13.15"
+    min_cpu: "0.25"
+    min_memory: "512Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "1Gi"
+    is_default: false
+
+default_ports:
+  - port: 8545
+    protocol: tcp
+    name: HTTP-RPC
+    description: HTTP JSON-RPC API
+  - port: 8546
+    protocol: tcp
+    name: WebSocket-RPC
+    description: WebSocket JSON-RPC API
+  - port: 30303
+    protocol: tcp
+    name: P2P
+    description: P2P 发现与通信
+
+default_env_vars:
+  - key: GETH_NETWORK
+    default_value: dev
+    description: 运行网络（dev / mainnet / testnet）
+    required: false
+  - key: GETH_DATADIR
+    default_value: /root/.ethereum
+    description: 链数据目录
+    required: false
+
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /root/.ethereum
+    purpose: chain_data
+    size: 10Gi
+    description: 链数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: blockscout
+      reason: 本地区块链浏览器，方便查看交易和区块
+  optional:
+    - image: remix-ide
+      reason: Solidity 在线 IDE，可直接连接本地节点
+    - image: prometheus
+      reason: 采集 geth 指标数据
+    - image: grafana
+      reason: 可视化监控仪表盘
+
+required_dependencies: []
+
+supported_tools:
+  - remix-ide
+  - blockscout
+  - slither
+  - mythril
+  - echidna
+
+healthcheck:
+  test: ["CMD-SHELL", "wget -qO- http://localhost:8545 --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}' --header='Content-Type: application/json'"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 20s
+
+documentation_url: /docs/images/geth
+
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

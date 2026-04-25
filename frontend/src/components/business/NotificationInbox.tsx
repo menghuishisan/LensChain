@@ -18,7 +18,7 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { useAnnouncements } from "@/hooks/useAnnouncements";
-import { useNotification, useNotificationMutations, useNotifications } from "@/hooks/useNotifications";
+import { useNotification, useNotificationMutations, useNotifications, useUnreadCount } from "@/hooks/useNotifications";
 import { getNotificationCategoryVariant, NOTIFICATION_CATEGORY_OPTIONS, resolveNotificationSourceHref, stripHtmlToText } from "@/lib/notification";
 import { formatDateTime } from "@/lib/format";
 import type { ID } from "@/types/api";
@@ -45,17 +45,19 @@ export function NotificationInbox({ messageID }: NotificationInboxProps) {
   const announcementsQuery = useAnnouncements({ page: 1, page_size: 5 });
   const detailMutations = useNotificationMutations(messageID);
   const inboxMutations = useNotificationMutations();
+  const unreadQuery = useUnreadCount();
   const [selectedIDs, setSelectedIDs] = useState<ID[]>([]);
   const inbox = inboxQuery.data;
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
     counts.set("all", inbox?.pagination.total ?? 0);
-    (inbox?.list ?? []).forEach((item) => {
-      const key = String(item.category);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    });
+    counts.set("1", unreadQuery.data?.by_category.system ?? 0);
+    counts.set("2", unreadQuery.data?.by_category.course ?? 0);
+    counts.set("3", unreadQuery.data?.by_category.experiment ?? 0);
+    counts.set("4", unreadQuery.data?.by_category.competition ?? 0);
+    counts.set("5", unreadQuery.data?.by_category.grade ?? 0);
     return counts;
-  }, [inbox]);
+  }, [inbox?.pagination.total, unreadQuery.data]);
 
   if (messageID) {
     if (detailQuery.isLoading) {
@@ -138,7 +140,10 @@ export function NotificationInbox({ messageID }: NotificationInboxProps) {
             <div key={item.id} className="rounded-xl border border-border bg-muted/20 p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="font-semibold">{item.title}</p>
-                <Badge variant="secondary">公告</Badge>
+                <div className="flex gap-2">
+                  {item.is_pinned ? <Badge variant="secondary">置顶</Badge> : null}
+                  <Badge variant="secondary">公告</Badge>
+                </div>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">{stripHtmlToText(item.content)}</p>
             </div>
@@ -164,6 +169,7 @@ export function NotificationInbox({ messageID }: NotificationInboxProps) {
                     <span className="text-xs text-muted-foreground">{formatDateTime(item.created_at)}</span>
                   </div>
                   <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{stripHtmlToText(item.content)}</p>
+                  {resolveNotificationSourceHref(item.source_type, item.source_id) ? <p className="mt-2 text-xs font-semibold text-primary">支持前往查看</p> : null}
                 </div>
               </div>
             </label>

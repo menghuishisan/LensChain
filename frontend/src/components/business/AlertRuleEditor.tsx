@@ -257,7 +257,7 @@ export function AlertRuleEditor() {
   const mutations = useAlertRuleMutations();
 
   if (query.isLoading && query.data === undefined) {
-    return <LoadingState title="正在加载告警规则" description="链镜正在读取平台基础设施级别的告警规则清单。" />;
+    return <LoadingState title="正在加载提醒规则" description="正在读取平台运行提醒的规则列表。" />;
   }
 
   if (query.isError && query.data === undefined) {
@@ -272,12 +272,12 @@ export function AlertRuleEditor() {
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-fuchsia-100/90">
                 <BellRing className="h-3.5 w-3.5" />
-                告警规则管理
+                提醒规则
               </div>
               <div>
                 <h2 className="font-display text-3xl font-semibold tracking-tight">阈值、事件、服务状态</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                  告警规则仅覆盖平台基础设施级别告警；所有枚举值与条件字段均对齐后端文档和 DTO 标准值。
+                  在这里设置平台运行提醒的触发条件，包括阈值变化、事件异常和服务状态变化。
                 </p>
               </div>
             </div>
@@ -394,7 +394,7 @@ export function AlertRuleEditor() {
         <Card>
           <CardHeader>
             <CardTitle>规则列表</CardTitle>
-            <CardDescription>支持编辑、启停和删除；启停状态会立即影响后端检测逻辑。</CardDescription>
+            <CardDescription>支持编辑、启停和删除；启停后会立即影响后续提醒判断。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <TableContainer>
@@ -515,8 +515,7 @@ export function AlertRuleEditor() {
           <DialogHeader>
             <DialogTitle>{dialogState.mode === "create" ? "创建告警规则" : "编辑告警规则"}</DialogTitle>
             <DialogDescription>
-              阈值告警仅允许 <code>cpu_usage</code> / <code>memory_usage</code> / <code>storage_usage</code>；
-              服务状态告警仅允许后端定义的标准服务名。
+              可按平台状态、异常事件和服务情况设置提醒条件，建议保持命名清晰，便于后续协作处理。
             </DialogDescription>
           </DialogHeader>
 
@@ -567,7 +566,7 @@ export function AlertRuleEditor() {
 
             {form.alertType === 1 ? (
               <RuleSection title="阈值告警配置">
-                <FormField label="监控指标" required>
+                <FormField label="关注指标" required>
                   <Select value={form.thresholdMetric} onValueChange={(value) => setForm((current) => ({ ...current, thresholdMetric: value as SystemThresholdMetric }))}>
                     <SelectTrigger>
                       <SelectValue />
@@ -620,7 +619,7 @@ export function AlertRuleEditor() {
                     </SelectContent>
                   </Select>
                 </FormField>
-                <FormField label="事件动作（event_filter.action）" required description="使用模块01登录动作标准值。">
+                <FormField label="事件动作" required description="请选择要关注的登录事件类型。">
                   <Select value={form.eventAction} onValueChange={(value) => setForm((current) => ({ ...current, eventAction: value }))}>
                     <SelectTrigger>
                       <SelectValue />

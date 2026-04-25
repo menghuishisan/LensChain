@@ -1,0 +1,49 @@
+name: fabric-tools
+category: tools
+ecosystem: fabric
+description: Hyperledger Fabric CLI 工具集
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: hyperledger/fabric
+registry_project: tools
+
+versions:
+  - version: "2.5"
+    tag: "v2.5"
+    upstream_tag: "2.5"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports: []
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended:
+    - image: fabric-peer
+      reason: 操作 Fabric 网络
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "peer", "version"]
+  interval: 60s
+  timeout: 5s
+  retries: 1
+  start_period: 5s
+
+documentation_url: /docs/images/fabric-tools
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

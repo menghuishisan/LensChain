@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${NAMESPACE}
-  labels:
-    lenschain.io/runtime-type: ctf-attack-defense
-    lenschain.io/competition-id: ${COMPETITION_ID}
-    lenschain.io/group-id: ${GROUP_ID}

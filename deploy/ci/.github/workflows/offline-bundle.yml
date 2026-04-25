@@ -1,0 +1,32 @@
+name: offline-bundle
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  build-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.lianjing.com
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Build offline bundle
+        run: |
+          VERSION=${{ github.ref_name }}
+          ./deploy/scripts/build-offline-bundle.sh
+        env:
+          VERSION: ${{ github.ref_name }}
+          REGISTRY: registry.lianjing.com
+          OUTPUT_DIR: /tmp/bundle
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lenschain-phase1-${{ github.ref_name }}
+          path: |
+            /tmp/bundle/*.tar
+            /tmp/bundle/*.sha256
+          retention-days: 90

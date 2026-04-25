@@ -32,11 +32,11 @@ export function TopBar({ user, primaryRole, onMenuClick }: TopBarProps) {
       </Button>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">{ROLE_TEXT[primaryRole]}</p>
-        <h1 className="truncate font-display text-xl font-semibold">链镜工作台</h1>
+        <h1 className="truncate font-display text-xl font-semibold">链镜平台</h1>
       </div>
       <div className="hidden min-w-64 items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-2 text-sm text-muted-foreground md:flex">
         <Search className="h-4 w-4" />
-        <span>全局搜索将在后续模块接入</span>
+        <span>搜索课程、实验、竞赛与通知</span>
       </div>
       <NotificationBell />
       <UserMenu user={user} primaryRole={primaryRole} />

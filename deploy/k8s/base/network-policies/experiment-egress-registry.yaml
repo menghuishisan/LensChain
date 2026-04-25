@@ -1,0 +1,31 @@
+# 实验 Namespace 允许出站到 Registry 和 DNS
+# 后端动态创建 exp-* Namespace 时应用此策略
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-registry
+  labels:
+    app.kubernetes.io/name: experiment-egress-registry
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # Registry HTTPS
+    - ports:
+        - port: 443
+          protocol: TCP
+    # 公网 HTTP/HTTPS（依赖下载，可按学校策略关闭）
+    - ports:
+        - port: 80
+          protocol: TCP
+        - port: 443
+          protocol: TCP

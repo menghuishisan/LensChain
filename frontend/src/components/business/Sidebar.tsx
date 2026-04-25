@@ -94,7 +94,7 @@ export function Sidebar({ navigation, isOpen, onClose }: SidebarProps) {
         <div className="flex h-16 items-center justify-between border-b border-white/10 px-5">
           <div>
             <p className="font-display text-xl font-semibold">链镜</p>
-            <p className="text-xs text-white/50">LensChain Console</p>
+            <p className="text-xs text-white/50">区块链教学平台</p>
           </div>
           <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 lg:hidden" onClick={onClose}>
             <X className="h-5 w-5" />

@@ -1,29 +1,13 @@
-# prod overlay
-# 生产环境建议：固定不可变镜像 tag、替换 example secret、接入 Ingress/监控/审计策略。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 
 resources:
-  - ../../base/platform/namespace.yaml
-  - ../../base/platform/backend-configmap.yaml
-  - ../../base/platform/backend-deployment.yaml
-  - ../../base/platform/backend-service.yaml
-  - ../../base/platform/backend-hpa.yaml
-  - ../../base/platform/backend-pdb.yaml
-  - ../../base/platform/sim-engine-configmap.yaml
-  - ../../base/platform/sim-engine-deployment.yaml
-  - ../../base/platform/sim-engine-service.yaml
-  - ../../base/platform/sim-engine-hpa.yaml
-  - ../../base/platform/sim-engine-pdb.yaml
-  - ../../base/platform/postgres-statefulset.yaml
-  - ../../base/platform/postgres-service.yaml
-  - ../../base/platform/redis-deployment.yaml
-  - ../../base/platform/redis-service.yaml
-  - ../../base/platform/minio-deployment.yaml
-  - ../../base/platform/minio-service.yaml
-  - ../../base/platform/minio-bootstrap-job.yaml
-  - ../../base/platform/nats-deployment.yaml
-  - ../../base/platform/nats-service.yaml
-  - ../../base/platform/network-policy.yaml
+  - ../../base
+  - hpa.yaml
+  - pdb.yaml
 
-# 说明：
-# - 请在正式环境中使用真实 Secret 替换所有 *.example.yaml
-# - frontend 清单在前端代码落地后接入 overlay
+patches:
+  - path: backend-patch.yaml
+  - path: frontend-patch.yaml
+  - path: sim-engine-patch.yaml
+  - path: ingress-patch.yaml

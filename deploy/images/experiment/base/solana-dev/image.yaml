@@ -1,9 +1,0 @@
-# image.yaml
-name: solana-dev
-module: experiment
-category: base
-runtime: solana-dev
-resource_recommendation:
-  cpu: 0.5
-  memory: 1Gi
-description: Solana CLI / Anchor 教学开发基础镜像。

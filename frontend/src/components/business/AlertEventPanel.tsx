@@ -98,7 +98,7 @@ export function AlertEventPanel() {
   }, [detailQuery.data]);
 
   if (listQuery.isLoading && listQuery.data === undefined) {
-    return <LoadingState title="正在加载告警事件" description="链镜正在读取告警列表、统计摘要和选中告警详情。" />;
+    return <LoadingState title="正在加载运行提醒" description="正在整理提醒列表、概览数据和当前详情。" />;
   }
 
   if (listQuery.isError && listQuery.data === undefined) {
@@ -118,7 +118,7 @@ export function AlertEventPanel() {
               <div>
                 <h2 className="font-display text-3xl font-semibold tracking-tight">待处理、已处理、已忽略</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                  告警事件列表按文档要求每 60 秒自动刷新。处理或忽略后会同步刷新事件列表、当前详情和运维仪表盘摘要。
+                  提醒列表会定时刷新。处理或忽略后，列表和详情会同步更新。
                 </p>
               </div>
             </div>
@@ -146,7 +146,7 @@ export function AlertEventPanel() {
       <Card>
         <CardHeader>
           <CardTitle>筛选条件</CardTitle>
-          <CardDescription>支持按级别、状态、规则 ID 和时间范围筛选告警事件。</CardDescription>
+          <CardDescription>支持按级别、状态、规则编号和时间范围筛选提醒记录。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -181,7 +181,7 @@ export function AlertEventPanel() {
               </Select>
             </FormField>
             <FormField label="规则 ID">
-              <Input value={draft.ruleID} onChange={(event) => setDraft((current) => ({ ...current, ruleID: event.target.value }))} placeholder="按 rule_id 精确筛选" />
+              <Input value={draft.ruleID} onChange={(event) => setDraft((current) => ({ ...current, ruleID: event.target.value }))} placeholder="输入规则编号进行筛选" />
             </FormField>
             <FormField label="开始时间">
               <Input type="datetime-local" value={draft.dateFrom} onChange={(event) => setDraft((current) => ({ ...current, dateFrom: event.target.value }))} />
@@ -208,7 +208,7 @@ export function AlertEventPanel() {
                 setParams(buildEventParams(nextDraft));
               }}
             >
-              重置为最近7天
+              重置为最近 7 天
             </Button>
           </div>
         </CardContent>
@@ -338,7 +338,7 @@ export function AlertEventPanel() {
                   <div className="rounded-[1.5rem] border border-border/70 bg-slate-950 p-5 text-white">
                     <p className="text-sm font-semibold">处理动作</p>
                     <p className="mt-2 text-sm leading-6 text-slate-300">
-                      处理或忽略前必须填写备注。提交成功后，事件列表、详情和运维仪表盘会一并刷新。
+                      处理或忽略前请先填写备注。提交成功后，列表和详情会一并刷新。
                     </p>
                     <div className="mt-4">
                       <FormField label="处理备注" required>

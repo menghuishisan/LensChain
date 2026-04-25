@@ -1,9 +1,0 @@
-# image.yaml
-name: echidna
-module: experiment
-category: tools
-runtime: fuzzing
-resource_recommendation:
-  cpu: 0.5
-  memory: 512Mi
-description: 智能合约模糊测试镜像。

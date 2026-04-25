@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/Dialog";
@@ -36,6 +37,9 @@ export function SchoolApplicationReviewList() {
   const [params, setParams] = useState<AdminSchoolApplicationListParams>({ page: 1, page_size: 20, status: 1 });
   const query = useSchoolApplications(params);
   const list = query.data?.list ?? [];
+  const pendingCount = list.filter((item) => item.status === 1).length;
+  const approvedCount = list.filter((item) => item.status === 2).length;
+  const rejectedCount = list.filter((item) => item.status === 3).length;
 
   return (
     <Card>
@@ -44,6 +48,12 @@ export function SchoolApplicationReviewList() {
         <CardDescription>查看所有学校入驻申请，并对待审核申请执行审核。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-3">
+          <Badge variant={params.status === 1 ? "default" : "outline"}>待审核 {pendingCount}</Badge>
+          <Badge variant={params.status === 2 ? "default" : "outline"}>已通过 {approvedCount}</Badge>
+          <Badge variant={params.status === 3 ? "default" : "outline"}>已拒绝 {rejectedCount}</Badge>
+          <Badge variant={params.status === undefined ? "default" : "outline"}>全部 {list.length}</Badge>
+        </div>
         <div className="grid gap-3 md:grid-cols-[1fr_12rem]">
           <Input placeholder="搜索学校、联系人或手机号" value={params.keyword ?? ""} onChange={(event) => setParams((current) => ({ ...current, keyword: event.target.value, page: 1 }))} />
           <select className="h-10 rounded-lg border border-input bg-background px-3 text-sm" value={params.status ?? ""} onChange={(event) => setParams((current) => ({ ...current, status: event.target.value ? (Number(event.target.value) as SchoolApplicationStatus) : undefined, page: 1 }))}>
@@ -149,6 +159,15 @@ export function SchoolApplicationReviewDetail({ applicationID }: { applicationID
               ["手机号", application.contact_phone],
               ["邮箱", application.contact_email ?? "—"],
               ["职务/部门", application.contact_title ?? "—"],
+            ]}
+          />
+          <InfoGrid
+            title="审核记录"
+            items={[
+              ["申请时间", formatDateTime(application.created_at)],
+              ["审核时间", application.reviewed_at ? formatDateTime(application.reviewed_at) : "尚未审核"],
+              ["上一条申请", application.previous_application_id ?? "无"],
+              ["当前状态", application.status_text],
             ]}
           />
           {application.reject_reason ? <ErrorState title="拒绝原因" description={application.reject_reason} /> : null}

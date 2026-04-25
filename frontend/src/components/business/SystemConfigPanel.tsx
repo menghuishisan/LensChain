@@ -113,11 +113,11 @@ function SystemConfigEditorView() {
   }, [draftMap]);
 
   if (query.isLoading && query.data === undefined) {
-    return <LoadingState title="正在加载全局配置" description="链镜正在读取平台、存储、安全与备份配置分组。" />;
+    return <LoadingState title="正在加载平台设置" description="正在读取平台基础设置、安全规则和数据保障选项。" />;
   }
 
   if (query.isError && query.data === undefined) {
-    return <ErrorState title="全局配置加载失败" description={query.error.message} />;
+    return <ErrorState title="平台设置加载失败" description={query.error.message} />;
   }
 
   const groups = (query.data?.groups ?? []).filter((group) => group.group !== "backup");
@@ -130,12 +130,12 @@ function SystemConfigEditorView() {
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100/90">
                 <Settings2 className="h-3.5 w-3.5" />
-                全局配置管理
+                平台设置
               </div>
               <div>
-                <h2 className="font-display text-3xl font-semibold tracking-tight">平台名、默认值与安全基线</h2>
+                <h2 className="font-display text-3xl font-semibold tracking-tight">平台名称、默认规则与安全设置</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                  每个配置项独立保存，提交时原样回传后端返回的 <code>updated_at</code>，避免并发修改覆盖。
+                  每项设置单独保存，避免多人同时调整时相互覆盖。
                 </p>
               </div>
             </div>
@@ -143,12 +143,12 @@ function SystemConfigEditorView() {
               <Link href="/super/system/configs/change-logs">
                 <Button type="button" variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/15">
                   <FileClock className="h-4 w-4" />
-                  变更记录
+                  调整记录
                 </Button>
               </Link>
               <Link href="/super/system/backups">
                 <Button type="button" variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/15">
-                  备份配置
+                  数据保障
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
@@ -171,7 +171,7 @@ function SystemConfigEditorView() {
         <Card key={group.group}>
           <CardHeader>
             <CardTitle>{group.group_text}</CardTitle>
-            <CardDescription>按配置项独立保存，避免误改同组其他配置。</CardDescription>
+            <CardDescription>设置按条目分别保存，避免影响同组其他内容。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {group.configs.map((item) => {
@@ -191,7 +191,7 @@ function SystemConfigEditorView() {
                         </span>
                       </div>
                       <p className="text-sm leading-6 text-muted-foreground">
-                        值类型 {getValueTypeText(item.value_type)}，最近更新于 {formatDateTime(item.updated_at)}。
+                        当前为{getValueTypeText(item.value_type)}内容，最近更新于 {formatDateTime(item.updated_at)}。
                       </p>
                     </div>
 
@@ -203,8 +203,8 @@ function SystemConfigEditorView() {
                       />
                       <div className="flex items-center justify-end">
                         <ConfirmDialog
-                          title="确认保存配置"
-                          description={`将 ${group.group}.${item.key} 从「${item.value || "空"}」更新为「${draftValue || "空"}」。`}
+                          title="确认保存设置"
+                          description={`将“${item.description || item.key}”从「${item.value || "空"}」更新为「${draftValue || "空"}」。`}
                           confirmText="确认保存"
                           confirmVariant="primary"
                           trigger={
@@ -225,13 +225,13 @@ function SystemConfigEditorView() {
                               },
                               {
                                 onSuccess: () => {
-                                  showToast({ title: "配置已保存", description: `${group.group}.${item.key} 已更新。`, variant: "success" });
+                                  showToast({ title: "设置已保存", description: `${item.description || item.key} 已更新。`, variant: "success" });
                                   if (group.group === "platform" && item.key === "name" && draftValue.trim() !== "") {
-                                    document.title = `${draftValue} | 系统管理`;
+                                    document.title = `${draftValue} | 平台设置`;
                                   }
                                 },
                                 onError: (error) => {
-                                  showToast({ title: "配置保存失败", description: error.message, variant: "destructive" });
+                                  showToast({ title: "保存失败", description: error.message, variant: "destructive" });
                                 },
                               },
                             );
@@ -265,14 +265,14 @@ function ConfigValueField({
         <input type="checkbox" checked={value === "true"} onChange={(event) => onChange(String(event.target.checked))} />
         <div>
           <p className="font-semibold text-foreground">{value === "true" ? "已启用" : "已关闭"}</p>
-          <p className="mt-1 text-sm text-muted-foreground">布尔配置以字符串形式回传给后端。</p>
+          <p className="mt-1 text-sm text-muted-foreground">启用状态会按当前设置同步保存。</p>
         </div>
       </label>
     );
   }
 
   return (
-    <FormField label="配置值" description={item.is_sensitive ? "敏感配置不会在响应中明文展示。" : undefined}>
+    <FormField label="设置内容" description={item.is_sensitive ? "敏感内容不会直接显示在页面中。" : undefined}>
       <Input
         type={item.value_type === 2 ? "number" : item.is_sensitive ? "password" : "text"}
         value={value}
@@ -302,11 +302,11 @@ function SystemConfigChangeLogView() {
   const query = useSystemConfigChangeLogs(params);
 
   if (query.isLoading && query.data === undefined) {
-    return <LoadingState title="正在加载配置变更记录" description="链镜正在读取 config_change_logs 历史。" />;
+    return <LoadingState title="正在加载调整记录" description="正在读取平台设置的历史调整情况。" />;
   }
 
   if (query.isError && query.data === undefined) {
-    return <ErrorState title="配置变更记录加载失败" description={query.error.message} />;
+    return <ErrorState title="调整记录加载失败" description={query.error.message} />;
   }
 
   return (
@@ -317,12 +317,12 @@ function SystemConfigChangeLogView() {
             <div className="space-y-3">
               <Link href="/super/system/configs" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-200">
                 <ArrowLeft className="h-4 w-4" />
-                返回全局配置
+                返回平台设置
               </Link>
               <div>
-                <h2 className="font-display text-3xl font-semibold tracking-tight">配置变更记录</h2>
+                <h2 className="font-display text-3xl font-semibold tracking-tight">设置调整记录</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                  记录平台配置变更前后值、操作人和变更时间，用于审计和回溯。
+                  查看平台设置的前后变化、操作人和调整时间，便于追溯和协作。
                 </p>
               </div>
             </div>
@@ -343,17 +343,17 @@ function SystemConfigChangeLogView() {
       <Card>
         <CardHeader>
           <CardTitle>筛选条件</CardTitle>
-          <CardDescription>支持按配置分组、配置键和时间范围筛选变更记录。</CardDescription>
+          <CardDescription>可按设置类别、关键字和时间范围查看历史调整。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <FormField label="配置分组">
+            <FormField label="设置类别">
               <Select value={draft.configGroup} onValueChange={(value) => setDraft((current) => ({ ...current, configGroup: value as ConfigLogFilterDraft["configGroup"] }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="全部分组" />
+                  <SelectValue placeholder="全部类别" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部分组</SelectItem>
+                  <SelectItem value="all">全部类别</SelectItem>
                   <SelectItem value="platform">platform</SelectItem>
                   <SelectItem value="storage">storage</SelectItem>
                   <SelectItem value="security">security</SelectItem>
@@ -361,7 +361,7 @@ function SystemConfigChangeLogView() {
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField label="配置键">
+            <FormField label="设置关键字">
               <Input value={draft.configKey} onChange={(event) => setDraft((current) => ({ ...current, configKey: event.target.value }))} placeholder="例如 name / session_timeout_hours" />
             </FormField>
             <FormField label="开始时间">
@@ -373,7 +373,7 @@ function SystemConfigChangeLogView() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Button type="button" onClick={() => setParams(buildLogParams(draft))}>
-              查询记录
+              查看记录
             </Button>
             <Button
               type="button"
@@ -384,21 +384,21 @@ function SystemConfigChangeLogView() {
                 setParams(buildLogParams(nextDraft));
               }}
             >
-              重置为最近7天
+              重置为最近 7 天
             </Button>
           </div>
         </CardContent>
       </Card>
 
       {query.data !== undefined && query.data.list.length === 0 ? (
-        <EmptyState title="暂无配置变更记录" description="当前筛选条件下没有匹配的历史变更。" className="min-h-72" />
+        <EmptyState title="暂无调整记录" description="当前筛选条件下还没有可查看的历史记录。" className="min-h-72" />
       ) : null}
 
       {query.data !== undefined && query.data.list.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>变更历史</CardTitle>
-            <CardDescription>展示配置项、变更前后值、操作人和操作 IP。</CardDescription>
+            <CardTitle>历史记录</CardTitle>
+            <CardDescription>查看设置内容的前后变化、操作人和来源信息。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <TableContainer>
@@ -406,7 +406,7 @@ function SystemConfigChangeLogView() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>时间</TableHead>
-                    <TableHead>配置项</TableHead>
+                    <TableHead>设置内容</TableHead>
                     <TableHead>变更前</TableHead>
                     <TableHead>变更后</TableHead>
                     <TableHead>操作人</TableHead>

@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getStoredAuthSession } from "@/lib/auth-session";
+import { buildWebSocketURL } from "@/lib/ws-url";
 import type { ID, QueryParams } from "@/types/api";
 import type {
   ExperimentGroupWSMessageType,
@@ -49,36 +49,6 @@ export interface UseExperimentRealtimeResult<TMessage> {
   sendJson: (message: JsonObject) => boolean;
   reconnect: () => void;
   clearMessages: () => void;
-}
-
-function buildRealtimeURL(path: string, query: QueryParams = {}) {
-  const baseURL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const rawURL = `${baseURL}${normalizedPath}`;
-  const url = new URL(rawURL, typeof window === "undefined" ? "http://localhost" : window.location.origin);
-  const session = getStoredAuthSession();
-
-  if (session.accessToken !== null) {
-    url.searchParams.set("token", session.accessToken);
-  }
-
-  Object.entries(query).forEach(([key, value]) => {
-    if (value === null || value === undefined) {
-      return;
-    }
-    if (Array.isArray(value)) {
-      value.forEach((item) => {
-        if (item !== null && item !== undefined) {
-          url.searchParams.append(key, String(item));
-        }
-      });
-      return;
-    }
-    url.searchParams.set(key, String(value));
-  });
-
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
 }
 
 function parseRealtimeMessage<TMessage>(data: unknown): TMessage {
@@ -130,7 +100,7 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
     setStatus(reconnectCounterRef.current > 0 ? "reconnecting" : "connecting");
 
     isManualCloseRef.current = false;
-    const socket = new WebSocket(buildRealtimeURL(path, stableQuery));
+    const socket = new WebSocket(buildWebSocketURL(path, stableQuery));
     socketRef.current = socket;
 
     socket.onopen = () => {

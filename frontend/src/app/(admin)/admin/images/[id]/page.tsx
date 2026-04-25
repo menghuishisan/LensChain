@@ -1,7 +1,7 @@
 // page.tsx
 // 超级管理员镜像详情/编辑页。
 
-import { ExperimentImageDetailPanel } from "@/components/business/ExperimentTemplatePanels";
+import { ExperimentImageDetailPanel } from "@/components/business/ExperimentAssetPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /** AdminImageDetailPage 超级管理员镜像详情/编辑页面。 */

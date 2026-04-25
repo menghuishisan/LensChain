@@ -1,0 +1,59 @@
+name: zookeeper
+category: middleware
+ecosystem: general
+description: Apache ZooKeeper 分布式协调服务
+maintainer: lenschain-platform
+license: Apache-2.0
+official_source: confluentinc/cp-zookeeper
+registry_project: middleware
+
+versions:
+  - version: "7.6"
+    tag: "v7.6.0"
+    upstream_tag: "7.6.0"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 2181
+    protocol: tcp
+    name: Client
+    description: ZooKeeper 客户端端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /var/lib/zookeeper/data
+    purpose: zk_data
+    size: 2Gi
+    description: 数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: kafka
+      reason: Kafka 依赖 ZooKeeper
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+documentation_url: /docs/images/zookeeper
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

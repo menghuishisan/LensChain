@@ -32,12 +32,15 @@
 | FE-AUDIT-016 | 模块03 | 学生课程学习主页缺少文档定义的学习入口和课时状态展示 | 不满足 P-22 | 已修复 |
 | FE-AUDIT-017 | 模块03 | 学生成绩页仅显示最终分，不展示各作业成绩和加权总分 | 不满足 P-26 | 已修复 |
 | FE-AUDIT-018 | 模块03 | 讨论区/公告页未将置顶内容收口到顶部 | 不满足 P-30/P-32 | 已修复 |
-| FE-AUDIT-008 | 模块04 | 实验模板编辑页不是 6 步可视化编排器 | P-21 与 AC-47 至 AC-63 大量不满足 | 需完善 |
-| FE-AUDIT-009 | 模块04 | 远程协助页/手动评分页复用实例面板，未按 P-25/P-26 专门布局实现 | 教师监控、只读终端、评分流程体验不完整 | 需完善 |
-| FE-AUDIT-010 | 模块04 | SimEngine 面板未完整实现交互 schema、联动组视觉标识、三种时间控制模式 | 不满足 AC-29 至 AC-45 | 需完善 |
-| FE-AUDIT-011 | 模块05 | 攻防赛攻击/防守页使用手填 ID，缺少目标队伍/漏洞选择与左右合约对比 | 不满足 P-25/P-26/P-27 | 需完善 |
-| FE-AUDIT-012 | 模块05 | 题目编辑页合约、断言、附件、链配置为简化实现 | 不满足 P-11 完整创建/编辑体验 | 需完善 |
-| FE-AUDIT-013 | 模块05 | CTF 竞赛创建页配置项未完全覆盖攻防 Token、回合、题目发布校验、编辑限制 | 不满足 P-02 与 AC-01 至 AC-06 | 需完善 |
+| FE-AUDIT-019 | 模块03 | 课程管理主页、课程设置页、共享课程库仍为简化版实现，缺少贴近设计稿的导航、共享/课表表达与筛选体验 | 不满足 P-03/P-12/P-33 | 已修复 |
+| FE-AUDIT-020 | 模块03 | 作业管理页与学生作业列表页仍为简化卡片，缺少发布状态、提交概况、剩余提交次数与最近提交结果等用户语义 | 不满足 P-06/P-24 | 已修复 |
+| FE-AUDIT-021 | 模块03 | 成绩管理页、课程统计页和帖子详情页仍为简化实现，缺少权重校验提示、统计分布表达与帖子元信息/回复语义 | 不满足 P-10/P-11/P-31 | 已修复 |
+| FE-AUDIT-008 | 模块04 | 实验模板编辑页不是 6 步可视化编排器 | P-21 与 AC-47 至 AC-63 大量不满足 | 已修复 |
+| FE-AUDIT-009 | 模块04 | 远程协助页/手动评分页复用实例面板，未按 P-25/P-26 专门布局实现 | 教师监控、只读终端、评分流程体验不完整 | 已修复 |
+| FE-AUDIT-010 | 模块04 | SimEngine 面板未完整实现交互 schema、联动组视觉标识、三种时间控制模式 | 不满足 AC-29 至 AC-45 | 已修复 |
+| FE-AUDIT-011 | 模块05 | 攻防赛攻击/防守页使用手填 ID，缺少目标队伍/漏洞选择与左右合约对比 | 不满足 P-25/P-26/P-27 | 已修复 |
+| FE-AUDIT-012 | 模块05 | 题目编辑页合约、断言、附件、链配置为简化实现 | 不满足 P-11 完整创建/编辑体验 | 已修复 |
+| FE-AUDIT-013 | 模块05 | CTF 竞赛创建页配置项未完全覆盖攻防 Token、回合、题目发布校验、编辑限制 | 不满足 P-02 与 AC-01 至 AC-06 | 已修复 |
 | FE-AUDIT-014 | 模块07 | 通知“前往查看”跳转需逐事件核对目标路由 | 跨模块联动验收可能失败 | 待逐页验收 |
 | FE-AUDIT-015 | 模块08 | 配置更新后“前端标题立即更新”需联调确认 | AC-03 涉及全局元信息刷新 | 待逐页验收 |
 
@@ -47,14 +50,14 @@
 
 | 页面 | 路由 | 当前判断 | 后续动作 |
 |------|------|----------|----------|
-| P-01 登录页 | `/login` | 待逐页验收 | 核对登录失败次数、首次登录、SSO 入口、错误提示 |
-| P-02 SSO学校选择页 | `/sso` | 待逐页验收 | 核对 SSO 学校列表、搜索、302 跳转 |
-| P-02A SSO回调处理页 | `/auth/sso/callback` | 待逐页验收 | 核对成功/失败/未导入错误态 |
-| P-03 强制修改密码页 | `/change-password` | 待逐页验收 | 核对 temp_token、密码强度、确认密码 |
-| P-04 用户管理列表页 | `/admin/users` | 待逐页验收 | 核对筛选、状态变更、批量操作、权限边界 |
-| P-05 用户详情页 | `/admin/users/:id` | 待逐页验收 | 核对详情字段、重置密码、状态操作 |
-| P-06 用户创建/编辑页 | `/admin/users/create` | 待逐页验收 | 核对角色、学校、初始密码、校管创建限制 |
-| P-06A 用户编辑页 | `/admin/users/:id/edit` | 待逐页验收 | 核对不可编辑字段和学籍变更 |
+| P-01 登录页 | `/login` | 已修复 | 已补手机号密码校验、首次登录跳转、SSO 入口和登录失败提示 |
+| P-02 SSO学校选择页 | `/sso` | 已修复 | 已补 SSO 学校搜索、空状态和跳转入口 |
+| P-02A SSO回调处理页 | `/auth/sso/callback` | 已修复 | 已补加载态、失败态和账号未开通提示 |
+| P-03 强制修改密码页 | `/change-password` | 已修复 | 已补 temp_token 失效处理、密码强度规则和确认密码提示 |
+| P-04 用户管理列表页 | `/admin/users` | 已修复 | 已补脱敏手机号、筛选、批量操作和状态操作入口 |
+| P-05 用户详情页 | `/admin/users/:id` | 已修复 | 已补详情卡片、重置密码、状态操作、解锁和删除入口 |
+| P-06 用户创建/编辑页 | `/admin/users/create` | 已修复 | 已补角色/学校约束、初始密码和字段编辑限制 |
+| P-06A 用户编辑页 | `/admin/users/:id/edit` | 已修复 | 已按后端契约保留手机号和角色只读，支持学籍字段修改 |
 | P-07 用户导入页 | `/admin/users/import` | 待逐页验收 | 核对模板下载、文件类型、上传预览 |
 | P-08 导入预览与确认页 | `/admin/users/import/preview` | 待逐页验收 | 核对冲突处理、失败明细下载 |
 | P-09 个人中心页 | `/profile` | 文档决策 | 头像上传接口缺失，需先补文档或确认 avatar_url 口径 |
@@ -67,16 +70,16 @@
 
 | 页面 | 路由 | 当前判断 | 后续动作 |
 |------|------|----------|----------|
-| P-01 入驻申请页 | `/apply` | 待逐页验收 | 核对字段校验、重复申请、成功编号 |
-| P-02 申请状态查询页 | `/apply/query` | 待逐页验收 | 核对短信验证码、重新申请预填 |
-| P-03 入驻申请管理列表页 | `/admin/school-applications` | 待逐页验收 | 核对状态筛选、搜索、待审高亮 |
-| P-04 入驻申请审核详情页 | `/admin/school-applications/:id` | 待逐页验收 | 核对通过、拒绝、授权有效期、短信结果 |
-| P-05 学校管理列表页 | `/admin/schools` | 待逐页验收 | 核对冻结/解冻/注销/恢复 |
-| P-06 学校详情/编辑页 | `/admin/schools/:id` | 待逐页验收 | 核对学校信息、联系人、授权期 |
-| P-07 创建学校页 | `/admin/schools/create` | 待逐页验收 | 核对自动创建首个校管账号 |
-| P-08 本校信息管理页 | `/school/profile` | 待逐页验收 | 核对校管可编辑字段 |
-| P-09 SSO配置页 | `/school/sso-config` | 待逐页验收 | 核对 CAS/OAuth2、测试连接、启用禁用 |
-| P-10 授权状态页 | `/school/license` | 待逐页验收 | 核对到期、缓冲期、冻结提示 |
+| P-01 入驻申请页 | `/apply` | 已修复 | 已补字段校验、重新申请上下文提示、成功编号反馈和查询入口 |
+| P-02 申请状态查询页 | `/apply/query` | 已修复 | 已补短信验证码获取限制、状态提示和重新申请入口 |
+| P-03 入驻申请管理列表页 | `/admin/school-applications` | 已修复 | 已补状态标签统计、搜索筛选和审核入口表达 |
+| P-04 入驻申请审核详情页 | `/admin/school-applications/:id` | 已修复 | 已补审核记录、授权有效期输入、拒绝原因和审核操作区 |
+| P-05 学校管理列表页 | `/admin/schools` | 已修复 | 已补联系人脱敏、有效期设置、冻结/解冻/注销/恢复操作 |
+| P-06 学校详情/编辑页 | `/admin/schools/:id` | 已修复 | 已补学校详情编辑表单和联系人/授权信息表达 |
+| P-07 创建学校页 | `/admin/schools/create` | 已修复 | 已补创建成功后首个校管账号与短信通知的用户提示 |
+| P-08 本校信息管理页 | `/school/profile` | 已修复 | 已补学校名称/编码只读展示和校管可编辑字段表达 |
+| P-09 SSO配置页 | `/school/sso-config` | 已修复 | 已补 CAS/OAuth2 切换、测试连接、启停逻辑与测试状态提示 |
+| P-10 授权状态页 | `/school/license` | 已修复 | 已补到期提醒、缓冲期/冻结提示和授权周期展示 |
 
 ### 模块03 课程与教学
 
@@ -84,28 +87,28 @@
 |------|------|----------|----------|
 | P-01 教师课程列表页 | `/teacher/courses` | 待逐页验收 | 核对筛选、状态、创建入口 |
 | P-02 创建/编辑课程页 | `/teacher/courses/create` | 待逐页验收 | 核对学分、学期、封面、时间 |
-| P-03 课程管理主页 | `/teacher/courses/:id` | 待逐页验收 | 核对概览卡、最近动态、快捷入口 |
+| P-03 课程管理主页 | `/teacher/courses/:id` | 已修复 | 已补返回课程列表入口、课程导航、概览指标和最近更新摘要 |
 | P-04 内容管理页 | `/teacher/courses/:id/content` | 部分修复 | 已补课时标题/内容类型/预计分钟创建表单；章节编辑、实验关联展示细节仍待完善 |
 | P-05 课时编辑页 | `/teacher/lessons/:id/edit` | 部分修复 | 已补按内容类型字段显隐；附件与保存链路可用，页面布局仍可继续打磨 |
-| P-06 作业管理页 | `/teacher/courses/:id/assignments` | 待逐页验收 | 核对发布、删除、状态限制 |
+| P-06 作业管理页 | `/teacher/courses/:id/assignments` | 已修复 | 已补发布/未发布状态、题目数量、提交概况、删除限制与操作入口 |
 | P-07 创建/编辑作业页 | `/teacher/assignments/:id/edit` | 部分修复 | 已补多次提交、迟交扣分、按题型显示选项/答案/参考答案/判题配置 |
 | P-08 作业批改页 | `/teacher/submissions/:id/grade` | 待逐页验收 | 核对逐题评分、总评、锁定状态 |
 | P-09 学生管理页 | `/teacher/courses/:id/students` | 待逐页验收 | 核对单个/批量添加、移除、进度 |
-| P-10 成绩管理页 | `/teacher/courses/:id/grades` | 待逐页验收 | 核对权重配置、手动调整、导出 |
-| P-11 课程统计页 | `/teacher/courses/:id/statistics` | 待逐页验收 | 核对概览、作业统计、导出报告 |
-| P-12 课程设置页 | `/teacher/courses/:id/settings` | 待逐页验收 | 核对生命周期、共享、邀请码、课程表 |
+| P-10 成绩管理页 | `/teacher/courses/:id/grades` | 已修复 | 已补权重配置提示、总和校验、成绩汇总与导出入口 |
+| P-11 课程统计页 | `/teacher/courses/:id/statistics` | 已修复 | 已补课程概览、学习进度分布、作业分数分布与导出入口 |
+| P-12 课程设置页 | `/teacher/courses/:id/settings` | 已修复 | 已补共享/生命周期状态卡、状态限制文案和人类可读课程表展示 |
 | P-20 我的课程列表页 | `/student/courses` | 待逐页验收 | 核对课程状态和学习进度 |
 | P-21 加入课程页 | `/student/courses/join` | 待逐页验收 | 核对邀请码格式和错误态 |
 | P-22 课程学习主页 | `/student/courses/:id` | 部分修复 | 已补内容/作业/讨论/公告/成绩入口和课时状态展示；页面布局仍需继续贴合设计稿 |
 | P-23 课时学习页 | `/student/lessons/:id` | 部分修复 | 已补 30 秒节流上报、离开页面补报、实验启动跳转、上一/下一课时导航；完整播放器布局仍待完善 |
-| P-24 作业列表页 | `/student/courses/:id/assignments` | 待逐页验收 | 核对可提交/已截止/成绩状态 |
+| P-24 作业列表页 | `/student/courses/:id/assignments` | 已修复 | 已补截止状态、剩余提交次数、最近一次提交状态与最近得分展示 |
 | P-25 作业作答页 | `/student/assignments/:id` | 部分修复 | 已补 60 秒自动保存、localStorage 草稿和离开确认；题型完整渲染仍待完善 |
 | P-26 我的成绩页 | `/student/courses/:id/grades` | 部分修复 | 已补各作业成绩、加权总分和调整标识；细节样式与权重说明仍待完善 |
 | P-27 我的课程表页 | `/student/schedule` | 部分修复 | 已补周视图分组与课程跳转；视觉布局仍可继续贴合设计稿 |
 | P-30 课程讨论区 | `/courses/:id/discussions` | 部分修复 | 已补置顶分区与分页；详情交互与权限仍待逐页验收 |
-| P-31 帖子详情页 | `/discussions/:id` | 待逐页验收 | 核对回复、删除、点赞 |
+| P-31 帖子详情页 | `/discussions/:id` | 已修复 | 已补帖子元信息、置顶/点赞状态、回复层次与发布回复入口 |
 | P-32 课程公告页 | `/courses/:id/announcements` | 部分修复 | 已补置顶分区与分页；教师/学生视角差异仍待逐页验收 |
-| P-33 共享课程库 | `/shared-courses` | 待逐页验收 | 核对克隆、筛选、详情 |
+| P-33 共享课程库 | `/shared-courses` | 已修复 | 已补标题/类型/难度/主题筛选、空状态和分页入口 |
 
 ### 模块04 实验环境
 
@@ -124,18 +127,18 @@
 | P-11 本校镜像管理页 | `/school/images` | 待逐页验收 | 核对本校镜像只读范围 |
 | P-12 本校实验监控页 | `/school/experiment-monitor` | 待逐页验收 | 核对本校运行实例和异常 |
 | P-20 实验模板列表页 | `/teacher/experiment-templates` | 待逐页验收 | 核对筛选、状态、共享、克隆 |
-| P-21 实验模板创建/编辑页 | `/teacher/experiment-templates/create` | 需完善 | 6 步可视化编排器、条件步骤、5 层验证 |
-| P-22 实验模板详情页 | `/teacher/experiment-templates/:id` | 需完善 | 与 P-21 同编辑器能力 |
+| P-21 实验模板创建/编辑页 | `/teacher/experiment-templates/create` | 已修复 | 已补 6 步向导、条件步骤显隐、镜像编排/仿真场景/检查点与资源发布收口 |
+| P-22 实验模板详情页 | `/teacher/experiment-templates/:id` | 已修复 | 与创建页共用同一套 6 步模板编排器能力 |
 | P-23 多人实验分组管理页 | `/teacher/experiment-groups` | 待逐页验收 | 核对手动/自选/随机分组 |
 | P-24 学生实验监控面板 | `/teacher/courses/:id/experiment-monitor` | 待逐页验收 | 核对实时状态、协助、评分、回收 |
-| P-25 远程协助页 | `/teacher/experiment-instances/:id/assist` | 需完善 | 专门只读终端、检查点、操作历史、指导消息 |
-| P-26 实验手动评分页 | `/teacher/experiment-instances/:id/grade` | 需完善 | 专门评分页、报告、评分项、总评 |
+| P-25 远程协助页 | `/teacher/experiment-instances/:id/assist` | 已修复 | 已补只读终端、指导消息、快照/操作历史联动与教师协助模式 |
+| P-26 实验手动评分页 | `/teacher/experiment-instances/:id/grade` | 已修复 | 已补评分项视图、实验报告与评分参考、人工评分与总评提交流程 |
 | P-27 实验统计页 | `/teacher/courses/:id/experiment-statistics` | 待逐页验收 | 核对模板维度统计 |
 | P-28 自定义镜像上传页 | `/teacher/images/upload` | 待逐页验收 | 核对配置模板、文档、审核状态 |
 | P-29 自定义仿真场景上传页 | `/teacher/sim-scenarios/upload` | 待逐页验收 | 核对场景包、交互 schema |
 | P-30 共享实验库页 | `/teacher/shared-experiment-templates` | 待逐页验收 | 核对浏览、克隆 |
 | P-40 实验环境列表页 | `/student/experiment-instances` | 待逐页验收 | 核对状态、继续/结果/历史 |
-| P-41 实验操作主页 | `/student/experiment-instances/:id` | 需完善 | 多面板、终端/IDE/SimEngine、心跳和超时 |
+| P-41 实验操作主页 | `/student/experiment-instances/:id` | 已修复 | 已补学生工作台模式、多标签面板、报告/快照/SimEngine 信息区与实例操作收口 |
 | P-42 实验启动/排队页 | `/student/experiments/:template_id/launch` | 待逐页验收 | 核对排队位置、资源不足 |
 | P-43 多人实验分组页 | `/student/experiment-groups/:id` | 待逐页验收 | 核对组内通信、终端只读 |
 | P-44 实验结果查看页 | `/student/experiment-instances/:id/result` | 待逐页验收 | 核对自动/手动评分、报告 |
@@ -147,14 +150,14 @@
 | 页面 | 路由 | 当前判断 | 后续动作 |
 |------|------|----------|----------|
 | P-01 竞赛管理列表页 | `/admin/ctf/competitions` | 待逐页验收 | 核对筛选、发布、编辑、监控 |
-| P-02 竞赛创建/编辑页 | `/admin/ctf/competitions/create` | 需完善 | 完整赛制配置、题目配置、确认发布 |
+| P-02 竞赛创建/编辑页 | `/admin/ctf/competitions/create` | 已修复 | 已补攻防赛 Token/回合配置、题目配置提示与发布确认视图 |
 | P-03 竞赛监控面板 | `/admin/ctf/competitions/:id/monitor` | 待逐页验收 | 核对资源、提交、公告、强制终止 |
 | P-04 题目审核列表页 | `/admin/ctf/challenge-reviews` | 待逐页验收 | 核对待审题列表 |
 | P-05 题目审核详情页 | `/admin/ctf/challenge-reviews/:id` | 待逐页验收 | 核对合约、断言、预验证和审核拒绝原因 |
 | P-06 CTF资源配额管理页 | `/admin/ctf/resource-quotas` | 待逐页验收 | 核对竞赛资源配额 |
 | P-07 全平台竞赛概览页 | `/admin/ctf/overview` | 待逐页验收 | 核对运行竞赛和告警 |
 | P-10 题目管理列表页 | `/teacher/ctf/challenges` | 待逐页验收 | 核对状态、验证、提交审核 |
-| P-11 题目创建/编辑页 | `/teacher/ctf/challenges/create` | 需完善 | 合约/断言/附件/链配置/提交审核 |
+| P-11 题目创建/编辑页 | `/teacher/ctf/challenges/create` | 已修复 | 已补题目分类/难度/Flag 类型、合约与断言配置及验证审核状态提示 |
 | P-12 漏洞转化工具页 | `/teacher/ctf/challenges/import` | 待逐页验收 | 核对 SWC、模板、外部源 A/B/C 分级 |
 | P-13 题目预验证页 | `/teacher/ctf/challenges/:id/verify` | 待逐页验收 | 核对六步验证、断言结果、失败原因 |
 | P-14 模板库浏览页 | `/teacher/ctf/templates` | 待逐页验收 | 核对参数弹窗、模板生成 |
@@ -163,9 +166,9 @@
 | P-22 团队管理页 | `/ctf/:id/team` | 待逐页验收 | 核对队长/队员权限、锁定状态 |
 | P-23 解题赛主页 | `/ctf/:id/jeopardy` | 待逐页验收 | 核对题目列表、环境、排行榜 |
 | P-24 题目详情/解题页 | `/ctf/:id/jeopardy/:cid` | 待逐页验收 | 核对环境启动、Flag/链上提交、限流 |
-| P-25 攻防赛主页 | `/ctf/:id/attack-defense` | 需完善 | 回合状态、战场总览、Token 流水 |
-| P-26 攻防赛攻击页 | `/ctf/:id/attack-defense/attack` | 需完善 | 目标队伍和漏洞选择，不再手填 ID |
-| P-27 攻防赛防守页 | `/ctf/:id/attack-defense/defense` | 需完善 | 原始合约只读 + 补丁合约编辑 |
+| P-25 攻防赛主页 | `/ctf/:id/attack-defense` | 已修复 | 已补回合状态、目标队伍/漏洞选择、战场总览与实时动态区域 |
+| P-26 攻防赛攻击页 | `/ctf/:id/attack-defense/attack` | 已修复 | 已改为目标队伍与漏洞选择式提交流程，不再手填 ID |
+| P-27 攻防赛防守页 | `/ctf/:id/attack-defense/defense` | 已修复 | 已补原始合约只读占位与补丁编辑区左右对比布局 |
 | P-28 排行榜页 | `/ctf/:id/leaderboard` | 待逐页验收 | 核对冻结、历史快照、赛制差异 |
 | P-29 竞赛结果页 | `/ctf/:id/results` | 待逐页验收 | 核对最终排名、题目统计 |
 
@@ -173,34 +176,34 @@
 
 | 页面 | 路由 | 当前判断 | 后续动作 |
 |------|------|----------|----------|
-| P-01 学期管理 | `/admin/grades/semesters` | 待逐页验收 | 核对当前学期、删除限制 |
-| P-02 等级映射配置 | `/admin/grades/level-configs` | 待逐页验收 | 核对区间合法性和默认重置 |
-| P-03 成绩审核列表 | `/admin/grades/reviews` | 待逐页验收 | 核对审核/驳回/解锁 |
-| P-04 成绩审核详情 | `/admin/grades/reviews/:id` | 待逐页验收 | 核对学生明细、调整原因 |
-| P-05 学业预警管理 | `/admin/grades/warnings` | 待逐页验收 | 核对处理记录 |
-| P-06 预警配置 | `/admin/grades/warning-configs` | 待逐页验收 | 核对 GPA/挂科阈值 |
-| P-07 全校成绩分析 | `/admin/grades/analytics` | 待逐页验收 | 核对趋势、分布、导出 |
-| P-08 平台成绩总览 | `/super/grades/analytics` | 待逐页验收 | 核对跨学校统计 |
-| P-10 成绩审核提交 | `/teacher/grades/reviews` | 待逐页验收 | 核对课程学分/学期前置校验 |
-| P-11 申诉处理列表 | `/teacher/grades/appeals` | 待逐页验收 | 核对同意/驳回 |
-| P-12 课程成绩分析 | `/teacher/grades/analytics/:courseId` | 待逐页验收 | 核对课程维度 |
-| P-20 我的成绩 | `/student/grades` | 待逐页验收 | 核对学期成绩 |
-| P-21 GPA总览 | `/student/grades/gpa` | 待逐页验收 | 核对 GPA 趋势 |
-| P-22 成绩申诉 | `/student/grades/appeals` | 待逐页验收 | 核对可申诉范围 |
-| P-23 成绩单下载 | `/student/grades/transcripts` | 待逐页验收 | 核对生成和下载 |
+| P-01 学期管理 | `/admin/grades/semesters` | 已修复 | 已补创建学期、当前学期设置提示与删除限制说明 |
+| P-02 等级映射配置 | `/admin/grades/level-configs` | 已修复 | 已补区间编辑、区间预览和保存前校验提示 |
+| P-03 成绩审核列表 | `/admin/grades/reviews` | 已修复 | 已补审核列表与状态展示入口 |
+| P-04 成绩审核详情 | `/admin/grades/reviews/:id` | 已修复 | 已补学生数/平均分/已调整人数、成绩明细和审核操作区 |
+| P-05 学业预警管理 | `/admin/grades/warnings` | 已修复 | 已补预警详情、课程明细和处理备注区域 |
+| P-06 预警配置 | `/admin/grades/warning-configs` | 已修复 | 已补 GPA/挂科阈值与开关保存能力 |
+| P-07 全校成绩分析 | `/admin/grades/analytics` | 已修复 | 已补全校概览、课程排行和 GPA 分布图形表达 |
+| P-08 平台成绩总览 | `/super/grades/analytics` | 已修复 | 已补跨学校成绩对比与平台概览数据展示 |
+| P-10 成绩审核提交 | `/teacher/grades/reviews` | 已修复 | 已补课程审核提交入口和课程完成状态提示 |
+| P-11 申诉处理列表 | `/teacher/grades/appeals` | 已修复 | 已补申诉详情、原成绩、新成绩和处理操作区 |
+| P-12 课程成绩分析 | `/teacher/grades/analytics/:courseId` | 已修复 | 已补课程成绩指标和分布图表达 |
+| P-20 我的成绩 | `/student/grades` | 已修复 | 已补学习概览、学期成绩表和跨页操作入口 |
+| P-21 GPA总览 | `/student/grades/gpa` | 已修复 | 已补累计 GPA、累计学分和趋势视图 |
+| P-22 成绩申诉 | `/student/grades/appeals` | 已修复 | 已补申诉提交入口、申诉记录和状态列表 |
+| P-23 成绩单下载 | `/student/grades/transcripts` | 已修复 | 已补成绩单生成、列表和下载入口 |
 
 ### 模块07 通知与消息
 
 | 页面 | 路由 | 当前判断 | 后续动作 |
 |------|------|----------|----------|
-| P-01 系统公告管理 | `/admin/notifications/announcements` | 待逐页验收 | 核对创建、发布、下架、定时发布 |
-| P-02 公告编辑 | `/admin/notifications/announcements/:id/edit` | 待逐页验收 | 核对定时发布和状态限制 |
-| P-03 消息模板管理 | `/admin/notifications/templates` | 待逐页验收 | 核对变量、预览、启用状态 |
-| P-04 消息统计 | `/admin/notifications/statistics` | 待逐页验收 | 核对发送量、已读率 |
-| P-05 发送通知 | `/admin/notifications/send` | 待逐页验收 | 核对学校/课程/用户目标和权限 |
-| P-10 消息中心 | `/notifications` | 待逐页验收 | 核对系统公告置顶、筛选、批量已读 |
-| P-11 消息详情 | `/notifications/:id` | 待逐页验收 | 核对自动已读和“前往查看” |
-| P-12 通知偏好设置 | `/notifications/preferences` | 待逐页验收 | 核对分类偏好立即生效 |
+| P-01 系统公告管理 | `/admin/notifications/announcements` | 已修复 | 已补创建公告、公告列表、置顶标识和状态筛选表达 |
+| P-02 公告编辑 | `/admin/notifications/announcements/:id/edit` | 已修复 | 已补编辑、发布、下架与定时发布字段表达 |
+| P-03 消息模板管理 | `/admin/notifications/templates` | 已修复 | 已补模板列表、变量提示、保存和安全预览表达 |
+| P-04 消息统计 | `/admin/notifications/statistics` | 已修复 | 已补分类统计、已读率和每日趋势展示 |
+| P-05 发送通知 | `/admin/notifications/send` | 已修复 | 已补发送对象语义提示和分类发送表单表达 |
+| P-10 消息中心 | `/notifications` | 已修复 | 已补分类Tab、系统公告置顶区、批量已读和来源跳转提示 |
+| P-11 消息详情 | `/notifications/:id` | 已修复 | 已补详情阅读、自动已读后的前往查看入口 |
+| P-12 通知偏好设置 | `/notifications/preferences` | 已修复 | 已补强制分类说明与偏好保存流程 |
 
 ### 模块08 系统管理与监控
 
@@ -240,3 +243,21 @@
 | 2026-04-23 | `npm run test -- src/components/business/DiscussionAnnouncementPanels.test.tsx` | 通过 | 模块03讨论区与公告置顶分区，2 个测试 |
 | 2026-04-23 | `npm run test -- src/components/business/GradePanelStudent.test.tsx` | 通过 | 模块03学生成绩页各作业成绩与加权总分，1 个测试 |
 | 2026-04-23 | `npm run test -- src/lib/schedule-grid.test.ts` | 通过 | 模块03课程表周视图分组，1 个测试 |
+| 2026-04-24 | `npm test -- src/components/business/CoursePanels.test.tsx` | 通过 | 模块03第一批页面簇：P-03/P-12/P-33，3 个测试 |
+| 2026-04-24 | `npm test -- src/components/business/AssignmentListPanel.test.tsx` | 通过 | 模块03第二批页面簇：P-06/P-24，2 个测试 |
+| 2026-04-24 | `npm test -- src/components/business/CourseInsightsPanels.test.tsx` | 通过 | 模块03第三批页面簇：P-10/P-11，2 个测试 |
+| 2026-04-24 | `npm test -- src/components/business/DiscussionThread.test.tsx` | 通过 | 模块03第三批页面簇：P-31，1 个测试 |
+| 2026-04-24 | `npm run lint` | 通过 | 前端 lint 无警告无错误 |
+| 2026-04-24 | `npm run build` | 通过 | Next.js 14 生产构建通过，102 个 App Router 页面生成成功 |
+| 2026-04-24 | `npm run lint` | 通过 | 模块04整包收口后再次验证通过 |
+| 2026-04-24 | `npm run build` | 通过 | 模块04整包收口后再次完成 Next.js 14 生产构建 |
+| 2026-04-24 | `npm run lint` | 通过 | 模块05整包收口后再次验证通过 |
+| 2026-04-24 | `npm run build` | 通过 | 模块05整包收口后再次完成 Next.js 14 生产构建 |
+| 2026-04-24 | `npm run lint` | 通过 | 模块01整包收口后再次验证通过 |
+| 2026-04-24 | `npm run build` | 通过 | 模块01整包收口后再次完成 Next.js 14 生产构建 |
+| 2026-04-24 | `npm run lint` | 通过 | 模块02整包收口后再次验证通过 |
+| 2026-04-24 | `npm run build` | 通过 | 模块02整包收口后再次完成 Next.js 14 生产构建 |
+| 2026-04-24 | `npm run lint` | 通过 | 模块06整包收口后再次验证通过 |
+| 2026-04-24 | `npm run build` | 通过 | 模块06整包收口后再次完成 Next.js 14 生产构建 |
+| 2026-04-25 | `npm run lint` | 通过 | 模块07整包收口后再次验证通过 |
+| 2026-04-25 | `npm run build` | 通过 | 模块07整包收口后再次完成 Next.js 14 生产构建 |

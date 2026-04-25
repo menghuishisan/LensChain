@@ -47,6 +47,13 @@ const EMPTY_SCHOOL: CreateSchoolRequest = {
   contact_title: "",
 };
 
+function maskSchoolPhone(phone: string | null | undefined) {
+  if (!phone || phone.length < 7) {
+    return phone ?? "—";
+  }
+  return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+}
+
 /**
  * SchoolTable 学校管理列表组件。
  */
@@ -67,7 +74,7 @@ export function SchoolTable() {
       <CardHeader className="flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <CardTitle>学校管理</CardTitle>
-          <CardDescription>查看、搜索、筛选所有学校，管理授权有效期和生命周期状态。</CardDescription>
+          <CardDescription>查看、搜索和筛选学校信息，管理服务有效期与当前状态。</CardDescription>
         </div>
         <Link className={buttonClassName({ variant: "primary" })} href="/admin/schools/create">创建学校</Link>
       </CardHeader>
@@ -111,7 +118,7 @@ export function SchoolTable() {
                     <TableCell><SchoolStatusBadge status={school.status} text={school.status_text} /></TableCell>
                     <TableCell>{formatDateTime(school.license_end_at)}</TableCell>
                     <TableCell>{school.license_remaining_days === null ? "—" : `${school.license_remaining_days}天`}</TableCell>
-                    <TableCell>{school.contact_name} · {school.contact_phone}</TableCell>
+                    <TableCell>{school.contact_name} · {maskSchoolPhone(school.contact_phone)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
                         <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/admin/schools/${school.id}`}>详情/编辑</Link>
@@ -140,7 +147,7 @@ export function SchoolTable() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>设置授权有效期</DialogTitle>
-            <DialogDescription>学校必须设置授权有效期，到期后按后端规则进入缓冲期或冻结。</DialogDescription>
+            <DialogDescription>学校服务需要设置有效期，到期后会进入受限状态，便于后续处理。</DialogDescription>
           </DialogHeader>
           <Input type="datetime-local" value={licenseEndAt} onChange={(event) => setLicenseEndAt(event.target.value)} />
           <DialogFooter>
@@ -164,7 +171,7 @@ export function SchoolTable() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>冻结学校</DialogTitle>
-            <DialogDescription>冻结后该校所有用户无法登录，已有会话立即失效。</DialogDescription>
+            <DialogDescription>冻结后该校用户将暂时无法继续使用平台。</DialogDescription>
           </DialogHeader>
           <Textarea value={freezeReason} onChange={(event) => setFreezeReason(event.target.value)} placeholder="请输入冻结原因" />
           <DialogFooter>
@@ -238,7 +245,7 @@ export function SchoolFormPanel({ schoolID }: { schoolID?: ID }) {
     <Card>
       <CardHeader>
         <CardTitle>{isEdit ? "学校详情/编辑" : "创建学校"}</CardTitle>
-        <CardDescription>{isEdit ? "超管可编辑学校基础信息并另行设置授权有效期。" : "后台直接创建学校会跳过申请审核，并自动创建首个校管账号。"}</CardDescription>
+        <CardDescription>{isEdit ? "可编辑学校基础信息，并单独调整服务有效期。" : "直接创建后，系统会为学校生成首个管理员账号。"}</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -273,6 +280,11 @@ export function SchoolFormPanel({ schoolID }: { schoolID?: ID }) {
           <FormField label="学校简介" className="md:col-span-2">
             <Textarea value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
           </FormField>
+          {!isEdit ? (
+            <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground md:col-span-2">
+              创建学校成功后，系统会直接生成首个学校管理员账号，并通过短信发送初始密码。
+            </div>
+          ) : null}
           <div className="flex gap-3 md:col-span-2">
             <Button type="submit" disabled={!canSubmit} isLoading={createMutation.isPending || updateMutation.isPending}>{isEdit ? "保存修改" : "创建学校"}</Button>
             <Link className={buttonClassName({ variant: "outline" })} href="/admin/schools">返回列表</Link>

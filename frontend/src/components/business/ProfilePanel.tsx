@@ -116,7 +116,7 @@ export function ProfilePanel() {
               <FormField label="昵称" id="nickname">
                 <Input id="nickname" value={nickname} onChange={(event) => setNickname(event.target.value)} disabled={!isEditing} />
               </FormField>
-              <FormField label="头像URL" id="avatar-url" description="模块01当前 API 仅定义 avatar_url 字段；如需本地上传，需先补充头像上传接口文档。">
+              <FormField label="头像链接" id="avatar-url" description="当前可填写头像图片链接。">
                 <Input id="avatar-url" value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} disabled={!isEditing} />
               </FormField>
               <FormField label="邮箱" id="email" error={isEmailValid ? undefined : "邮箱格式不正确"}>
@@ -143,7 +143,7 @@ export function ProfilePanel() {
         <Card>
           <CardHeader>
             <CardTitle>学习概览</CardTitle>
-            <CardDescription>学习概览由模块06聚合层提供，不经过 auth service。</CardDescription>
+            <CardDescription>这里会汇总你的课程、实验、竞赛和学习时长情况。</CardDescription>
           </CardHeader>
           <CardContent>
             <LearningOverviewPanel />

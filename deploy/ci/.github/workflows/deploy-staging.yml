@@ -1,0 +1,34 @@
+name: deploy-staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/k8s/**'
+      - 'deploy/scripts/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > ~/.kube/config
+      - name: Apply Kustomize
+        run: kubectl apply -k deploy/k8s/overlays/staging/
+      - name: Wait for rollout
+        run: |
+          kubectl -n lenschain rollout status deployment/backend --timeout=10m
+          kubectl -n lenschain rollout status deployment/frontend --timeout=10m
+          kubectl -n lenschain rollout status deployment/sim-engine --timeout=10m
+      - name: Smoke test
+        run: |
+          BACKEND_URL=$(kubectl -n lenschain get svc backend -o jsonpath='{.spec.clusterIP}')
+          kubectl run smoke-test --rm -i --restart=Never \
+            --image=curlimages/curl:8.5.0 -- \
+            curl -fsS "http://${BACKEND_URL}:8080/healthz"

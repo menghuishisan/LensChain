@@ -1,0 +1,30 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lenschain-image-prepuller-role
+  labels:
+    app.kubernetes.io/name: image-prepuller
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "watch"]
+    resourceNames: ["image-manifest"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lenschain-image-prepuller
+  labels:
+    app.kubernetes.io/name: image-prepuller
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lenschain-image-prepuller-role
+subjects:
+  - kind: ServiceAccount
+    name: lenschain-image-prepuller
+    namespace: lenschain-system

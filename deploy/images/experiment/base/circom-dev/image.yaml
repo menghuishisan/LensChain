@@ -1,9 +1,0 @@
-# image.yaml
-name: circom-dev
-module: experiment
-category: base
-runtime: circom-dev
-resource_recommendation:
-  cpu: 0.5
-  memory: 1Gi
-description: Circom + SnarkJS 零知识证明电路开发基础镜像。

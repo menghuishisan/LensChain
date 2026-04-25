@@ -20,7 +20,7 @@ import { formatDateTime, formatFileSize } from "@/lib/format";
 export function TranscriptPanel() {
   const transcriptsQuery = useTranscripts({ page: 1, page_size: 20 });
   const mutations = useTranscriptMutations();
-  const [semesterIDs, setSemesterIDs] = useState("sem1,sem2");
+  const [semesterIDs, setSemesterIDs] = useState("");
 
   return (
     <div className="space-y-5">
@@ -32,10 +32,10 @@ export function TranscriptPanel() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <FormField label="学期ID列表" description="用逗号分隔多个学期ID。">
-            <Input value={semesterIDs} onChange={(event) => setSemesterIDs(event.target.value)} />
+          <FormField label="学期ID列表" description="用逗号分隔多个学期ID，仅生成已审核通过的成绩单。">
+            <Input value={semesterIDs} onChange={(event) => setSemesterIDs(event.target.value)} placeholder="例如：1880000000001,1880000000002" />
           </FormField>
-          <Button className="self-end" onClick={() => mutations.generate.mutate({ semester_ids: semesterIDs.split(",").map((item) => item.trim()).filter(Boolean) })} isLoading={mutations.generate.isPending}>
+          <Button className="self-end" disabled={semesterIDs.trim().length === 0} onClick={() => mutations.generate.mutate({ semester_ids: semesterIDs.split(",").map((item) => item.trim()).filter(Boolean) })} isLoading={mutations.generate.isPending}>
             生成成绩单
           </Button>
         </CardContent>

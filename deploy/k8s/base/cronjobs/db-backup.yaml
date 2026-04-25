@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: lenschain-system
+  labels:
+    app.kubernetes.io/name: db-backup
+    app.kubernetes.io/component: ops
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: lenschain-backup
+          containers:
+            - name: backup
+              image: registry.lianjing.com/middleware/postgres:15
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  pg_dump -h postgres.lenschain.svc.cluster.local \
+                          -U lenschain lenschain \
+                          | gzip > /backup/lenschain-$(date +%F).sql.gz
+              env:
+                - name: TZ
+                  value: UTC
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: password
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 1Gi
+          volumes:
+            - name: backup
+              emptyDir: {}
+          restartPolicy: OnFailure

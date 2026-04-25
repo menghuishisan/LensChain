@@ -47,6 +47,13 @@ const STATUS_TEXT: Record<UserStatus, string> = {
   3: "归档",
 };
 
+function maskPhone(phone: string | undefined | null) {
+  if (!phone || phone.length < 7) {
+    return phone ?? "—";
+  }
+  return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+}
+
 type UserCreateRole = ManageableUserRole | "super_admin";
 
 interface UserFormState extends Omit<CreateUserRequest, "role"> {
@@ -87,11 +94,11 @@ export function UserListPanel() {
   return (
     <div className="space-y-5">
       <Card>
-        <CardHeader className="flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <CardTitle>用户管理</CardTitle>
-            <CardDescription>超管查看全平台用户，学校管理员仅查看本校教师和学生。</CardDescription>
-          </div>
+      <CardHeader className="flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <CardTitle>用户管理</CardTitle>
+          <CardDescription>在这里查看、筛选和维护账号信息。</CardDescription>
+        </div>
           <div className="flex flex-wrap gap-2">
             <Link className={buttonClassName({ variant: "primary" })} href="/admin/users/create">
               <Plus className="h-4 w-4" />
@@ -169,7 +176,7 @@ export function UserListPanel() {
                           />
                         </TableCell>
                         <TableCell className="font-semibold">{userItem.name}</TableCell>
-                        <TableCell>{userItem.phone}</TableCell>
+                        <TableCell>{maskPhone(userItem.phone)}</TableCell>
                         <TableCell>{userItem.student_no ?? "—"}</TableCell>
                         <TableCell>{userItem.roles.map((role) => ROLE_TEXT[role]).join(" / ")}</TableCell>
                         <TableCell>{userItem.college ?? "—"}</TableCell>
@@ -390,7 +397,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
           <TextInput label="手机号" value={form.phone} onChange={(phone) => setForm((current) => ({ ...current, phone }))} required={!isEdit} disabled={isEdit} />
           <TextInput label="姓名" value={form.name} onChange={(name) => setForm((current) => ({ ...current, name }))} required />
           {!isEdit ? <TextInput label="初始密码" value={form.password} onChange={(password) => setForm((current) => ({ ...current, password }))} required type="password" /> : null}
-          <FormField label="角色" required description={isEdit ? "后端用户更新接口不支持修改角色；如需变更角色需走后端专用能力。" : undefined}>
+          <FormField label="角色" required description={isEdit ? "账号创建后，角色暂不支持在此页面直接修改。" : undefined}>
             <select className="h-10 rounded-lg border border-input bg-background px-3 text-sm" value={form.role} disabled={isEdit} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value as UserCreateRole }))}>
               <option value="student">学生</option>
               <option value="teacher">教师</option>
@@ -464,12 +471,15 @@ export function UserDetailPanel({ userID }: { userID: ID }) {
         <CardHeader className="flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <CardTitle>{user.name}</CardTitle>
-            <CardDescription>{user.school_name ?? "学校信息不可见"} · {user.phone}</CardDescription>
+            <CardDescription>{user.school_name ?? "学校信息不可见"} · {maskPhone(user.phone)}</CardDescription>
           </div>
-          <Link className={buttonClassName({ variant: "primary" })} href={`/admin/users/${userID}/edit`}>
-            <Pencil className="h-4 w-4" />
-            编辑信息
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link className={buttonClassName({ variant: "primary" })} href={`/admin/users/${userID}/edit`}>
+              <Pencil className="h-4 w-4" />
+              编辑信息
+            </Link>
+            <InlineUserDetailActions userID={userID} status={user.status} />
+          </div>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {[
@@ -549,7 +559,7 @@ function UserActions({
         <ConfirmDialog title="确认启用账号" description="启用后用户可重新登录。" trigger={<Button size="sm" variant="outline"><UserCheck className="h-4 w-4" />启用</Button>} onConfirm={() => onStatus(id, 1, "管理员启用")} />
       )}
       <Button size="sm" variant="outline" onClick={onUnlock}><RotateCcw className="h-4 w-4" />解锁</Button>
-      <ConfirmDialog title="确认删除账号" description="删除为软删除，历史数据按后端规则保留。" trigger={<Button size="sm" variant="destructive"><Trash2 className="h-4 w-4" />删除</Button>} onConfirm={onDelete} />
+      <ConfirmDialog title="确认删除账号" description="删除后，历史学习和操作记录仍会保留。" trigger={<Button size="sm" variant="destructive"><Trash2 className="h-4 w-4" />删除</Button>} onConfirm={onDelete} />
     </div>
   );
 }
@@ -583,6 +593,140 @@ function ResetPasswordDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function InlineUserDetailActions({ userID, status }: { userID: ID; status: UserStatus }) {
+  const { showToast } = useToast();
+  const updateStatusMutation = useUpdateUserStatusMutation();
+  const resetPasswordMutation = useResetUserPasswordMutation();
+  const unlockMutation = useUnlockUserMutation();
+  const deleteMutation = useDeleteUserMutation();
+  const [open, setOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <KeyRound className="h-4 w-4" />
+        重置密码
+      </Button>
+      {status === 1 ? (
+        <>
+          <ConfirmDialog
+            title="确认禁用账号"
+            description="禁用后该用户当前会话立即失效，登录会被拒绝。"
+            trigger={
+              <Button size="sm" variant="outline">
+                <UserX className="h-4 w-4" />
+                禁用
+              </Button>
+            }
+            onConfirm={() =>
+              updateStatusMutation.mutate(
+                { id: userID, payload: { status: 2, reason: "管理员禁用" } },
+                {
+                  onSuccess: () => showToast({ title: "账号已禁用", variant: "success" }),
+                  onError: (error) => showToast({ title: "禁用失败", description: error.message, variant: "destructive" }),
+                },
+              )
+            }
+          />
+          <ConfirmDialog
+            title="确认归档账号"
+            description="归档后账号无法登录，但历史学习数据会保留。"
+            trigger={
+              <Button size="sm" variant="outline">
+                <Archive className="h-4 w-4" />
+                归档
+              </Button>
+            }
+            onConfirm={() =>
+              updateStatusMutation.mutate(
+                { id: userID, payload: { status: 3, reason: "管理员归档" } },
+                {
+                  onSuccess: () => showToast({ title: "账号已归档", variant: "success" }),
+                  onError: (error) => showToast({ title: "归档失败", description: error.message, variant: "destructive" }),
+                },
+              )
+            }
+          />
+        </>
+      ) : (
+        <ConfirmDialog
+          title="确认启用账号"
+          description="启用后用户可重新登录。"
+          trigger={
+            <Button size="sm" variant="outline">
+              <UserCheck className="h-4 w-4" />
+              启用
+            </Button>
+          }
+          onConfirm={() =>
+            updateStatusMutation.mutate(
+              { id: userID, payload: { status: 1, reason: "管理员启用" } },
+              {
+                onSuccess: () => showToast({ title: "账号已启用", variant: "success" }),
+                onError: (error) => showToast({ title: "启用失败", description: error.message, variant: "destructive" }),
+              },
+            )
+          }
+        />
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() =>
+          unlockMutation.mutate(userID, {
+            onSuccess: () => showToast({ title: "账号已解锁", variant: "success" }),
+            onError: (error) => showToast({ title: "解锁失败", description: error.message, variant: "destructive" }),
+          })
+        }
+      >
+        <RotateCcw className="h-4 w-4" />
+        解锁
+      </Button>
+      <ConfirmDialog
+        title="确认删除账号"
+        description="删除后，历史学习和操作记录仍会保留。"
+        trigger={
+          <Button size="sm" variant="destructive">
+            <Trash2 className="h-4 w-4" />
+            删除
+          </Button>
+        }
+        onConfirm={() =>
+          deleteMutation.mutate(userID, {
+            onSuccess: () => showToast({ title: "账号已删除", variant: "success" }),
+            onError: (error) => showToast({ title: "删除失败", description: error.message, variant: "destructive" }),
+          })
+        }
+      />
+      <ResetPasswordDialog
+        open={open}
+        value={newPassword}
+        onValueChange={setNewPassword}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) {
+            setNewPassword("");
+          }
+        }}
+        onConfirm={() =>
+          resetPasswordMutation.mutate(
+            { id: userID, payload: { new_password: newPassword } },
+            {
+              onSuccess: () => {
+                setOpen(false);
+                setNewPassword("");
+                showToast({ title: "密码已重置", variant: "success" });
+              },
+              onError: (error) => showToast({ title: "重置失败", description: error.message, variant: "destructive" }),
+            },
+          )
+        }
+      />
+    </>
   );
 }
 

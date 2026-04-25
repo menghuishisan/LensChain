@@ -1,0 +1,64 @@
+name: hardhat-node
+category: chain-nodes
+ecosystem: ethereum
+description: Hardhat Network 本地开发节点
+maintainer: lenschain-platform
+license: MIT
+official_source: NomicFoundation/hardhat
+registry_project: chain-nodes
+
+versions:
+  - version: "2.22"
+    tag: "v2.22.0"
+    upstream_tag: "2.22.0"
+    min_cpu: "0.1"
+    min_memory: "256Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 8545
+    protocol: tcp
+    name: HTTP-RPC
+    description: HTTP JSON-RPC API
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /home/lenschain/project
+    purpose: project_data
+    size: 5Gi
+    description: 项目数据
+
+typical_companions:
+  required: []
+  recommended:
+    - image: remix-ide
+      reason: Solidity IDE
+  optional:
+    - image: blockscout
+      reason: 区块链浏览器
+
+required_dependencies: []
+supported_tools:
+  - remix-ide
+  - slither
+  - mythril
+
+healthcheck:
+  test: ["CMD-SHELL", "wget -qO- http://localhost:8545 --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}' --header='Content-Type: application/json'"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
+documentation_url: /docs/images/hardhat-node
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

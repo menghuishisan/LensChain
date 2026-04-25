@@ -84,7 +84,7 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
             <p className="whitespace-pre-wrap text-sm leading-7 text-white/74">{challenge.description}</p>
             {challenge.chain_config?.fork ? (
               <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-100">
-                Fork 题型：固定区块 {challenge.chain_config.fork.block_number}，链 ID {challenge.chain_config.fork.chain_id}。前端按文档展示，不允许改为 latest。
+                当前题目使用固定链上快照：区块 {challenge.chain_config.fork.block_number}，链 ID {challenge.chain_config.fork.chain_id}。
               </div>
             ) : null}
           </CardContent>
@@ -110,7 +110,7 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
                 ) : null}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">链上状态验证题必须先启动环境，静态/动态 Flag 题可直接提交。</p>
+              <p className="text-sm text-muted-foreground">需要运行环境的题目请先启动环境，其他题目可直接提交答案。</p>
             )}
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => environmentMutations.start.mutate()} isLoading={environmentMutations.start.isPending}>
@@ -134,7 +134,7 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
             <CardTitle>{submitType === 3 ? "提交攻击交易" : "提交 Flag"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FormField label={submitType === 3 ? "攻击交易数据" : "Flag 内容"} description={submitType === 3 ? "提交内容由后端在题目环境中执行并返回断言结果。" : "提交正确与否以后端返回 is_correct 为准。"}>
+            <FormField label={submitType === 3 ? "攻击交易数据" : "Flag 内容"} description={submitType === 3 ? "系统会在题目环境中执行并返回结果。" : "提交后会立即返回是否正确。"}>
               <Textarea value={content} onChange={(event) => setContent(event.target.value)} rows={6} placeholder={submitType === 3 ? "0x6080..." : "flag{...}"} />
             </FormField>
             <Button
@@ -148,7 +148,7 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
             {submitResult ? (
               <div className={submitResult.is_correct ? "rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700" : "rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700"}>
                 <p className="font-semibold">{submitResult.is_correct ? "提交正确" : "提交错误"}</p>
-                {submitResult.is_correct ? <p>得分 +{submitResult.score_awarded ?? 0}，当前排名 #{submitResult.team_rank ?? "-"}</p> : <p>{submitResult.error_message ?? "后端未返回失败原因"}</p>}
+                {submitResult.is_correct ? <p>得分 +{submitResult.score_awarded ?? 0}，当前排名 #{submitResult.team_rank ?? "-"}</p> : <p>{submitResult.error_message ?? "本次提交未通过，请检查后重试"}</p>}
                 {submitResult.cooldown_until ? <p>冷却至 {formatDateTime(submitResult.cooldown_until)}</p> : null}
               </div>
             ) : null}

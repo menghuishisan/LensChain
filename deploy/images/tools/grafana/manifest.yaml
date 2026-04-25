@@ -1,0 +1,59 @@
+name: grafana
+category: tools
+ecosystem: general
+description: Grafana 可视化监控仪表盘
+maintainer: lenschain-platform
+license: AGPL-3.0
+official_source: grafana/grafana
+registry_project: tools
+
+versions:
+  - version: "10.4"
+    tag: "v10.4.0"
+    upstream_tag: "10.4.0"
+    min_cpu: "0.1"
+    min_memory: "128Mi"
+    recommended_cpu: "0.25"
+    recommended_memory: "256Mi"
+    is_default: true
+
+default_ports:
+  - port: 3000
+    protocol: tcp
+    name: HTTP
+    description: Grafana Web 访问端口
+
+default_env_vars: []
+conditional_env_vars: []
+
+default_volumes:
+  - mount_path: /var/lib/grafana
+    purpose: grafana_data
+    size: 2Gi
+    description: Grafana 数据持久化
+
+typical_companions:
+  required: []
+  recommended:
+    - image: prometheus
+      reason: 指标数据源
+  optional: []
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 20s
+
+documentation_url: /docs/images/grafana
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

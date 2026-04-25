@@ -152,6 +152,9 @@ export function SchoolSSOConfigForm() {
               <p className="mt-1 text-sm">{testMutation.data.test_detail ?? testMutation.data.error_detail}</p>
             </div>
           ) : null}
+          {!isTested && isEnabled ? (
+            <div className="rounded-xl bg-amber-500/10 p-4 text-sm text-amber-700">当前配置尚未通过测试，建议先测试连接再保持启用状态。</div>
+          ) : null}
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={!validation.isValid} isLoading={saveMutation.isPending}>保存配置</Button>
             <Button type="button" variant="outline" isLoading={testMutation.isPending} onClick={() => testMutation.mutate(undefined, { onSuccess: () => showToast({ title: "SSO连接测试完成", variant: "success" }), onError: (error) => showToast({ title: "测试失败", description: error.message, variant: "destructive" }) })}>

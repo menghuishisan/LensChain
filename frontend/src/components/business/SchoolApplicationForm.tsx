@@ -87,7 +87,7 @@ export function SchoolApplicationForm() {
             <Building2 className="h-8 w-8" />
           </div>
           <h1 className="font-display text-5xl font-semibold leading-tight">让学校的区块链教学快速接入链镜。</h1>
-          <p className="mt-6 text-lg leading-8 text-white/70">多租户隔离、课程实验竞赛一体化、SSO可选接入。</p>
+          <p className="mt-6 text-lg leading-8 text-white/70">课程、实验、竞赛一体化支持，学校可按需接入统一认证。</p>
         </div>
         <div className="grid gap-3 text-sm text-white/70">
           <span>多链全覆盖</span>

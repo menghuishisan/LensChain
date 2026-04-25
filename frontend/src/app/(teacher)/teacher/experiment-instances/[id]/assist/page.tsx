@@ -8,7 +8,7 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 export default function TeacherExperimentAssistPage({ params }: { params: { id: string } }) {
   return (
     <PermissionGate allowedRoles={["teacher"]}>
-      <ExperimentInstancePanel instanceID={params.id} terminalReadOnly />
+      <ExperimentInstancePanel instanceID={params.id} mode="assist" />
     </PermissionGate>
   );
 }

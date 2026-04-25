@@ -1,0 +1,69 @@
+name: backend
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**', 'deploy/docker/backend.Dockerfile']
+  pull_request:
+    paths: ['backend/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: cd backend && go mod download
+      - name: Lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          working-directory: backend
+      - name: Test
+        run: cd backend && go test ./... -race -coverprofile=coverage.out
+
+  build:
+    needs: test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: registry.lianjing.com
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: registry.lianjing.com/lenschain/backend
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/main' }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/backend.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT_SHA=${{ github.sha }}
+          cache-from: type=registry,ref=registry.lianjing.com/lenschain/backend:cache
+          cache-to: type=registry,ref=registry.lianjing.com/lenschain/backend:cache,mode=max
+      - name: Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: registry.lianjing.com/lenschain/backend:sha-${{ github.sha }}
+          severity: CRITICAL
+          exit-code: '1'
+      - name: Cosign Sign
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: cosign sign --key env://COSIGN_KEY registry.lianjing.com/lenschain/backend:${{ github.ref_name }}

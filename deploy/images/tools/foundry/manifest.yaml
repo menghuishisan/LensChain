@@ -1,0 +1,54 @@
+name: foundry
+category: tools
+ecosystem: ethereum
+description: Foundry 工具套件（forge/cast/anvil/chisel）
+maintainer: lenschain-platform
+license: MIT
+official_source: foundry-rs/foundry
+registry_project: tools
+
+versions:
+  - version: "nightly"
+    tag: "nightly"
+    upstream_tag: "nightly-5b7e4cb3c882b28f3c32ba580de27ce7381f415a"
+    min_cpu: "0.25"
+    min_memory: "256Mi"
+    recommended_cpu: "0.5"
+    recommended_memory: "512Mi"
+    is_default: true
+
+default_ports:
+  - port: 8545
+    protocol: tcp
+    name: Anvil-RPC
+    description: Anvil 本地节点 RPC
+
+default_env_vars: []
+conditional_env_vars: []
+default_volumes: []
+
+typical_companions:
+  required: []
+  recommended: []
+  optional:
+    - image: blockscout
+      reason: 区块链浏览器
+
+required_dependencies: []
+supported_tools: []
+
+healthcheck:
+  test: ["CMD", "forge", "--version"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+
+documentation_url: /docs/images/foundry
+prepull_phase: 1
+prepull_node_tier: light
+
+security_scan:
+  enabled: true
+  allow_critical: false
+  allow_high: true

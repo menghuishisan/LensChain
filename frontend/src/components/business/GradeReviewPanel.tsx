@@ -9,12 +9,13 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { useGradeReview, useGradeReviewMutations, useGradeReviews } from "@/hooks/useGradeReviews";
 import { getGradeReviewStatusVariant } from "@/lib/grade";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatScore } from "@/lib/format";
 import type { ID } from "@/types/api";
 
 /**
@@ -64,11 +65,24 @@ export function GradeReviewPanel({ mode, reviewID }: GradeReviewPanelProps) {
     );
   }
 
+  if (mode === "admin" && reviewID === undefined) {
+    return <ReviewListBlock items={reviewsQuery.data?.list ?? []} />;
+  }
+
+  if (reviewQuery.isLoading) {
+    return <EmptyState title="正在加载审核详情" description="请稍候，正在读取成绩分布和审核记录。" />;
+  }
+
+  if (reviewQuery.isError) {
+    return <ErrorState title="审核详情加载失败" description={reviewQuery.error.message} />;
+  }
+
   if (!reviewQuery.data) {
     return <EmptyState title="暂无审核详情" description="请选择待审核记录查看明细。" />;
   }
 
   const review = reviewQuery.data;
+  const gradeRows = review.grade_rows ?? [];
 
   return (
     <Card>
@@ -87,7 +101,32 @@ export function GradeReviewPanel({ mode, reviewID }: GradeReviewPanelProps) {
           <MetaField label="审核教师" value={review.reviewed_by_name ?? "—"} />
           <MetaField label="审核时间" value={formatDateTime(review.reviewed_at)} />
         </div>
+        <div className="grid gap-3 md:grid-cols-4">
+          <MetaField label="学生数" value={String(gradeRows.length)} />
+          <MetaField label="平均分" value={formatScore(calculateAverage(gradeRows.map((row) => row.final_score)))} />
+          <MetaField label="已调整人数" value={String(gradeRows.filter((row) => row.is_adjusted).length)} />
+          <MetaField label="锁定状态" value={review.is_locked ? "已锁定" : "未锁定"} />
+        </div>
         <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground whitespace-pre-wrap">{review.submit_note ?? "无教师备注"}</div>
+        <Card>
+          <CardHeader>
+            <CardTitle>成绩明细</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {gradeRows.map((row) => (
+              <div key={row.grade_id} className="grid gap-3 rounded-xl border border-border p-4 md:grid-cols-[1.2fr_1fr_1fr_1fr_auto]">
+                <div>
+                  <p className="font-semibold">{row.student_name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{row.student_no}</p>
+                </div>
+                <MetaField label="学分" value={formatScore(row.credits)} />
+                <MetaField label="总分" value={formatScore(row.final_score)} />
+                <MetaField label="等级 / 绩点" value={`${row.grade_level} / ${formatScore(row.gpa_point)}`} />
+                {row.is_adjusted ? <Badge variant="outline">已调整</Badge> : <Badge variant="success">自动计算</Badge>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
         <FormField label="审核意见">
           <Textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={5} />
         </FormField>
@@ -123,6 +162,13 @@ function ReviewListBlock({ items }: { items: Array<{ id: string; course_name: st
       </CardContent>
     </Card>
   );
+}
+
+function calculateAverage(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function MetaField({ label, value }: { label: string; value: string }) {

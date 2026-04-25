@@ -1,0 +1,25 @@
+# 实验 Namespace 允许访问后端 API（Collector 上报通道）
+# 后端动态创建 exp-* Namespace 时应用此策略
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-backend
+  labels:
+    app.kubernetes.io/name: experiment-egress-backend
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - port: 8080
+          protocol: TCP
