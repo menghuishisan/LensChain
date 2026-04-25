@@ -10,7 +10,7 @@ shopt -s globstar nullglob
 BACKEND_URL=${BACKEND_URL:-http://localhost:8080/api/v1}
 ADMIN_TOKEN=${ADMIN_TOKEN:?"ADMIN_TOKEN is required"}
 
-DEPLOY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DEPLOY_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COUNT=0
 FAILED=0
 

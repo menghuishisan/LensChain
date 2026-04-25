@@ -133,9 +133,6 @@ func Setup(mode string, h *Handlers) *gin.Engine {
 	RegisterWebSocketRoutes(r, h)
 
 	// 健康检查（不经过鉴权）
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})

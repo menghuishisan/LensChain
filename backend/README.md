@@ -61,7 +61,15 @@ go run ./cmd/server
 - 结构迁移 SQL
 - 一份可重复导入的 demo 数据 SQL
 
-推荐通过 [deploy/scripts/init-db.sh](/abs/path/E:/code/LensChain/deploy/scripts/init-db.sh) 统一初始化数据库，这样会先建表，再导入 demo 数据。
+初始化命令：
+
+```bash
+./deploy/scripts/bash/init-db.sh
+```
+
+```powershell
+.\deploy\scripts\powershell\init-db.ps1
+```
 
 默认 demo 账号密码统一为：
 

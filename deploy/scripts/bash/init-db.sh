@@ -7,7 +7,7 @@
 set -euo pipefail
 
 DB_HOST=${DB_HOST:-localhost}
-DB_PORT=${DB_PORT:-5432}
+DB_PORT=${DB_PORT:-5442}
 DB_USER=${DB_USER:-lenschain}
 DB_PASSWORD=${DB_PASSWORD:-lenschain}
 DB_NAME=${DB_NAME:-lenschain}
@@ -26,7 +26,7 @@ psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -tc \
   psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -c "CREATE DATABASE $DB_NAME"
 
 echo "==> Running migrations"
-cd "$(dirname "$0")/../../backend"
+cd "$(dirname "$0")/../../../backend"
 go run cmd/migrate/main.go up
 
 DEMO_SEED_FILE="migrations/010_seed_demo_data.up.sql"

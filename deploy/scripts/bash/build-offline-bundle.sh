@@ -10,7 +10,7 @@ VERSION=${VERSION:?"Usage: build-offline-bundle.sh (requires VERSION env)"}
 OUTPUT_DIR=${OUTPUT_DIR:-.}
 BUNDLE_NAME="lenschain-phase1-${VERSION}"
 
-DEPLOY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DEPLOY_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 IMAGES=()
 
 echo "==> Collecting Phase 1 image list from manifests"

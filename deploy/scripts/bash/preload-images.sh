@@ -12,7 +12,7 @@ REGISTRY=${REGISTRY:-registry.lianjing.com}
 CONFIGMAP_NAME=${CONFIGMAP_NAME:-image-manifest}
 PHASE_FILTER=${PHASE_FILTER:-}
 
-DEPLOY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DEPLOY_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP_MANIFEST="$(mktemp)"
 
 cleanup() {

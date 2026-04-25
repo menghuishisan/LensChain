@@ -57,7 +57,11 @@ docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
 ### 2. 初始化数据库和 demo 数据
 
 ```bash
-./deploy/scripts/init-db.sh
+./deploy/scripts/bash/init-db.sh
+```
+
+```powershell
+.\deploy\scripts\powershell\init-db.ps1
 ```
 
 ### 3. 启动后端

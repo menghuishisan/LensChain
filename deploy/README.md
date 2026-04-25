@@ -64,35 +64,30 @@ docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
 docker compose -f deploy/docker-compose/docker-compose.dev.yml --profile full up -d
 ```
 
-## 数据库怎么初始化
+## 脚本路径
 
-初始化入口是：
-
-- [deploy/scripts/init-db.sh](/abs/path/E:/code/LensChain/deploy/scripts/init-db.sh)
-
-它负责：
-
-1. 检查 PostgreSQL 连接
-2. 创建数据库
-3. 执行 `backend/migrations/` 下的结构迁移
-4. 执行 demo 种子数据
-
-说明：
-
-- 结构迁移由 `backend/cmd/migrate/main.go up` 执行
-- demo 数据来自 [backend/migrations/010_seed_demo_data.up.sql](/abs/path/E:/code/LensChain/backend/migrations/010_seed_demo_data.up.sql)
-- 也就是说，初始化脚本会**先建表，再灌种子数据**
-
-示例：
-
-```bash
-./deploy/scripts/init-db.sh
+```text
+deploy/scripts/
+├── bash/
+└── powershell/
 ```
 
-如果你本机端口不是默认值，可以覆盖：
+## 数据库初始化
 
 ```bash
-DB_HOST=localhost DB_PORT=5442 DB_USER=lenschain DB_PASSWORD=lenschain DB_NAME=lenschain ./deploy/scripts/init-db.sh
+./deploy/scripts/bash/init-db.sh
+```
+
+```powershell
+.\deploy\scripts\powershell\init-db.ps1
+```
+
+```bash
+DB_HOST=localhost DB_PORT=5442 DB_USER=lenschain DB_PASSWORD=lenschain DB_NAME=lenschain ./deploy/scripts/bash/init-db.sh
+```
+
+```powershell
+$env:DB_HOST="localhost"; $env:DB_PORT="5442"; $env:DB_USER="lenschain"; $env:DB_PASSWORD="lenschain"; $env:DB_NAME="lenschain"; .\deploy\scripts\powershell\init-db.ps1
 ```
 
 ## Demo 数据
@@ -122,21 +117,12 @@ LensChain2026
 
 ## 镜像清单怎么同步
 
-镜像清单同步脚本：
-
-- [deploy/scripts/seed-images.sh](/abs/path/E:/code/LensChain/deploy/scripts/seed-images.sh)
-
-它会扫描 `deploy/images/**/manifest.yaml`，再通过后端 API 同步到数据库中的 `images` 和 `image_versions` 表。
-
-使用前需要：
-
-- 后端服务已启动
-- 提供有权限的 `ADMIN_TOKEN`
-
-示例：
-
 ```bash
-BACKEND_URL=http://localhost:8080/api/v1 ADMIN_TOKEN='<token>' ./deploy/scripts/seed-images.sh
+BACKEND_URL=http://localhost:8080/api/v1 ADMIN_TOKEN='<token>' ./deploy/scripts/bash/seed-images.sh
+```
+
+```powershell
+$env:BACKEND_URL="http://localhost:8080/api/v1"; $env:ADMIN_TOKEN="<token>"; .\deploy\scripts\powershell\seed-images.ps1
 ```
 
 ## 镜像怎么完整拉取 / 预拉取
@@ -168,10 +154,12 @@ BACKEND_URL=http://localhost:8080/api/v1 ADMIN_TOKEN='<token>' ./deploy/scripts/
 - `deploy/k8s/base/daemonset/image-prepuller.yaml`
 - `deploy/k8s/base/daemonset/image-prepuller-configmap.yaml`
 
-手动触发方式：
-
 ```bash
-./deploy/scripts/preload-images.sh
+./deploy/scripts/bash/preload-images.sh
+```
+
+```powershell
+.\deploy\scripts\powershell\preload-images.ps1
 ```
 
 ## 统一配置示例
