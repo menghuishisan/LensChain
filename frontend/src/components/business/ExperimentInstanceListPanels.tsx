@@ -3,9 +3,9 @@
 // ExperimentInstanceListPanels.tsx
 // 模块04实验实例、教师监控和管理端资源页面级业务面板。
 
-import { Activity, BarChart3, Eye, Play, Square } from "lucide-react";
+import { Activity, BarChart3, CheckCircle, Circle, Eye, Loader2, Play, RotateCcw, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -24,12 +24,14 @@ import {
   useExperimentInstanceLifecycleMutations,
   useExperimentInstances,
   useExperimentMonitorMutations,
+  useSnapshots,
 } from "@/hooks/useExperimentInstances";
 import { useExperimentGroupMutations, useExperimentGroups } from "@/hooks/useExperimentGroups";
-import { useCourseExperimentMonitorRealtime } from "@/hooks/useExperimentRealtime";
+import { useCourseExperimentMonitorRealtime, useExperimentInstanceRealtime } from "@/hooks/useExperimentRealtime";
 import { useExperimentTemplate, useExperimentTemplates } from "@/hooks/useExperimentTemplates";
 import { formatDateTime, formatScore } from "@/lib/format";
 import type { ID } from "@/types/api";
+import type { ExperimentSnapshot } from "@/types/experiment";
 
 /**
  * StudentExperimentListPanel 学生实验实例列表和启动入口。
@@ -132,6 +134,7 @@ export function StudentExperimentListPanel() {
 
 /**
  * ExperimentLaunchPanel 学生指定模板实验启动/排队页面。
+ * 支持 WS 分步启动进度跟踪和快照恢复选择。
  */
 export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
   const router = useRouter();
@@ -139,6 +142,64 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
   const lifecycle = useExperimentInstanceLifecycleMutations();
   const [courseID, setCourseID] = useState("");
   const [groupID, setGroupID] = useState("");
+  const [snapshotID, setSnapshotID] = useState("");
+  const [launchedInstanceID, setLaunchedInstanceID] = useState("");
+
+  // 查询该模板历史快照（需要先有实例 ID，这里通过已有实例列表获取最近的快照）
+  const instancesQuery = useExperimentInstances({ page: 1, page_size: 5, template_id: templateID });
+  const latestInstanceID = instancesQuery.data?.list?.[0]?.id ?? "";
+  const snapshotsQuery = useSnapshots(latestInstanceID);
+  const snapshots = snapshotsQuery.data ?? [];
+
+  // WS 实时跟踪启动进度
+  const realtime = useExperimentInstanceRealtime(launchedInstanceID, launchedInstanceID.length > 0);
+
+  // 从 WS 消息中提取启动进度步骤
+  const launchSteps = useMemo(() => {
+    const steps: Array<{ label: string; status: "done" | "active" | "pending"; detail?: string }> = [
+      { label: "创建实例", status: "pending" },
+      { label: "分配资源", status: "pending" },
+      { label: "拉取镜像", status: "pending" },
+      { label: "启动容器", status: "pending" },
+      { label: "就绪检查", status: "pending" },
+    ];
+    if (!launchedInstanceID) return steps;
+
+    // 根据 WS 推送的 status_change 和 container_status 消息推进步骤
+    const statusMessages = realtime.messages.filter((m) => m.type === "status_change" || m.type === "container_status");
+    let maxStep = 0;
+    for (const msg of statusMessages) {
+      const payload = msg.data ?? {};
+      const status = (payload as Record<string, unknown>).status as number | undefined;
+      if (status === 1) maxStep = Math.max(maxStep, 1);
+      if (status === 2) maxStep = Math.max(maxStep, 2);
+      if (msg.type === "container_status") maxStep = Math.max(maxStep, 3);
+      if (status === 3) maxStep = Math.max(maxStep, 5);
+    }
+
+    for (let i = 0; i < steps.length; i++) {
+      if (i < maxStep) steps[i].status = "done";
+      else if (i === maxStep && maxStep > 0) steps[i].status = "active";
+    }
+    // 创建成功即标记第一步完成
+    if (launchedInstanceID.length > 0 && maxStep === 0) {
+      steps[0].status = "done";
+      steps[1].status = "active";
+    }
+    return steps;
+  }, [launchedInstanceID, realtime.messages.length]);
+
+  // 当实例就绪（status=3 running）自动跳转
+  useEffect(() => {
+    if (!launchedInstanceID) return;
+    const readyMsg = realtime.messages.find((m) => {
+      const msgData = m.data ?? {};
+      return m.type === "status_change" && (msgData as Record<string, unknown>).status === 3;
+    });
+    if (readyMsg) {
+      router.push(`/student/experiment-instances/${launchedInstanceID}`);
+    }
+  }, [realtime.messages.length, launchedInstanceID, router]);
 
   const launch = () => {
     lifecycle.create.mutate(
@@ -146,11 +207,16 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
         template_id: templateID,
         course_id: courseID || null,
         group_id: groupID || null,
+        snapshot_id: snapshotID || null,
       },
       {
         onSuccess: (created) => {
           if (created.instance_id) {
-            router.push(`/student/experiment-instances/${created.instance_id}`);
+            setLaunchedInstanceID(created.instance_id);
+            // 如果直接就绪（无需等待）则跳转
+            if (created.status === 3) {
+              router.push(`/student/experiment-instances/${created.instance_id}`);
+            }
           }
         },
       },
@@ -167,6 +233,10 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
 
   const template = templateQuery.data;
   const createResult = lifecycle.create.data;
+  const isLaunching = launchedInstanceID.length > 0 && !realtime.messages.some((m) => {
+    const msgData = m.data ?? {};
+    return m.type === "status_change" && (msgData as Record<string, unknown>).status === 3;
+  });
 
   return (
     <div className="space-y-5">
@@ -180,23 +250,95 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
           <MetricCard title="最大时长" value={`${template.max_duration} 分钟`} />
           <MetricCard title="总分" value={template.total_score} />
         </CardContent>
+        {/* 容器配置摘要 */}
+        {template.containers.length > 0 ? (
+          <CardContent className="border-t border-white/10 pt-4 text-sm text-white/70">
+            <p>容器配置：{template.containers.map((c) => `${c.image_version?.image_display_name ?? c.container_name}:${c.image_version?.version ?? "latest"}`).join(" + ")}</p>
+            <p className="mt-1">资源需求：CPU {template.cpu_limit ?? "-"} · 内存 {template.memory_limit ?? "-"} · 磁盘 {template.disk_limit ?? "-"}</p>
+          </CardContent>
+        ) : null}
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>启动参数</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-          <FormField label="课程 ID" description="从课程或作业进入时可自动带入；未填写时按当前可用范围启动。">
-            <Input value={courseID} onChange={(event) => setCourseID(event.target.value)} />
-          </FormField>
-          <FormField label="分组 ID" description="多人协作实验可填写对应分组标识。">
-            <Input value={groupID} onChange={(event) => setGroupID(event.target.value)} />
-          </FormField>
-          <Button className="self-end" onClick={launch} isLoading={lifecycle.create.isPending}>
-            启动实验
-          </Button>
-        </CardContent>
-      </Card>
+
+      {/* 快照恢复选择器 */}
+      {snapshots.length > 0 && !isLaunching ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-primary" />
+              启动方式
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <label className="flex items-center gap-3 rounded-xl border border-border p-4 cursor-pointer hover:bg-muted/30">
+              <input type="radio" name="launch-mode" value="" checked={snapshotID === ""} onChange={() => setSnapshotID("")} className="accent-primary" />
+              <div>
+                <p className="font-semibold">全新开始</p>
+                <p className="text-sm text-muted-foreground">创建一个全新的实验实例</p>
+              </div>
+            </label>
+            {snapshots.map((snapshot) => (
+              <label key={snapshot.id} className="flex items-center gap-3 rounded-xl border border-border p-4 cursor-pointer hover:bg-muted/30">
+                <input type="radio" name="launch-mode" value={snapshot.id} checked={snapshotID === snapshot.id} onChange={() => setSnapshotID(snapshot.id)} className="accent-primary" />
+                <div>
+                  <p className="font-semibold">从快照恢复 · {snapshot.snapshot_type_text}</p>
+                  <p className="text-sm text-muted-foreground">{snapshot.description ?? "无描述"} · {formatDateTime(snapshot.created_at)}</p>
+                </div>
+              </label>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* 启动参数 */}
+      {!isLaunching ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>启动参数</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <FormField label="课程 ID" description="从课程或作业进入时可自动带入；未填写时按当前可用范围启动。">
+              <Input value={courseID} onChange={(event) => setCourseID(event.target.value)} />
+            </FormField>
+            <FormField label="分组 ID" description="多人协作实验可填写对应分组标识。">
+              <Input value={groupID} onChange={(event) => setGroupID(event.target.value)} />
+            </FormField>
+            <Button className="self-end" onClick={launch} isLoading={lifecycle.create.isPending}>
+              启动实验
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* WS 分步启动进度 */}
+      {isLaunching ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              正在启动实验环境
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              {launchSteps.map((step, index) => (
+                <div key={index} className="flex items-center gap-3">
+                  {step.status === "done" ? (
+                    <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                  ) : step.status === "active" ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
+                  ) : (
+                    <Circle className="h-5 w-5 text-muted-foreground/40 shrink-0" />
+                  )}
+                  <span className={step.status === "pending" ? "text-muted-foreground/50" : step.status === "active" ? "font-semibold text-primary" : "text-foreground"}>{step.label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground">实验环境准备完成后将自动进入操作页面。</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* 排队等待 */}
       {createResult?.status === 10 ? (
         <Card>
           <CardHeader>

@@ -3,11 +3,16 @@
 // ExperimentTemplatePanels.tsx
 // 模块04模板、镜像和仿真场景页面级业务面板。
 
-import { Plus, ShieldCheck } from "lucide-react";
+import { BookOpen, FileText, Plus, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Editor } from "@monaco-editor/react";
 
 import { ExperimentTemplateCard } from "@/components/business/ExperimentTemplateCard";
+import { ImageDocSidebar } from "@/components/business/ImageDocSidebar";
+import { ContainerOrchestrationCanvas } from "@/components/business/ContainerOrchestrationCanvas";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -123,6 +128,8 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
   const [selectedImageID, setSelectedImageID] = useState("");
   const [selectedScenarioID, setSelectedScenarioID] = useState("");
   const [selectedLinkGroupID, setSelectedLinkGroupID] = useState("");
+  const [scenarioCategoryFilter, setScenarioCategoryFilter] = useState("all");
+  const [showDocSidebar, setShowDocSidebar] = useState(false);
   const [activeStep, setActiveStep] = useState<(typeof TEMPLATE_STEPS)[number]["id"]>("basic");
   const [k8sConfigText, setK8sConfigText] = useState("{\n  \"namespace_resource\": {},\n  \"network_policy\": {}\n}");
   const imageQuery = useImage(selectedImageID);
@@ -191,12 +198,20 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
       return;
     }
     const config = imageConfigQuery.data;
+    const existingContainers = (activeTemplate?.containers ?? []);
+    const envContext: Record<string, string> = {};
+    existingContainers.forEach((c) => {
+      envContext[c.container_name] = c.image_version?.image_display_name ?? c.container_name;
+    });
+    const resolvedEnvVars = config?.default_env_vars
+      ? resolveConditionalEnvVars(config.default_env_vars, envContext)
+      : [];
     const payload: TemplateContainerRequest = {
       image_version_id: selectedVersion.id,
       container_name: containerName,
-      env_vars: config?.default_env_vars.map((item) => ({ key: item.key, value: item.value })) ?? [],
+      env_vars: resolvedEnvVars.map((item) => ({ key: item.key, value: item.value })),
       ports: config?.default_ports.map((item) => ({ container: item.port, protocol: item.protocol })) ?? [],
-      volumes: [],
+      volumes: config?.default_volumes?.map((item) => ({ host_path: item.path, container_path: item.path })) ?? [],
       cpu_limit: config?.resource_recommendation.cpu ?? null,
       memory_limit: config?.resource_recommendation.memory ?? null,
       depends_on: config?.typical_companions.required.map((item) => item.image) ?? [],
@@ -362,22 +377,26 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
                 <Button className="self-end" disabled={!canEditSubresources || !selectedVersion || form.experiment_type === 1} onClick={addContainer} isLoading={configMutations.createContainer.isPending}>
                   添加容器
                 </Button>
+                {selectedImageID ? (
+                  <Button variant="ghost" className="self-end" onClick={() => setShowDocSidebar(true)} title="查看镜像文档">
+                    <BookOpen className="h-4 w-4" />
+                  </Button>
+                ) : null}
               </div>
               {imageConfigQuery.data ? (
                 <div className="grid gap-4 lg:grid-cols-3">
-                  <CompatibilityBlock title="必须搭配" items={imageConfigQuery.data.typical_companions.required} />
-                  <CompatibilityBlock title="推荐搭配" items={imageConfigQuery.data.typical_companions.recommended} />
-                  <CompatibilityBlock title="可选搭配" items={imageConfigQuery.data.typical_companions.optional} />
+                  <CompatibilityBlock title="必须搭配" level="required" items={imageConfigQuery.data.typical_companions.required} />
+                  <CompatibilityBlock title="推荐搭配" level="recommended" items={imageConfigQuery.data.typical_companions.recommended} />
+                  <CompatibilityBlock title="可选搭配" level="optional" items={imageConfigQuery.data.typical_companions.optional} />
                 </div>
               ) : null}
-              <div className="grid gap-4 md:grid-cols-2">
-                {(activeTemplate?.containers ?? []).map((container) => (
-                  <div key={container.id} className="rounded-xl border border-border p-4">
-                    <p className="font-semibold">{container.container_name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{container.image_version?.image_display_name ?? "未关联镜像"} · {container.memory_limit ?? "未设内存"} · 启动顺序 {container.startup_order}</p>
-                  </div>
-                ))}
-              </div>
+              <ContainerOrchestrationCanvas
+                containers={activeTemplate?.containers ?? []}
+                onUpdateContainer={(containerID, payload) => configMutations.updateContainer.mutate({ containerID, payload })}
+                onDeleteContainer={(containerID) => configMutations.deleteContainer.mutate(containerID)}
+                isUpdating={configMutations.updateContainer.isPending}
+                isDeleting={configMutations.deleteContainer.isPending}
+              />
               {portConflicts.length > 0 ? (
                 <div className="rounded-xl border border-destructive/30 bg-destructive/8 p-4 text-sm text-destructive">
                   {portConflicts.map((conflict) => (
@@ -410,12 +429,25 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
               <CardTitle>工具与仿真场景</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
+              <Tabs value={scenarioCategoryFilter} onValueChange={setScenarioCategoryFilter}>
+                <TabsList className="flex w-full flex-wrap justify-start gap-1 bg-transparent p-0">
+                  <TabsTrigger value="all">全部领域</TabsTrigger>
+                  <TabsTrigger value="node-network">节点网络</TabsTrigger>
+                  <TabsTrigger value="consensus">共识机制</TabsTrigger>
+                  <TabsTrigger value="data-structure">数据结构</TabsTrigger>
+                  <TabsTrigger value="transaction">交易流程</TabsTrigger>
+                  <TabsTrigger value="cryptography">密码学</TabsTrigger>
+                  <TabsTrigger value="smart-contract">智能合约</TabsTrigger>
+                  <TabsTrigger value="attack-security">攻击安全</TabsTrigger>
+                  <TabsTrigger value="economic">经济模型</TabsTrigger>
+                </TabsList>
+              </Tabs>
               <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
                 <FormField label="仿真场景">
                   <Select value={selectedScenarioID} onValueChange={setSelectedScenarioID}>
                     <SelectTrigger><SelectValue placeholder="选择仿真内容" /></SelectTrigger>
                     <SelectContent>
-                      {(scenariosQuery.data?.list ?? []).map((scenario) => (
+                      {(scenariosQuery.data?.list ?? []).filter((scenario) => scenarioCategoryFilter === "all" || scenario.category === scenarioCategoryFilter).map((scenario) => (
                         <SelectItem key={scenario.id} value={scenario.id}>{scenario.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -458,9 +490,17 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
             <CardHeader>
               <CardTitle>实验说明</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4">
-              <FormField label="实验说明" className="md:col-span-2">
-                <Textarea value={form.instructions ?? ""} onChange={(event) => setForm((current) => ({ ...current, instructions: event.target.value }))} rows={6} />
+            <CardContent className="space-y-4">
+              <FormField label="实验说明（左侧编辑，右侧预览）">
+                <div className="grid grid-cols-2 gap-4">
+                  <Textarea value={form.instructions ?? ""} onChange={(event) => setForm((current) => ({ ...current, instructions: event.target.value }))} rows={16} className="font-mono" />
+                  <div className="prose prose-sm max-h-[400px] overflow-auto rounded-xl border border-border p-4 dark:prose-invert">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{form.instructions ?? ""}</ReactMarkdown>
+                  </div>
+                </div>
+              </FormField>
+              <FormField label="初始化脚本（可选）">
+                <Editor height="180px" language="bash" value={form.reference_materials ?? ""} onChange={(value) => setForm((current) => ({ ...current, reference_materials: value ?? "" }))} theme="vs-dark" options={{ minimap: { enabled: false }, fontSize: 13 }} />
               </FormField>
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setActiveStep(visibleSteps[Math.max(currentStepIndex - 1, 0)]?.id ?? activeStep)}>
@@ -567,8 +607,8 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
                 <FormField label="空闲超时（分钟）">
                   <Input type="number" value={form.idle_timeout ?? 30} onChange={(event) => setForm((current) => ({ ...current, idle_timeout: Number(event.target.value) }))} />
                 </FormField>
-                <FormField label="K8s 编排">
-                  <Textarea value={k8sConfigText} onChange={(event) => setK8sConfigText(event.target.value)} rows={8} className="font-mono" />
+                <FormField label="K8s 编排" className="md:col-span-3">
+                  <Editor height="240px" language="json" value={k8sConfigText} onChange={(value) => setK8sConfigText(value ?? "")} theme="vs-dark" options={{ minimap: { enabled: false }, fontSize: 13 }} />
                 </FormField>
                 <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
                   {validationSummary ? (
@@ -601,6 +641,9 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
           </Card>
         </TabsContent>
       </Tabs>
+      {showDocSidebar && selectedImageID ? (
+        <ImageDocSidebar imageID={selectedImageID} onClose={() => setShowDocSidebar(false)} />
+      ) : null}
     </div>
   );
 }
@@ -621,9 +664,14 @@ function TemplateCardWithActions({ template, onOpen }: { template: Parameters<ty
   );
 }
 
-function CompatibilityBlock({ title, items }: { title: string; items: Array<{ image: string; reason: string }> }) {
+function CompatibilityBlock({ title, level, items }: { title: string; level?: "required" | "recommended" | "optional"; items: Array<{ image: string; reason: string }> }) {
+  const levelStyles = {
+    required: "border-destructive bg-destructive/10",
+    recommended: "border-blue-500 bg-blue-500/10",
+    optional: "border-border bg-muted/25",
+  };
   return (
-    <div className="rounded-xl border border-border bg-muted/25 p-4">
+    <div className={`rounded-xl border p-4 ${levelStyles[level ?? "optional"]}`}>
       <p className="font-semibold">{title}</p>
       <div className="mt-3 space-y-2">
         {items.length === 0 ? <p className="text-sm text-muted-foreground">无</p> : null}

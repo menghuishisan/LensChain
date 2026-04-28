@@ -31,9 +31,18 @@ function getStatusVariant(status: number) {
 }
 
 /**
+ * normalizeExperimentTemplateTags 统一处理模板标签缺失场景，避免页面渲染报错。
+ */
+export function normalizeExperimentTemplateTags(template: Pick<ExperimentTemplateListItem, "tags">) {
+  return Array.isArray(template.tags) ? template.tags : [];
+}
+
+/**
  * ExperimentTemplateCard 实验模板卡片组件。
  */
 export function ExperimentTemplateCard({ template, onOpen, onPublish, onClone, onShare, isOperating = false }: ExperimentTemplateCardProps) {
+  const tags = normalizeExperimentTemplateTags(template);
+
   return (
     <Card className="group relative overflow-hidden border-cyan-500/15 bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950 text-white shadow-[0_22px_70px_rgba(8,47,73,0.26)]">
       <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-full bg-cyan-400/15 blur-sm" />
@@ -83,7 +92,7 @@ export function ExperimentTemplateCard({ template, onOpen, onPublish, onClone, o
           <span>总分 {template.total_score}</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {template.tags.map((tag) => (
+          {tags.map((tag) => (
             <Badge key={tag.id} variant="outline" className="border-cyan-300/20 bg-cyan-300/8 text-cyan-50">
               {tag.name}
             </Badge>

@@ -48,8 +48,20 @@ const DEFAULT_COMPETITION: CreateCtfCompetitionRequest = {
 /** CtfHallPanel 学生竞赛大厅页面。 */
 export function CtfHallPanel() {
   const router = useRouter();
-  const competitionsQuery = useCtfCompetitions({ page: 1, page_size: 20 });
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+
+  const competitionsQuery = useCtfCompetitions({
+    page,
+    page_size: 20,
+    ...(typeFilter !== "all" ? { competition_type: Number(typeFilter) as 1 | 2 } : {}),
+    ...(statusFilter !== "all" ? { status: Number(statusFilter) as 1 | 2 | 3 | 4 | 5 } : {}),
+    ...(searchQuery ? { keyword: searchQuery } : {}),
+  });
   const competitions = competitionsQuery.data?.list ?? [];
+  const totalPages = Math.ceil((competitionsQuery.data?.pagination?.total ?? 0) / 20);
 
   return (
     <div className="space-y-6">
@@ -57,12 +69,40 @@ export function CtfHallPanel() {
         <p className="font-display text-4xl font-semibold">链镜 CTF 竞赛平台</p>
         <p className="mt-3 max-w-2xl text-white/65">区块链安全解题赛与链上攻防对抗赛，在这里参与挑战、组队协作与结果追踪。</p>
       </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Input className="w-64" placeholder="搜索竞赛名称" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }} />
+        <Tabs value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
+          <TabsList>
+            <TabsTrigger value="all">全部类型</TabsTrigger>
+            <TabsTrigger value="1">解题赛</TabsTrigger>
+            <TabsTrigger value="2">攻防赛</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <Tabs value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+          <TabsList>
+            <TabsTrigger value="all">全部状态</TabsTrigger>
+            <TabsTrigger value="2">报名中</TabsTrigger>
+            <TabsTrigger value="3">进行中</TabsTrigger>
+            <TabsTrigger value="4">已结束</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
       {competitions.length === 0 ? <EmptyState title="暂无可见竞赛" description="报名中或进行中的竞赛会显示在这里。" /> : null}
       <div className="grid gap-5 xl:grid-cols-2">
         {competitions.map((competition) => (
           <CtfCompetitionCard key={competition.id} competition={competition} onOpen={(id) => router.push(`/ctf/${id}`)} />
         ))}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
+          <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>下一页</Button>
+        </div>
+      )}
     </div>
   );
 }

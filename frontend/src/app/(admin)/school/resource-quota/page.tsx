@@ -8,7 +8,7 @@ import { ResourceQuotaPanel } from "@/components/business/ExperimentAdminPanels"
 export default function SchoolResourceQuotaPage() {
   return (
     <PermissionGate allowedRoles={["school_admin"]}>
-      <ResourceQuotaPanel />
+      <ResourceQuotaPanel readOnly />
     </PermissionGate>
   );
 }

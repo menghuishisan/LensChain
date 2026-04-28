@@ -3,17 +3,20 @@
 // ExperimentAssetPanels.tsx
 // 模块04镜像与仿真场景业务面板，负责镜像上传、镜像详情/审核和仿真场景库。
 
-import { FileArchive, Image as ImageIcon, UploadCloud } from "lucide-react";
+import { FileArchive, Grid3X3, Image as ImageIcon, List, ShieldCheck, ShieldAlert, UploadCloud } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/Table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
 import {
@@ -29,7 +32,7 @@ import {
 import { formatFileSize } from "@/lib/format";
 import { buildServiceDiscoveryEnvVars, resolveConditionalEnvVars } from "@/lib/experiment";
 import type { ID } from "@/types/api";
-import type { CreateImageRequest } from "@/types/experiment";
+import type { AssetStatus, CreateImageRequest, ImageListItem, ImageSourceType } from "@/types/experiment";
 
 // ExperimentImageUploadPanel 教师上传自定义镜像并登记默认版本与文档。
 export function ExperimentImageUploadPanel() {
@@ -125,27 +128,144 @@ export function ExperimentImageUploadPanel() {
   );
 }
 
-// ExperimentImageLibraryPanel 镜像库列表，支持教师或管理员视角查看与审核入口。
+// ExperimentImageLibraryPanel 镜像库列表，支持四类Tab、组合筛选、搜索、卡片/表格切换、审核高亮和分页。
 export function ExperimentImageLibraryPanel({ reviewMode = false }: { reviewMode?: boolean }) {
-  const imagesQuery = useImages({ page: 1, page_size: 30 });
+  const categoriesQuery = useImageCategories();
+  const [categoryTab, setCategoryTab] = useState("all");
+  const [keyword, setKeyword] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [ecosystemFilter, setEcosystemFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"card" | "table">("card");
+  const [page, setPage] = useState(1);
+  const pageSize = 12;
 
-  if (imagesQuery.isLoading) {
-    return <LoadingState title="正在加载镜像库" description="读取镜像、版本和审核状态。" />;
-  }
+  // 根据分类Tab映射到 category_id
+  const categoryMap = new Map((categoriesQuery.data ?? []).map((c) => [c.name, c.id]));
+  const selectedCategoryID = categoryTab !== "all" ? categoryMap.get(categoryTab) ?? undefined : undefined;
+
+  const imagesQuery = useImages({
+    page,
+    page_size: pageSize,
+    keyword: keyword || undefined,
+    category_id: selectedCategoryID,
+    source_type: sourceFilter !== "all" ? (Number(sourceFilter) as ImageSourceType) : undefined,
+    status: statusFilter !== "all" ? (Number(statusFilter) as AssetStatus) : undefined,
+  });
+
+  const images = imagesQuery.data?.list ?? [];
+  const totalPages = Math.ceil((imagesQuery.data?.pagination?.total ?? 0) / pageSize);
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">镜像库</h1>
-      <div className="grid gap-4 xl:grid-cols-2">
-        {(imagesQuery.data?.list ?? []).map((image) => (
-          <ImageLibraryCard key={image.id} image={image} reviewMode={reviewMode} />
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-3xl font-semibold">镜像仓库管理</h1>
+        <div className="flex gap-2">
+          <Button variant={viewMode === "card" ? "primary" : "outline"} size="sm" onClick={() => setViewMode("card")}>
+            <Grid3X3 className="h-4 w-4" />
+          </Button>
+          <Button variant={viewMode === "table" ? "primary" : "outline"} size="sm" onClick={() => setViewMode("table")}>
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
+
+      {/* 四类Tab分类筛选 */}
+      <Tabs value={categoryTab} onValueChange={(v) => { setCategoryTab(v); setPage(1); }}>
+        <TabsList>
+          <TabsTrigger value="all">全部</TabsTrigger>
+          <TabsTrigger value="chain_node">链节点</TabsTrigger>
+          <TabsTrigger value="middleware">中间件</TabsTrigger>
+          <TabsTrigger value="tool">工具</TabsTrigger>
+          <TabsTrigger value="base">环境基础</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {/* 搜索 + 组合筛选 */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Input className="w-64" placeholder="搜索镜像名称" value={keyword} onChange={(e) => { setKeyword(e.target.value); setPage(1); }} />
+        <Select value={sourceFilter} onValueChange={(v) => { setSourceFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-32"><SelectValue placeholder="来源" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部来源</SelectItem>
+            <SelectItem value="1">官方</SelectItem>
+            <SelectItem value="2">自定义</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input className="w-36" placeholder="生态筛选" value={ecosystemFilter} onChange={(e) => setEcosystemFilter(e.target.value)} />
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+          <SelectTrigger className="w-32"><SelectValue placeholder="状态" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="1">正常</SelectItem>
+            <SelectItem value="2">待审核</SelectItem>
+            <SelectItem value="3">审核拒绝</SelectItem>
+            <SelectItem value="4">已下架</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {imagesQuery.isLoading ? (
+        <LoadingState title="正在加载镜像库" description="读取镜像、版本和审核状态。" />
+      ) : images.length === 0 ? (
+        <EmptyState title="暂无匹配镜像" description="调整筛选条件或上传新镜像。" />
+      ) : viewMode === "card" ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {images.filter((img) => !ecosystemFilter || (img.ecosystem ?? "").toLowerCase().includes(ecosystemFilter.toLowerCase())).map((image) => (
+            <ImageLibraryCard key={image.id} image={image} reviewMode={reviewMode} />
+          ))}
+        </div>
+      ) : (
+        <TableContainer>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>镜像</TableHead>
+                <TableHead>分类</TableHead>
+                <TableHead>来源</TableHead>
+                <TableHead>生态</TableHead>
+                <TableHead>版本数</TableHead>
+                <TableHead>引用</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {images.filter((img) => !ecosystemFilter || (img.ecosystem ?? "").toLowerCase().includes(ecosystemFilter.toLowerCase())).map((image) => (
+                <TableRow key={image.id} className={image.status === 2 ? "ring-2 ring-yellow-500 ring-inset" : ""}>
+                  <TableCell className="font-semibold">{image.display_name}</TableCell>
+                  <TableCell>{image.category_name}</TableCell>
+                  <TableCell>{image.source_type_text}</TableCell>
+                  <TableCell>{image.ecosystem ?? "-"}</TableCell>
+                  <TableCell>{image.version_count}</TableCell>
+                  <TableCell>{image.usage_count}</TableCell>
+                  <TableCell><Badge variant={image.status === 2 ? "outline" : image.status === 1 ? "success" : "secondary"}>{image.status_text}</Badge></TableCell>
+                  <TableCell>
+                    <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/images/${image.id}`)}>
+                      {image.status === 2 ? "审核" : "详情"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {/* 分页 */}
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
+          <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>下一页</Button>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 // ExperimentImageDetailPanel 管理端镜像详情与配置模板查看。
+// 含安全扫描区域、下架按钮、版本增删UI。
 export function ExperimentImageDetailPanel({ imageID }: { imageID: ID }) {
   const imageQuery = useImage(imageID);
   const configQuery = useImageConfigTemplate(imageID);
@@ -154,6 +274,8 @@ export function ExperimentImageDetailPanel({ imageID }: { imageID: ID }) {
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
   const [documentationURL, setDocumentationURL] = useState("");
+  const [newVersion, setNewVersion] = useState("");
+  const [newRegistryURL, setNewRegistryURL] = useState("");
 
   const image = imageQuery.data;
   const config = configQuery.data;
@@ -214,26 +336,87 @@ export function ExperimentImageDetailPanel({ imageID }: { imageID: ID }) {
                 <Textarea value={description || image.description || ""} onChange={(event) => setDescription(event.target.value)} />
               </FormField>
               <Button onClick={saveImage} isLoading={imageMutations.update.isPending}>保存镜像信息</Button>
+              {image.status === 1 ? (
+                <ConfirmDialog
+                  title="下架镜像"
+                  description={`确认下架 "${image.display_name}"？下架后教师将无法在新实验模板中选用此镜像。已使用此镜像的模板不受影响。`}
+                  confirmText="确认下架"
+                  confirmVariant="destructive"
+                  trigger={<Button variant="destructive">下架镜像</Button>}
+                  onConfirm={() => imageMutations.remove.mutate()}
+                />
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>
         <TabsContent value="versions">
-          <div className="grid gap-4 lg:grid-cols-2">
-            {image.versions.map((version) => (
-              <Card key={version.id}>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    {version.version}
-                    {version.is_default ? <Badge variant="success">默认</Badge> : null}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm text-muted-foreground">
-                  <p>镜像地址：{version.registry_url}</p>
-                  <p>Digest：{version.digest ?? "未记录"}</p>
-                  <p>大小：{version.image_size ? formatFileSize(version.image_size) : "未记录"}</p>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="space-y-4">
+            {/* 添加新版本 */}
+            <Card>
+              <CardHeader>
+                <CardTitle>添加版本</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-[1fr_1.5fr_auto]">
+                <FormField label="版本号">
+                  <Input value={newVersion} onChange={(e) => setNewVersion(e.target.value)} placeholder="1.15" />
+                </FormField>
+                <FormField label="Registry 地址">
+                  <Input value={newRegistryURL} onChange={(e) => setNewRegistryURL(e.target.value)} placeholder="registry.lianjing.com/geth:1.15" />
+                </FormField>
+                <Button className="self-end" disabled={!newVersion || !newRegistryURL} onClick={() => {
+                  imageMutations.createVersion.mutate({ version: newVersion, registry_url: newRegistryURL, is_default: false });
+                  setNewVersion("");
+                  setNewRegistryURL("");
+                }} isLoading={imageMutations.createVersion.isPending}>
+                  添加版本
+                </Button>
+              </CardContent>
+            </Card>
+            {/* 版本列表 */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              {image.versions.map((version) => (
+                <Card key={version.id}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      {version.version}
+                      {version.is_default ? <Badge variant="success">默认</Badge> : null}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-muted-foreground">
+                    <p>镜像地址：{version.registry_url}</p>
+                    <p>Digest：{version.digest ?? "未记录"}</p>
+                    <p>大小：{version.image_size ? formatFileSize(version.image_size) : "未记录"}</p>
+                    <p>最低要求：CPU {version.min_cpu ?? "-"} · 内存 {version.min_memory ?? "-"} · 磁盘 {version.min_disk ?? "-"}</p>
+                    {/* 安全扫描区域 */}
+                    <div className="rounded-xl border border-border bg-muted/25 p-3">
+                      <p className="font-semibold text-foreground">安全扫描</p>
+                      {version.scanned_at ? (
+                        <p className="mt-1 flex items-center gap-1">
+                          {version.scan_result ? <ShieldCheck className="h-4 w-4 text-emerald-500" /> : <ShieldAlert className="h-4 w-4 text-yellow-500" />}
+                          {version.scan_result ? "通过" : "有风险"} · 扫描时间：{version.scanned_at}
+                        </p>
+                      ) : (
+                        <p className="mt-1">未扫描</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {!version.is_default ? (
+                        <Button size="sm" variant="outline" onClick={() => imageMutations.setDefaultVersion.mutate(version.id)} isLoading={imageMutations.setDefaultVersion.isPending}>
+                          设为默认
+                        </Button>
+                      ) : null}
+                      <ConfirmDialog
+                        title="删除版本"
+                        description={`确认删除版本 ${version.version}？此操作不可恢复。`}
+                        confirmVariant="destructive"
+                        trigger={<Button size="sm" variant="destructive">删除</Button>}
+                        onConfirm={() => imageMutations.deleteVersion.mutate(version.id)}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         </TabsContent>
         <TabsContent value="config">
@@ -262,9 +445,9 @@ export function ExperimentImageDetailPanel({ imageID }: { imageID: ID }) {
               </CardContent>
             </Card>
             <div className="grid gap-4 lg:col-span-2 lg:grid-cols-3">
-              <CompatibilityBlock title="必须搭配" items={image.typical_companions.required} />
-              <CompatibilityBlock title="推荐搭配" items={image.typical_companions.recommended} />
-              <CompatibilityBlock title="可选搭配" items={image.typical_companions.optional} />
+              <CompatibilityBlock title="必须搭配" level="required" items={image.typical_companions.required} />
+              <CompatibilityBlock title="推荐搭配" level="recommended" items={image.typical_companions.recommended} />
+              <CompatibilityBlock title="可选搭配" level="optional" items={image.typical_companions.optional} />
             </div>
           </div>
         </TabsContent>
@@ -419,10 +602,10 @@ export function SimScenarioLibraryPanel({ reviewMode = false }: { reviewMode?: b
   );
 }
 
-function ImageLibraryCard({ image, reviewMode }: { image: NonNullable<ReturnType<typeof useImages>["data"]>["list"][number]; reviewMode: boolean }) {
+function ImageLibraryCard({ image, reviewMode }: { image: ImageListItem; reviewMode: boolean }) {
   const imageMutations = useImageMutations(image.id);
   return (
-    <Card>
+    <Card className={image.status === 2 ? "ring-2 ring-yellow-500" : ""}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ImageIcon className="h-5 w-5 text-primary" />
@@ -432,15 +615,22 @@ function ImageLibraryCard({ image, reviewMode }: { image: NonNullable<ReturnType
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2">
           <Badge>{image.category_name}</Badge>
-          <Badge variant="outline">{image.status_text}</Badge>
+          <Badge variant="outline">{image.source_type_text}</Badge>
           <Badge variant="secondary">{image.version_count} 版本</Badge>
+          {image.ecosystem ? <Badge variant="outline">{image.ecosystem}</Badge> : null}
         </div>
-        {reviewMode ? (
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => imageMutations.review.mutate({ action: "approve", comment: "审核通过" })}>通过</Button>
-            <Button size="sm" variant="destructive" onClick={() => imageMutations.review.mutate({ action: "reject", comment: "请补充镜像文档" })}>拒绝</Button>
-          </div>
-        ) : null}
+        <p className="text-sm text-muted-foreground">引用 {image.usage_count} 次 · {image.status_text}</p>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/images/${image.id}`)}>
+            {image.status === 2 ? "审核" : "查看"}
+          </Button>
+          {reviewMode && image.status === 2 ? (
+            <>
+              <Button size="sm" onClick={() => imageMutations.review.mutate({ action: "approve", comment: "审核通过" })}>通过</Button>
+              <Button size="sm" variant="destructive" onClick={() => imageMutations.review.mutate({ action: "reject", comment: "请补充镜像文档" })}>拒绝</Button>
+            </>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );
@@ -479,9 +669,14 @@ function ReviewField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CompatibilityBlock({ title, items }: { title: string; items: Array<{ image: string; reason: string }> }) {
+function CompatibilityBlock({ title, level, items }: { title: string; level?: "required" | "recommended" | "optional"; items: Array<{ image: string; reason: string }> }) {
+  const levelStyles = {
+    required: "border-destructive bg-destructive/10",
+    recommended: "border-blue-500 bg-blue-500/10",
+    optional: "border-border bg-muted/25",
+  };
   return (
-    <div className="rounded-xl border border-border bg-muted/25 p-4">
+    <div className={`rounded-xl border p-4 ${levelStyles[level ?? "optional"]}`}>
       <p className="font-semibold">{title}</p>
       <div className="mt-3 space-y-2">
         {items.length === 0 ? <p className="text-sm text-muted-foreground">无</p> : null}

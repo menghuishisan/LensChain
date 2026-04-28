@@ -4,6 +4,7 @@
 // 模块01认证 hook，封装登录、登出、SSO回调、强制改密和本地认证态。
 
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 
 import { getNavigationForRoles, getPrimaryRole } from "@/lib/permissions";
 import { selectIsAuthenticated, useAuthStore } from "@/stores/authStore";
@@ -102,15 +103,17 @@ export function useChangePasswordMutation() {
 }
 
 /**
- * useLogoutMutation 调用 POST /auth/logout；无论后端是否成功，前端都会清理本地会话。
+ * useLogoutMutation 调用 POST /auth/logout；无论后端是否成功，前端都会清理本地会话并跳转登录页。
  */
 export function useLogoutMutation() {
   const clearSession = useAuthStore((state) => state.clearSession);
+  const router = useRouter();
 
   return useMutation({
     mutationFn: logout,
     onSettled: () => {
       clearSession();
+      router.replace("/login");
     },
   });
 }

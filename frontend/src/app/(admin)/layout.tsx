@@ -6,6 +6,8 @@ import type { ReactNode } from "react";
 import { AuthenticatedLayout } from "@/components/business/AuthenticatedLayout";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
+export const dynamic = "force-dynamic";
+
 /**
  * AdminLayout 学校管理员端布局。
  */

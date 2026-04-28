@@ -3,6 +3,8 @@
 
 import type { ReactNode } from "react";
 
+export const dynamic = "force-dynamic";
+
 /**
  * AuthLayout 认证路由布局。
  */

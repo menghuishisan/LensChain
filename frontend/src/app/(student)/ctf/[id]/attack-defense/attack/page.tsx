@@ -6,5 +6,5 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 
 /** CtfAttackPage CTF攻防赛攻击页面。 */
 export default function CtfAttackPage({ params }: { params: { id: string } }) {
-  return <PermissionGate allowedRoles={["student"]}><AttackDefenseRoundPanel competitionID={params.id} /></PermissionGate>;
+  return <PermissionGate allowedRoles={["student"]}><AttackDefenseRoundPanel competitionID={params.id} mode="attack" /></PermissionGate>;
 }

@@ -13,6 +13,7 @@ import { FormField } from "@/components/ui/FormField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { useAdAttacks, useAdBattleMutations, useAdDefenses, useAdGroups, useCurrentAdRound } from "@/hooks/useCtfBattle";
+import { useCtfChallengeAssets } from "@/hooks/useCtfChallenges";
 import { useCtfRealtime } from "@/hooks/useCtfRealtime";
 import { useCtfLeaderboard } from "@/hooks/useCtfCompetitions";
 import type { ID } from "@/types/api";
@@ -21,10 +22,11 @@ import type { ID } from "@/types/api";
 export interface AttackDefenseRoundPanelProps {
   competitionID: ID;
   groupID?: ID;
+  mode?: "full" | "attack" | "defense";
 }
 
 /** AttackDefenseRoundPanel 攻防赛回合控制组件。 */
-export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefenseRoundPanelProps) {
+export function AttackDefenseRoundPanel({ competitionID, groupID, mode = "full" }: AttackDefenseRoundPanelProps) {
   const groupsQuery = useAdGroups(competitionID);
   const [selectedGroupID, setSelectedGroupID] = useState(groupID ?? "");
   const activeGroupID = selectedGroupID || groupID || groupsQuery.data?.list[0]?.id || "";
@@ -36,9 +38,14 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
   const realtime = useCtfRealtime(competitionID, competitionID.length > 0);
   const leaderboardQuery = useCtfLeaderboard(competitionID, activeGroupID ? { group_id: activeGroupID, top: 10 } : {});
   const [targetTeamID, setTargetTeamID] = useState("");
-  const [challengeID, setChallengeID] = useState("");
+  const [attackChallengeID, setAttackChallengeID] = useState("");
+  const [defenseChallengeID, setDefenseChallengeID] = useState("");
   const [attackTxData, setAttackTxData] = useState("");
   const [patchSourceCode, setPatchSourceCode] = useState("");
+
+  // 获取防守漏洞的原始合约源码
+  const defenseAssetsQuery = useCtfChallengeAssets(defenseChallengeID);
+  const originalContract = defenseAssetsQuery.contracts.data?.list?.[0]?.source_code ?? "";
 
   const current = roundQuery.data;
   const attackResult = battleMutations.attack.data;
@@ -55,7 +62,10 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
     [attacksQuery.data?.list],
   );
   const selectedTarget = availableTeams.find((team) => team.team_id === targetTeamID);
-  const selectedChallenge = attackChallengeOptions.find((item) => item.id === challengeID);
+  const selectedChallenge = attackChallengeOptions.find((item) => item.id === attackChallengeID);
+
+  const showAttack = mode === "full" || mode === "attack";
+  const showDefense = mode === "full" || mode === "defense";
 
   return (
     <div className="space-y-5">
@@ -91,6 +101,7 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-2">
+        {showAttack && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -112,7 +123,7 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
               </Select>
             </FormField>
             <FormField label="选择攻击漏洞">
-              <Select value={challengeID} onValueChange={setChallengeID}>
+              <Select value={attackChallengeID} onValueChange={setAttackChallengeID}>
                 <SelectTrigger><SelectValue placeholder="选择目标漏洞" /></SelectTrigger>
                 <SelectContent>
                   {attackChallengeOptions.map((item) => (
@@ -136,7 +147,7 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
             <FormField label="攻击交易数据">
               <Textarea value={attackTxData} onChange={(event) => setAttackTxData(event.target.value)} rows={7} className="font-mono" />
             </FormField>
-            <Button disabled={current?.phase !== 1 || !targetTeamID || !challengeID || !attackTxData} onClick={() => battleMutations.attack.mutate({ target_team_id: targetTeamID, challenge_id: challengeID, attack_tx_data: attackTxData })} isLoading={battleMutations.attack.isPending}>
+            <Button disabled={current?.phase !== 1 || !targetTeamID || !attackChallengeID || !attackTxData} onClick={() => battleMutations.attack.mutate({ target_team_id: targetTeamID, challenge_id: attackChallengeID, attack_tx_data: attackTxData })} isLoading={battleMutations.attack.isPending}>
               提交攻击
             </Button>
             {attackResult ? (
@@ -144,7 +155,9 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
             ) : null}
           </CardContent>
         </Card>
+        )}
 
+        {showDefense && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -154,7 +167,7 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
           </CardHeader>
           <CardContent className="space-y-4">
             <FormField label="选择修复漏洞">
-              <Select value={challengeID} onValueChange={setChallengeID}>
+              <Select value={defenseChallengeID} onValueChange={setDefenseChallengeID}>
                 <SelectTrigger><SelectValue placeholder="选择待修复漏洞" /></SelectTrigger>
                 <SelectContent>
                   {attackChallengeOptions.map((item) => (
@@ -167,13 +180,13 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
             </FormField>
             <div className="grid gap-4 xl:grid-cols-2">
               <FormField label="原始合约（只读）">
-                <Textarea value={"这里展示题目提供的只读参考内容，方便你对照修复。"} readOnly rows={11} className="font-mono" />
+                <Textarea value={originalContract} readOnly rows={11} className="font-mono" placeholder={defenseAssetsQuery.contracts.isLoading ? "加载中..." : "请先选择漏洞"} />
               </FormField>
               <FormField label="补丁合约（可编辑）">
                 <Textarea value={patchSourceCode} onChange={(event) => setPatchSourceCode(event.target.value)} rows={11} className="font-mono" />
               </FormField>
             </div>
-            <Button disabled={current?.phase !== 2 || !challengeID || !patchSourceCode} onClick={() => battleMutations.defense.mutate({ challenge_id: challengeID, patch_source_code: patchSourceCode })} isLoading={battleMutations.defense.isPending}>
+            <Button disabled={current?.phase !== 2 || !defenseChallengeID || !patchSourceCode} onClick={() => battleMutations.defense.mutate({ challenge_id: defenseChallengeID, patch_source_code: patchSourceCode })} isLoading={battleMutations.defense.isPending}>
               提交补丁
             </Button>
             {defenseResult ? (
@@ -181,6 +194,7 @@ export function AttackDefenseRoundPanel({ competitionID, groupID }: AttackDefens
             ) : null}
           </CardContent>
         </Card>
+        )}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
