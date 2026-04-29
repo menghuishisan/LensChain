@@ -2043,6 +2043,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 |------|------|------|------|
 | file | File | 是 | 待上传文件 |
 | purpose | string | 是 | `lesson_attachment` / `assignment_report` |
+| lesson_id | string | 条件必填 | 当 `purpose=lesson_attachment` 时必须传，且当前用户必须是该课时所属课程教师 |
 
 **响应：**
 
@@ -2064,7 +2065,7 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 
 - `file_url` 为对象存储键，提交课时附件或实验报告答案时使用
 - `download_url` 为短期预签名下载地址，仅用于当前页面即时展示，不得长期持久化
-- `lesson_attachment` 支持视频和文档：视频≤500MB，文档≤50MB
+- `lesson_attachment` 支持视频和文档：视频≤500MB，文档≤50MB，且上传时必须绑定 `lesson_id` 并校验为该课时所属课程教师
 - `assignment_report` 仅支持 PDF/Word/PPT 文档，≤50MB
 
 ---

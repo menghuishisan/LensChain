@@ -38,6 +38,7 @@ type SchoolSummary struct {
 type UserSummaryQuerier interface {
 	GetUserSummary(ctx context.Context, userID int64) *UserSummary
 	GetUserSummaries(ctx context.Context, userIDs []int64) map[int64]*UserSummary
+	GetUserSchoolID(ctx context.Context, userID int64) (int64, error)
 }
 
 // SchoolSummaryQuerier 提供最小学校摘要查询能力。

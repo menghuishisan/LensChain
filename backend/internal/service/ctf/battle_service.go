@@ -33,6 +33,7 @@ type battleService struct {
 	compChallengeRepo  ctfrepo.CompetitionChallengeRepository
 	teamRepo           ctfrepo.TeamRepository
 	teamMemberRepo     ctfrepo.TeamMemberRepository
+	registrationRepo   ctfrepo.CompetitionRegistrationRepository
 	adGroupRepo        ctfrepo.AdGroupRepository
 	adRoundRepo        ctfrepo.AdRoundRepository
 	adAttackRepo       ctfrepo.AdAttackRepository
@@ -67,6 +68,7 @@ func NewBattleService(
 	compChallengeRepo ctfrepo.CompetitionChallengeRepository,
 	teamRepo ctfrepo.TeamRepository,
 	teamMemberRepo ctfrepo.TeamMemberRepository,
+	registrationRepo ctfrepo.CompetitionRegistrationRepository,
 	adGroupRepo ctfrepo.AdGroupRepository,
 	adRoundRepo ctfrepo.AdRoundRepository,
 	adAttackRepo ctfrepo.AdAttackRepository,
@@ -89,6 +91,7 @@ func NewBattleService(
 		compChallengeRepo:  compChallengeRepo,
 		teamRepo:           teamRepo,
 		teamMemberRepo:     teamMemberRepo,
+		registrationRepo:   registrationRepo,
 		adGroupRepo:        adGroupRepo,
 		adRoundRepo:        adRoundRepo,
 		adAttackRepo:       adAttackRepo,

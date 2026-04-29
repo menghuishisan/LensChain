@@ -462,18 +462,6 @@ func getChallenge(ctx context.Context, repo ctfrepo.ChallengeRepository, id int6
 	return challenge, nil
 }
 
-// getTeam 获取团队并将 not found 统一转成 CTF 错误码。
-func getTeam(ctx context.Context, repo ctfrepo.TeamRepository, id int64) (*entity.Team, error) {
-	team, err := repo.GetByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errcode.ErrTeamNotFound
-		}
-		return nil, err
-	}
-	return team, nil
-}
-
 // sortLeaderboard 对排行榜按分数、解题数、最后解题时间和团队 ID 排序。
 func sortLeaderboard(items []dto.LeaderboardRankingItem) {
 	sort.SliceStable(items, func(i, j int) bool {
@@ -540,21 +528,6 @@ func buildUserBrief(ctx context.Context, userQuerier UserSummaryQuerier, userID 
 	return &dto.CTFUserBrief{
 		ID:   int64String(summary.UserID),
 		Name: summary.Name,
-	}
-}
-
-// buildTeamMemberDTO 构建团队成员响应。
-func buildTeamMemberDTO(ctx context.Context, userQuerier UserSummaryQuerier, member *entity.TeamMember) dto.TeamMemberResp {
-	name := ""
-	if userQuerier != nil {
-		name = userQuerier.GetUserName(ctx, member.StudentID)
-	}
-	return dto.TeamMemberResp{
-		StudentID: int64String(member.StudentID),
-		Name:      name,
-		Role:      member.Role,
-		RoleText:  enum.GetTeamMemberRoleText(member.Role),
-		JoinedAt:  timeString(member.JoinedAt),
 	}
 }
 

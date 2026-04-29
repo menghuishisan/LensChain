@@ -120,13 +120,10 @@ func (s *instanceService) canManageInstance(ctx context.Context, sc *svcctx.Serv
 }
 
 // canTeachInstance 判断当前用户是否可执行课程教师专属操作。
-// 仅课程教师和超管可执行评分、终端查看、教师指导等动作。
+// 仅课程教师可执行评分、终端查看、教师指导等动作。
 func (s *instanceService) canTeachInstance(ctx context.Context, sc *svcctx.ServiceContext, instance *entity.ExperimentInstance) (bool, error) {
 	if instance == nil {
 		return false, nil
-	}
-	if sc.IsSuperAdmin() {
-		return true, nil
 	}
 	if !sc.IsTeacher() || instance.SchoolID != sc.SchoolID {
 		return false, nil

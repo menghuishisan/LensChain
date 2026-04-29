@@ -39,7 +39,7 @@ type ContentService interface {
 	DeleteLesson(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	SortLessons(ctx context.Context, sc *svcctx.ServiceContext, chapterID int64, req *dto.ReorderIDsReq) error
 	// 附件
-	UploadCourseFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadCourseFileResp, error)
+	UploadCourseFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string, lessonID string) (*dto.UploadCourseFileResp, error)
 	UploadAttachment(ctx context.Context, sc *svcctx.ServiceContext, lessonID int64, req *dto.UploadAttachmentReq) (string, error)
 	DeleteAttachment(ctx context.Context, sc *svcctx.ServiceContext, id int64) error
 	// 选课
@@ -390,8 +390,8 @@ func (s *contentService) SortLessons(ctx context.Context, sc *svcctx.ServiceCont
 // ========== 附件 ==========
 
 // UploadCourseFile 上传课程文件到对象存储，返回持久化对象键和短期下载URL。
-func (s *contentService) UploadCourseFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadCourseFileResp, error) {
-	if err := validateCourseUploadAccess(sc, purpose); err != nil {
+func (s *contentService) UploadCourseFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string, lessonID string) (*dto.UploadCourseFileResp, error) {
+	if err := s.validateCourseUploadAccess(ctx, sc, purpose, lessonID); err != nil {
 		return nil, err
 	}
 	if err := validateCourseFile(fileName, contentType, fileSize, purpose); err != nil {
@@ -439,12 +439,27 @@ func (s *contentService) UploadAttachment(ctx context.Context, sc *svcctx.Servic
 	return strconv.FormatInt(attachment.ID, 10), nil
 }
 
-func validateCourseUploadAccess(sc *svcctx.ServiceContext, purpose string) error {
+func (s *contentService) validateCourseUploadAccess(ctx context.Context, sc *svcctx.ServiceContext, purpose string, lessonID string) error {
 	switch purpose {
 	case courseFilePurposeLessonAttachment:
-		if sc.IsTeacher() || sc.IsSuperAdmin() || sc.IsSchoolAdmin() {
-			return nil
+		if !sc.IsTeacher() {
+			return errcode.ErrForbidden
 		}
+		if strings.TrimSpace(lessonID) == "" {
+			return errcode.ErrInvalidParams.WithMessage("lesson_id 不能为空")
+		}
+		parsedLessonID, err := snowflake.ParseString(lessonID)
+		if err != nil {
+			return errcode.ErrInvalidParams.WithMessage("lesson_id 无效")
+		}
+		lesson, err := s.lessonRepo.GetByID(ctx, parsedLessonID)
+		if err != nil {
+			return errcode.ErrLessonNotFound
+		}
+		if err := s.verifyCourseTeacherForContent(ctx, sc, lesson.CourseID); err != nil {
+			return err
+		}
+		return nil
 	case courseFilePurposeAssignmentReport:
 		if sc.IsStudent() {
 			return nil

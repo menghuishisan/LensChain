@@ -71,6 +71,8 @@ go run ./cmd/server
 .\deploy\scripts\powershell\init-db.ps1
 ```
 
+`init-db` 脚本会在库不存在时先建库；若库已存在，则先断开连接、删库并重建，再执行迁移和 demo 数据导入，适合重复联调和回归测试。
+
 默认 demo 账号密码统一为：
 
 ```text

@@ -379,6 +379,21 @@ func (s *teamService) ensureCompetitionReadable(sc *svcctx.ServiceContext, compe
 	return errcode.ErrCompetitionNotFound
 }
 
+// ensureRegisteredCompetitionMember 校验学生已加入并完成指定竞赛报名。
+// 该校验统一复用在解题提交、题目环境、排行榜个体视图等“仅参赛成员”入口，
+// 确保用户不仅属于某支队伍，而且该队伍的报名状态已经生效。
+func (s *teamService) ensureRegisteredCompetitionMember(ctx context.Context, competitionID, studentID int64) (*entity.TeamMember, *entity.Team, error) {
+	member, team, err := s.getCurrentMemberTeam(ctx, competitionID, studentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	registration, err := s.registrationRepo.GetByCompetitionAndTeam(ctx, competitionID, team.ID)
+	if err != nil || registration == nil || registration.Status != enum.RegistrationStatusRegistered {
+		return nil, nil, errcode.ErrRegistrationNotFound
+	}
+	return member, team, nil
+}
+
 // ensureTeamReadable 校验当前上下文是否可读取团队。
 func (s *teamService) ensureTeamReadable(ctx context.Context, sc *svcctx.ServiceContext, team *entity.Team) error {
 	if sc.IsSuperAdmin() || team.CaptainID == sc.UserID {
@@ -452,14 +467,6 @@ func (s *teamService) createSoloTeam(ctx context.Context, sc *svcctx.ServiceCont
 func buildInviteCode() string {
 	id := snowflake.Generate()
 	return strings.ToUpper(fmt.Sprintf("T%06d", id%1000000))
-}
-
-// derefInt64 解引用 int64 指针，为空时返回 0。
-func derefInt64(value *int64) int64 {
-	if value == nil {
-		return 0
-	}
-	return *value
 }
 
 // timePtr 返回时间指针。

@@ -593,12 +593,35 @@ func (s *battleService) requireMemberReadableTeam(ctx context.Context, sc *svcct
 	if !isMember {
 		return errcode.ErrForbidden
 	}
+	team, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil {
+		return err
+	}
+	registration, err := s.registrationRepo.GetByCompetitionAndTeam(ctx, team.CompetitionID, teamID)
+	if err != nil || registration == nil || registration.Status != enum.RegistrationStatusRegistered {
+		return errcode.ErrRegistrationNotFound
+	}
 	return nil
 }
 
 // getCurrentMemberTeam 获取当前学生在竞赛中的团队成员关系和团队实体。
 func (s *battleService) getCurrentMemberTeam(ctx context.Context, competitionID, studentID int64) (*entity.TeamMember, *entity.Team, error) {
 	return getCompetitionMemberTeam(ctx, s.teamMemberRepo, s.teamRepo, competitionID, studentID)
+}
+
+// ensureRegisteredCompetitionMember 校验学生在攻防赛上下文中已完成报名。
+// 该辅助用于“当前回合”“分组链路”“攻击/防守操作”等只允许已报名选手访问的入口，
+// 防止仅加入队伍但未正式报名的学生读取或操作攻防赛运行态数据。
+func (s *battleService) ensureRegisteredCompetitionMember(ctx context.Context, competitionID, studentID int64) (*entity.TeamMember, *entity.Team, error) {
+	member, team, err := s.getCurrentMemberTeam(ctx, competitionID, studentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	registration, err := s.registrationRepo.GetByCompetitionAndTeam(ctx, competitionID, team.ID)
+	if err != nil || registration == nil || registration.Status != enum.RegistrationStatusRegistered {
+		return nil, nil, errcode.ErrRegistrationNotFound
+	}
+	return member, team, nil
 }
 
 // requireReadableGroup 获取并校验分组读取权限。
@@ -628,6 +651,9 @@ func (s *battleService) requireStudentReadableGroup(ctx context.Context, sc *svc
 	}
 	if !s.canStudentReadGroup(ctx, sc, group) {
 		return nil, errcode.ErrForbidden
+	}
+	if _, _, teamErr := s.ensureRegisteredCompetitionMember(ctx, group.CompetitionID, sc.UserID); teamErr != nil {
+		return nil, teamErr
 	}
 	return group, nil
 }

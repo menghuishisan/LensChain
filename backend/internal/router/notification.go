@@ -44,7 +44,7 @@ func RegisterNotificationRoutes(rg *gin.RouterGroup, handlers *NotificationHandl
 	}
 
 	// ========== 3. 定向通知（管理员/教师） ==========
-	notifications.POST("/send", middleware.RequireAdminOrTeacher(), handlers.NotificationHandler.SendDirectNotification) // 发送定向通知
+	notifications.POST("/send", middleware.RequireRoles(middleware.RoleSchoolAdmin, middleware.RoleTeacher), handlers.NotificationHandler.SendDirectNotification) // 发送定向通知
 
 	// ========== 4. 通知偏好（登录用户） ==========
 	preferences := notifications.Group("/preferences")

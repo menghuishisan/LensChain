@@ -190,3 +190,7 @@ sim_engine:
   tls_enabled: false
   # cert_file: TLS 证书文件路径；tls_enabled=true 时需要配置
   cert_file: ""
+
+internal:
+  # api_token: 内部接口共享令牌；即使开发环境也建议显式配置，避免本地误放开
+  api_token: "lenschain-dev-internal-token"

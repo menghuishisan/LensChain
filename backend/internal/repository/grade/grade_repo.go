@@ -441,37 +441,36 @@ func (r *studentSemesterGradeRepository) SchoolFailRate(ctx context.Context, sch
 // SchoolGPADistribution 按学生学期 GPA 统计学校 GPA 分布。
 func (r *studentSemesterGradeRepository) SchoolGPADistribution(ctx context.Context, schoolID, semesterID int64) ([]*GPARangeDistributionItem, error) {
 	var items []*GPARangeDistributionItem
-	err := r.db.WithContext(ctx).Table(`
-		(
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT bucket.range, COUNT(*) AS count
+		FROM (
 			SELECT
-				student_id,
-				COALESCE(SUM(gpa_point * credits) / NULLIF(SUM(credits), 0), 0) AS student_gpa
-			FROM student_semester_grades
-			WHERE school_id = ? AND semester_id = ?
-			GROUP BY student_id
-		) AS sg
-	`, schoolID, semesterID).
-		Select(`
-			CASE
-				WHEN student_gpa >= 3.5 THEN '3.5-4.0'
-				WHEN student_gpa >= 3.0 THEN '3.0-3.49'
-				WHEN student_gpa >= 2.5 THEN '2.5-2.99'
-				WHEN student_gpa >= 2.0 THEN '2.0-2.49'
-				ELSE '0-1.99'
-			END AS range,
-			COUNT(*) AS count
-		`).
-		Group("range").
-		Order(`
-			CASE range
+				CASE
+					WHEN student_gpa >= 3.5 THEN '3.5-4.0'
+					WHEN student_gpa >= 3.0 THEN '3.0-3.49'
+					WHEN student_gpa >= 2.5 THEN '2.5-2.99'
+					WHEN student_gpa >= 2.0 THEN '2.0-2.49'
+					ELSE '0-1.99'
+				END AS range
+			FROM (
+				SELECT
+					student_id,
+					COALESCE(SUM(gpa_point * credits) / NULLIF(SUM(credits), 0), 0) AS student_gpa
+				FROM student_semester_grades
+				WHERE school_id = ? AND semester_id = ?
+				GROUP BY student_id
+			) AS sg
+		) AS bucket
+		GROUP BY bucket.range
+		ORDER BY
+			CASE bucket.range
 				WHEN '3.5-4.0' THEN 1
 				WHEN '3.0-3.49' THEN 2
 				WHEN '2.5-2.99' THEN 3
 				WHEN '2.0-2.49' THEN 4
 				ELSE 5
 			END
-		`).
-		Find(&items).Error
+	`, schoolID, semesterID).Scan(&items).Error
 	return items, err
 }
 
@@ -502,18 +501,28 @@ func (r *studentSemesterGradeRepository) SchoolCoursePerformance(ctx context.Con
 // PlatformAnalytics 聚合平台成绩总览数据。
 func (r *studentSemesterGradeRepository) PlatformAnalytics(ctx context.Context, semesterID int64) (*PlatformGradeAnalytics, error) {
 	var stats PlatformGradeAnalytics
-	query := r.db.WithContext(ctx).Table("student_semester_grades AS g").
-		Select(`
+	query := r.db.WithContext(ctx).Table("student_semester_grades AS g")
+	if semesterID > 0 {
+		query = query.Select(`
 			COUNT(DISTINCT g.school_id) AS school_count,
 			COUNT(DISTINCT g.student_id) AS student_count,
 			COUNT(DISTINCT g.course_id) AS course_count,
 			COALESCE(AVG(g.final_score), 0) AS average_score,
 			COALESCE(SUM(g.gpa_point * g.credits) / NULLIF(SUM(g.credits), 0), 0) AS average_gpa,
-			(SELECT COUNT(*) FROM academic_warnings w WHERE (? = 0 OR w.semester_id = ?) AND w.status <> ?) AS warning_count,
-			(SELECT COUNT(*) FROM grade_reviews r WHERE (? = 0 OR r.semester_id = ?) AND r.status = ?) AS reviewed_count
-		`, semesterID, semesterID, enum.AcademicWarningStatusResolved, semesterID, semesterID, enum.GradeReviewStatusApproved)
-	if semesterID > 0 {
-		query = query.Where("g.semester_id = ?", semesterID)
+			(SELECT COUNT(*) FROM academic_warnings w WHERE w.semester_id = ? AND w.status <> ?) AS warning_count,
+			(SELECT COUNT(*) FROM grade_reviews r WHERE r.semester_id = ? AND r.status = ?) AS reviewed_count
+		`, semesterID, enum.AcademicWarningStatusResolved, semesterID, enum.GradeReviewStatusApproved).
+			Where("g.semester_id = ?", semesterID)
+	} else {
+		query = query.Select(`
+			COUNT(DISTINCT g.school_id) AS school_count,
+			COUNT(DISTINCT g.student_id) AS student_count,
+			COUNT(DISTINCT g.course_id) AS course_count,
+			COALESCE(AVG(g.final_score), 0) AS average_score,
+			COALESCE(SUM(g.gpa_point * g.credits) / NULLIF(SUM(g.credits), 0), 0) AS average_gpa,
+			(SELECT COUNT(*) FROM academic_warnings w WHERE w.status <> ?) AS warning_count,
+			(SELECT COUNT(*) FROM grade_reviews r WHERE r.status = ?) AS reviewed_count
+		`, enum.AcademicWarningStatusResolved, enum.GradeReviewStatusApproved)
 	}
 	err := query.Scan(&stats).Error
 	if err != nil {

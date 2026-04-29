@@ -244,6 +244,9 @@ func (s *service) ListAppeals(ctx context.Context, sc *svcctx.ServiceContext, re
 	if err := ensureSchoolScope(sc); err != nil {
 		return nil, err
 	}
+	if sc == nil || sc.IsSchoolAdmin() || sc.IsSuperAdmin() || (!sc.IsStudent() && !sc.IsTeacher()) {
+		return nil, errcode.ErrForbidden
+	}
 	page, pageSize := normalizePagination(req.Page, req.PageSize)
 	params := &graderepo.GradeAppealListParams{
 		SchoolID: sc.SchoolID,
@@ -253,7 +256,7 @@ func (s *service) ListAppeals(ctx context.Context, sc *svcctx.ServiceContext, re
 	}
 	if sc.IsStudent() {
 		params.StudentID = sc.UserID
-	} else if sc.IsTeacher() && !sc.IsSchoolAdmin() && !sc.IsSuperAdmin() {
+	} else if sc.IsTeacher() {
 		params.TeacherID = sc.UserID
 	}
 	if req.CourseID != "" {
@@ -307,6 +310,9 @@ func (s *service) GetAppeal(ctx context.Context, sc *svcctx.ServiceContext, id i
 	if err := ensureSchoolScope(sc); err != nil {
 		return nil, err
 	}
+	if sc == nil || sc.IsSchoolAdmin() || sc.IsSuperAdmin() || (!sc.IsStudent() && !sc.IsTeacher()) {
+		return nil, errcode.ErrForbidden
+	}
 	appeal, err := s.appealRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -314,10 +320,13 @@ func (s *service) GetAppeal(ctx context.Context, sc *svcctx.ServiceContext, id i
 		}
 		return nil, err
 	}
+	if appeal.SchoolID != sc.SchoolID {
+		return nil, errcode.ErrForbidden
+	}
 	if sc.IsStudent() && appeal.StudentID != sc.UserID {
 		return nil, errcode.ErrForbidden
 	}
-	if sc.IsTeacher() && !sc.IsSchoolAdmin() && !sc.IsSuperAdmin() {
+	if sc.IsTeacher() {
 		course, courseErr := s.sourceRepo.GetCourse(ctx, appeal.CourseID)
 		if courseErr != nil {
 			return nil, courseErr
@@ -512,6 +521,9 @@ func (s *service) GetWarning(ctx context.Context, sc *svcctx.ServiceContext, id 
 		}
 		return nil, err
 	}
+	if !sc.IsSuperAdmin() && warning.SchoolID != sc.SchoolID {
+		return nil, errcode.ErrForbidden
+	}
 	student := s.userQuerier.GetUserSummary(ctx, warning.StudentID)
 	semester, _ := s.semesterRepo.GetByID(ctx, warning.SemesterID)
 	detail, _ := decodeWarningDetail(warning.Detail)
@@ -545,12 +557,15 @@ func (s *service) HandleWarning(ctx context.Context, sc *svcctx.ServiceContext, 
 	if sc == nil || !sc.IsSchoolAdmin() && !sc.IsSuperAdmin() {
 		return errcode.ErrForbidden
 	}
-	_, err := s.warningRepo.GetByID(ctx, id)
+	warning, err := s.warningRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errcode.ErrWarningNotFound
 		}
 		return err
+	}
+	if !sc.IsSuperAdmin() && warning.SchoolID != sc.SchoolID {
+		return errcode.ErrForbidden
 	}
 	return s.warningRepo.Handle(ctx, id, sc.UserID, stringPtr(req.HandleNote), time.Now())
 }
@@ -597,6 +612,9 @@ func (s *service) UpdateWarningConfig(ctx context.Context, sc *svcctx.ServiceCon
 func (s *service) GenerateTranscript(ctx context.Context, sc *svcctx.ServiceContext, req *dto.GenerateTranscriptReq) (*dto.TranscriptResp, error) {
 	if err := ensureSchoolScope(sc); err != nil {
 		return nil, err
+	}
+	if sc == nil || sc.IsSuperAdmin() {
+		return nil, errcode.ErrForbidden
 	}
 	studentID, err := s.resolveTranscriptStudentID(sc, req)
 	if err != nil {
@@ -650,6 +668,9 @@ func (s *service) GenerateTranscript(ctx context.Context, sc *svcctx.ServiceCont
 func (s *service) ListTranscripts(ctx context.Context, sc *svcctx.ServiceContext, req *dto.TranscriptListReq) (*dto.TranscriptListResp, error) {
 	if err := ensureSchoolScope(sc); err != nil {
 		return nil, err
+	}
+	if sc == nil || sc.IsSuperAdmin() {
+		return nil, errcode.ErrForbidden
 	}
 	page, pageSize := normalizePagination(req.Page, req.PageSize)
 	params := &graderepo.TranscriptRecordListParams{
@@ -724,6 +745,9 @@ func (s *service) ListTranscripts(ctx context.Context, sc *svcctx.ServiceContext
 func (s *service) GetTranscriptDownloadURL(ctx context.Context, sc *svcctx.ServiceContext, id int64) (string, error) {
 	if err := ensureSchoolScope(sc); err != nil {
 		return "", err
+	}
+	if sc == nil || sc.IsSuperAdmin() {
+		return "", errcode.ErrForbidden
 	}
 	record, err := s.transcriptRepo.GetByID(ctx, id)
 	if err != nil {
@@ -956,7 +980,7 @@ func (s *service) buildTranscriptData(ctx context.Context, schoolID, studentID i
 	if err != nil {
 		return nil, err
 	}
-	var schoolLogoReader *bytes.Reader
+	var schoolLogoReader io.Reader
 	if school != nil && school.LogoURL != nil && *school.LogoURL != "" {
 		if logoReader, err := storage.DownloadFile(ctx, *school.LogoURL); err == nil {
 			defer logoReader.Close()
@@ -1020,8 +1044,21 @@ func (s *service) ensureTranscriptAccess(ctx context.Context, sc *svcctx.Service
 		}
 		return nil
 	}
-	if !sc.IsTeacher() || sc.IsSchoolAdmin() || sc.IsSuperAdmin() {
+	if sc.IsSchoolAdmin() {
+		if s.userQuerier == nil {
+			return errcode.ErrForbidden
+		}
+		schoolID, err := s.userQuerier.GetUserSchoolID(ctx, studentID)
+		if err != nil {
+			return err
+		}
+		if schoolID != sc.SchoolID {
+			return errcode.ErrForbidden
+		}
 		return nil
+	}
+	if !sc.IsTeacher() {
+		return errcode.ErrForbidden
 	}
 	grades, err := s.gradeRepo.ListByStudent(ctx, sc.SchoolID, studentID, semesterIDs)
 	if err != nil {
@@ -1037,6 +1074,9 @@ func (s *service) ensureTeacherCanAccessStudentGrades(ctx context.Context, sc *s
 	}
 	if !sc.IsTeacher() || sc.IsSchoolAdmin() || sc.IsSuperAdmin() {
 		return nil
+	}
+	if s.sourceRepo == nil {
+		return errcode.ErrForbidden
 	}
 	for _, grade := range grades {
 		if grade == nil {

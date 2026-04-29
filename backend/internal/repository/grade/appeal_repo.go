@@ -85,26 +85,31 @@ func (r *gradeAppealRepository) GetByStudentCourseSemester(ctx context.Context, 
 
 // List 查询成绩申诉列表。
 func (r *gradeAppealRepository) List(ctx context.Context, params *GradeAppealListParams) ([]*entity.GradeAppeal, int64, error) {
-	query := r.db.WithContext(ctx).Model(&entity.GradeAppeal{}).
-		Scopes(database.WithSchoolID(params.SchoolID), database.WithStatus(params.Status))
+	query := r.db.WithContext(ctx).Model(&entity.GradeAppeal{})
+	if params.SchoolID > 0 {
+		query = query.Where("grade_appeals.school_id = ?", params.SchoolID)
+	}
+	if params.Status > 0 {
+		query = query.Where("grade_appeals.status = ?", params.Status)
+	}
 	if params.StudentID > 0 {
-		query = query.Where("student_id = ?", params.StudentID)
+		query = query.Where("grade_appeals.student_id = ?", params.StudentID)
 	}
 	if params.SemesterID > 0 {
-		query = query.Where("semester_id = ?", params.SemesterID)
+		query = query.Where("grade_appeals.semester_id = ?", params.SemesterID)
 	}
 	if params.CourseID > 0 {
-		query = query.Where("course_id = ?", params.CourseID)
+		query = query.Where("grade_appeals.course_id = ?", params.CourseID)
 	}
 	if params.TeacherID > 0 {
 		query = query.Joins("JOIN courses c ON c.id = grade_appeals.course_id").
 			Where("c.teacher_id = ?", params.TeacherID)
 	}
 	if params.From != nil {
-		query = query.Where("created_at >= ?", *params.From)
+		query = query.Where("grade_appeals.created_at >= ?", *params.From)
 	}
 	if params.To != nil {
-		query = query.Where("created_at <= ?", *params.To)
+		query = query.Where("grade_appeals.created_at <= ?", *params.To)
 	}
 
 	var total int64
@@ -122,8 +127,8 @@ func (r *gradeAppealRepository) List(ctx context.Context, params *GradeAppealLis
 		SortBy:    sortBy,
 		SortOrder: params.SortOrder,
 	}).ApplyToGORM(query, map[string]string{
-		"created_at": "created_at",
-		"handled_at": "handled_at",
+		"created_at": "grade_appeals.created_at",
+		"handled_at": "grade_appeals.handled_at",
 	})
 
 	var appeals []*entity.GradeAppeal

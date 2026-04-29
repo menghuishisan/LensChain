@@ -26,13 +26,26 @@ until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" 2>/dev/null; do
   sleep 2
 done
 
-echo "==> Creating database if not exists"
-psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -tc \
-  "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || \
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -c "CREATE DATABASE $DB_NAME"
+echo "==> Recreating database"
+if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -tAc \
+  "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
+  echo "    Existing database found, terminating connections"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB_NAME' AND pid <> pg_backend_pid();"
+  echo "    Dropping database $DB_NAME"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+    "DROP DATABASE \"$DB_NAME\""
+fi
+
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+  "CREATE DATABASE \"$DB_NAME\""
 
 echo "==> Running migrations"
 cd "$(dirname "$0")/../../../backend"
+if [ -z "${GOCACHE:-}" ]; then
+  export GOCACHE="$PWD/.gocache"
+  mkdir -p "$GOCACHE"
+fi
 go run cmd/migrate/main.go up
 
 DEMO_SEED_FILE="migrations/010_seed_demo_data.up.sql"

@@ -24,6 +24,9 @@ import (
 
 // SubmitChallenge 提交解题赛题目答案或攻击交易。
 func (s *teamService) SubmitChallenge(ctx context.Context, sc *svcctx.ServiceContext, competitionID int64, req *dto.SubmitCompetitionChallengeReq) (*dto.CompetitionSubmissionResp, error) {
+	if !sc.IsStudent() {
+		return nil, errcode.ErrForbidden
+	}
 	competition, err := getCompetition(ctx, s.competitionRepo, competitionID)
 	if err != nil {
 		return nil, err
@@ -43,7 +46,7 @@ func (s *teamService) SubmitChallenge(ctx context.Context, sc *svcctx.ServiceCon
 	if err != nil {
 		return nil, err
 	}
-	member, team, err := s.getCurrentMemberTeam(ctx, competitionID, sc.UserID)
+	member, team, err := s.ensureRegisteredCompetitionMember(ctx, competitionID, sc.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +154,10 @@ func (s *teamService) SubmitChallenge(ctx context.Context, sc *svcctx.ServiceCon
 
 // ListSubmissions 查询团队提交记录。
 func (s *teamService) ListSubmissions(ctx context.Context, sc *svcctx.ServiceContext, competitionID int64, req *dto.CompetitionSubmissionListReq) (*dto.CompetitionSubmissionListResp, error) {
-	_, team, err := s.getCurrentMemberTeam(ctx, competitionID, sc.UserID)
+	if sc == nil || !sc.IsStudent() {
+		return nil, errcode.ErrForbidden
+	}
+	_, team, err := s.ensureRegisteredCompetitionMember(ctx, competitionID, sc.UserID)
 	if err != nil {
 		return nil, err
 	}

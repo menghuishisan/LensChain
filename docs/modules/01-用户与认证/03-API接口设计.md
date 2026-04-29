@@ -354,7 +354,6 @@
   "phone": "13900139000",
   "name": "平台管理员",
   "password": "InitPass123",
-  "school_id": "1780000000000100",
   "email": "platform-admin@example.com",
   "remark": "新增平台超级管理员"
 }
@@ -377,7 +376,7 @@
 2. 手机号全局唯一
 3. 密码必须满足当前安全策略
 4. 新账号角色固定为 `super_admin`
-5. 由于当前用户表 `school_id` 为必填且存在外键约束，新超管账号必须有 `school_id`；未传时后端回退创建者的 `school_id`，若创建者 Token 中也没有学校归属则返回参数错误
+5. 超级管理员为平台级账号，不隶属任何学校，后端固定写入 `school_id = 0`
 6. 超级管理员权限边界由 `super_admin` 角色决定，不依赖 `school_id` 做数据范围收缩
 
 ---

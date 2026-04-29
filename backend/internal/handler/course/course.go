@@ -418,6 +418,14 @@ func (h *CourseHandler) UploadCourseFile(c *gin.Context) {
 		response.Error(c, errcode.ErrInvalidParams.WithMessage("文件大小不能超过500MB"))
 		return
 	}
+	req := dto.UploadCourseFileReq{
+		Purpose:  c.PostForm("purpose"),
+		LessonID: c.PostForm("lesson_id"),
+	}
+	if req.Purpose != "lesson_attachment" && req.Purpose != "assignment_report" {
+		response.Error(c, errcode.ErrInvalidParams.WithMessage("上传参数不合法"))
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		response.Error(c, errcode.ErrInvalidParams.WithMessage("请上传文件"))
@@ -436,7 +444,7 @@ func (h *CourseHandler) UploadCourseFile(c *gin.Context) {
 	}
 
 	sc := handlerctx.BuildServiceContext(c)
-	resp, err := h.contentService.UploadCourseFile(c.Request.Context(), sc, file.Filename, src, file.Size, contentType, c.PostForm("purpose"))
+	resp, err := h.contentService.UploadCourseFile(c.Request.Context(), sc, file.Filename, src, file.Size, contentType, req.Purpose, req.LessonID)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return

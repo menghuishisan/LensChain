@@ -300,6 +300,9 @@ func discoverFontPath() string {
 
 // drawLogo 把学校 Logo 缩放后绘制到成绩单页眉区域。
 func drawLogo(canvas *image.RGBA, reader io.Reader, x, y int) (int, error) {
+	if reader == nil {
+		return y, fmt.Errorf("学校Logo为空")
+	}
 	logo, _, err := image.Decode(reader)
 	if err != nil {
 		return y, err

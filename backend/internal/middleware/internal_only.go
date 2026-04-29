@@ -6,11 +6,13 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lenschain/backend/internal/config"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/response"
 )
@@ -20,6 +22,10 @@ func InternalOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !isInternalRequestIP(c.ClientIP()) {
 			response.Abort(c, errcode.ErrForbidden.WithMessage("内部接口仅允许内网访问"))
+			return
+		}
+		if !hasValidInternalToken(c.GetHeader("X-Internal-Token")) {
+			response.Abort(c, errcode.ErrForbidden.WithMessage("内部接口鉴权失败"))
 			return
 		}
 		c.Next()
@@ -45,4 +51,20 @@ func parseRequestIP(rawIP string) net.IP {
 		rawIP = host
 	}
 	return net.ParseIP(rawIP)
+}
+
+func hasValidInternalToken(raw string) bool {
+	cfg := config.Get()
+	if cfg == nil {
+		return false
+	}
+	expected := strings.TrimSpace(cfg.Internal.APIToken)
+	if expected == "" {
+		return true
+	}
+	provided := strings.TrimSpace(raw)
+	if provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }

@@ -231,6 +231,13 @@ type UploadCourseFileResp struct {
 	FileType    string `json:"file_type"`
 }
 
+// UploadCourseFileReq 课程文件上传请求参数。
+// POST /api/v1/course-files/upload
+type UploadCourseFileReq struct {
+	Purpose  string `form:"purpose" binding:"required,oneof=lesson_attachment assignment_report"`
+	LessonID string `form:"lesson_id"`
+}
+
 // ========== 选课 DTO ==========
 
 // JoinCourseReq 邀请码加入课程请求

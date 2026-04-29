@@ -248,26 +248,26 @@ func (r *adAttackRepository) GetByID(ctx context.Context, id int64) (*entity.AdA
 func (r *adAttackRepository) List(ctx context.Context, params *AdAttackListParams) ([]*entity.AdAttack, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.AdAttack{})
 	if params.CompetitionID > 0 {
-		query = query.Where("competition_id = ?", params.CompetitionID)
+		query = query.Where("ad_attacks.competition_id = ?", params.CompetitionID)
 	}
 	if params.RoundID > 0 {
-		query = query.Where("round_id = ?", params.RoundID)
+		query = query.Where("ad_attacks.round_id = ?", params.RoundID)
 	}
 	if params.GroupID > 0 {
 		query = query.Joins("JOIN ad_rounds ON ad_rounds.id = ad_attacks.round_id").
 			Where("ad_rounds.group_id = ?", params.GroupID)
 	}
 	if params.AttackerTeamID > 0 {
-		query = query.Where("attacker_team_id = ?", params.AttackerTeamID)
+		query = query.Where("ad_attacks.attacker_team_id = ?", params.AttackerTeamID)
 	}
 	if params.TargetTeamID > 0 {
-		query = query.Where("target_team_id = ?", params.TargetTeamID)
+		query = query.Where("ad_attacks.target_team_id = ?", params.TargetTeamID)
 	}
 	if params.ChallengeID > 0 {
-		query = query.Where("challenge_id = ?", params.ChallengeID)
+		query = query.Where("ad_attacks.challenge_id = ?", params.ChallengeID)
 	}
 	if params.IsSuccessful != nil {
-		query = query.Where("is_successful = ?", *params.IsSuccessful)
+		query = query.Where("ad_attacks.is_successful = ?", *params.IsSuccessful)
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -386,23 +386,23 @@ func (r *adDefenseRepository) GetByID(ctx context.Context, id int64) (*entity.Ad
 func (r *adDefenseRepository) List(ctx context.Context, params *AdDefenseListParams) ([]*entity.AdDefense, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.AdDefense{})
 	if params.CompetitionID > 0 {
-		query = query.Where("competition_id = ?", params.CompetitionID)
+		query = query.Where("ad_defenses.competition_id = ?", params.CompetitionID)
 	}
 	if params.RoundID > 0 {
-		query = query.Where("round_id = ?", params.RoundID)
+		query = query.Where("ad_defenses.round_id = ?", params.RoundID)
 	}
 	if params.GroupID > 0 {
 		query = query.Joins("JOIN ad_rounds ON ad_rounds.id = ad_defenses.round_id").
 			Where("ad_rounds.group_id = ?", params.GroupID)
 	}
 	if params.TeamID > 0 {
-		query = query.Where("team_id = ?", params.TeamID)
+		query = query.Where("ad_defenses.team_id = ?", params.TeamID)
 	}
 	if params.ChallengeID > 0 {
-		query = query.Where("challenge_id = ?", params.ChallengeID)
+		query = query.Where("ad_defenses.challenge_id = ?", params.ChallengeID)
 	}
 	if params.IsAccepted != nil {
-		query = query.Where("is_accepted = ?", *params.IsAccepted)
+		query = query.Where("ad_defenses.is_accepted = ?", *params.IsAccepted)
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

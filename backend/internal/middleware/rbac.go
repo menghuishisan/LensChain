@@ -54,9 +54,9 @@ func RequireSchoolAdmin() gin.HandlerFunc {
 	return RequireRoles(RoleSchoolAdmin)
 }
 
-// RequireTeacher 要求教师权限（包含学校管理员，因为校管兼任教师）
+// RequireTeacher 要求教师权限
 func RequireTeacher() gin.HandlerFunc {
-	return RequireRoles(RoleTeacher, RoleSchoolAdmin)
+	return RequireRoles(RoleTeacher)
 }
 
 // RequireStudent 要求学生权限
@@ -86,7 +86,7 @@ func IsSchoolAdmin(c *gin.Context) bool {
 
 // IsTeacher 判断当前用户是否为教师
 func IsTeacher(c *gin.Context) bool {
-	return hasRole(c, RoleTeacher) || hasRole(c, RoleSchoolAdmin)
+	return hasRole(c, RoleTeacher)
 }
 
 // IsStudent 判断当前用户是否为学生

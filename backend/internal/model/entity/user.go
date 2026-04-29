@@ -18,7 +18,7 @@ type User struct {
 	Phone           string         `gorm:"type:varchar(20);not null" json:"phone"`
 	PasswordHash    string         `gorm:"column:password_hash;type:varchar(255);not null" json:"-"`
 	Name            string         `gorm:"type:varchar(50);not null" json:"name"`
-	SchoolID        int64          `gorm:"column:school_id;not null;index" json:"school_id,string"`
+	SchoolID        int64          `gorm:"column:school_id;not null;default:0;index" json:"school_id,string"`
 	StudentNo       *string        `gorm:"column:student_no;type:varchar(50)" json:"student_no,omitempty"`
 	Status          int16          `gorm:"column:status;type:smallint;not null;default:1" json:"status"`
 	IsFirstLogin    bool           `gorm:"column:is_first_login;not null;default:true" json:"is_first_login"`

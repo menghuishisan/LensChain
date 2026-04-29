@@ -40,6 +40,8 @@ type Config struct {
 	K8s       K8sConfig       `mapstructure:"k8s"`
 	// SimEngine 仿真引擎配置。
 	SimEngine SimEngineConfig `mapstructure:"sim_engine"`
+	// Internal 内部接口鉴权配置。
+	Internal InternalConfig `mapstructure:"internal"`
 }
 
 // K8sConfig Kubernetes 集群配置
@@ -76,6 +78,12 @@ type SimEngineConfig struct {
 	TLSEnabled bool          `mapstructure:"tls_enabled"`
 	// CertFile TLS 证书文件路径。
 	CertFile   string        `mapstructure:"cert_file"`
+}
+
+// InternalConfig 内部接口鉴权配置
+type InternalConfig struct {
+	// APIToken 内部接口共享令牌。
+	APIToken string `mapstructure:"api_token"`
 }
 
 // ServerConfig HTTP服务器配置

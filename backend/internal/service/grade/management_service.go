@@ -359,6 +359,9 @@ func (s *service) GetReview(ctx context.Context, sc *svcctx.ServiceContext, id i
 	if review.SchoolID != sc.SchoolID && !sc.IsSuperAdmin() {
 		return nil, errcode.ErrForbidden
 	}
+	if sc.IsTeacher() && !sc.IsSchoolAdmin() && !sc.IsSuperAdmin() && review.SubmittedBy != sc.UserID {
+		return nil, errcode.ErrForbidden
+	}
 	courseMap, semesterMap, userMap := s.buildReviewLookupMaps(ctx, []*entity.GradeReview{review})
 	submittedBy := userMap[review.SubmittedBy]
 	var reviewedBy *UserSummary

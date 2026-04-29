@@ -152,7 +152,6 @@ type CreateSuperAdminReq struct {
 	Phone    string  `json:"phone" binding:"required,phone"`
 	Name     string  `json:"name" binding:"required,min=2,max=50"`
 	Password string  `json:"password" binding:"required,password"`
-	SchoolID *string `json:"school_id" binding:"omitempty"`
 	Email    *string `json:"email" binding:"omitempty,email"`
 	Remark   *string `json:"remark"`
 }

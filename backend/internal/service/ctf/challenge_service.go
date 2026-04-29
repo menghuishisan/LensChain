@@ -351,7 +351,7 @@ func (s *challengeService) ensureChallengeViewer(sc *svcctx.ServiceContext) erro
 	if sc == nil {
 		return errcode.ErrForbidden
 	}
-	if sc.IsSuperAdmin() || sc.IsSchoolAdmin() || sc.IsTeacher() {
+	if sc.IsSuperAdmin() || sc.IsTeacher() {
 		return nil
 	}
 	return errcode.ErrForbidden

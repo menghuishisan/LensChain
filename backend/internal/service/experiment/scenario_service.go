@@ -76,6 +76,9 @@ func NewScenarioService(
 
 // Create 上传自定义仿真场景
 func (s *scenarioService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateScenarioReq) (string, error) {
+	if err := ensureScenarioCreateAccess(sc); err != nil {
+		return "", err
+	}
 	scenario := &entity.SimScenario{
 		ID:                snowflake.Generate(),
 		Name:              req.Name,
@@ -372,6 +375,10 @@ func ensureScenarioReadAccess(sc *svcctx.ServiceContext) error {
 		return nil
 	}
 	return errcode.ErrForbidden
+}
+
+func ensureScenarioCreateAccess(sc *svcctx.ServiceContext) error {
+	return ensureScenarioReadAccess(sc)
 }
 
 // ensureScenarioWriteAccess 校验场景上传者或超级管理员的写权限。

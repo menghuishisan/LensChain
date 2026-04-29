@@ -169,6 +169,9 @@ func (s *imageService) DeleteCategory(ctx context.Context, sc *svcctx.ServiceCon
 
 // Create 创建镜像
 func (s *imageService) Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateImageReq) (string, error) {
+	if err := ensureImageCreateAccess(sc); err != nil {
+		return "", err
+	}
 	categoryID, _ := snowflake.ParseString(req.CategoryID)
 	_, err := s.categoryRepo.GetByID(ctx, categoryID)
 	if err != nil {
@@ -784,7 +787,17 @@ func ensureImageCatalogAccess(sc *svcctx.ServiceContext) error {
 	if sc == nil {
 		return errcode.ErrForbidden
 	}
-	if sc.IsSuperAdmin() || sc.IsSchoolAdmin() || sc.IsTeacher() {
+	if sc.IsSuperAdmin() || sc.IsTeacher() {
+		return nil
+	}
+	return errcode.ErrForbidden
+}
+
+func ensureImageCreateAccess(sc *svcctx.ServiceContext) error {
+	if sc == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() || sc.IsTeacher() {
 		return nil
 	}
 	return errcode.ErrForbidden

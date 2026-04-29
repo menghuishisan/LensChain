@@ -609,11 +609,8 @@ func (s *monitorService) GetK8sClusterStatus(ctx context.Context, sc *svcctx.Ser
 }
 
 // ensureCourseTeacherAccess 校验课程教师访问权限。
-// 课程实验监控与课程实验统计仅允许课程教师访问；学校管理员应使用学校管理员视角接口。
+// 课程实验监控与课程实验统计仅允许课程教师访问；学校管理员与超级管理员应使用各自管理视角接口。
 func (s *monitorService) ensureCourseTeacherAccess(ctx context.Context, sc *svcctx.ServiceContext, courseID int64) error {
-	if sc.IsSuperAdmin() {
-		return nil
-	}
 	courseSchoolID, err := s.courseQuerier.GetCourseSchoolID(ctx, courseID)
 	if err != nil {
 		return err

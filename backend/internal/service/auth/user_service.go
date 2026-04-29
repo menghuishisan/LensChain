@@ -214,24 +214,14 @@ func (s *userService) Create(ctx context.Context, sc *svcctx.ServiceContext, req
 }
 
 // CreateSuperAdmin 创建超级管理员账号。
-// 当前 users.school_id 存在非空外键约束，因此该接口显式接收 school_id，未传时回退当前操作者 school_id。
+// 超级管理员为平台级账号，不隶属任何学校，school_id 固定写入 0。
 // 超级管理员权限边界由 super_admin 角色决定，不依赖 school_id 做数据范围收缩。
 func (s *userService) CreateSuperAdmin(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateSuperAdminReq) (*dto.CreateUserResp, error) {
 	if !sc.IsSuperAdmin() {
 		return nil, errcode.ErrForbidden
 	}
 
-	schoolID := sc.SchoolID
-	if req.SchoolID != nil && *req.SchoolID != "" {
-		parsedSchoolID, err := snowflake.ParseString(*req.SchoolID)
-		if err != nil || parsedSchoolID <= 0 {
-			return nil, errcode.ErrInvalidParams.WithMessage("school_id 格式不正确")
-		}
-		schoolID = parsedSchoolID
-	}
-	if schoolID <= 0 {
-		return nil, errcode.ErrInvalidParams.WithMessage("创建超级管理员需要指定学校ID")
-	}
+	schoolID := int64(0)
 
 	if existing, err := s.userRepo.GetByPhone(ctx, req.Phone); err == nil && existing != nil {
 		return nil, errcode.ErrDuplicatePhone
@@ -291,9 +281,8 @@ func (s *userService) CreateSuperAdmin(ctx context.Context, sc *svcctx.ServiceCo
 	}
 
 	audit.RecordFromContext(s.db, sc.UserID, sc.ClientIP, "create_super_admin", "user", userID, map[string]interface{}{
-		"phone":     mask.Phone(req.Phone),
-		"name":      req.Name,
-		"school_id": schoolID,
+		"phone": mask.Phone(req.Phone),
+		"name":  req.Name,
 	})
 
 	return &dto.CreateUserResp{ID: strconv.FormatInt(userID, 10)}, nil

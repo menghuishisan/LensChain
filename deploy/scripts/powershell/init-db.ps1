@@ -46,16 +46,39 @@ while ($true) {
     Start-Sleep -Seconds 2
 }
 
-Write-Host "==> Creating database if not exists"
-$dbExistsOutput = (& psql -h $DB_HOST -p $DB_PORT -U $DB_USER -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | Out-String)
+Write-Host "==> Recreating database"
+$dbExistsOutput = (& psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | Out-String)
 $dbExists = $dbExistsOutput.Trim()
-if ($dbExists -ne "1") {
-    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -c "CREATE DATABASE $DB_NAME"
+if ($dbExists -eq "1") {
+    Write-Host "    Existing database found, terminating connections"
+    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB_NAME' AND pid <> pg_backend_pid();"
+    if ($LASTEXITCODE -ne 0) {
+        throw "终止数据库连接失败"
+    }
+
+    Write-Host "    Dropping database $DB_NAME"
+    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE `"$DB_NAME`""
+    if ($LASTEXITCODE -ne 0) {
+        throw "删除数据库失败"
+    }
+}
+
+& psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE `"$DB_NAME`""
+if ($LASTEXITCODE -ne 0) {
+    throw "创建数据库失败"
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $backendDir = Join-Path $repoRoot "backend"
 $seedFile = Join-Path $backendDir "migrations/010_seed_demo_data.up.sql"
+$goCacheDir = Join-Path $backendDir ".gocache"
+
+if (-not $env:GOCACHE) {
+    if (-not (Test-Path $goCacheDir)) {
+        New-Item -ItemType Directory -Path $goCacheDir -Force | Out-Null
+    }
+    $env:GOCACHE = $goCacheDir
+}
 
 Write-Host "==> Running migrations"
 Push-Location $backendDir

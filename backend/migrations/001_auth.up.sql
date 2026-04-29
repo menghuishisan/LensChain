@@ -42,7 +42,7 @@ CREATE TABLE users (
     phone VARCHAR(20) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(50) NOT NULL,
-    school_id BIGINT NOT NULL,
+    school_id BIGINT NOT NULL DEFAULT 0,
     student_no VARCHAR(50) NULL,
     status SMALLINT NOT NULL DEFAULT 1,
     is_first_login BOOLEAN NOT NULL DEFAULT TRUE,
@@ -63,7 +63,7 @@ CREATE INDEX idx_users_school_id ON users(school_id);
 CREATE INDEX idx_users_status ON users(status);
 CREATE INDEX idx_users_name ON users(name);
 COMMENT ON TABLE users IS '用户主表，记录登录凭证、基础身份和租户归属。';
-COMMENT ON COLUMN users.school_id IS '所属学校ID，在模块02迁移中补充外键约束。';
+COMMENT ON COLUMN users.school_id IS '所属学校ID；普通用户必须关联真实学校，super_admin 固定为 0，不建立数据库外键约束。';
 COMMENT ON COLUMN users.status IS '账号状态：1正常 2禁用 3归档。';
 COMMENT ON COLUMN users.is_first_login IS '是否首次登录，首次登录需要强制修改密码。';
 COMMENT ON COLUMN users.is_school_admin IS '是否兼任学校管理员。';

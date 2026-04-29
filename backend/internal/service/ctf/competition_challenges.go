@@ -57,6 +57,25 @@ func (s *competitionService) AddChallenges(ctx context.Context, sc *svcctx.Servi
 		if challenge.Status != enum.ChallengeStatusApproved {
 			return nil, errcode.ErrChallengeNotApproved
 		}
+		if competition.CompetitionType == enum.CompetitionTypeAttackDefense {
+			if challenge.FlagType != enum.FlagTypeOnChain || challenge.Category != enum.ChallengeCategoryContract {
+				return nil, errcode.ErrCompetitionConfigRequired.WithMessage("攻防对抗赛仅支持链上验证的智能合约题目")
+			}
+			contracts, contractErr := s.contractRepo.ListByChallengeID(ctx, challengeID)
+			if contractErr != nil {
+				return nil, contractErr
+			}
+			if len(contracts) == 0 {
+				return nil, errcode.ErrChallengeContractRequired
+			}
+			assertions, assertionErr := s.assertionRepo.ListByChallengeID(ctx, challengeID)
+			if assertionErr != nil {
+				return nil, assertionErr
+			}
+			if len(assertions) == 0 {
+				return nil, errcode.ErrChallengeAssertionRequired
+			}
+		}
 		if _, exists := existingChallengeSet[challengeID]; exists {
 			return nil, errcode.ErrChallengeAlreadyInContest
 		}
@@ -109,7 +128,7 @@ func (s *competitionService) ListChallenges(ctx context.Context, sc *svcctx.Serv
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureCompetitionReadable(sc, competition); err != nil {
+	if err := s.ensureCompetitionChallengeReadable(ctx, sc, competition); err != nil {
 		return nil, err
 	}
 	items, err := s.compChallengeRepo.ListByCompetitionID(ctx, id)
@@ -192,6 +211,28 @@ func (s *competitionService) ListChallenges(ctx context.Context, sc *svcctx.Serv
 		})
 	}
 	return &dto.CompetitionChallengeListResp{List: respItems}, nil
+}
+
+// ensureCompetitionChallengeReadable 校验竞赛题目列表读取权限。
+// 文档约定该入口仅开放给竞赛创建者和参赛选手，不向同校未参赛用户暴露完整题目清单。
+func (s *competitionService) ensureCompetitionChallengeReadable(ctx context.Context, sc *svcctx.ServiceContext, competition *entity.Competition) error {
+	if err := s.ensureCompetitionReadable(sc, competition); err != nil {
+		return err
+	}
+	if sc == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() || competition.CreatedBy == sc.UserID {
+		return nil
+	}
+	if !sc.IsStudent() {
+		return errcode.ErrForbidden
+	}
+	_, _, err := getCompetitionMemberTeam(ctx, s.teamMemberRepo, s.teamRepo, competition.ID, sc.UserID)
+	if err != nil {
+		return errcode.ErrForbidden
+	}
+	return nil
 }
 
 // loadSolvedChallengeSet 加载指定团队在竞赛中的已解题集合。

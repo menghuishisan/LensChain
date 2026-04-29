@@ -198,3 +198,7 @@ sim_engine:
   tls_enabled: false
   # cert_file: TLS 证书文件路径；tls_enabled=true 时需要配置
   cert_file: ""
+
+internal:
+  # api_token: 内部接口共享令牌；生产环境必须配置为高强度随机值
+  api_token: "please-change-internal-api-token"

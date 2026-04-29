@@ -32,6 +32,7 @@ type environmentService struct {
 	compChallengeRepo  ctfrepo.CompetitionChallengeRepository
 	teamRepo           ctfrepo.TeamRepository
 	teamMemberRepo     ctfrepo.TeamMemberRepository
+	registrationRepo   ctfrepo.CompetitionRegistrationRepository
 	environmentRepo    ctfrepo.ChallengeEnvironmentRepository
 	quotaRepo          ctfrepo.CtfResourceQuotaRepository
 	userQuerier        UserSummaryQuerier
@@ -52,6 +53,7 @@ func NewEnvironmentService(
 	compChallengeRepo ctfrepo.CompetitionChallengeRepository,
 	teamRepo ctfrepo.TeamRepository,
 	teamMemberRepo ctfrepo.TeamMemberRepository,
+	registrationRepo ctfrepo.CompetitionRegistrationRepository,
 	environmentRepo ctfrepo.ChallengeEnvironmentRepository,
 	quotaRepo ctfrepo.CtfResourceQuotaRepository,
 	userQuerier UserSummaryQuerier,
@@ -66,6 +68,7 @@ func NewEnvironmentService(
 		compChallengeRepo:  compChallengeRepo,
 		teamRepo:           teamRepo,
 		teamMemberRepo:     teamMemberRepo,
+		registrationRepo:   registrationRepo,
 		environmentRepo:    environmentRepo,
 		quotaRepo:          quotaRepo,
 		userQuerier:        userQuerier,
@@ -93,7 +96,7 @@ func (s *environmentService) Start(ctx context.Context, sc *svcctx.ServiceContex
 	if err != nil {
 		return nil, err
 	}
-	_, team, err := s.getCurrentMemberTeam(ctx, competitionID, sc.UserID)
+	_, team, err := s.ensureRegisteredCompetitionMember(ctx, competitionID, sc.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +231,7 @@ func (s *environmentService) Reset(ctx context.Context, sc *svcctx.ServiceContex
 		return nil, err
 	}
 	if environment.Status == enum.ChallengeEnvStatusDestroyed {
-		return nil, errcode.ErrEnvironmentNotFound
+		return nil, errcode.ErrCompetitionStatusInvalid.WithMessage("题目环境已销毁，不能重置")
 	}
 	challenge, err := getChallenge(ctx, s.challengeRepo, environment.ChallengeID)
 	if err != nil {
@@ -274,7 +277,7 @@ func (s *environmentService) Destroy(ctx context.Context, sc *svcctx.ServiceCont
 		}
 		return err
 	}
-	if err := s.ensureEnvironmentWritable(ctx, sc, environment); err != nil {
+	if err := s.ensureEnvironmentDestroyable(ctx, sc, environment); err != nil {
 		return err
 	}
 	return s.destroyEnvironment(ctx, environment)
@@ -312,7 +315,10 @@ func (s *environmentService) ForceDestroy(ctx context.Context, sc *svcctx.Servic
 
 // ListMyEnvironments 查询我的题目环境列表。
 func (s *environmentService) ListMyEnvironments(ctx context.Context, sc *svcctx.ServiceContext, competitionID int64) (*dto.MyChallengeEnvironmentListResp, error) {
-	_, team, err := s.getCurrentMemberTeam(ctx, competitionID, sc.UserID)
+	if sc == nil || !sc.IsStudent() {
+		return nil, errcode.ErrForbidden
+	}
+	_, team, err := s.ensureRegisteredCompetitionMember(ctx, competitionID, sc.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -448,28 +454,17 @@ func (s *environmentService) ensureQuotaAvailable(ctx context.Context, competiti
 
 // ensureEnvironmentReadable 校验当前上下文是否可读取题目环境。
 func (s *environmentService) ensureEnvironmentReadable(ctx context.Context, sc *svcctx.ServiceContext, environment *entity.ChallengeEnvironment) error {
-	if sc.IsSuperAdmin() {
-		return nil
+	if sc == nil || !sc.IsStudent() {
+		return errcode.ErrForbidden
 	}
-	team, err := s.teamRepo.GetByID(ctx, environment.TeamID)
+	_, team, err := s.ensureRegisteredCompetitionMember(ctx, environment.CompetitionID, sc.UserID)
 	if err != nil {
 		return err
 	}
-	if team.CaptainID == sc.UserID {
-		return nil
+	if team.ID != environment.TeamID {
+		return errcode.ErrForbidden
 	}
-	isMember, err := s.teamMemberRepo.IsTeamMember(ctx, environment.TeamID, sc.UserID)
-	if err != nil {
-		return err
-	}
-	if isMember {
-		return nil
-	}
-	competition, err := getCompetition(ctx, s.competitionRepo, environment.CompetitionID)
-	if err != nil {
-		return err
-	}
-	return s.ensureCompetitionManageable(sc, competition)
+	return nil
 }
 
 // ensureEnvironmentWritable 校验当前上下文是否可变更题目环境。
@@ -487,9 +482,44 @@ func (s *environmentService) ensureEnvironmentWritable(ctx context.Context, sc *
 	return nil
 }
 
+// ensureEnvironmentDestroyable 校验当前上下文是否可销毁题目环境。
+// 文档允许参赛选手自行销毁，也允许竞赛创建者等管理员回收资源。
+func (s *environmentService) ensureEnvironmentDestroyable(ctx context.Context, sc *svcctx.ServiceContext, environment *entity.ChallengeEnvironment) error {
+	if sc == nil {
+		return errcode.ErrForbidden
+	}
+	if sc.IsSuperAdmin() {
+		return nil
+	}
+	isMember, err := s.teamMemberRepo.IsTeamMember(ctx, environment.TeamID, sc.UserID)
+	if err != nil {
+		return err
+	}
+	if isMember {
+		return nil
+	}
+	competition, err := getCompetition(ctx, s.competitionRepo, environment.CompetitionID)
+	if err != nil {
+		return err
+	}
+	return s.ensureCompetitionManageable(sc, competition)
+}
+
 // getCurrentMemberTeam 获取当前学生在竞赛中的团队成员关系和团队实体。
 func (s *environmentService) getCurrentMemberTeam(ctx context.Context, competitionID, studentID int64) (*entity.TeamMember, *entity.Team, error) {
 	return getCompetitionMemberTeam(ctx, s.teamMemberRepo, s.teamRepo, competitionID, studentID)
+}
+
+func (s *environmentService) ensureRegisteredCompetitionMember(ctx context.Context, competitionID, studentID int64) (*entity.TeamMember, *entity.Team, error) {
+	member, team, err := s.getCurrentMemberTeam(ctx, competitionID, studentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	registration, err := s.registrationRepo.GetByCompetitionAndTeam(ctx, competitionID, team.ID)
+	if err != nil || registration == nil || registration.Status != enum.RegistrationStatusRegistered {
+		return nil, nil, errcode.ErrRegistrationNotFound
+	}
+	return member, team, nil
 }
 
 // destroyEnvironment 执行环境销毁和配额回收。

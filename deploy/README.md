@@ -90,6 +90,8 @@ DB_HOST=localhost DB_PORT=5442 DB_USER=lenschain DB_PASSWORD=lenschain DB_NAME=l
 $env:DB_HOST="localhost"; $env:DB_PORT="5442"; $env:DB_USER="lenschain"; $env:DB_PASSWORD="lenschain"; $env:DB_NAME="lenschain"; .\deploy\scripts\powershell\init-db.ps1
 ```
 
+`init-db` 脚本会在目标数据库不存在时先建库；若已存在，则先终止现有连接、删除数据库并重新创建，再执行迁移和 demo 数据导入，便于重复测试。
+
 ## Demo 数据
 
 演示 / 联调用的数据库种子数据放在：

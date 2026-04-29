@@ -108,6 +108,15 @@ func (a *gradeUserSummaryQuerier) GetUserSummaries(ctx context.Context, userIDs 
 	return result
 }
 
+// GetUserSchoolID 查询用户所属学校，供模块06做资源归属校验。
+func (a *gradeUserSummaryQuerier) GetUserSchoolID(ctx context.Context, userID int64) (int64, error) {
+	user, err := a.userRepo.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return 0, err
+	}
+	return user.SchoolID, nil
+}
+
 type gradeSchoolSummaryQuerier struct {
 	schoolRepo schoolrepo.SchoolRepository
 }

@@ -221,11 +221,18 @@ func (s *battleService) buildADAttackExecutionSpec(ctx context.Context, targetTe
 	if err != nil {
 		return nil, err
 	}
+	filteredContracts := filterTeamContractsByChallenge(contracts, challengeID)
+	if len(filteredContracts) == 0 {
+		return nil, errcode.ErrCompetitionConfigRequired.WithMessage("攻防赛题目缺少目标队伍链部署合约")
+	}
+	if len(assertions) == 0 {
+		return nil, errcode.ErrChallengeAssertionRequired
+	}
 	return &ADAttackExecutionSpec{
 		Namespace:    buildAdGroupNamespace(chain.CompetitionID, chain.GroupID),
 		ChainRPCURL:  *chain.ChainRPCURL,
 		AttackTxData: attackTxData,
-		Contracts:    filterTeamContractsByChallenge(contracts, challengeID),
+		Contracts:    filteredContracts,
 		Assertions:   buildRuntimeAssertions(assertions),
 	}, nil
 }
@@ -254,6 +261,13 @@ func (s *battleService) buildADPatchVerificationSpec(ctx context.Context, teamID
 	if err != nil {
 		return nil, err
 	}
+	filteredContracts := filterTeamContractsByChallenge(teamContracts, challengeID)
+	if len(filteredContracts) == 0 {
+		return nil, errcode.ErrCompetitionConfigRequired.WithMessage("攻防赛题目缺少队伍链部署合约")
+	}
+	if len(assertions) == 0 {
+		return nil, errcode.ErrChallengeAssertionRequired
+	}
 	officialPoc, err := s.loadOfficialPoc(ctx, challengeID)
 	if err != nil {
 		return nil, err
@@ -265,7 +279,7 @@ func (s *battleService) buildADPatchVerificationSpec(ctx context.Context, teamID
 		ChainRPCURL:        *chain.ChainRPCURL,
 		PatchSourceCode:    source,
 		OriginalContracts:  originalContracts,
-		TargetContracts:    filterTeamContractsByChallenge(teamContracts, challengeID),
+		TargetContracts:    filteredContracts,
 		Assertions:         buildRuntimeAssertions(assertions),
 		OfficialPocContent: officialPoc,
 	}, nil
