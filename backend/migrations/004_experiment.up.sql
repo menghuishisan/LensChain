@@ -324,7 +324,6 @@ CREATE TABLE experiment_instances (
     status SMALLINT NOT NULL DEFAULT 1,
     attempt_no INT NOT NULL DEFAULT 1,
     namespace VARCHAR(100) NULL,
-    access_url VARCHAR(500) NULL,
     total_score DECIMAL(6,2) NULL,
     auto_score DECIMAL(6,2) NULL,
     manual_score DECIMAL(6,2) NULL,
@@ -366,12 +365,15 @@ CREATE TABLE instance_containers (
     status SMALLINT NOT NULL DEFAULT 1,
     cpu_usage VARCHAR(20) NULL,
     memory_usage VARCHAR(20) NULL,
+    tool_kind VARCHAR(50) NULL,
+    proxy_url VARCHAR(500) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_instance_containers_instance_id FOREIGN KEY (instance_id) REFERENCES experiment_instances(id),
     CONSTRAINT fk_instance_containers_template_container_id FOREIGN KEY (template_container_id) REFERENCES template_containers(id)
 );
 CREATE INDEX idx_instance_containers_instance_id ON instance_containers(instance_id);
+CREATE INDEX idx_instance_containers_tool_kind ON instance_containers(tool_kind) WHERE tool_kind IS NOT NULL;
 
 -- checkpoint_results：检查点结果表。
 CREATE TABLE checkpoint_results (

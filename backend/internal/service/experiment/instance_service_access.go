@@ -142,15 +142,3 @@ func (s *instanceService) isCourseTeacher(ctx context.Context, sc *svcctx.Servic
 	}
 	return teacherID == sc.UserID, nil
 }
-
-// ensureAccessibleInstanceRecord 校验当前用户是否可访问指定实例记录。
-func (s *instanceService) ensureAccessibleInstanceRecord(ctx context.Context, sc *svcctx.ServiceContext, instance *entity.ExperimentInstance) error {
-	allowed, err := s.canViewInstance(ctx, sc, instance)
-	if err != nil {
-		return err
-	}
-	if !allowed {
-		return errcode.ErrForbidden
-	}
-	return nil
-}

@@ -2,7 +2,6 @@
 // 统一管理页面级返回入口与导航外壳的展示规则。
 
 const ROOT_PATHS = new Set([
-  "/teacher",
   "/teacher/courses",
   "/teacher/experiment-templates",
   "/teacher/experiment-groups",
@@ -12,7 +11,6 @@ const ROOT_PATHS = new Set([
   "/teacher/grades/appeals",
   "/teacher/notifications",
   "/teacher/notifications/preferences",
-  "/student",
   "/student/courses",
   "/student/experiment-instances",
   "/student/grades",
@@ -22,7 +20,6 @@ const ROOT_PATHS = new Set([
   "/student/schedule",
   "/student/notifications",
   "/student/notifications/preferences",
-  "/admin",
   "/admin/users",
   "/admin/schools",
   "/admin/images",
@@ -55,7 +52,6 @@ const ROOT_PATHS = new Set([
   "/school/resource-quota",
   "/school/images",
   "/school/experiment-monitor",
-  "/super",
   "/super/system/dashboard",
   "/super/system/statistics",
   "/super/system/configs",

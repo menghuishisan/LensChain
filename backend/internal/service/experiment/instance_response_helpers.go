@@ -73,7 +73,33 @@ func buildInstanceContainerItemBase(container *entity.InstanceContainer) dto.Ins
 		InternalIP:    container.InternalIP,
 		CPUUsage:      container.CPUUsage,
 		MemoryUsage:   container.MemoryUsage,
+		ToolKind:      container.ToolKind,
 	}
+}
+
+// buildInstanceToolItems 构建实例详情工具列表（从容器中筛选 tool_kind 非空且 proxy_url 已签发的）。
+func (s *instanceService) buildInstanceToolItems(
+	_ context.Context,
+	containers []*entity.InstanceContainer,
+) []dto.InstanceToolItem {
+	items := make([]dto.InstanceToolItem, 0)
+	for _, container := range containers {
+		if container == nil || container.ToolKind == nil || *container.ToolKind == "" {
+			continue
+		}
+		if container.ProxyURL == nil || *container.ProxyURL == "" {
+			continue
+		}
+		items = append(items, dto.InstanceToolItem{
+			Kind:          *container.ToolKind,
+			ContainerID:   strconv.FormatInt(container.ID, 10),
+			ContainerName: container.ContainerName,
+			ProxyURL:      *container.ProxyURL,
+			Status:        container.Status,
+			StatusText:    enum.GetContainerStatusText(container.Status),
+		})
+	}
+	return items
 }
 
 // loadImageVersionMap 批量按需加载模板容器引用的镜像版本。

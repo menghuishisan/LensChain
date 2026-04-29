@@ -545,8 +545,8 @@ export interface ExperimentInstanceDetail {
   status_text: string;
   attempt_no: number;
   sim_session_id: string | null;
-  access_url: string | null;
-  containers: Array<{ id: ID; container_name: string; image_name: string; image_version: string; status: number; status_text: string; internal_ip: string | null; cpu_usage: string | null; memory_usage: string | null }>;
+  tools: Array<{ kind: string; container_id: ID; container_name: string; proxy_url: string; status: number; status_text: string }>;
+  containers: Array<{ id: ID; container_name: string; image_name: string; image_version: string; status: number; status_text: string; internal_ip: string | null; cpu_usage: string | null; memory_usage: string | null; tool_kind: string | null }>;
   checkpoints: Array<{ checkpoint_id: ID; title: string; check_type: number; score: number; result: { id: ID; is_passed: boolean; score: number; checked_at: string } | null }>;
   scores: { auto_score: number | null; manual_score: number | null; total_score: number | null };
   started_at: string | null;

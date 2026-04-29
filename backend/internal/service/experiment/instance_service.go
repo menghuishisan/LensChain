@@ -1099,7 +1099,6 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 		StatusText:   enum.GetInstanceStatusText(instance.Status),
 		AttemptNo:    instance.AttemptNo,
 		SimSessionID: instance.SimSessionID,
-		AccessURL:    instance.AccessURL,
 		CreatedAt:    instance.CreatedAt.Format(time.RFC3339),
 	}
 
@@ -1147,6 +1146,9 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 		templateContainers = templateAggregate.Containers
 	}
 	resp.Containers = s.buildInstanceContainerItems(ctx, instanceAggregate.Containers, templateContainers)
+
+	// 工具列表（从容器中筛选 tool_kind 非空的）
+	resp.Tools = s.buildInstanceToolItems(ctx, instanceAggregate.Containers)
 
 	// 检查点列表
 	if templateAggregate != nil {

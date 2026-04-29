@@ -22,11 +22,6 @@ import (
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
 )
 
-// stringPtr 返回字符串指针。
-func stringPtr(value string) *string {
-	return &value
-}
-
 // mustMarshalRawJSON 将结构体编码为 JSONB 存储格式。
 func mustMarshalRawJSON(value any) json.RawMessage {
 	if value == nil {

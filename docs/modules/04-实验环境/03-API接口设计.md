@@ -757,7 +757,32 @@
     "status_text": "运行中",
     "attempt_no": 1,
     "sim_session_id": "sim-20260408-0001",
-    "access_url": "https://lab.lianjing.com/instance/1780000000600001",
+    "tools": [
+      {
+        "kind": "terminal",
+        "container_id": "1780000000600103",
+        "container_name": "xterm-server",
+        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/terminal?token=eyJhbGc...",
+        "status": 2,
+        "status_text": "运行中"
+      },
+      {
+        "kind": "ide",
+        "container_id": "1780000000600102",
+        "container_name": "remix-ide",
+        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/ide?token=eyJhbGc...",
+        "status": 2,
+        "status_text": "运行中"
+      },
+      {
+        "kind": "explorer",
+        "container_id": "1780000000600104",
+        "container_name": "blockscout",
+        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/explorer?token=eyJhbGc...",
+        "status": 2,
+        "status_text": "运行中"
+      }
+    ],
     "containers": [
       {
         "id": "1780000000600101",
@@ -768,7 +793,8 @@
         "status_text": "运行中",
         "internal_ip": "10.244.1.15",
         "cpu_usage": "0.3",
-        "memory_usage": "256Mi"
+        "memory_usage": "256Mi",
+        "tool_kind": null
       },
       {
         "id": "1780000000600102",
@@ -777,7 +803,28 @@
         "image_version": "latest",
         "status": 2,
         "status_text": "运行中",
-        "internal_ip": "10.244.1.16"
+        "internal_ip": "10.244.1.16",
+        "tool_kind": "ide"
+      },
+      {
+        "id": "1780000000600103",
+        "container_name": "xterm-server",
+        "image_name": "xterm-server",
+        "image_version": "latest",
+        "status": 2,
+        "status_text": "运行中",
+        "internal_ip": "10.244.1.17",
+        "tool_kind": "terminal"
+      },
+      {
+        "id": "1780000000600104",
+        "container_name": "blockscout",
+        "image_name": "blockscout",
+        "image_version": "latest",
+        "status": 2,
+        "status_text": "运行中",
+        "internal_ip": "10.244.1.18",
+        "tool_kind": "explorer"
       }
     ],
     "checkpoints": [
@@ -819,6 +866,26 @@
   }
 }
 ```
+
+**字段说明：**
+
+- `tools[]`：工具容器列表（前端据此渲染 Tab 页签）
+  - `kind`：工具类型（terminal / ide / desktop / explorer / monitor），前端根据此字段决定渲染哪个面板组件
+  - `container_id`：对应的容器 ID（与 `containers[]` 中的 `id` 关联）
+  - `container_name`：容器名称（如 xterm-server、remix-ide、novnc-desktop）
+  - `proxy_url`：反向代理访问 URL，带短期 token（有效期 2 小时），前端直接用此 URL 加载 iframe
+  - `status`：容器状态（1等待 2运行中 3已停止 4异常）
+  - `status_text`：状态文本
+- `containers[]`：所有容器列表（包含链节点、工具、中间件等）
+  - `tool_kind` 字段：工具容器标识其类型，链节点等非工具容器为 `null`
+  - 工具容器在 `tools[]` 和 `containers[]` 中都会出现（`tools[]` 是工具容器的快捷视图）
+
+**前端使用规范：**
+
+1. 使用 `tools[]` 渲染工具 Tab（终端/IDE/桌面/浏览器/监控）
+2. 每个 Tab 的 iframe `src` 直接使用 `tools[].proxy_url`，不做任何拼接或改写
+3. 如果 `tools[]` 为空数组，说明此实验为纯仿真或未配置工具容器，不渲染工具 Tab
+4. `containers[]` 用于展示容器列表、资源监控、终端容器选择下拉框等场景
 
 ---
 
@@ -2483,8 +2550,7 @@ wss://api.lianjing.com/api/v1/ws/experiment-instances/:id?token=<jwt>
   "type": "status_change",
   "data": {
     "status": 3,
-    "status_text": "运行中",
-    "access_url": "https://lab.lianjing.com/instance/xxx"
+    "status_text": "运行中"
   }
 }
 

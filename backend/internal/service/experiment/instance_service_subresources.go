@@ -418,7 +418,6 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 		"updated_at":        now,
 		"started_at":        gorm.Expr("COALESCE(started_at, ?)", now),
 		"last_active_at":    now,
-		"access_url":        nil,
 		"namespace":         nil,
 		"sim_session_id":    nil,
 		"sim_websocket_url": nil,

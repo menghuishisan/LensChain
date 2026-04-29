@@ -79,6 +79,34 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
     }
   }, [reportQuery.data?.content]);
 
+  // 心跳定时器：每60秒上报一次（仅当实例存在且处于运行中）
+  const instanceID_ = instanceQuery.data?.id;
+  const instanceStatus = instanceQuery.data?.status;
+  useEffect(() => {
+    if (instanceStatus !== 3) return;
+    const interval = setInterval(() => {
+      lifecycle.heartbeat.mutate();
+    }, 60_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instanceID_, instanceStatus]);
+
+  // 处理 WS 推送的空闲超时和时长超限警告
+  useEffect(() => {
+    const msgs = realtime.messages;
+    if (msgs.length === 0) return;
+    const last = msgs[msgs.length - 1];
+    if (last?.type === 'idle_warning') {
+      if (window.confirm('您已较长时间未操作，实验即将因超时被自动暂停。点击"确定"继续实验。')) {
+        lifecycle.heartbeat.mutate();
+      }
+    }
+    if (last?.type === 'duration_warning') {
+      window.alert('实验即将超时，请尽快完成并提交。');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realtime.messages.length]);
+
   if (instanceQuery.isLoading) {
     return <LoadingState title="正在加载实验详情" description="正在整理实验环境、评分进度、快照和报告内容。" />;
   }
@@ -96,32 +124,13 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
   const timeControlMode = simScenes[0]?.scenario?.time_control_mode ?? null;
   const canUseSimEngine = simSessionID.length > 0 || simScenes.length > 0;
   const experimentType = templateQuery.data?.experiment_type ?? 2;
-  const ideUrl = instance.access_url ?? "";
-  const desktopUrl = "";
 
-  // 心跳定时器：每60秒上报一次
-  useEffect(() => {
-    if (instance.status !== 3) return;
-    const interval = setInterval(() => {
-      lifecycle.heartbeat.mutate();
-    }, 60_000);
-    return () => clearInterval(interval);
-  }, [instance.id, instance.status]);
-
-  // 处理 WS 推送的空闲超时和时长超限警告
-  useEffect(() => {
-    const msgs = realtime.messages;
-    if (msgs.length === 0) return;
-    const last = msgs[msgs.length - 1];
-    if (last?.type === 'idle_warning') {
-      if (window.confirm('您已较长时间未操作，实验即将因超时被自动暂停。点击"确定"继续实验。')) {
-        lifecycle.heartbeat.mutate();
-      }
-    }
-    if (last?.type === 'duration_warning') {
-      window.alert('实验即将超时，请尽快完成并提交。');
-    }
-  }, [realtime.messages.length]);
+  // 从 tools[] 提取工具 URL
+  const terminalTool = instance.tools.find((t) => t.kind === "terminal");
+  const ideTool = instance.tools.find((t) => t.kind === "ide");
+  const desktopTool = instance.tools.find((t) => t.kind === "desktop");
+  const explorerTool = instance.tools.find((t) => t.kind === "explorer");
+  const monitorTool = instance.tools.find((t) => t.kind === "monitor");
 
   const uploadReportFile = (file: File) => {
     reportMutations.upload.mutate(
@@ -223,12 +232,6 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            {instance.access_url && isStudentMode ? (
-              <Button variant="secondary" size="sm" onClick={() => window.open(instance.access_url ?? "", "_blank", "noopener,noreferrer")}>
-                <ExternalLink className="h-4 w-4" />
-                打开实验环境
-              </Button>
-            ) : null}
             <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => lifecycle.pause.mutate()} isLoading={lifecycle.pause.isPending} disabled={isAssistMode || isGradeMode}>
               <Pause className="h-4 w-4" />
               暂停
@@ -356,23 +359,29 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
 
         {/* 右侧面板：终端/IDE/桌面/仿真（按实验类型动态显隐） */}
         <Panel defaultSize={60} minSize={35}>
-          <Tabs defaultValue={experimentType === 1 ? "sim" : "terminal"} className="h-full flex flex-col">
+          <Tabs defaultValue={experimentType === 1 ? "sim" : (terminalTool ? "terminal" : (ideTool ? "ide" : "sim"))} className="h-full flex flex-col">
             <TabsList className="flex w-full flex-wrap justify-start border-b rounded-none">
-              {experimentType !== 1 && (
+              {terminalTool && (
                 <TabsTrigger value="terminal">{isAssistMode ? '只读终端' : '终端'}</TabsTrigger>
               )}
-              {experimentType !== 1 && ideUrl && (
+              {ideTool && (
                 <TabsTrigger value="ide"><Code className="h-3.5 w-3.5 mr-1" />IDE</TabsTrigger>
               )}
-              {experimentType !== 1 && desktopUrl && (
+              {desktopTool && (
                 <TabsTrigger value="desktop"><Monitor className="h-3.5 w-3.5 mr-1" />桌面</TabsTrigger>
+              )}
+              {explorerTool && (
+                <TabsTrigger value="explorer">浏览器</TabsTrigger>
+              )}
+              {monitorTool && (
+                <TabsTrigger value="monitor">监控</TabsTrigger>
               )}
               {canUseSimEngine && (
                 <TabsTrigger value="sim"><Gamepad2 className="h-3.5 w-3.5 mr-1" />仿真</TabsTrigger>
               )}
             </TabsList>
 
-            {experimentType !== 1 && (
+            {terminalTool && (
               <TabsContent value="terminal" className="flex-1 overflow-hidden p-2">
                 <ExperimentTerminal
                   instanceID={instanceID}
@@ -383,15 +392,27 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
               </TabsContent>
             )}
 
-            {experimentType !== 1 && ideUrl && (
+            {ideTool && (
               <TabsContent value="ide" className="flex-1 overflow-hidden p-2">
-                <WebIDEPanel accessUrl={ideUrl} className="h-full" />
+                <WebIDEPanel accessUrl={ideTool.proxy_url} className="h-full" />
               </TabsContent>
             )}
 
-            {experimentType !== 1 && desktopUrl && (
+            {desktopTool && (
               <TabsContent value="desktop" className="flex-1 overflow-hidden p-2">
-                <VNCDesktopPanel accessUrl={desktopUrl} className="h-full" />
+                <VNCDesktopPanel accessUrl={desktopTool.proxy_url} className="h-full" />
+              </TabsContent>
+            )}
+
+            {explorerTool && (
+              <TabsContent value="explorer" className="flex-1 overflow-hidden p-2">
+                <iframe src={explorerTool.proxy_url} className="h-full w-full rounded border" title="区块链浏览器" />
+              </TabsContent>
+            )}
+
+            {monitorTool && (
+              <TabsContent value="monitor" className="flex-1 overflow-hidden p-2">
+                <iframe src={monitorTool.proxy_url} className="h-full w-full rounded border" title="监控仪表盘" />
               </TabsContent>
             )}
 

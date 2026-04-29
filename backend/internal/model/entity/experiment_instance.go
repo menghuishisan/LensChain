@@ -29,7 +29,6 @@ type ExperimentInstance struct {
 	Status          int16      `gorm:"column:status;type:smallint;not null;default:1" json:"status"`
 	AttemptNo       int        `gorm:"column:attempt_no;not null;default:1" json:"attempt_no"`
 	Namespace       *string    `gorm:"type:varchar(100)" json:"namespace,omitempty"`
-	AccessURL       *string    `gorm:"column:access_url;type:varchar(500)" json:"access_url,omitempty"`
 	TotalScore      *float64   `gorm:"column:total_score;type:decimal(6,2)" json:"total_score,omitempty"`
 	AutoScore       *float64   `gorm:"column:auto_score;type:decimal(6,2)" json:"auto_score,omitempty"`
 	ManualScore     *float64   `gorm:"column:manual_score;type:decimal(6,2)" json:"manual_score,omitempty"`
@@ -55,7 +54,7 @@ func (ExperimentInstance) TableName() string {
 // ---------------------------------------------------------------------------
 
 // InstanceContainer 实例容器表
-// 对应 instance_containers 表，12 个字段
+// 对应 instance_containers 表
 // 记录实例运行时每个容器的状态和资源信息
 type InstanceContainer struct {
 	ID                  int64     `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
@@ -68,6 +67,8 @@ type InstanceContainer struct {
 	Status              int16     `gorm:"column:status;type:smallint;not null;default:1" json:"status"`
 	CPUUsage            *string   `gorm:"type:varchar(20)" json:"cpu_usage,omitempty"`
 	MemoryUsage         *string   `gorm:"type:varchar(20)" json:"memory_usage,omitempty"`
+	ToolKind            *string   `gorm:"type:varchar(50)" json:"tool_kind,omitempty"`
+	ProxyURL            *string   `gorm:"type:varchar(500)" json:"proxy_url,omitempty"`
 	CreatedAt           time.Time `gorm:"not null;default:now()" json:"created_at"`
 	UpdatedAt           time.Time `gorm:"not null;default:now()" json:"updated_at"`
 }

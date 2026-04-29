@@ -41,8 +41,13 @@
 | FE-AUDIT-011 | 模块05 | 攻防赛攻击/防守页使用手填 ID，缺少目标队伍/漏洞选择与左右合约对比 | 不满足 P-25/P-26/P-27 | 已修复 |
 | FE-AUDIT-012 | 模块05 | 题目编辑页合约、断言、附件、链配置为简化实现 | 不满足 P-11 完整创建/编辑体验 | 已修复 |
 | FE-AUDIT-013 | 模块05 | CTF 竞赛创建页配置项未完全覆盖攻防 Token、回合、题目发布校验、编辑限制 | 不满足 P-02 与 AC-01 至 AC-06 | 已修复 |
-| FE-AUDIT-014 | 模块07 | 通知“前往查看”跳转需逐事件核对目标路由 | 跨模块联动验收可能失败 | 待逐页验收 |
-| FE-AUDIT-015 | 模块08 | 配置更新后“前端标题立即更新”需联调确认 | AC-03 涉及全局元信息刷新 | 待逐页验收 |
+| FE-AUDIT-014 | 模块07 | 通知"前往查看"跳转需逐事件核对目标路由 | 跨模块联动验收可能失败 | 待逐页验收 |
+| FE-AUDIT-015 | 模块08 | 配置更新后"前端标题立即更新"需联调确认 | AC-03 涉及全局元信息刷新 | 待逐页验收 |
+| FE-AUDIT-022 | 模块04 | 学生实验主操作页 P-41 中 `desktopUrl` 在 `ExperimentInstancePanel.tsx:100` 硬编码为空字符串，导致设计稿要求的"桌面"Tab 永远不渲染；模块04 API/数据库仅定义统一入口 `access_url`，没有 `desktop_url` 字段，无法在前端单边修复 | 不满足 P-41 桌面工具入口；纯仿真以外的实验类型缺失图形桌面通路 | 文档决策 |
+| FE-AUDIT-023 | 模块04 | `WebIDEPanel` 的 `ideUrl` 直接复用 `instance.access_url`（`ExperimentInstancePanel.tsx:99`），但同一 `access_url` 不可能同时承担 IDE 与桌面两个独立服务（不同容器、不同端口） | 真实环境/混合实验在切换 IDE 与终端/桌面 Tab 时会指向同一 URL，与"工具面板（终端/IDE/桌面）"设计不一致 | 文档决策 |
+| FE-AUDIT-024 | 模块04 | 学生实验链路中 P-42 启动/排队页、P-43 分组页、P-44 结果页、P-45 报告页、P-46 历史页仍标记"待逐页验收"，未做端到端验证 | 即使 P-41 已实现也不能视为整链完整 | 待逐页验收 |
+| FE-AUDIT-025 | 模块05 | 学生 CTF 路由集合（`/ctf`、`/ctf/:id`、`/ctf/:id/team`、`/ctf/:id/jeopardy`、`/ctf/:id/jeopardy/:cid`、`/ctf/:id/attack-defense`、`/ctf/:id/attack-defense/attack`、`/ctf/:id/attack-defense/defense`、`/ctf/:id/leaderboard`、`/ctf/:id/results`）页级结构齐全且均挂接 `CtfHallPanel`/`AttackDefenseRoundPanel`/`CtfChallengePanel` 等真实业务面板，但报名与组队边界、排行榜实时刷新、公告联动、题目环境与提交链路、攻防赛交互与结果链路仍未做端到端验收 | 不能凭页面齐全推断业务完整 | 待逐页验收 |
+| FE-AUDIT-026 | 全局 | 删除四端工作台首页 `(student)/student/page.tsx`、`(teacher)/teacher/page.tsx`、`(admin)/admin/page.tsx`、`(super)/super/page.tsx` 与 `RoleLanding.tsx` 后，`/student`、`/teacher`、`/admin`、`/super` 四个根路径变为 404；登录默认落点已改为各端首个业务页（`/student/courses`、`/teacher/courses`、`/admin/users`、`/admin/schools`） | 任何外部链接、书签或代码中残留的四个根路径都将 404；需在后续巡检中确认没有跨模块代码再生成这些路径 | 已修复 |
 
 ## 全量页面矩阵
 
@@ -261,3 +266,46 @@
 | 2026-04-24 | `npm run build` | 通过 | 模块06整包收口后再次完成 Next.js 14 生产构建 |
 | 2026-04-25 | `npm run lint` | 通过 | 模块07整包收口后再次验证通过 |
 | 2026-04-25 | `npm run build` | 通过 | 模块07整包收口后再次完成 Next.js 14 生产构建 |
+| 2026-04-29 | `npm run lint` | 通过 | 角色边界整改后整包验证；修复 `ExperimentInstancePanel` 中两个 `react-hooks/rules-of-hooks` 错误（pre-existing），剩余仅 hooks 依赖项警告 |
+| 2026-04-29 | `npm run build` | 通过 | 角色边界整改后整包构建；同步修复 sim-engine/renderers 由 `.js` 扩展引用 `.ts` 源导致的 webpack 模块解析失败（pre-existing），方法是在 `next.config.js` 配置 `resolve.extensionAlias`，未改动 renderers 源码 |
+| 2026-04-29 | FE-AUDIT-022/023 修复 | 通过 | 删除 `access_url` 字段，新增 `tools[]` 数组（DB、API、后端 DTO、前端类型、前端组件全链路修改）；`ExperimentInstancePanel` 改为从 `tools[]` 动态渲染工具 Tab（terminal/ide/desktop/explorer/monitor），每个 Tab 的 iframe 直接使用后端签发的 `proxy_url`，不做前端拼接 |
+
+## 角色边界整改补记（2026-04-29）
+
+### 四端工作台首页删除
+
+源码位置：`frontend/src/hooks/useAuth.ts`、`frontend/src/lib/app-navigation.ts`、`frontend/src/components/business/ProfilePanel.tsx`。
+
+- `getAuthHomePath` 从落点 `/student`、`/teacher`、`/admin`、`/super` 改为各端首个业务页 `/student/courses`、`/teacher/courses`、`/admin/users`、`/admin/schools`，AuthPanels 登录成功路径同步改变（`useAuth.ts:159`）。
+- 删除 `(student)/student/page.tsx`、`(teacher)/teacher/page.tsx`、`(admin)/admin/page.tsx`、`(super)/super/page.tsx`、`components/business/RoleLanding.tsx`，并从 `app-navigation.ts` 的 `ROOT_PATHS` 中清理 `/student`、`/teacher`、`/admin`、`/super` 四个空根路径。
+- `ProfilePanel` 在非学生角色下不再渲染"学习概览"卡片，并把右侧网格降级为单列布局，避免出现空缺位置。
+
+### 学生实验主操作页 P-41 完整性核查
+
+源码位置：`frontend/src/components/business/ExperimentInstancePanel.tsx`、`frontend/src/components/business/SimEnginePanel.tsx`、`frontend/src/app/(student)/student/experiment-instances/[id]/page.tsx`。
+
+- 学生实验主操作页已存在，入口为 `/student/experiment-instances/:id`，由 `ExperimentInstancePanel` 承接，使用 `mode="student"` 渲染学生工作台。
+- 当前页面已具备终端（`ExperimentTerminal`）、Web IDE（`WebIDEPanel`）、检查点（`CheckpointPanel`）、快照（`SnapshotPanel`）、报告区域、生命周期操作（暂停/恢复/重启/提交/销毁）和可视化 SimEngine 面板（`SimEnginePanel`）。
+- 该页面不是空壳页面，但仍不能直接判定为"完整验收通过"。
+- 已确认风险：
+  - `desktopUrl` 当前为空字符串硬编码（`ExperimentInstancePanel.tsx:100`），VNC/桌面分支虽然写了渲染条件（`experimentType !== 1 && desktopUrl`），但永远不会展示，未真实接通后端桌面访问 URL。模块04 API/数据库目前只定义 `access_url` 单一入口，没有 `desktop_url` 字段，前端无法独立修复；详见 FE-AUDIT-022。
+  - `ideUrl` 直接使用 `instance.access_url`，但 `access_url` 与桌面 URL 在真实环境/混合实验中应该是不同容器的不同端口，复用同一字段会让 IDE 与桌面 Tab 内容指向同一来源；详见 FE-AUDIT-023。
+  - SimEngine 面板依赖 `instance.sim_session_id` 和模板 `sim_scenes`，是否完整可用仍需联调验证（`SimEnginePanel.tsx:42` 通过 `useSimPanel` 拉取场景）。
+  - 学生实验完整链路中的启动页（P-42）、分组页（P-43）、结果页（P-44）、报告页（P-45）、历史页（P-46）仍需继续逐页验收，详见 FE-AUDIT-024。
+
+### 学生比赛页面完整性核查
+
+源码位置：`frontend/src/app/(student)/ctf/`、`frontend/src/components/business/CtfPanels.tsx`、`frontend/src/components/business/CtfChallengePanel.tsx`、`frontend/src/components/business/AttackDefenseRoundPanel.tsx`、`frontend/src/components/business/CtfLeaderboard.tsx`。
+
+- 学生 CTF 页面集合已齐：`/ctf`（大厅）、`/ctf/:id`（详情/报名）、`/ctf/:id/team`（团队管理）、`/ctf/:id/jeopardy`（解题赛主页）、`/ctf/:id/jeopardy/:cid`（题目详情/解题）、`/ctf/:id/attack-defense`（攻防赛主页）、`/ctf/:id/attack-defense/attack`（攻击）、`/ctf/:id/attack-defense/defense`（防守）、`/ctf/:id/leaderboard`（排行榜）、`/ctf/:id/results`（结果页）。
+- 这些页面不是空壳或导航占位，每个 `page.tsx` 都通过 `PermissionGate` 限定学生角色，并挂接到 `CtfHallPanel`、`CtfCompetitionDetailPanel`、`CtfTeamPanel`、`CtfJeopardyPanel`、`CtfChallengePanel`、`AttackDefenseRoundPanel`、`CtfLeaderboardPagePanel`、`CtfResultsPanel` 等真实业务面板。
+- 当前可以确认"页面已齐"，但仍不能直接判定为"完整验收通过"，仍需继续逐页深验报名与组队边界、排行榜实时更新、公告联动、题目环境与提交链路、攻防赛交互与结果链路，详见 FE-AUDIT-025。
+
+### 验证结果
+
+- `rg "RoleLanding" frontend/src` 无结果，无残留引用。
+- `rg "[\"'](?:/student|/teacher|/admin|/super)[\"']" frontend/src` 仅命中 `lib/permissions.ts` 中的次级路径（`/student/courses` 等），四个根路径均已清理。
+- `npx vitest run src/hooks/useAuth.test.ts` 通过（验证后已删除临时测试）。
+- `npx vitest run src/components/business/ProfilePanel.test.tsx` 通过（验证后已删除临时测试）。
+
+

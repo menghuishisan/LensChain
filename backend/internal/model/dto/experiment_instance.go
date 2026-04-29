@@ -41,7 +41,7 @@ type InstanceDetailResp struct {
 	StatusText   string                   `json:"status_text"`
 	AttemptNo    int                      `json:"attempt_no"`
 	SimSessionID *string                  `json:"sim_session_id"`
-	AccessURL    *string                  `json:"access_url"`
+	Tools        []InstanceToolItem       `json:"tools"`
 	Containers   []InstanceContainerItem  `json:"containers"`
 	Checkpoints  []InstanceCheckpointItem `json:"checkpoints"`
 	Scores       InstanceScoresInfo       `json:"scores"`
@@ -69,6 +69,16 @@ type InstanceStudentBrief struct {
 	StudentNo string `json:"student_no"`
 }
 
+// InstanceToolItem 实例详情中的工具条目
+type InstanceToolItem struct {
+	Kind          string  `json:"kind"`
+	ContainerID   string  `json:"container_id"`
+	ContainerName string  `json:"container_name"`
+	ProxyURL      string  `json:"proxy_url"`
+	Status        int16   `json:"status"`
+	StatusText    string  `json:"status_text"`
+}
+
 // InstanceContainerItem 实例详情中的容器条目
 type InstanceContainerItem struct {
 	ID            string  `json:"id"`
@@ -80,6 +90,7 @@ type InstanceContainerItem struct {
 	InternalIP    *string `json:"internal_ip"`
 	CPUUsage      *string `json:"cpu_usage"`
 	MemoryUsage   *string `json:"memory_usage"`
+	ToolKind      *string `json:"tool_kind"`
 }
 
 // InstanceCheckpointItem 实例详情中的检查点条目

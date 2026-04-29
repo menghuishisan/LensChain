@@ -157,20 +157,21 @@ export function useSsoCallbackMutation() {
 
 /**
  * getAuthHomePath 根据最高权限角色决定登录后的首页。
+ * 直接落到首个业务页，避免再经过四端工作台。
  */
 export function getAuthHomePath(roles: readonly UserRole[]) {
   const primaryRole = getPrimaryRole(roles);
   if (primaryRole === "super_admin") {
-    return "/super";
+    return "/admin/schools";
   }
   if (primaryRole === "school_admin") {
-    return "/admin";
+    return "/admin/users";
   }
   if (primaryRole === "teacher") {
-    return "/teacher";
+    return "/teacher/courses";
   }
 
-  return "/student";
+  return "/student/courses";
 }
 
 /**
