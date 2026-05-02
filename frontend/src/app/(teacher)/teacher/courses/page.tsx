@@ -8,5 +8,5 @@ import { TeacherCourseListPanel } from "@/components/business/CoursePanels";
  * TeacherCoursesPage 教师课程列表页。
  */
 export default function TeacherCoursesPage() {
-  return <PermissionGate allowedRoles={["teacher", "school_admin", "super_admin"]}><TeacherCourseListPanel /></PermissionGate>;
+  return <PermissionGate allowedRoles={["teacher"]}><TeacherCourseListPanel /></PermissionGate>;
 }

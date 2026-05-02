@@ -8,5 +8,5 @@ import { PermissionGate } from "@/components/business/PermissionGate";
  * DiscussionDetailPage 帖子详情页。
  */
 export default function DiscussionDetailPage({ params }: { params: { id: string } }) {
-  return <PermissionGate allowedRoles={["student", "teacher", "school_admin", "super_admin"]}><DiscussionThread discussionID={params.id} /></PermissionGate>;
+  return <PermissionGate allowedRoles={["student", "teacher"]}><DiscussionThread discussionID={params.id} /></PermissionGate>;
 }

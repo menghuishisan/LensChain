@@ -8,5 +8,5 @@ import { PermissionGate } from "@/components/business/PermissionGate";
  * TeacherCourseAssignmentsPage 作业管理页。
  */
 export default function TeacherCourseAssignmentsPage({ params }: { params: { id: string } }) {
-  return <PermissionGate allowedRoles={["teacher", "school_admin", "super_admin"]}><AssignmentListPanel courseID={params.id} role="teacher" /></PermissionGate>;
+  return <PermissionGate allowedRoles={["teacher"]}><AssignmentListPanel courseID={params.id} role="teacher" /></PermissionGate>;
 }

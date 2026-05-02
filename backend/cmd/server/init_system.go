@@ -14,6 +14,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/database"
 	"github.com/lenschain/backend/internal/pkg/logger"
 	authrepo "github.com/lenschain/backend/internal/repository/auth"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 	systemrepo "github.com/lenschain/backend/internal/repository/system"
 	"github.com/lenschain/backend/internal/router"
 	authsvc "github.com/lenschain/backend/internal/service/auth"
@@ -37,8 +38,9 @@ func initSystemModule(cfg *config.Config, notificationDispatcher notificationsvc
 	userRepo := authrepo.NewUserRepository(db)
 	loginLogRepo := authrepo.NewLoginLogRepository(db)
 	opLogRepo := authrepo.NewOperationLogRepository(db)
+	schoolRepo := schoolrepo.NewSchoolRepository(db)
 
-	securitySvc := authsvc.NewSecurityService(loginLogRepo, opLogRepo, userRepo)
+	securitySvc := authsvc.NewSecurityService(loginLogRepo, opLogRepo, userRepo, schoolRepo)
 	securitySyncer := &systemSecuritySyncAdapter{securityService: securitySvc}
 
 	var clusterProvider systemsvc.ClusterStatusProvider

@@ -27,6 +27,7 @@ type SchoolRepository interface {
 	GetByIDIncludingDeleted(ctx context.Context, id int64) (*entity.School, error)
 	GetByName(ctx context.Context, name string) (*entity.School, error)
 	GetByCode(ctx context.Context, code string) (*entity.School, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]*entity.School, error)
 	UpdateFields(ctx context.Context, id int64, fields map[string]interface{}) error
 	SoftDelete(ctx context.Context, id int64) error
 	Restore(ctx context.Context, id int64) error
@@ -108,6 +109,20 @@ func (r *schoolRepository) GetByCode(ctx context.Context, code string) (*entity.
 		return nil, err
 	}
 	return &school, nil
+}
+
+// GetByIDs 批量查询学校（用于用户列表、日志列表等场景）
+func (r *schoolRepository) GetByIDs(ctx context.Context, ids []int64) ([]*entity.School, error) {
+	if len(ids) == 0 {
+		return []*entity.School{}, nil
+	}
+
+	var schools []*entity.School
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&schools).Error
+	if err != nil {
+		return nil, err
+	}
+	return schools, nil
 }
 
 // UpdateFields 更新学校指定字段

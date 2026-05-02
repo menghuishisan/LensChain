@@ -128,7 +128,7 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
     {
       id: "admin-school",
       label: "学校设置",
-      href: "/school/profile",
+      href: "/admin/school/profile",
       icon: "Landmark",
       description: "本校信息、SSO与授权状态",
       roles: ["school_admin"],
@@ -136,7 +136,7 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
     {
       id: "admin-resource",
       label: "教学资源",
-      href: "/school/resource-quota",
+      href: "/admin/school/resource-quota",
       icon: "ServerCog",
       description: "资源安排、实验支持与运行查看",
       roles: ["school_admin"],
@@ -162,7 +162,7 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
     {
       id: "super-schools",
       label: "学校服务",
-      href: "/admin/schools",
+      href: "/super/schools",
       icon: "Building2",
       description: "学校入驻、资料与服务状态",
       roles: ["super_admin"],
@@ -170,7 +170,7 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
     {
       id: "super-experiments",
       label: "实验支持",
-      href: "/admin/images",
+      href: "/super/images",
       icon: "Boxes",
       description: "实验内容、运行资源与环境支持",
       roles: ["super_admin"],
@@ -178,7 +178,7 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
     {
       id: "super-ctf",
       label: "竞赛支持",
-      href: "/admin/ctf/competitions",
+      href: "/super/ctf/competitions",
       icon: "Swords",
       description: "竞赛运行、内容审核与资源安排",
       roles: ["super_admin"],

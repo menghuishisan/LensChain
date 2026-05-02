@@ -9,7 +9,7 @@ import { UserListPanel } from "@/components/business/UserManagementPanels";
  */
 export default function AdminUsersPage() {
   return (
-    <PermissionGate allowedRoles={["school_admin"]}>
+    <PermissionGate allowedRoles={["super_admin"]}>
       <UserListPanel />
     </PermissionGate>
   );

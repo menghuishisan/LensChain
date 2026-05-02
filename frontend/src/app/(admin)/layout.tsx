@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <AuthenticatedLayout defaultRole="school_admin">
-      <PermissionGate allowedRoles={["school_admin", "super_admin"]}>{children}</PermissionGate>
+      <PermissionGate allowedRoles={["school_admin"]}>{children}</PermissionGate>
     </AuthenticatedLayout>
   );
 }

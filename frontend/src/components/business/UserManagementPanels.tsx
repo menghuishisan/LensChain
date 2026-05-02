@@ -66,6 +66,8 @@ interface UserFormState extends Omit<CreateUserRequest, "role"> {
  */
 export function UserListPanel() {
   const { showToast } = useToast();
+  const { roles } = useAuth("school_admin");
+  const isSuperAdmin = roles.includes("super_admin");
   const [params, setParams] = useState<UserListParams>({ page: 1, page_size: 20, sort_by: "created_at", sort_order: "desc" });
   const [selectedIDs, setSelectedIDs] = useState<ID[]>([]);
   const [resetTarget, setResetTarget] = useState<ID | null>(null);
@@ -153,6 +155,7 @@ export function UserListPanel() {
                       <TableHead>姓名</TableHead>
                       <TableHead>手机号</TableHead>
                       <TableHead>学号/工号</TableHead>
+                      {isSuperAdmin && <TableHead>学校</TableHead>}
                       <TableHead>角色</TableHead>
                       <TableHead>学院</TableHead>
                       <TableHead>状态</TableHead>
@@ -178,6 +181,7 @@ export function UserListPanel() {
                         <TableCell className="font-semibold">{userItem.name}</TableCell>
                         <TableCell>{maskPhone(userItem.phone)}</TableCell>
                         <TableCell>{userItem.student_no ?? "—"}</TableCell>
+                        {isSuperAdmin && <TableCell>{userItem.school_name}</TableCell>}
                         <TableCell>{userItem.roles.map((role) => ROLE_TEXT[role]).join(" / ")}</TableCell>
                         <TableCell>{userItem.college ?? "—"}</TableCell>
                         <TableCell>
@@ -314,8 +318,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
   const canSubmit =
     form.phone.trim().length === 11 &&
     form.name.trim().length > 0 &&
-    (isEdit || form.password.length >= 8) &&
-    (form.role !== "super_admin" || Boolean(form.school_id?.trim() || currentUser?.school_id));
+    (isEdit || form.password.length >= 8);
   const submitPayload: UpdateUserRequest = {
     name: form.name,
     student_no: form.student_no,
@@ -357,7 +360,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
                 phone: form.phone,
                 name: form.name,
                 password: form.password,
-                school_id: form.school_id?.trim() || currentUser?.school_id,
+                school_id: "0",
                 email: form.email,
                 remark: form.remark,
               };
@@ -404,14 +407,6 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
               {canCreateSuperAdmin ? <option value="super_admin">超级管理员</option> : null}
             </select>
           </FormField>
-          {form.role === "super_admin" && !isEdit ? (
-            <TextInput
-              label="归属学校ID"
-              value={form.school_id ?? currentUser?.school_id ?? ""}
-              onChange={(school_id) => setForm((current) => ({ ...current, school_id }))}
-              required
-            />
-          ) : null}
           <TextInput label="学号/工号" value={form.student_no ?? ""} onChange={(student_no) => setForm((current) => ({ ...current, student_no }))} />
           <TextInput label="学院" value={form.college ?? ""} onChange={(college) => setForm((current) => ({ ...current, college }))} />
           <TextInput label="专业" value={form.major ?? ""} onChange={(major) => setForm((current) => ({ ...current, major }))} />

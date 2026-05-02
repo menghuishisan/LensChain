@@ -28,6 +28,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/mask"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/repository/auth"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
 // UserService 用户管理服务接口
@@ -50,6 +51,7 @@ type userService struct {
 	userRepo       authrepo.UserRepository
 	profileRepo    authrepo.ProfileRepository
 	roleRepo       authrepo.RoleRepository
+	schoolRepo     schoolrepo.SchoolRepository
 	policyProvider runtimePolicyProvider
 }
 
@@ -59,12 +61,14 @@ func NewUserService(
 	userRepo authrepo.UserRepository,
 	profileRepo authrepo.ProfileRepository,
 	roleRepo authrepo.RoleRepository,
+	schoolRepo schoolrepo.SchoolRepository,
 ) UserService {
 	return &userService{
 		db:             db,
 		userRepo:       userRepo,
 		profileRepo:    profileRepo,
 		roleRepo:       roleRepo,
+		schoolRepo:     schoolRepo,
 		policyProvider: &cacheRuntimePolicyProvider{},
 	}
 }
@@ -89,14 +93,14 @@ func (s *userService) List(ctx context.Context, sc *svcctx.ServiceContext, req *
 		return nil, 0, errcode.ErrInternal.WithMessage("查询用户列表失败")
 	}
 
-	profileMap, roleCodeMap, err := s.buildUserExtraData(ctx, users)
+	profileMap, roleCodeMap, schoolMap, err := s.buildUserExtraData(ctx, users)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	items := make([]*dto.UserListItem, 0, len(users))
 	for _, user := range users {
-		item := userToListItem(user, profileMap[user.ID], roleCodeMap[user.ID])
+		item := userToListItem(user, profileMap[user.ID], roleCodeMap[user.ID], schoolMap[user.SchoolID])
 		items = append(items, item)
 	}
 
@@ -115,7 +119,7 @@ func (s *userService) GetByID(ctx context.Context, sc *svcctx.ServiceContext, id
 		return nil, errcode.ErrUserNotFound
 	}
 
-	profileMap, roleCodeMap, err := s.buildUserExtraData(ctx, []*entity.User{user})
+	profileMap, roleCodeMap, _, err := s.buildUserExtraData(ctx, []*entity.User{user})
 	if err != nil {
 		return nil, err
 	}
@@ -587,21 +591,29 @@ func (s *userService) UnlockUser(ctx context.Context, sc *svcctx.ServiceContext,
 // ========== 内部辅助方法 ==========
 
 // buildUserExtraData 批量装配用户扩展信息和角色编码。
-func (s *userService) buildUserExtraData(ctx context.Context, users []*entity.User) (map[int64]*entity.UserProfile, map[int64][]string, error) {
+func (s *userService) buildUserExtraData(ctx context.Context, users []*entity.User) (map[int64]*entity.UserProfile, map[int64][]string, map[int64]*entity.School, error) {
 	profileMap := make(map[int64]*entity.UserProfile, len(users))
 	roleCodeMap := make(map[int64][]string, len(users))
+	schoolMap := make(map[int64]*entity.School)
 	if len(users) == 0 {
-		return profileMap, roleCodeMap, nil
+		return profileMap, roleCodeMap, schoolMap, nil
 	}
 
 	userIDs := make([]int64, 0, len(users))
+	schoolIDs := make([]int64, 0, len(users))
+	schoolIDSet := make(map[int64]bool)
 	for _, user := range users {
 		userIDs = append(userIDs, user.ID)
+		// 收集唯一的学校ID（排除0，即超管）
+		if user.SchoolID > 0 && !schoolIDSet[user.SchoolID] {
+			schoolIDs = append(schoolIDs, user.SchoolID)
+			schoolIDSet[user.SchoolID] = true
+		}
 	}
 
 	profiles, err := s.profileRepo.GetByUserIDs(ctx, userIDs)
 	if err != nil {
-		return nil, nil, errcode.ErrInternal.WithMessage("查询用户扩展信息失败")
+		return nil, nil, nil, errcode.ErrInternal.WithMessage("查询用户扩展信息失败")
 	}
 	for _, profile := range profiles {
 		profileMap[profile.UserID] = profile
@@ -609,9 +621,21 @@ func (s *userService) buildUserExtraData(ctx context.Context, users []*entity.Us
 
 	roleCodeMap, err = s.roleRepo.GetUserRoleCodesMap(ctx, userIDs)
 	if err != nil {
-		return nil, nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
+		return nil, nil, nil, errcode.ErrInternal.WithMessage("查询用户角色失败")
 	}
-	return profileMap, roleCodeMap, nil
+
+	// 批量查询学校信息
+	if len(schoolIDs) > 0 {
+		schools, err := s.schoolRepo.GetByIDs(ctx, schoolIDs)
+		if err != nil {
+			return nil, nil, nil, errcode.ErrInternal.WithMessage("查询学校信息失败")
+		}
+		for _, school := range schools {
+			schoolMap[school.ID] = school
+		}
+	}
+
+	return profileMap, roleCodeMap, schoolMap, nil
 }
 
 // applyProfileCreateFields 将更新字段映射到新建的扩展信息实体。

@@ -164,6 +164,8 @@ export interface UserListItem {
   education_level_text: string | null;
   last_login_at: string | null;
   created_at: string;
+  school_id: string;
+  school_name: string;
 }
 
 /**
@@ -172,8 +174,6 @@ export interface UserListItem {
 export interface UserDetail extends UserListItem {
   email?: string | null;
   remark?: string | null;
-  school_id?: ID | null;
-  school_name?: string | null;
   is_first_login?: boolean;
   is_school_admin?: boolean;
   avatar_url?: string | null;
@@ -396,6 +396,8 @@ export interface LoginLogItem {
   user_agent?: string;
   fail_reason?: string | null;
   created_at: string;
+  school_id: string;
+  school_name: string;
 }
 
 /**
@@ -411,6 +413,8 @@ export interface OperationLogItem {
   ip: string;
   detail?: string | null;
   created_at: string;
+  school_id: string;
+  school_name: string;
 }
 
 /**

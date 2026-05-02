@@ -15,7 +15,7 @@ import (
 )
 
 // userToListItem 用户主表、扩展资料和角色编码聚合为列表项 DTO。
-func userToListItem(user *entity.User, profile *entity.UserProfile, roleCodes []string) *dto.UserListItem {
+func userToListItem(user *entity.User, profile *entity.UserProfile, roleCodes []string, school *entity.School) *dto.UserListItem {
 	item := &dto.UserListItem{
 		ID:         strconv.FormatInt(user.ID, 10),
 		Phone:      user.Phone,
@@ -43,6 +43,21 @@ func userToListItem(user *entity.User, profile *entity.UserProfile, roleCodes []
 			text := enum.GetEduLevelText(*profile.EducationLevel)
 			item.EducationLevelText = &text
 		}
+	}
+
+	// 学校信息
+	if user.SchoolID > 0 {
+		schoolID := strconv.FormatInt(user.SchoolID, 10)
+		item.SchoolID = schoolID
+		if school != nil {
+			item.SchoolName = school.Name
+		} else {
+			item.SchoolName = ""
+		}
+	} else {
+		// school_id = 0 表示平台级用户（超级管理员）
+		item.SchoolID = "0"
+		item.SchoolName = "平台"
 	}
 
 	return item

@@ -117,6 +117,8 @@ type UserListItem struct {
 	EducationLevelText *string  `json:"education_level_text"`
 	LastLoginAt        *string  `json:"last_login_at"`
 	CreatedAt          string   `json:"created_at"`
+	SchoolID           string   `json:"school_id"`
+	SchoolName         string   `json:"school_name"`
 }
 
 // UserListResp 用户列表响应。
@@ -373,6 +375,8 @@ type LoginLogItem struct {
 	UserAgent       *string `json:"user_agent"`
 	FailReason      *string `json:"fail_reason"`
 	CreatedAt       string  `json:"created_at"`
+	SchoolID        string  `json:"school_id"`
+	SchoolName      string  `json:"school_name"`
 }
 
 // LoginLogListResp 登录日志列表响应。
@@ -404,6 +408,8 @@ type OperationLogItem struct {
 	Detail       *string `json:"detail"`
 	IP           string  `json:"ip"`
 	CreatedAt    string  `json:"created_at"`
+	SchoolID     string  `json:"school_id"`
+	SchoolName   string  `json:"school_name"`
 }
 
 // OperationLogListResp 操作日志列表响应。

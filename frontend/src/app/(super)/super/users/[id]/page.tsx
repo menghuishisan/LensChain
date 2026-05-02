@@ -9,7 +9,7 @@ import { UserDetailPanel } from "@/components/business/UserManagementPanels";
  */
 export default function AdminUserDetailPage({ params }: { params: { id: string } }) {
   return (
-    <PermissionGate allowedRoles={["school_admin"]}>
+    <PermissionGate allowedRoles={["super_admin"]}>
       <UserDetailPanel userID={params.id} />
     </PermissionGate>
   );

@@ -7,7 +7,7 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 /** TeacherImageUploadPage 教师镜像上传页面。 */
 export default function TeacherImageUploadPage() {
   return (
-    <PermissionGate allowedRoles={["teacher", "school_admin"]}>
+    <PermissionGate allowedRoles={["teacher"]}>
       <ExperimentImageUploadPanel />
     </PermissionGate>
   );

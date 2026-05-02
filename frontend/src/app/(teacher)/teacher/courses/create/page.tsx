@@ -8,5 +8,5 @@ import { PermissionGate } from "@/components/business/PermissionGate";
  * TeacherCourseCreatePage 创建课程页。
  */
 export default function TeacherCourseCreatePage() {
-  return <PermissionGate allowedRoles={["teacher", "school_admin", "super_admin"]}><CourseEditorForm /></PermissionGate>;
+  return <PermissionGate allowedRoles={["teacher"]}><CourseEditorForm /></PermissionGate>;
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	authrepo "github.com/lenschain/backend/internal/repository/auth"
+	schoolrepo "github.com/lenschain/backend/internal/repository/school"
 )
 
 // SecurityService 安全策略服务接口
@@ -36,6 +37,7 @@ type securityService struct {
 	loginLogRepo authrepo.LoginLogRepository
 	opLogRepo    authrepo.OperationLogRepository
 	userRepo     authrepo.UserRepository
+	schoolRepo   schoolrepo.SchoolRepository
 }
 
 // NewSecurityService 创建安全策略服务实例
@@ -43,11 +45,13 @@ func NewSecurityService(
 	loginLogRepo authrepo.LoginLogRepository,
 	opLogRepo authrepo.OperationLogRepository,
 	userRepo authrepo.UserRepository,
+	schoolRepo schoolrepo.SchoolRepository,
 ) SecurityService {
 	return &securityService{
 		loginLogRepo: loginLogRepo,
 		opLogRepo:    opLogRepo,
 		userRepo:     userRepo,
+		schoolRepo:   schoolRepo,
 	}
 }
 
@@ -157,12 +161,13 @@ func (s *securityService) ListLoginLogs(ctx context.Context, sc *svcctx.ServiceC
 		return nil, 0, errcode.ErrInternal.WithMessage("查询登录日志失败")
 	}
 
-	// 收集用户ID，批量查询用户名
+	// 收集用户ID，批量查询用户名和学校信息
 	userIDs := make([]int64, 0, len(logs))
 	for _, log := range logs {
 		userIDs = append(userIDs, log.UserID)
 	}
 	userNameMap := s.getUserNameMap(ctx, userIDs)
+	userSchoolMap := s.getUserSchoolMap(ctx, userIDs)
 
 	// 转换为 DTO
 	items := make([]*dto.LoginLogItem, 0, len(logs))
@@ -182,6 +187,15 @@ func (s *securityService) ListLoginLogs(ctx context.Context, sc *svcctx.ServiceC
 		if log.LoginMethod != nil {
 			text := enum.GetLoginMethodText(*log.LoginMethod)
 			item.LoginMethodText = &text
+		}
+		// 添加学校信息
+		if schoolInfo, ok := userSchoolMap[log.UserID]; ok {
+			item.SchoolID = schoolInfo.SchoolID
+			item.SchoolName = schoolInfo.SchoolName
+		} else {
+			// 如果没有找到学校信息，默认为平台
+			item.SchoolID = "0"
+			item.SchoolName = "平台"
 		}
 		items = append(items, item)
 	}
@@ -217,12 +231,13 @@ func (s *securityService) ListOperationLogs(ctx context.Context, sc *svcctx.Serv
 		return nil, 0, errcode.ErrInternal.WithMessage("查询操作日志失败")
 	}
 
-	// 收集操作人ID，批量查询用户名
+	// 收集操作人ID，批量查询用户名和学校信息
 	operatorIDs := make([]int64, 0, len(logs))
 	for _, log := range logs {
 		operatorIDs = append(operatorIDs, log.OperatorID)
 	}
 	userNameMap := s.getUserNameMap(ctx, operatorIDs)
+	userSchoolMap := s.getUserSchoolMap(ctx, operatorIDs)
 
 	// 转换为 DTO
 	items := make([]*dto.OperationLogItem, 0, len(logs))
@@ -245,6 +260,15 @@ func (s *securityService) ListOperationLogs(ctx context.Context, sc *svcctx.Serv
 		if log.TargetID != nil {
 			tid := strconv.FormatInt(*log.TargetID, 10)
 			item.TargetID = &tid
+		}
+		// 添加学校信息
+		if schoolInfo, ok := userSchoolMap[log.OperatorID]; ok {
+			item.SchoolID = schoolInfo.SchoolID
+			item.SchoolName = schoolInfo.SchoolName
+		} else {
+			// 如果没有找到学校信息，默认为平台
+			item.SchoolID = "0"
+			item.SchoolName = "平台"
 		}
 		items = append(items, item)
 	}
@@ -279,4 +303,77 @@ func (s *securityService) getUserNameMap(ctx context.Context, userIDs []int64) m
 	}
 
 	return nameMap
+}
+
+// userSchoolInfo 用户学校信息
+type userSchoolInfo struct {
+	SchoolID   string
+	SchoolName string
+}
+
+// getUserSchoolMap 批量获取用户学校信息映射
+func (s *securityService) getUserSchoolMap(ctx context.Context, userIDs []int64) map[int64]userSchoolInfo {
+	schoolMap := make(map[int64]userSchoolInfo)
+	if len(userIDs) == 0 {
+		return schoolMap
+	}
+
+	// 去重
+	uniqueIDs := make(map[int64]bool)
+	deduped := make([]int64, 0)
+	for _, id := range userIDs {
+		if !uniqueIDs[id] && id > 0 {
+			uniqueIDs[id] = true
+			deduped = append(deduped, id)
+		}
+	}
+
+	users, err := s.userRepo.GetByIDsIncludingDeleted(ctx, deduped)
+	if err != nil {
+		return schoolMap
+	}
+
+	// 收集学校ID
+	schoolIDs := make([]int64, 0)
+	schoolIDSet := make(map[int64]bool)
+	for _, user := range users {
+		if user.SchoolID > 0 && !schoolIDSet[user.SchoolID] {
+			schoolIDs = append(schoolIDs, user.SchoolID)
+			schoolIDSet[user.SchoolID] = true
+		}
+	}
+
+	// 批量查询学校
+	schoolNameMap := make(map[int64]string)
+	if len(schoolIDs) > 0 {
+		schools, err := s.schoolRepo.GetByIDs(ctx, schoolIDs)
+		if err == nil {
+			for _, school := range schools {
+				schoolNameMap[school.ID] = school.Name
+			}
+		}
+	}
+
+	// 构建映射
+	for _, user := range users {
+		if user.SchoolID > 0 {
+			schoolID := strconv.FormatInt(user.SchoolID, 10)
+			schoolName := schoolNameMap[user.SchoolID]
+			if schoolName == "" {
+				schoolName = "未知学校"
+			}
+			schoolMap[user.ID] = userSchoolInfo{
+				SchoolID:   schoolID,
+				SchoolName: schoolName,
+			}
+		} else {
+			// school_id = 0 表示平台级用户
+			schoolMap[user.ID] = userSchoolInfo{
+				SchoolID:   "0",
+				SchoolName: "平台",
+			}
+		}
+	}
+
+	return schoolMap
 }

@@ -8,5 +8,5 @@ import { SubmissionReviewPanel } from "@/components/business/SubmissionReviewPan
  * TeacherSubmissionGradePage 作业批改页。
  */
 export default function TeacherSubmissionGradePage({ params }: { params: { id: string } }) {
-  return <PermissionGate allowedRoles={["teacher", "school_admin", "super_admin"]}><SubmissionReviewPanel submissionID={params.id} /></PermissionGate>;
+  return <PermissionGate allowedRoles={["teacher"]}><SubmissionReviewPanel submissionID={params.id} /></PermissionGate>;
 }

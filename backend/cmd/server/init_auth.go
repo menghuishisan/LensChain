@@ -52,13 +52,13 @@ func initAuthModule() *router.AuthHandlers {
 		schoolNameQuerier, schoolStatusChecker, schoolSSOQuerier, schoolPublicSSOQuerier,
 	)
 	// userService: 用户管理 CRUD，操作日志通过 pkg/audit 直接写入，不再需要 opLogRepo
-	userService := svc.NewUserService(db, userRepo, profileRepo, roleRepo)
+	userService := svc.NewUserService(db, userRepo, profileRepo, roleRepo, schoolRepo)
 	// profileService: 个人中心
 	profileService := svc.NewProfileService(db, userRepo, profileRepo, roleRepo, schoolNameQuerier)
 	// importService: 用户导入，操作日志通过 pkg/audit 直接写入
 	importService := svc.NewImportService(db, userRepo, profileRepo, roleRepo)
 	// securityService: 安全策略与日志查询，需要 loginLogRepo/opLogRepo 做查询
-	securityService := svc.NewSecurityService(loginLogRepo, opLogRepo, userRepo)
+	securityService := svc.NewSecurityService(loginLogRepo, opLogRepo, userRepo, schoolRepo)
 
 	// Handler 层
 	authHandler := handler.NewAuthHandler(authService)

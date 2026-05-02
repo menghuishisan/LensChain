@@ -9,7 +9,7 @@ import { UserFormPanel } from "@/components/business/UserManagementPanels";
  */
 export default function AdminUserCreatePage() {
   return (
-    <PermissionGate allowedRoles={["school_admin"]}>
+    <PermissionGate allowedRoles={["super_admin"]}>
       <UserFormPanel />
     </PermissionGate>
   );

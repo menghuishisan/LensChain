@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { Pagination } from "@/components/ui/Pagination";
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/Table";
+import { useAuth } from "@/hooks/useAuth";
 import { useLoginLogs, useOperationLogs } from "@/hooks/useLogs";
 import { formatDateTime } from "@/lib/format";
 import type { LoginLogParams, OperationLogParams } from "@/types/auth";
@@ -20,6 +21,8 @@ import type { LoginLogParams, OperationLogParams } from "@/types/auth";
  * LoginLogPanel 登录日志查询组件。
  */
 export function LoginLogPanel() {
+  const { roles } = useAuth("school_admin");
+  const isSuperAdmin = roles.includes("super_admin");
   const [params, setParams] = useState<LoginLogParams>({ page: 1, page_size: 20 });
   const query = useLoginLogs(params);
   const list = query.data?.list ?? [];
@@ -48,6 +51,7 @@ export function LoginLogPanel() {
               <TableRow>
                 <TableHead>用户</TableHead>
                 <TableHead>手机号</TableHead>
+                {isSuperAdmin && <TableHead>学校</TableHead>}
                 <TableHead>动作</TableHead>
                 <TableHead>IP</TableHead>
                 <TableHead>状态</TableHead>
@@ -59,6 +63,7 @@ export function LoginLogPanel() {
                 <TableRow key={item.id}>
                   <TableCell>{item.user_name ?? item.user_id}</TableCell>
                   <TableCell>{item.login_method_text ?? item.login_method ?? "—"}</TableCell>
+                  {isSuperAdmin && <TableCell>{item.school_name}</TableCell>}
                   <TableCell>{item.action_text ?? item.action}</TableCell>
                   <TableCell>{item.ip ?? "—"}</TableCell>
                   <TableCell>{item.fail_reason ?? "—"}</TableCell>
@@ -78,6 +83,8 @@ export function LoginLogPanel() {
  * OperationLogPanel 操作日志查询组件。
  */
 export function OperationLogPanel() {
+  const { roles } = useAuth("school_admin");
+  const isSuperAdmin = roles.includes("super_admin");
   const [params, setParams] = useState<OperationLogParams>({ page: 1, page_size: 20 });
   const query = useOperationLogs(params);
   const list = query.data?.list ?? [];
@@ -105,6 +112,7 @@ export function OperationLogPanel() {
             <TableHeader>
               <TableRow>
                 <TableHead>用户</TableHead>
+                {isSuperAdmin && <TableHead>学校</TableHead>}
                 <TableHead>操作</TableHead>
                 <TableHead>资源</TableHead>
                 <TableHead>IP</TableHead>
@@ -116,6 +124,7 @@ export function OperationLogPanel() {
               {list.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell>{item.operator_name ?? item.operator_id}</TableCell>
+                  {isSuperAdmin && <TableCell>{item.school_name}</TableCell>}
                   <TableCell>{item.action}</TableCell>
                   <TableCell>{item.target_type ?? "—"} {item.target_id ?? ""}</TableCell>
                   <TableCell>{item.ip ?? "—"}</TableCell>
