@@ -3,13 +3,12 @@
 // TopBar.tsx
 // 已登录主布局顶部栏，提供返回入口、菜单切换、通知入口和用户菜单。
 
-import { Menu, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { BackButton } from "@/components/business/BackButton";
 import { NotificationBell } from "@/components/business/NotificationBell";
 import { UserMenu } from "@/components/business/UserMenu";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { ROLE_TEXT } from "@/lib/permissions";
 import type { AuthUser, UserRole } from "@/types/auth";
 
@@ -43,16 +42,6 @@ export function TopBar({ user, primaryRole, onMenuClick, onSidebarToggle, isSide
       <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">{ROLE_TEXT[primaryRole]}</p>
         <h1 className="truncate font-display text-xl font-semibold">链镜平台</h1>
-      </div>
-      <div className="relative hidden min-w-64 md:block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="search"
-          disabled
-          placeholder="搜索功能即将上线"
-          className="h-10 rounded-full pl-9 pr-3"
-          aria-label="全局搜索"
-        />
       </div>
       <NotificationBell />
       <UserMenu user={user} primaryRole={primaryRole} />

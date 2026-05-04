@@ -68,6 +68,15 @@ if ($LASTEXITCODE -ne 0) {
     throw "创建数据库失败"
 }
 
+$REDIS_DB = if ($env:REDIS_DB) { $env:REDIS_DB } else { "0" }
+$REDIS_CONTAINER = if ($env:REDIS_CONTAINER) { $env:REDIS_CONTAINER } else { "lenschain-redis" }
+
+Write-Host "==> Flushing Redis cache (container=$REDIS_CONTAINER, db=$REDIS_DB)"
+& docker exec $REDIS_CONTAINER redis-cli -n $REDIS_DB FLUSHDB
+if ($LASTEXITCODE -ne 0) {
+    throw "Redis 缓存清理失败，请确认容器 $REDIS_CONTAINER 正在运行"
+}
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $backendDir = Join-Path $repoRoot "backend"
 $seedFile = Join-Path $backendDir "migrations/010_seed_demo_data.up.sql"

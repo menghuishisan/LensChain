@@ -40,6 +40,12 @@ fi
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -v ON_ERROR_STOP=1 -c \
   "CREATE DATABASE \"$DB_NAME\""
 
+REDIS_DB=${REDIS_DB:-0}
+REDIS_CONTAINER=${REDIS_CONTAINER:-lenschain-redis}
+
+echo "==> Flushing Redis cache (container=$REDIS_CONTAINER, db=$REDIS_DB)"
+docker exec "$REDIS_CONTAINER" redis-cli -n "$REDIS_DB" FLUSHDB || { echo "Redis 缓存清理失败，请确认容器 $REDIS_CONTAINER 正在运行"; exit 1; }
+
 echo "==> Running migrations"
 cd "$(dirname "$0")/../../../backend"
 if [ -z "${GOCACHE:-}" ]; then

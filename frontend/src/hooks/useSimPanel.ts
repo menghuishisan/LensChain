@@ -64,6 +64,14 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
   const [sceneStates, setSceneStates] = useState<Map<string, RenderState>>(new Map());
   const [layout, setLayout] = useState<PanelLayoutItem[]>(initialLayout ?? []);
 
+  // 通过 ref 持有 sceneCode → 配置映射表，避免 scenes 引用变化导致 WebSocket 重连
+  const sceneConfigMapRef = useRef(new Map<string, SimSceneConfig>());
+  useEffect(() => {
+    const map = new Map<string, SimSceneConfig>();
+    scenes.forEach(s => map.set(s.sceneCode, s));
+    sceneConfigMapRef.current = map;
+  }, [scenes]);
+
   useEffect(() => {
     if (!sessionId) return;
 
@@ -79,6 +87,9 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     });
 
     panelRef.current = panel;
+
+    // 订阅连接状态，跟踪真实 WebSocket open/close
+    const unsubscribeStatus = panel.subscribeConnectionStatus(setConnected);
 
     // 订阅消息以跟踪状态变化
     panel.subscribeMessages((message: WebSocketMessage) => {
@@ -100,20 +111,20 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     // 连接 WebSocket，stateResolver 将消息转为 RenderState
     panel.connect((message: WebSocketMessage): RenderState => {
       const sceneCode = message.scene_code ?? '';
+      const config = sceneConfigMapRef.current.get(sceneCode);
       return createRenderState({
         sceneCode,
-        title: '',
-        category: (sceneCode ? 'node_network' : 'node_network') as SceneCategory,
-        algorithmType: '',
+        title: config?.title ?? '',
+        category: (config?.category ?? 'node_network') as SceneCategory,
+        algorithmType: config?.algorithmType ?? '',
         timeControlMode: 'reactive',
         tick: typeof message.tick === 'number' ? message.tick : 0,
         renderData: (message.payload ?? {}) as RenderState['renderData'],
       });
     });
 
-    setConnected(true);
-
     return () => {
+      unsubscribeStatus();
       panel.disconnect();
       panelRef.current = null;
       setConnected(false);

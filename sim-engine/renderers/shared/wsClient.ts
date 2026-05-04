@@ -6,6 +6,7 @@ import type { SimAction, TimeControlCommand, WebSocketMessage } from "./types.js
 export class WSClient {
   private socket: WebSocket | undefined;
   private readonly listeners = new Set<(message: WebSocketMessage) => void>();
+  private readonly statusListeners = new Set<(connected: boolean) => void>();
   private reconnectTimer: number | undefined;
   private reconnectAttempts = 0;
   private closedManually = false;
@@ -31,9 +32,11 @@ export class WSClient {
     });
     this.socket.addEventListener("open", () => {
       this.reconnectAttempts = 0;
+      this.notifyStatus(true);
     });
     this.socket.addEventListener("close", () => {
       this.socket = undefined;
+      this.notifyStatus(false);
       if (!this.closedManually) {
         this.scheduleReconnect();
       }
@@ -57,6 +60,16 @@ export class WSClient {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * subscribeStatus 订阅连接状态变化。
+   */
+  public subscribeStatus(listener: (connected: boolean) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
     };
   }
 
@@ -128,6 +141,15 @@ export class WSClient {
     if (this.reconnectTimer !== undefined) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
+    }
+  }
+
+  /**
+   * notifyStatus 广播连接状态变化。
+   */
+  private notifyStatus(connected: boolean): void {
+    for (const listener of this.statusListeners) {
+      listener(connected);
     }
   }
 }

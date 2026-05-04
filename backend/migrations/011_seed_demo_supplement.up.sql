@@ -517,3 +517,111 @@ VALUES
      2, 910000000000001202, NOW() - INTERVAL '6 hours', 82.0, '经核实操作日志，确认操作完成，成绩已调整至82分。',
      NOW() - INTERVAL '2 days', NOW() - INTERVAL '6 hours')
 ON CONFLICT (id) DO NOTHING;
+
+-- ===========================================================================
+-- S7. 补充通知数据（确保每种角色收件箱都有数据可展示）
+-- ===========================================================================
+-- 010 中仅有 2 条通知：学生1（课程通知）和学生4（成绩预警），
+-- 教师、校管、超管收件箱为空，无法测试。以下按角色补充。
+
+INSERT INTO notifications (
+    id, receiver_id, school_id, category, event_type, title, content,
+    source_module, source_id, source_type, is_read, read_at, is_deleted, created_at
+)
+VALUES
+    -- 教师1（沈砚秋）：学生提交作业通知
+    (920000000000070001, 910000000000001001, 910000000000000001, 2, 'assignment.submitted',
+     '学生提交了作业', '学生 林叙安 提交了课程《区块链工程实践导论》的作业"链上环境配置报告"，请及时批改。',
+     'course', 920000000000003001, 'assignment_submission',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '3 days'),
+
+    -- 教师1（沈砚秋）：成绩申诉通知
+    (920000000000070002, 910000000000001001, 910000000000000001, 5, 'grade.appeal.created',
+     '收到成绩申诉', '学生 许知遥 对课程《区块链工程实践导论》的成绩提出了申诉，请查看并处理。',
+     'grade', 920000000000060001, 'grade_appeal',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '1 day'),
+
+    -- 教师1（沈砚秋）：实验环境告警（已读）
+    (920000000000070003, 910000000000001001, 910000000000000001, 3, 'experiment.instance.timeout',
+     '实验即将超时', '学生 林叙安 在"以太坊本地开发与部署实践"实验中已运行超过 85 分钟，即将达到时长上限。',
+     'experiment', NULL, 'experiment_instance',
+     TRUE, NOW() - INTERVAL '4 hours', FALSE, NOW() - INTERVAL '5 hours'),
+
+    -- 校管1（顾承礼）：系统通知
+    (920000000000070004, 910000000000001002, 910000000000000001, 1, 'system.maintenance',
+     '平台维护通知', '平台将于本周日凌晨 2:00-4:00 进行系统维护，届时部分功能可能暂时不可用。',
+     'system', NULL, 'system',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '2 days'),
+
+    -- 校管1（顾承礼）：成绩审核完成（已读）
+    (920000000000070005, 910000000000001002, 910000000000000001, 5, 'grade.review.completed',
+     '成绩审核已完成', '课程《区块链工程实践导论》的期末成绩审核已完成，共审核 2 名学生。',
+     'grade', 910000000000016001, 'grade_review',
+     TRUE, NOW() - INTERVAL '1 day', FALSE, NOW() - INTERVAL '2 days'),
+
+    -- 校管1（顾承礼）：新用户导入通知（已读）
+    (920000000000070006, 910000000000001002, 910000000000000001, 1, 'user.import.completed',
+     '用户批量导入完成', '本次导入共处理 2 条记录，成功 2 条，失败 0 条。',
+     'auth', NULL, 'user_import',
+     TRUE, NOW() - INTERVAL '5 days', FALSE, NOW() - INTERVAL '6 days'),
+
+    -- 教师2（姚见川·学校2）：学生作业提交
+    (920000000000070007, 910000000000001202, 910000000000000002, 2, 'assignment.submitted',
+     '学生提交了作业', '学生 宋观澜 提交了课程《链上数据分析实践》的作业"事件索引实操作业"，请及时批改。',
+     'course', 920000000000001003, 'assignment_submission',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '2 days'),
+
+    -- 校管2（孟时越·学校2）：资源配额告警
+    (920000000000070008, 910000000000001201, 910000000000000002, 1, 'system.quota.warning',
+     '资源配额即将耗尽', '学校"云浦工程实验学院"的实验并发配额使用率已达 90%，请考虑申请扩容。',
+     'system', NULL, 'resource_quota',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '1 day'),
+
+    -- 超管：学校入驻申请
+    (920000000000070009, 910000000000001900, NULL, 1, 'school.application.created',
+     '新学校入驻申请', '学校"明远理工大学"提交了平台入驻申请，请及时审核。',
+     'school', 920000000000050002, 'school_application',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '2 days'),
+
+    -- 超管：告警事件
+    (920000000000070010, 910000000000001900, NULL, 1, 'system.alert.triggered',
+     '系统告警：worker-01 内存使用率过高', '节点 worker-01 内存使用率达到 93.1%，触发紧急告警规则，请立即排查。',
+     'system', 920000000000041002, 'alert_event',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '4 hours'),
+
+    -- 超管：备份完成（已读）
+    (920000000000070011, 910000000000001900, NULL, 1, 'system.backup.completed',
+     '数据库备份完成', '自动备份任务已完成，备份文件大小 513MB，存储路径 /backups/2026-05-03_020000_lenschain.sql.gz。',
+     'system', 920000000000043003, 'backup_record',
+     TRUE, NOW() - INTERVAL '12 hours', FALSE, NOW() - INTERVAL '1 day'),
+
+    -- 学生1（林叙安）：作业批改完成
+    (920000000000070012, 910000000000001101, 910000000000000001, 2, 'assignment.graded',
+     '作业已批改', '您在课程《区块链工程实践导论》提交的作业"链上环境配置报告"已批改完成，得分 88 分。',
+     'course', 920000000000003001, 'assignment_submission',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '1 day'),
+
+    -- 学生1（林叙安）：竞赛报名通过（已读）
+    (920000000000070013, 910000000000001101, 910000000000000001, 4, 'ctf.registration.approved',
+     '竞赛报名已通过', '您的队伍"链上先锋队"已成功报名参加"江海杯·智能合约安全挑战赛"。',
+     'ctf', 920000000000025001, 'competition_registration',
+     TRUE, NOW() - INTERVAL '8 days', FALSE, NOW() - INTERVAL '9 days'),
+
+    -- 学生2（许知遥）：实验环境就绪
+    (920000000000070014, 910000000000001102, 910000000000000001, 3, 'experiment.ready',
+     '实验环境已就绪', '您在课程《区块链工程实践导论》中启动的实验"以太坊本地开发与部署实践"已准备就绪。',
+     'experiment', NULL, 'experiment_instance',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '6 hours'),
+
+    -- 学生3（宋观澜·学校2）：课程公告
+    (920000000000070015, 910000000000001203, 910000000000000002, 2, 'course.announcement',
+     '课程公告', '课程《链上数据分析实践》发布了新公告："链上数据课程开课通知"，请查看。',
+     'course', 920000000000007004, 'course_announcement',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '5 days'),
+
+    -- 学生3（宋观澜·学校2）：竞赛即将开始
+    (920000000000070016, 910000000000001203, 910000000000000002, 4, 'ctf.competition.starting',
+     '竞赛即将开始', '"全平台区块链 CTF 公开赛"将于 3 天后正式开赛，请确保队伍已完成准备。',
+     'ctf', 920000000000020002, 'competition',
+     FALSE, NULL, FALSE, NOW() - INTERVAL '1 day')
+ON CONFLICT (id) DO NOTHING;

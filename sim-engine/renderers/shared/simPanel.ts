@@ -156,6 +156,13 @@ export class SimPanel {
   }
 
   /**
+   * subscribeConnectionStatus 订阅数据通道连接状态变化。
+   */
+  public subscribeConnectionStatus(listener: (connected: boolean) => void): () => void {
+    return this.wsClient.subscribeStatus(listener);
+  }
+
+  /**
    * disconnect 关闭面板数据通道。
    */
   public disconnect(): void {
