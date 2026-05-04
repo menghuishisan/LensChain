@@ -7,8 +7,6 @@ package ctf
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -17,18 +15,22 @@ import (
 )
 
 const (
-	ctfJudgeRuntimePodName   = "judge-runtime"
-	ctfJudgeChainContainer   = "judge-chain"
-	ctfJudgeToolsContainer   = "judge-tools"
-	ctfJudgeChainRPCPort     = 8545
-	ctfJudgeChainWSPort      = 8546
-	ctfTeamChainRPCPort      = 8545
-	ctfRuntimeReadyPoll      = 2 * time.Second
-	ctfRuntimeReadyTimeout   = 90 * time.Second
-	ctfDefaultRuntimeImage   = "ctf-blockchain:latest"
-	ctfDefaultJudgeImage     = "geth-dev:latest"
-	ctfDefaultTeamChainImage = "ganache:latest"
-	ctfDefaultForkChainImage = "hardhat-node:latest"
+	ctfJudgeRuntimePodName      = "judge-runtime"
+	ctfJudgeChainContainer      = "judge-chain"
+	ctfJudgeToolsContainer      = "judge-tools"
+	ctfJudgeServiceContainer    = "judge-service"
+	ctfPatchVerifierContainer   = "patch-verifier"
+	ctfJudgeChainRPCPort        = 8545
+	ctfJudgeChainWSPort         = 8546
+	ctfTeamChainRPCPort         = 8545
+	ctfRuntimeReadyPoll         = 2 * time.Second
+	ctfRuntimeReadyTimeout      = 90 * time.Second
+	ctfDefaultRuntimeImage      = "ctf-blockchain:latest"
+	ctfDefaultJudgeImage        = "geth-dev:latest"
+	ctfDefaultTeamChainImage    = "ganache:latest"
+	ctfDefaultForkChainImage    = "hardhat-node:latest"
+	ctfDefaultJudgeSvcImage     = "judge-service:latest"
+	ctfDefaultPatchVerifierImage = "patch-verifier:latest"
 )
 
 // RuntimeProvisionerAdapter 复用模块04 K8sService 提供模块05运行时能力。
@@ -103,16 +105,13 @@ func (a *RuntimeProvisionerAdapter) DeleteADGroupRuntime(ctx context.Context, na
 	return a.DeleteNamespace(ctx, namespace)
 }
 
-// deployJudgeRuntime 部署裁判链与裁判工具容器。
+// deployJudgeRuntime 部署裁判链、judge-service 和 patch-verifier 容器。
 func (a *RuntimeProvisionerAdapter) deployJudgeRuntime(ctx context.Context, spec *ADRuntimeGroupSpec) error {
 	judgeImage := strings.TrimSpace(spec.JudgeChainImage)
 	if judgeImage == "" {
 		judgeImage = ctfDefaultJudgeImage
 	}
-	toolImage := strings.TrimSpace(spec.RuntimeToolImage)
-	if toolImage == "" {
-		toolImage = ctfDefaultRuntimeImage
-	}
+	judgeRPCURL := buildClusterServiceURL(ctfJudgeChainContainer, spec.Namespace, ctfJudgeChainRPCPort, false)
 	_, err := a.k8sSvc.DeployPod(ctx, &RuntimeDeployPodRequest{
 		Namespace: spec.Namespace,
 		PodName:   ctfJudgeRuntimePodName,
@@ -131,12 +130,24 @@ func (a *RuntimeProvisionerAdapter) deployJudgeRuntime(ctx context.Context, spec
 				},
 			},
 			{
-				Name:  ctfJudgeToolsContainer,
-				Image: toolImage,
-				Command: []string{
-					"/bin/sh",
-					"-c",
-					"while true; do sleep 3600; done",
+				Name:  ctfJudgeServiceContainer,
+				Image: ctfDefaultJudgeSvcImage,
+				Ports: []RuntimePortSpec{
+					{ContainerPort: judgeServicePort, Protocol: "TCP", ServicePort: judgeServicePort},
+				},
+				EnvVars: map[string]string{
+					"LISTEN_ADDR": fmt.Sprintf(":%d", judgeServicePort),
+					"DEFAULT_RPC": judgeRPCURL,
+				},
+			},
+			{
+				Name:  ctfPatchVerifierContainer,
+				Image: ctfDefaultPatchVerifierImage,
+				Ports: []RuntimePortSpec{
+					{ContainerPort: patchVerifierPort, Protocol: "TCP", ServicePort: patchVerifierPort},
+				},
+				EnvVars: map[string]string{
+					"LISTEN_ADDR": fmt.Sprintf(":%d", patchVerifierPort),
 				},
 			},
 		},
@@ -196,7 +207,7 @@ func (a *RuntimeProvisionerAdapter) deployTeamRuntime(ctx context.Context, group
 	}
 	rpcURL := buildClusterServiceURL(chainContainer, groupSpec.Namespace, ctfTeamChainRPCPort, false)
 	wsURL := buildClusterServiceURL(chainContainer, groupSpec.Namespace, ctfTeamChainRPCPort, true)
-	deployedContracts, err := a.deployTeamContracts(ctx, groupSpec.Namespace, podName, toolsContainer, rpcURL, teamSpec.Contracts)
+	deployedContracts, err := a.deployTeamContracts(ctx, groupSpec.Namespace, rpcURL, teamSpec.Contracts)
 	if err != nil {
 		return nil, err
 	}
@@ -210,104 +221,67 @@ func (a *RuntimeProvisionerAdapter) deployTeamRuntime(ctx context.Context, group
 	}, nil
 }
 
-// deployJudgeSettlementContract 在裁判链部署最小结算锚点合约，确保裁判链具备真实合约地址。
+// deployJudgeSettlementContract 通过 judge-service 在裁判链部署最小结算锚点合约。
 func (a *RuntimeProvisionerAdapter) deployJudgeSettlementContract(ctx context.Context, namespace, rpcURL string) (string, error) {
-	payload := map[string]interface{}{
-		"rpc_url": rpcURL,
-		"contracts": []map[string]interface{}{
+	payload := dto.JudgeDeployRequest{
+		RPCURL: rpcURL,
+		Contracts: []dto.JudgeDeployContractSpec{
 			{
-				"challenge_id":     0,
-				"challenge_title":  "JudgeSettlementAnchor",
-				"contract_name":    "JudgeSettlementAnchor",
-				"abi_json":         "[]",
-				"bytecode":         "0x60006000f3",
-				"constructor_args": []interface{}{},
-				"deploy_order":     1,
+				ChallengeID:     0,
+				ContractName:    "JudgeSettlementAnchor",
+				ABIJSON:         "[]",
+				Bytecode:        "0x60006000f3",
+				ConstructorArgs: []interface{}{},
+				DeployOrder:     1,
 			},
 		},
 	}
-	results, err := a.executeContractDeployment(ctx, namespace, ctfJudgeRuntimePodName, ctfJudgeToolsContainer, payload)
-	if err != nil {
+	judgeURL := buildJudgeServiceURL(namespace)
+	var result dto.JudgeDeployResponse
+	if err := postJSON(ctx, judgeURL+"/api/v1/contracts/deploy", payload, &result); err != nil {
 		return "", err
 	}
-	if len(results) == 0 || strings.TrimSpace(results[0].Address) == "" {
+	if len(result.Contracts) == 0 || strings.TrimSpace(result.Contracts[0].Address) == "" {
 		return "", fmt.Errorf("裁判链结算锚点部署结果为空")
 	}
-	return results[0].Address, nil
+	return result.Contracts[0].Address, nil
 }
 
-// deployTeamContracts 在队伍工具容器中执行合约部署脚本。
+// deployTeamContracts 通过 judge-service 在队伍链部署合约。
 func (a *RuntimeProvisionerAdapter) deployTeamContracts(
 	ctx context.Context,
-	namespace, podName, container, rpcURL string,
+	namespace, rpcURL string,
 	contracts []ADRuntimeContractSpec,
 ) ([]dto.TeamChainContractItem, error) {
-	payload := map[string]interface{}{
-		"rpc_url":   rpcURL,
-		"contracts": contracts,
+	specs := make([]dto.JudgeDeployContractSpec, 0, len(contracts))
+	for _, c := range contracts {
+		specs = append(specs, dto.JudgeDeployContractSpec{
+			ChallengeID:     c.ChallengeID,
+			ContractName:    c.ContractName,
+			ABIJSON:         c.ABIJSON,
+			Bytecode:        c.Bytecode,
+			ConstructorArgs: c.ConstructorArgs,
+			DeployOrder:     c.DeployOrder,
+		})
 	}
-	return a.executeContractDeployment(ctx, namespace, podName, container, payload)
-}
-
-// executeContractDeployment 执行统一的 Node.js 合约部署脚本，并返回部署结果。
-func (a *RuntimeProvisionerAdapter) executeContractDeployment(
-	ctx context.Context,
-	namespace, podName, container string,
-	payload map[string]interface{},
-) ([]dto.TeamChainContractItem, error) {
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
+	payload := dto.JudgeDeployRequest{
+		RPCURL:    rpcURL,
+		Contracts: specs,
+	}
+	judgeURL := buildJudgeServiceURL(namespace)
+	var result dto.JudgeDeployResponse
+	if err := postJSON(ctx, judgeURL+"/api/v1/contracts/deploy", payload, &result); err != nil {
 		return nil, err
 	}
-	command := fmt.Sprintf(`
-PAYLOAD_BASE64='%s' node <<'NODE'
-const { ethers } = require('ethers');
-
-async function main() {
-  const raw = Buffer.from(process.env.PAYLOAD_BASE64, 'base64').toString('utf8');
-  const payload = JSON.parse(raw);
-  const provider = new ethers.JsonRpcProvider(payload.rpc_url);
-  const signer = await provider.getSigner(0);
-  const contracts = [...(payload.contracts || [])].sort((a, b) => {
-    if ((a.challenge_id || 0) === (b.challenge_id || 0)) {
-      return (a.deploy_order || 0) - (b.deploy_order || 0);
-    }
-    return (a.challenge_id || 0) - (b.challenge_id || 0);
-  });
-  const results = [];
-  for (const item of contracts) {
-    const abi = item.abi_json ? JSON.parse(item.abi_json) : [];
-    const args = Array.isArray(item.constructor_args) ? item.constructor_args : [];
-    const factory = new ethers.ContractFactory(abi, item.bytecode, signer);
-    const contract = await factory.deploy(...args);
-    await contract.waitForDeployment();
-    results.push({
-      challenge_id: String(item.challenge_id || 0),
-      contract_name: item.contract_name,
-      address: await contract.getAddress(),
-      patch_version: 0,
-      is_patched: false
-    });
-  }
-  process.stdout.write(JSON.stringify(results));
-}
-
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
-NODE
-`, base64.StdEncoding.EncodeToString(payloadBytes))
-	result, err := a.k8sSvc.ExecInPod(ctx, namespace, podName, container, command)
-	if err != nil {
-		return nil, err
-	}
-	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("合约部署失败: %s", strings.TrimSpace(result.Stderr))
-	}
-	var items []dto.TeamChainContractItem
-	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &items); err != nil {
-		return nil, fmt.Errorf("解析合约部署结果失败: %w", err)
+	items := make([]dto.TeamChainContractItem, 0, len(result.Contracts))
+	for _, c := range result.Contracts {
+		items = append(items, dto.TeamChainContractItem{
+			ChallengeID:  c.ChallengeID,
+			ContractName: c.ContractName,
+			Address:      c.Address,
+			PatchVersion: c.PatchVersion,
+			IsPatched:    c.IsPatched,
+		})
 	}
 	return items, nil
 }

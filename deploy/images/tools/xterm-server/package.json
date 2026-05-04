@@ -1,0 +1,24 @@
+{
+  "name": "xterm-server",
+  "version": "1.0.0",
+  "description": "LensChain Web Terminal Server — 提供浏览器内 PTY 终端访问",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.4.0",
+    "tsx": "^4.11.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

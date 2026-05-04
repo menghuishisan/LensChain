@@ -1,6 +1,6 @@
 // realtime.go
 // 模块04 — 实验环境：WebSocket 处理层
-// 负责实例状态、组内消息、教师监控、终端只读流和 SimEngine 代理通道
+// 负责实例状态、组内消息、教师监控、终端 PTY 代理、终端只读流和 SimEngine 代理通道
 
 package experiment
 
@@ -30,7 +30,6 @@ type realtimeInboundMessage struct {
 	Type      string `json:"type"`
 	Content   string `json:"content"`
 	Container string `json:"container"`
-	Command   string `json:"command"`
 }
 
 // terminalOutputMessage 终端输出消息结构。
@@ -38,17 +37,6 @@ type terminalOutputMessage struct {
 	Type      string `json:"type"`
 	Container string `json:"container"`
 	Data      string `json:"data"`
-	Timestamp string `json:"timestamp"`
-}
-
-// terminalCommandOutputMessage 终端命令执行结果消息结构。
-type terminalCommandOutputMessage struct {
-	Type      string `json:"type"`
-	Container string `json:"container"`
-	Command   string `json:"command"`
-	ExitCode  int    `json:"exit_code"`
-	Stdout    string `json:"stdout"`
-	Stderr    string `json:"stderr"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -144,7 +132,9 @@ func (h *InstanceHandler) ServeTerminalStreamWS(c *gin.Context) {
 	h.readTerminalLoop(c, client, manager, instanceID, sc, initialOutput.Data)
 }
 
-// ServeStudentTerminalWS 建立学生 Web 终端命令执行通道。
+// ServeStudentTerminalWS 建立学生 Web 终端 PTY 通道。
+// 通过 xterm-server WebSocket 代理提供真 PTY 终端体验。
+// 实验实例必须挂载 xterm-server 工具容器，否则返回错误。
 // GET /api/v1/experiment-instances/:id/terminal
 func (h *InstanceHandler) ServeStudentTerminalWS(c *gin.Context) {
 	instanceID, ok := validator.ParsePathID(c, "id")
@@ -153,19 +143,56 @@ func (h *InstanceHandler) ServeStudentTerminalWS(c *gin.Context) {
 	}
 	containerName := strings.TrimSpace(c.Query("container"))
 	sc := handlerctx.BuildServiceContext(c)
-	initialOutput, err := h.instanceService.GetStudentTerminalOutput(c.Request.Context(), sc, instanceID, containerName, terminalTailLines)
+
+	target, err := h.instanceService.ResolveTerminalProxyTarget(c.Request.Context(), sc, instanceID, containerName)
 	if err != nil {
 		handlerctx.HandleError(c, err)
 		return
 	}
-
-	client, manager, ok := upgradeExperimentWS(c)
-	if !ok {
+	if target == nil {
+		response.Abort(c, errcode.ErrInvalidParams.WithMessage("实验实例未挂载 xterm-server 终端服务"))
 		return
 	}
-	go client.WritePump()
-	h.pushTerminalOutput(client, initialOutput)
-	h.readStudentTerminalLoop(c, client, manager, instanceID, sc, initialOutput.Container)
+	h.serveTerminalPTYProxy(c, sc, target)
+}
+
+// serveTerminalPTYProxy 建立到 xterm-server 的 WebSocket 双向代理，提供真 PTY 终端体验。
+// 协议：客户端发送原始文本（键击）或 JSON resize 消息，xterm-server 返回原始 PTY 输出。
+func (h *InstanceHandler) serveTerminalPTYProxy(c *gin.Context, sc *svcctx.ServiceContext, target *svc.TerminalProxyTarget) {
+	clientConn, err := wsmanager.Upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+
+	upstreamConn, _, err := websocket.DefaultDialer.DialContext(c.Request.Context(), target.WebSocketURL, nil)
+	if err != nil {
+		_ = clientConn.WriteJSON(map[string]interface{}{
+			"type": "terminal_init",
+			"data": map[string]interface{}{"mode": "error", "message": "连接终端服务失败"},
+		})
+		_ = clientConn.Close()
+		return
+	}
+
+	// 发送 PTY 模式指示
+	_ = clientConn.WriteJSON(map[string]interface{}{
+		"type": "terminal_init",
+		"data": map[string]interface{}{"mode": "pty", "container": target.ContainerName},
+	})
+
+	proxyDone := make(chan struct{}, 2)
+	callCtx := websocketServiceContext(c)
+
+	// upstream → client: PTY 输出原样转发
+	go proxyWebSocket(upstreamConn, clientConn, proxyDone, nil, nil)
+	// client → upstream: 用户输入原样转发，同时刷新活跃时间
+	go proxyWebSocket(clientConn, upstreamConn, proxyDone, func() {
+		h.instanceService.TouchActivity(callCtx, target.InstanceID)
+	}, nil)
+
+	<-proxyDone
+	_ = clientConn.Close()
+	_ = upstreamConn.Close()
 }
 
 // ServeGroupMemberTerminalStreamWS 建立组员只读终端查看通道。
@@ -353,47 +380,6 @@ func (h *InstanceHandler) readTerminalLoop(c *gin.Context, client *wsmanager.Cli
 	}
 }
 
-// readStudentTerminalLoop 处理学生终端命令输入并回传执行结果。
-func (h *InstanceHandler) readStudentTerminalLoop(c *gin.Context, client *wsmanager.Client, manager *wsmanager.Manager, instanceID int64, sc *svcctx.ServiceContext, defaultContainer string) {
-	defer func() {
-		manager.Unregister(client)
-		_ = client.Conn.Close()
-	}()
-
-	client.Conn.SetReadLimit(8192)
-	client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	client.Conn.SetPongHandler(func(string) error {
-		client.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		return nil
-	})
-
-	callCtx := websocketServiceContext(c)
-	for {
-		_, payload, err := client.Conn.ReadMessage()
-		if err != nil {
-			return
-		}
-
-		var inbound realtimeInboundMessage
-		if err := json.Unmarshal(payload, &inbound); err != nil {
-			continue
-		}
-		if inbound.Type != "terminal_command" || strings.TrimSpace(inbound.Command) == "" {
-			continue
-		}
-
-		containerName := strings.TrimSpace(inbound.Container)
-		if containerName == "" {
-			containerName = defaultContainer
-		}
-		result, err := h.instanceService.ExecuteTerminalCommand(callCtx, sc, instanceID, containerName, strings.TrimSpace(inbound.Command))
-		if err != nil {
-			continue
-		}
-		h.pushTerminalCommandOutput(client, result)
-	}
-}
-
 // readGroupMemberTerminalLoop 轮询组员终端输出并以只读方式推送。
 func (h *InstanceHandler) readGroupMemberTerminalLoop(c *gin.Context, client *wsmanager.Client, manager *wsmanager.Manager, groupID, studentID int64, sc *svcctx.ServiceContext, initialData string) {
 	defer func() {
@@ -445,23 +431,6 @@ func (h *InstanceHandler) pushTerminalOutput(client *wsmanager.Client, output *s
 		Type:      "terminal_output",
 		Container: output.Container,
 		Data:      output.Data,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	})
-	if err != nil {
-		return
-	}
-	client.Send <- data
-}
-
-// pushTerminalCommandOutput 推送终端命令执行结果。
-func (h *InstanceHandler) pushTerminalCommandOutput(client *wsmanager.Client, output *svc.TerminalCommandOutput) {
-	data, err := json.Marshal(terminalCommandOutputMessage{
-		Type:      "terminal_output",
-		Container: output.Container,
-		Command:   output.Command,
-		ExitCode:  output.ExitCode,
-		Stdout:    output.Stdout,
-		Stderr:    output.Stderr,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {

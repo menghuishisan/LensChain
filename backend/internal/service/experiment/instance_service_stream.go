@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -32,13 +33,11 @@ type TerminalOutput struct {
 	Data      string
 }
 
-// TerminalCommandOutput 表示一次终端命令执行结果。
-type TerminalCommandOutput struct {
-	Container string
-	Command   string
-	ExitCode  int
-	Stdout    string
-	Stderr    string
+// TerminalProxyTarget xterm-server WebSocket 代理目标信息。
+type TerminalProxyTarget struct {
+	InstanceID    int64
+	ContainerName string
+	WebSocketURL  string
 }
 
 // SimEngineProxyTarget SimEngine WebSocket 代理目标信息。
@@ -64,8 +63,10 @@ func (s *instanceService) GetTerminalStreamInfo(ctx context.Context, sc *svcctx.
 	return s.resolveTerminalStreamInfo(ctx, instance, "")
 }
 
-// ExecuteTerminalCommand 在学生自己的实验实例中执行一条终端命令。
-func (s *instanceService) ExecuteTerminalCommand(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName, command string) (*TerminalCommandOutput, error) {
+// ResolveTerminalProxyTarget 查找实例中的 xterm-server 工具容器并返回 WebSocket 代理目标。
+// 当未指定容器名时，自动查找 xterm-server 工具容器；当指定的容器名恰好是 xterm-server 时使用 PTY 模式。
+// 返回 nil, nil 表示实例未挂载 xterm-server。
+func (s *instanceService) ResolveTerminalProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string) (*TerminalProxyTarget, error) {
 	instance, err := s.getOwnedInstance(ctx, sc, id)
 	if err != nil {
 		return nil, err
@@ -73,50 +74,58 @@ func (s *instanceService) ExecuteTerminalCommand(ctx context.Context, sc *svcctx
 	if instance.Status != enum.InstanceStatusRunning {
 		return nil, errcode.ErrInstanceNotRunning
 	}
-	info, err := s.resolveTerminalStreamInfo(ctx, instance, containerName)
+	if instance.Namespace == nil || *instance.Namespace == "" {
+		return nil, errcode.ErrInstanceNotRunning
+	}
+
+	containers, err := s.containerRepo.ListByInstanceID(ctx, instance.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := s.k8sSvc.ExecInPod(ctx, info.Namespace, info.PodName, info.ContainerName, command)
-	if err != nil {
-		return nil, err
+	// 指定了容器名：仅当该容器是 xterm-server 时走 PTY 代理
+	if containerName != "" {
+		for _, c := range containers {
+			if c.ContainerName != containerName {
+				continue
+			}
+			if c.ToolKind != nil && *c.ToolKind == "xterm-server" && c.InternalIP != nil && *c.InternalIP != "" {
+				return &TerminalProxyTarget{
+					InstanceID:    instance.ID,
+					ContainerName: c.ContainerName,
+					WebSocketURL:  buildXtermWSURL(&c),
+				}, nil
+			}
+			return nil, nil
+		}
+		return nil, nil
 	}
 
-	s.touchInstanceActivity(ctx, instance.ID)
-	s.recordTerminalCommand(ctx, instance, info.ContainerName, command, result)
+	// 未指定容器名：自动查找 xterm-server 工具容器
+	for _, c := range containers {
+		if c.ToolKind == nil || *c.ToolKind != "xterm-server" {
+			continue
+		}
+		if c.InternalIP == nil || *c.InternalIP == "" {
+			continue
+		}
+		return &TerminalProxyTarget{
+			InstanceID:    instance.ID,
+			ContainerName: c.ContainerName,
+			WebSocketURL:  buildXtermWSURL(&c),
+		}, nil
+	}
 
-	return &TerminalCommandOutput{
-		Container: info.ContainerName,
-		Command:   command,
-		ExitCode:  result.ExitCode,
-		Stdout:    result.Stdout,
-		Stderr:    result.Stderr,
-	}, nil
+	return nil, nil
 }
 
-// GetStudentTerminalOutput 获取学生自己实例的当前终端输出快照。
-func (s *instanceService) GetStudentTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string, tailLines int) (*TerminalOutput, error) {
-	instance, err := s.getOwnedInstance(ctx, sc, id)
-	if err != nil {
-		return nil, err
+// buildXtermWSURL 根据容器配置构建 xterm-server WebSocket 地址。
+// 优先使用数据库中记录的 ProxyURL，否则回退到默认端口 3000。
+func buildXtermWSURL(c *entity.InstanceContainer) string {
+	if c.ProxyURL != nil && *c.ProxyURL != "" {
+		return *c.ProxyURL
 	}
-	if instance.Status != enum.InstanceStatusRunning {
-		return nil, errcode.ErrInstanceNotRunning
-	}
-	info, err := s.resolveTerminalStreamInfo(ctx, instance, containerName)
-	if err != nil {
-		return nil, err
-	}
-
-	output, err := s.k8sSvc.GetPodLogs(ctx, info.Namespace, info.PodName, info.ContainerName, tailLines)
-	if err != nil {
-		return nil, err
-	}
-	return &TerminalOutput{
-		Container: info.ContainerName,
-		Data:      output,
-	}, nil
+	return fmt.Sprintf("ws://%s:3000/ws", *c.InternalIP)
 }
 
 // GetTerminalOutput 获取教师远程查看学生终端的当前输出快照。
@@ -301,19 +310,4 @@ func (s *instanceService) resolveTerminalStreamInfo(ctx context.Context, instanc
 func (s *instanceService) touchInstanceActivity(ctx context.Context, instanceID int64) {
 	now := time.Now()
 	_ = s.instanceRepo.UpdateLastActiveAt(ctx, instanceID, now)
-}
-
-// recordTerminalCommand 记录学生终端命令和执行结果。
-func (s *instanceService) recordTerminalCommand(ctx context.Context, instance *entity.ExperimentInstance, containerName, command string, result *ExecResult) {
-	if instance == nil || result == nil {
-		return
-	}
-
-	commandOutput, detailPayloadMap := s.buildTerminalCommandAudit(ctx, instance.ID, result)
-	detailPayloadMap["exit_code"] = result.ExitCode
-	detailPayloadMap["stdout"] = truncateUTF8(result.Stdout, maxCommandOutputBytes)
-	detailPayloadMap["stderr"] = truncateUTF8(result.Stderr, maxCommandOutputBytes)
-	detailPayload, _ := json.Marshal(detailPayloadMap)
-	targetContainer := containerName
-	s.recordOpLog(ctx, instance.ID, instance.StudentID, enum.ActionTerminalCommand, &targetContainer, nil, &command, commandOutput, detailPayload)
 }

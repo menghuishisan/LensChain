@@ -4,11 +4,15 @@
 
 FROM node:20-alpine AS builder
 
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
-COPY . .
+COPY tsconfig.json ./
+COPY src/ ./src/
 RUN npm run build
+RUN npm prune --production
 
 FROM node:20-alpine
 
@@ -22,7 +26,7 @@ LABEL lenschain.io/category="tools"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache curl tzdata && \
+RUN apk add --no-cache curl tzdata libstdc++ && \
     addgroup -S lenschain && adduser -S lenschain -G lenschain
 
 WORKDIR /app

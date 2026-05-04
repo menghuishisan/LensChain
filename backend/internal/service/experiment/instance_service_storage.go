@@ -1,5 +1,5 @@
 // instance_service_storage.go
-// 模块04 — 实验环境：快照与终端审计对象存储辅助逻辑
+// 模块04 — 实验环境：快照对象存储辅助逻辑
 // 统一复用 internal/pkg/storage，避免在业务层重复实现对象存储读写
 
 package experiment
@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/lenschain/backend/internal/model/entity"
@@ -19,8 +18,6 @@ import (
 	"github.com/lenschain/backend/internal/pkg/storage"
 	"go.uber.org/zap"
 )
-
-const maxCommandOutputBytes = 4 * 1024
 
 // snapshotArchivePayload 表示写入对象存储的完整快照归档内容。
 type snapshotArchivePayload struct {
@@ -117,54 +114,4 @@ func (s *instanceService) deleteSnapshotArchive(ctx context.Context, snapshot *e
 			zap.Error(err),
 		)
 	}
-}
-
-// buildTerminalCommandAudit 构建终端命令审计的截断输出和附加明细。
-func (s *instanceService) buildTerminalCommandAudit(ctx context.Context, instanceID int64, result *ExecResult) (*string, map[string]interface{}) {
-	if result == nil {
-		return nil, map[string]interface{}{}
-	}
-
-	fullOutput := strings.TrimSpace(strings.Join([]string{result.Stdout, result.Stderr}, "\n"))
-	if fullOutput == "" {
-		return nil, map[string]interface{}{}
-	}
-
-	commandOutput := truncateUTF8(fullOutput, maxCommandOutputBytes)
-	detail := map[string]interface{}{}
-	if len(commandOutput) > 0 {
-		detail["truncated"] = len(commandOutput) < len(fullOutput)
-	}
-
-	if storage.GetClient() != nil {
-		objectKey := fmt.Sprintf("experiment/terminal-logs/%d/%d.log", instanceID, time.Now().UTC().UnixNano())
-		if _, err := storage.UploadFile(ctx, objectKey, strings.NewReader(fullOutput), int64(len([]byte(fullOutput))), "text/plain; charset=utf-8"); err == nil {
-			detail["output_object_key"] = objectKey
-		} else {
-			logger.L.Warn("上传终端完整输出失败",
-				zap.Int64("instance_id", instanceID),
-				zap.String("object_key", objectKey),
-				zap.Error(err),
-			)
-		}
-	}
-
-	return &commandOutput, detail
-}
-
-// truncateUTF8 按字节上限截断字符串，并保证结果仍是合法 UTF-8。
-func truncateUTF8(input string, maxBytes int) string {
-	if maxBytes <= 0 || len(input) <= maxBytes {
-		return input
-	}
-
-	runes := []rune(input)
-	for len(runes) > 0 {
-		candidate := string(runes)
-		if len([]byte(candidate)) <= maxBytes {
-			return candidate
-		}
-		runes = runes[:len(runes)-1]
-	}
-	return ""
 }

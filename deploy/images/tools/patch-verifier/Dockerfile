@@ -30,6 +30,8 @@ LABEL lenschain.io/scope="ctf"
 ENV TZ=UTC
 
 RUN apk add --no-cache ca-certificates tzdata curl && \
+    wget -q https://github.com/ethereum/solidity/releases/download/v0.8.25/solc-static-linux -O /usr/local/bin/solc && \
+    chmod +x /usr/local/bin/solc && \
     addgroup -S -g 1001 verifier && \
     adduser -S -u 1001 -G verifier verifier
 

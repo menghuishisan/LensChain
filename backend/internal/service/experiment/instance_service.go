@@ -37,8 +37,7 @@ type InstanceService interface {
 	// 实例生命周期
 	Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateInstanceReq) (*dto.CreateInstanceResp, error)
 	GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.InstanceDetailResp, error)
-	ExecuteTerminalCommand(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName, command string) (*TerminalCommandOutput, error)
-	GetStudentTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string, tailLines int) (*TerminalOutput, error)
+	ResolveTerminalProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string) (*TerminalProxyTarget, error)
 	GetTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, tailLines int) (*TerminalOutput, error)
 	GetGroupMemberTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, groupID, studentID int64, tailLines int) (*TerminalOutput, error)
 	GetSimEngineProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, sessionID string) (*SimEngineProxyTarget, error)

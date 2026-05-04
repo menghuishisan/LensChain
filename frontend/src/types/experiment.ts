@@ -43,7 +43,7 @@ export type ExperimentGroupWSMessageType = "chat_message" | "system_notification
 export type ExperimentMonitorWSMessageType = "student_status_change" | "checkpoint_completed" | "experiment_submitted" | "instance_error";
 
 /** 终端 WebSocket 消息类型。 */
-export type ExperimentTerminalWSMessageType = "terminal_command" | "terminal_output" | "guidance_message";
+export type ExperimentTerminalWSMessageType = "terminal_output" | "terminal_init" | "guidance_message";
 
 /** 镜像端口配置。 */
 export interface ImagePortItem {

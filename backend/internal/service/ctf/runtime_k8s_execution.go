@@ -1,21 +1,33 @@
 // ctf_runtime_execution.go
 // 模块05 — CTF竞赛：解题赛与攻防赛运行时执行器。
-// 负责在 service/ctf 内部把题目环境编排、链上攻击验证和补丁验证
-// 落到真实容器执行，供业务服务通过接口调用。
+// 通过 HTTP API 调用 judge-service 和 patch-verifier 微服务完成
+// 链上攻击验证、补丁验证和合约部署，替代旧的 kubectl exec + 内嵌脚本方案。
 
 package ctf
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/enum"
 )
+
+// judgeServicePort judge-service 监听端口。
+const judgeServicePort = 8090
+
+// patchVerifierPort patch-verifier 监听端口。
+const patchVerifierPort = 8091
+
+// httpClient 共享的 HTTP 客户端，复用连接池。
+var httpClient = &http.Client{Timeout: 90 * time.Second}
 
 const (
 	ctfChallengeRuntimePodName = "challenge-runtime"
@@ -44,27 +56,31 @@ func (a *RuntimeProvisionerAdapter) ProvisionChallengeEnvironment(ctx context.Co
 	return a.provisionContainerChallengeEnvironment(ctx, spec)
 }
 
-// ExecuteChallengeSubmission 在选手题目环境中执行链上攻击并校验断言。
+// ExecuteChallengeSubmission 通过 judge-service 执行链上攻击并校验断言。
 func (a *RuntimeProvisionerAdapter) ExecuteChallengeSubmission(ctx context.Context, spec *ChallengeSubmissionSpec) (*ChallengeSubmissionResult, error) {
 	if spec == nil {
 		return nil, fmt.Errorf("题目提交执行规格不能为空")
 	}
-	payload := map[string]interface{}{
-		"rpc_url":        spec.ChainRPCURL,
-		"submission":     spec.SubmissionData,
-		"contracts":      spec.Contracts,
-		"accounts":       spec.Accounts,
-		"assertions":     spec.Assertions,
-		"default_target": defaultRuntimeTarget(spec.Assertions, spec.Contracts),
+	contracts := make([]dto.JudgeContractBinding, 0, len(spec.Contracts))
+	for _, c := range spec.Contracts {
+		contracts = append(contracts, dto.JudgeContractBinding{
+			ChallengeID:  fmt.Sprintf("%d", c.ChallengeID),
+			ContractName: c.ContractName,
+			Address:      c.Address,
+			ABIJSON:      c.ABIJSON,
+		})
 	}
-	result := struct {
-		AllPassed       bool                              `json:"all_passed"`
-		Results         []dto.VerificationAssertionResult `json:"results"`
-		ExecutionTimeMS *int                              `json:"execution_time_ms,omitempty"`
-		TxHash          *string                           `json:"tx_hash,omitempty"`
-		ErrorMessage    *string                           `json:"error_message,omitempty"`
-	}{}
-	if err := a.executeJSONRuntime(ctx, spec.Namespace, ctfChallengeRuntimePodName, ctfChallengeToolsContainer, payload, runtimeExecutionScript, &result); err != nil {
+	assertions := buildJudgeAssertionSpecs(spec.Assertions)
+	payload := dto.JudgeAttackRequest{
+		RPCURL:        spec.ChainRPCURL,
+		Submission:    spec.SubmissionData,
+		Contracts:     contracts,
+		Assertions:    assertions,
+		DefaultTarget: defaultRuntimeTarget(spec.Assertions, spec.Contracts),
+	}
+	judgeURL := buildJudgeServiceURL(spec.Namespace)
+	var result dto.JudgeAttackResponse
+	if err := postJSON(ctx, judgeURL+"/api/v1/attacks/execute", payload, &result); err != nil {
 		return nil, err
 	}
 	return &ChallengeSubmissionResult{
@@ -79,26 +95,29 @@ func (a *RuntimeProvisionerAdapter) ExecuteChallengeSubmission(ctx context.Conte
 	}, nil
 }
 
-// ExecuteADAttack 在目标队伍链执行攻击交易，并返回真实断言校验结果。
+// ExecuteADAttack 通过 judge-service 在目标队伍链执行攻击交易并校验断言。
 func (a *RuntimeProvisionerAdapter) ExecuteADAttack(ctx context.Context, spec *ADAttackExecutionSpec) (*ADAttackExecutionResult, error) {
 	if spec == nil {
 		return nil, fmt.Errorf("攻防赛攻击执行规格不能为空")
 	}
-	payload := map[string]interface{}{
-		"rpc_url":        spec.ChainRPCURL,
-		"submission":     spec.AttackTxData,
-		"contracts":      spec.Contracts,
-		"assertions":     spec.Assertions,
-		"default_target": defaultRuntimeTarget(spec.Assertions, nil),
+	contracts := make([]dto.JudgeContractBinding, 0, len(spec.Contracts))
+	for _, c := range spec.Contracts {
+		contracts = append(contracts, dto.JudgeContractBinding{
+			ChallengeID:  c.ChallengeID,
+			ContractName: c.ContractName,
+			Address:      c.Address,
+		})
 	}
-	result := struct {
-		AllPassed       bool                              `json:"all_passed"`
-		Results         []dto.VerificationAssertionResult `json:"results"`
-		ExecutionTimeMS *int                              `json:"execution_time_ms,omitempty"`
-		TxHash          *string                           `json:"tx_hash,omitempty"`
-		ErrorMessage    *string                           `json:"error_message,omitempty"`
-	}{}
-	if err := a.executeJSONRuntime(ctx, spec.Namespace, ctfJudgeRuntimePodName, ctfJudgeToolsContainer, payload, runtimeExecutionScript, &result); err != nil {
+	payload := dto.JudgeAttackRequest{
+		RPCURL:        spec.ChainRPCURL,
+		Submission:    spec.AttackTxData,
+		Contracts:     contracts,
+		Assertions:    buildJudgeAssertionSpecs(spec.Assertions),
+		DefaultTarget: defaultRuntimeTarget(spec.Assertions, nil),
+	}
+	judgeURL := buildJudgeServiceURL(spec.Namespace)
+	var result dto.JudgeAttackResponse
+	if err := postJSON(ctx, judgeURL+"/api/v1/attacks/execute", payload, &result); err != nil {
 		return nil, err
 	}
 	return &ADAttackExecutionResult{
@@ -113,35 +132,62 @@ func (a *RuntimeProvisionerAdapter) ExecuteADAttack(ctx context.Context, spec *A
 	}, nil
 }
 
-// VerifyADPatch 在隔离运行时中编译补丁并回放官方 PoC。
+// VerifyADPatch 通过 patch-verifier 编译补丁并回放官方 PoC。
 func (a *RuntimeProvisionerAdapter) VerifyADPatch(ctx context.Context, spec *ADPatchVerificationSpec) (*ADPatchVerificationResult, error) {
 	if spec == nil {
 		return nil, fmt.Errorf("补丁验证规格不能为空")
 	}
-	payload := map[string]interface{}{
-		"rpc_url":            spec.ChainRPCURL,
-		"challenge_id":       spec.ChallengeID,
-		"challenge_title":    spec.ChallengeTitle,
-		"patch_source_code":  spec.PatchSourceCode,
-		"original_contracts": spec.OriginalContracts,
-		"target_contracts":   spec.TargetContracts,
-		"assertions":         spec.Assertions,
-		"official_poc":       spec.OfficialPocContent,
+	originalContracts := make([]dto.VerifierContractSpec, 0, len(spec.OriginalContracts))
+	for _, c := range spec.OriginalContracts {
+		originalContracts = append(originalContracts, dto.VerifierContractSpec{
+			ChallengeID:  c.ChallengeID,
+			ContractName: c.ContractName,
+			ABIJSON:      c.ABIJSON,
+			Bytecode:     c.Bytecode,
+			DeployOrder:  c.DeployOrder,
+		})
 	}
-	result := struct {
-		FunctionalityPassed bool                        `json:"functionality_passed"`
-		VulnerabilityFixed  bool                        `json:"vulnerability_fixed"`
-		RejectionReason     *string                     `json:"rejection_reason,omitempty"`
-		PatchedContracts    []dto.TeamChainContractItem `json:"patched_contracts"`
-	}{}
-	if err := a.executeJSONRuntime(ctx, spec.Namespace, ctfJudgeRuntimePodName, ctfJudgeToolsContainer, payload, runtimePatchVerificationScript, &result); err != nil {
+	targetContracts := make([]dto.VerifierContractBinding, 0, len(spec.TargetContracts))
+	for _, c := range spec.TargetContracts {
+		targetContracts = append(targetContracts, dto.VerifierContractBinding{
+			ChallengeID:  c.ChallengeID,
+			ContractName: c.ContractName,
+			Address:      c.Address,
+			PatchVersion: c.PatchVersion,
+			IsPatched:    c.IsPatched,
+		})
+	}
+	assertions := buildJudgeAssertionSpecs(spec.Assertions)
+	payload := dto.VerifierRequest{
+		RPCURL:            spec.ChainRPCURL,
+		ChallengeID:       spec.ChallengeID,
+		ChallengeTitle:    spec.ChallengeTitle,
+		PatchSourceCode:   spec.PatchSourceCode,
+		OriginalContracts: originalContracts,
+		TargetContracts:   targetContracts,
+		Assertions:        assertions,
+		OfficialPoc:       spec.OfficialPocContent,
+	}
+	verifierURL := buildPatchVerifierURL(spec.Namespace)
+	var result dto.VerifierResponse
+	if err := postJSON(ctx, verifierURL+"/api/v1/patches/verify", payload, &result); err != nil {
 		return nil, err
+	}
+	patchedContracts := make([]dto.TeamChainContractItem, 0, len(result.PatchedContracts))
+	for _, c := range result.PatchedContracts {
+		patchedContracts = append(patchedContracts, dto.TeamChainContractItem{
+			ChallengeID:  c.ChallengeID,
+			ContractName: c.ContractName,
+			Address:      c.Address,
+			PatchVersion: c.PatchVersion,
+			IsPatched:    c.IsPatched,
+		})
 	}
 	return &ADPatchVerificationResult{
 		FunctionalityPassed: result.FunctionalityPassed,
 		VulnerabilityFixed:  result.VulnerabilityFixed,
 		RejectionReason:     result.RejectionReason,
-		PatchedContracts:    result.PatchedContracts,
+		PatchedContracts:    patchedContracts,
 	}, nil
 }
 
@@ -183,11 +229,11 @@ func (a *RuntimeProvisionerAdapter) provisionOnChainChallengeEnvironment(ctx con
 		return nil, err
 	}
 	rpcURL := buildClusterServiceURL(ctfChallengeChainContainer, spec.Namespace, ctfTeamChainRPCPort, false)
-	bindings, err := a.deployChallengeContracts(ctx, spec.Namespace, ctfChallengeRuntimePodName, ctfChallengeToolsContainer, rpcURL, spec.Contracts)
+	bindings, err := a.deployChallengeContracts(ctx, spec.Namespace, rpcURL, spec.Contracts)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.executeChallengeSetupTransactions(ctx, spec.Namespace, ctfChallengeRuntimePodName, ctfChallengeToolsContainer, rpcURL, spec, bindings); err != nil {
+	if err := a.executeChallengeSetupTransactions(ctx, spec.Namespace, rpcURL, spec, bindings); err != nil {
 		return nil, err
 	}
 	return &ChallengeEnvironmentResult{
@@ -216,21 +262,30 @@ func resolveChallengeChainRuntime(spec *ChallengeEnvironmentSpec) (string, []str
 	return ctfDefaultTeamChainImage, nil
 }
 
-// executeChallengeSetupTransactions 在题目环境完成部署后回放初始化交易。
+// executeChallengeSetupTransactions 通过 judge-service 在题目环境完成部署后回放初始化交易。
 func (a *RuntimeProvisionerAdapter) executeChallengeSetupTransactions(
 	ctx context.Context,
-	namespace, podName, container, rpcURL string,
+	namespace, rpcURL string,
 	spec *ChallengeEnvironmentSpec,
 	bindings []ChallengeRuntimeContractBinding,
 ) error {
 	if spec == nil || len(spec.SetupTransactions) == 0 {
 		return nil
 	}
+	contracts := make([]dto.JudgeContractBinding, 0, len(bindings))
+	for _, b := range bindings {
+		contracts = append(contracts, dto.JudgeContractBinding{
+			ChallengeID:  fmt.Sprintf("%d", b.ChallengeID),
+			ContractName: b.ContractName,
+			Address:      b.Address,
+			ABIJSON:      b.ABIJSON,
+		})
+	}
 	payload := map[string]interface{}{
 		"rpc_url":               rpcURL,
 		"runtime_mode":          spec.RuntimeMode,
 		"accounts":              nil,
-		"contracts":             bindings,
+		"contracts":             contracts,
 		"setup_transactions":    spec.SetupTransactions,
 		"impersonated_accounts": []string{},
 		"pinned_contracts":      []dto.ChallengePinnedContract{},
@@ -242,10 +297,11 @@ func (a *RuntimeProvisionerAdapter) executeChallengeSetupTransactions(
 			payload["pinned_contracts"] = spec.ChainConfig.Fork.PinnedContracts
 		}
 	}
-	result := struct {
+	judgeURL := buildJudgeServiceURL(namespace)
+	var result struct {
 		Applied int `json:"applied"`
-	}{}
-	return a.executeJSONRuntime(ctx, namespace, podName, container, payload, runtimeSetupScript, &result)
+	}
+	return postJSON(ctx, judgeURL+"/api/v1/transactions/setup", payload, &result)
 }
 
 // provisionContainerChallengeEnvironment 创建非合约题目的普通容器环境。
@@ -311,10 +367,10 @@ func (a *RuntimeProvisionerAdapter) provisionContainerChallengeEnvironment(ctx c
 	}, nil
 }
 
-// deployChallengeContracts 在题目环境工具容器中部署漏洞合约，并返回部署绑定信息。
+// deployChallengeContracts 通过 judge-service 部署漏洞合约并返回绑定信息。
 func (a *RuntimeProvisionerAdapter) deployChallengeContracts(
 	ctx context.Context,
-	namespace, podName, container, rpcURL string,
+	namespace, rpcURL string,
 	contracts []ChallengeRuntimeContractSpec,
 ) ([]ChallengeRuntimeContractBinding, error) {
 	if len(contracts) == 0 {
@@ -326,51 +382,38 @@ func (a *RuntimeProvisionerAdapter) deployChallengeContracts(
 		}
 		return contracts[i].DeployOrder < contracts[j].DeployOrder
 	})
-	payload := map[string]interface{}{
-		"rpc_url":   rpcURL,
-		"contracts": contracts,
+	specs := make([]dto.JudgeDeployContractSpec, 0, len(contracts))
+	for _, c := range contracts {
+		specs = append(specs, dto.JudgeDeployContractSpec{
+			ChallengeID:     c.ChallengeID,
+			ContractName:    c.ContractName,
+			ABIJSON:         c.ABIJSON,
+			Bytecode:        c.Bytecode,
+			ConstructorArgs: c.ConstructorArgs,
+			DeployOrder:     c.DeployOrder,
+		})
 	}
-	result := struct {
-		Contracts []ChallengeRuntimeContractBinding `json:"contracts"`
-	}{}
-	if err := a.executeJSONRuntime(ctx, namespace, podName, container, payload, runtimeDeployScript, &result); err != nil {
+	payload := dto.JudgeDeployRequest{
+		RPCURL:    rpcURL,
+		Contracts: specs,
+	}
+	judgeURL := buildJudgeServiceURL(namespace)
+	var result dto.JudgeDeployResponse
+	if err := postJSON(ctx, judgeURL+"/api/v1/contracts/deploy", payload, &result); err != nil {
 		return nil, err
 	}
-	return result.Contracts, nil
-}
-
-// executeJSONRuntime 在指定容器中执行 Node 脚本，并把 JSON 输出解析到目标结构。
-func (a *RuntimeProvisionerAdapter) executeJSONRuntime(
-	ctx context.Context,
-	namespace, podName, container string,
-	payload map[string]interface{},
-	script string,
-	target interface{},
-) error {
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	bindings := make([]ChallengeRuntimeContractBinding, 0, len(result.Contracts))
+	for _, c := range result.Contracts {
+		var cid int64
+		fmt.Sscanf(c.ChallengeID, "%d", &cid)
+		bindings = append(bindings, ChallengeRuntimeContractBinding{
+			ChallengeID:  cid,
+			ContractName: c.ContractName,
+			Address:      c.Address,
+			ABIJSON:      c.ABIJSON,
+		})
 	}
-	command := fmt.Sprintf(
-		"PAYLOAD_BASE64='%s' node <<'NODE'\n%s\nNODE",
-		base64.StdEncoding.EncodeToString(payloadBytes),
-		script,
-	)
-	result, err := a.k8sSvc.ExecInPod(ctx, namespace, podName, container, command)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		errText := strings.TrimSpace(result.Stderr)
-		if errText == "" {
-			errText = strings.TrimSpace(result.Stdout)
-		}
-		return fmt.Errorf("运行时执行失败: %s", errText)
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), target); err != nil {
-		return fmt.Errorf("解析运行时执行结果失败: %w", err)
-	}
-	return nil
+	return bindings, nil
 }
 
 // defaultRuntimeTarget 根据断言和合约绑定推断默认攻击目标。
@@ -386,496 +429,60 @@ func defaultRuntimeTarget(assertions []ChallengeAssertionSpec, contracts []Chall
 	return ""
 }
 
-// runtimeDeployScript 负责在链运行时中完成统一合约部署。
-const runtimeDeployScript = `
-const { ethers } = require('ethers');
+// ── HTTP 通信辅助 ──────────────────────────────────────────────
 
-async function main() {
-  const payload = JSON.parse(Buffer.from(process.env.PAYLOAD_BASE64, 'base64').toString('utf8'));
-  const provider = new ethers.JsonRpcProvider(payload.rpc_url);
-  const signer = await provider.getSigner(0);
-  const items = [];
-  for (const item of (payload.contracts || [])) {
-    const abi = item.abi_json ? JSON.parse(item.abi_json) : [];
-    const args = Array.isArray(item.constructor_args) ? item.constructor_args : [];
-    const factory = new ethers.ContractFactory(abi, item.bytecode, signer);
-    const contract = await factory.deploy(...args);
-    await contract.waitForDeployment();
-    items.push({
-      challenge_id: Number(item.challenge_id || 0),
-      contract_name: item.contract_name,
-      address: await contract.getAddress(),
-      abi_json: item.abi_json || '[]'
-    });
-  }
-  process.stdout.write(JSON.stringify({ contracts: items }));
+// buildJudgeServiceURL 构建 judge-service 集群内 URL。
+func buildJudgeServiceURL(namespace string) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+		ctfJudgeServiceContainer, namespace, judgeServicePort)
 }
 
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
-`
-
-// runtimeSetupScript 负责执行题目初始化交易，把环境推进到可利用状态。
-const runtimeSetupScript = `
-const { ethers } = require('ethers');
-
-function normalizeMap(items, keyField, valueMapper) {
-  const map = new Map();
-  for (const item of (items || [])) {
-    const key = String(item && item[keyField] ? item[keyField] : '').trim();
-    if (!key) continue;
-    map.set(key, valueMapper(item));
-  }
-  return map;
+// buildPatchVerifierURL 构建 patch-verifier 集群内 URL。
+func buildPatchVerifierURL(namespace string) string {
+	return fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
+		ctfPatchVerifierContainer, namespace, patchVerifierPort)
 }
 
-async function resolveSigner(provider, tx, accountMap, impersonatedSet) {
-  const from = String(tx.from || '').trim();
-  if (!from) {
-    return await provider.getSigner(0);
-  }
-  if (ethers.isAddress(from)) {
-    if (impersonatedSet.has(from.toLowerCase())) {
-      await provider.send('hardhat_impersonateAccount', [from]);
-      await provider.send('hardhat_setBalance', [from, '0x3635C9ADC5DEA00000']);
-      return await provider.getSigner(from);
-    }
-    return await provider.getSigner(from);
-  }
-  const account = accountMap.get(from);
-  if (!account) {
-    return await provider.getSigner(0);
-  }
-  if (ethers.isAddress(account.name) && impersonatedSet.has(account.name.toLowerCase())) {
-    await provider.send('hardhat_impersonateAccount', [account.name]);
-    await provider.send('hardhat_setBalance', [account.name, '0x3635C9ADC5DEA00000']);
-    return await provider.getSigner(account.name);
-  }
-  return await provider.getSigner(account.index);
+// buildJudgeAssertionSpecs 将 ChallengeAssertionSpec 切片转换为 judge-service 断言 DTO 格式。
+func buildJudgeAssertionSpecs(assertions []ChallengeAssertionSpec) []dto.JudgeAssertionSpec {
+	result := make([]dto.JudgeAssertionSpec, 0, len(assertions))
+	for _, a := range assertions {
+		result = append(result, dto.JudgeAssertionSpec{
+			AssertionType: a.AssertionType,
+			Target:        a.Target,
+			Operator:      a.Operator,
+			ExpectedValue: a.ExpectedValue,
+			ExtraParams:   a.ExtraParams,
+		})
+	}
+	return result
 }
 
-function resolveTarget(tx, contractMap, pinnedMap) {
-  const target = String(tx.to || '').trim();
-  if (!target) return null;
-  if (ethers.isAddress(target)) return target;
-  if (contractMap.has(target)) return contractMap.get(target).address;
-  if (pinnedMap.has(target)) return pinnedMap.get(target).address;
-  return target;
+// postJSON 向目标 URL 发送 JSON POST 请求并解析响应。
+func postJSON(ctx context.Context, url string, body interface{}, target interface{}) error {
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("请求 %s 失败: %w", url, err)
+	}
+	defer resp.Body.Close()
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取响应失败: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("服务返回错误 %d: %s", resp.StatusCode, strings.TrimSpace(string(respBytes)))
+	}
+	if err := json.Unmarshal(respBytes, target); err != nil {
+		return fmt.Errorf("解析响应失败: %w", err)
+	}
+	return nil
 }
-
-function normalizeArgs(args, contractMap, pinnedMap) {
-  return (Array.isArray(args) ? args : []).map((item) => {
-    if (typeof item !== 'string') return item;
-    const raw = item.trim();
-    if (!raw) return raw;
-    if (contractMap.has(raw)) return contractMap.get(raw).address;
-    if (pinnedMap.has(raw)) return pinnedMap.get(raw).address;
-    return item;
-  });
-}
-
-function parseValue(raw) {
-  const value = String(raw || '').trim();
-  if (!value) return 0n;
-  const lower = value.toLowerCase();
-  if (lower.endsWith(' ether')) return ethers.parseEther(value.slice(0, -6).trim());
-  if (lower.endsWith(' gwei')) return ethers.parseUnits(value.slice(0, -5).trim(), 'gwei');
-  if (lower.endsWith(' wei')) return BigInt(value.slice(0, -4).trim());
-  if (/^0x[0-9a-f]+$/i.test(value)) return BigInt(value);
-  if (/^-?\d+$/.test(value)) return BigInt(value);
-  return ethers.parseEther(value);
-}
-
-async function main() {
-  const payload = JSON.parse(Buffer.from(process.env.PAYLOAD_BASE64, 'base64').toString('utf8'));
-  const provider = new ethers.JsonRpcProvider(payload.rpc_url);
-  const contractMap = normalizeMap(payload.contracts, 'contract_name', (item) => item);
-  const pinnedMap = normalizeMap(payload.pinned_contracts, 'name', (item) => item);
-  const accountMap = new Map();
-  (payload.accounts || []).forEach((item, index) => {
-    if (item && item.name) accountMap.set(String(item.name).trim(), { ...item, index });
-  });
-  const impersonatedSet = new Set((payload.impersonated_accounts || []).map((item) => String(item).toLowerCase()));
-
-  let applied = 0;
-  for (const tx of (payload.setup_transactions || [])) {
-    const signer = await resolveSigner(provider, tx, accountMap, impersonatedSet);
-    const target = resolveTarget(tx, contractMap, pinnedMap);
-    const value = parseValue(tx.value);
-    const fn = String(tx.function || '').trim();
-    if (fn) {
-      const contractInfo = contractMap.get(String(tx.to || '').trim()) || pinnedMap.get(String(tx.to || '').trim());
-      const abi = contractInfo && contractInfo.abi_json ? JSON.parse(contractInfo.abi_json) : [];
-      const contract = new ethers.Contract(target, abi, signer);
-      const call = await contract[fn](...normalizeArgs(tx.args, contractMap, pinnedMap), { value });
-      await call.wait();
-    } else {
-      const sent = await signer.sendTransaction({ to: target, value, data: '0x' });
-      await sent.wait();
-    }
-    applied += 1;
-  }
-  process.stdout.write(JSON.stringify({ applied }));
-}
-
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
-`
-
-// runtimeExecutionScript 负责执行攻击交易并依据断言返回真实判定结果。
-const runtimeExecutionScript = `
-const { ethers } = require('ethers');
-
-function parseJSONBase64() {
-  return JSON.parse(Buffer.from(process.env.PAYLOAD_BASE64, 'base64').toString('utf8'));
-}
-
-function parseExpected(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string') return value;
-  const raw = value.trim();
-  if (!raw) return raw;
-  const lower = raw.toLowerCase();
-  if (lower.endsWith(' ether')) return ethers.parseEther(raw.slice(0, -6).trim());
-  if (lower.endsWith(' gwei')) return ethers.parseUnits(raw.slice(0, -5).trim(), 'gwei');
-  if (lower.endsWith(' wei')) return BigInt(raw.slice(0, -4).trim());
-  if (/^0x[0-9a-f]+$/i.test(raw)) return raw.toLowerCase();
-  if (/^-?\d+$/.test(raw)) return BigInt(raw);
-  if (lower === 'true' || lower === 'false') return lower === 'true';
-  return raw;
-}
-
-function compareValue(actual, expected, operator) {
-  const op = (operator || 'eq').toLowerCase();
-  if (typeof actual === 'bigint' || typeof expected === 'bigint') {
-    const left = typeof actual === 'bigint' ? actual : BigInt(actual);
-    const right = typeof expected === 'bigint' ? expected : BigInt(expected);
-    if (op === 'lt') return left < right;
-    if (op === 'le') return left <= right;
-    if (op === 'gt') return left > right;
-    if (op === 'ge') return left >= right;
-    if (op === 'ne') return left !== right;
-    return left === right;
-  }
-  if (op === 'contains') return String(actual).includes(String(expected));
-  if (op === 'ne') return String(actual) !== String(expected);
-  return String(actual) === String(expected);
-}
-
-function formatActual(value) {
-  if (typeof value === 'bigint') return value.toString();
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (value === null || value === undefined) return '';
-  return String(value);
-}
-
-function normalizeContracts(contracts) {
-  const byName = new Map();
-  const byAddress = new Map();
-  for (const item of (contracts || [])) {
-    if (item.contract_name) byName.set(item.contract_name, item);
-    if (item.address) byAddress.set(String(item.address).toLowerCase(), item);
-  }
-  return { byName, byAddress };
-}
-
-function resolveTarget(assertion, contractMaps) {
-  const target = (assertion.target || '').trim();
-  if (!target) return null;
-  if (/^0x[0-9a-f]{40}$/i.test(target)) return { address: target, binding: contractMaps.byAddress.get(target.toLowerCase()) };
-  const binding = contractMaps.byName.get(target);
-  if (binding) return { address: binding.address, binding };
-  return null;
-}
-
-async function executeSubmission(provider, signer, payload, contractMaps) {
-  const submission = String(payload.submission || '').trim();
-  if (!submission) {
-    return { txHash: null };
-  }
-  let spec = null;
-  if (submission.startsWith('{')) {
-    spec = JSON.parse(submission);
-  }
-  if (spec && spec.bytecode) {
-    const abi = Array.isArray(spec.abi) ? spec.abi : [];
-    const factory = new ethers.ContractFactory(abi, spec.bytecode, signer);
-    const contract = await factory.deploy(...(Array.isArray(spec.constructor_args) ? spec.constructor_args : []));
-    await contract.waitForDeployment();
-    const tx = contract.deploymentTransaction();
-    return { txHash: tx ? tx.hash : null };
-  }
-  const defaultTarget = (payload.default_target || '').trim();
-  const targetBinding = defaultTarget ? (contractMaps.byName.get(defaultTarget) || contractMaps.byAddress.get(defaultTarget.toLowerCase())) : null;
-  const txRequest = {
-    to: spec && spec.to ? (contractMaps.byName.get(spec.to)?.address || spec.to) : (targetBinding ? targetBinding.address : null),
-    data: spec && spec.data ? spec.data : submission,
-    value: spec && spec.value ? parseExpected(spec.value) : 0n,
-    gasLimit: 12000000
-  };
-  try {
-    const tx = await signer.sendTransaction(txRequest);
-    await tx.wait();
-    return { txHash: tx.hash };
-  } catch (sendError) {
-    if (/^0x[0-9a-f]+$/i.test(submission)) {
-      const deployTx = await signer.sendTransaction({ data: submission, gasLimit: 12000000 });
-      await deployTx.wait();
-      return { txHash: deployTx.hash };
-    }
-    throw sendError;
-  }
-}
-
-async function evaluateAssertion(provider, receipt, assertion, contractMaps) {
-  const resolved = resolveTarget(assertion, contractMaps);
-  const expected = parseExpected(assertion.expected_value);
-  const extra = assertion.extra_params || {};
-  let actual = '';
-  let passed = false;
-  switch ((assertion.assertion_type || '').toLowerCase()) {
-    case 'balance_check': {
-      if (!resolved) throw new Error('balance_check 缺少目标合约');
-      const balance = await provider.getBalance(resolved.address);
-      actual = balance;
-      passed = compareValue(balance, expected, assertion.operator);
-      break;
-    }
-    case 'token_balance_check': {
-      if (!resolved || !resolved.binding) throw new Error('token_balance_check 缺少代币合约绑定');
-      const owner = extra.owner || extra.account || extra.holder || await (await provider.getSigner(0)).getAddress();
-      const abi = JSON.parse(resolved.binding.abi_json || '[]');
-      const contract = new ethers.Contract(resolved.address, abi, provider);
-      const value = await contract.balanceOf(owner);
-      actual = value;
-      passed = compareValue(value, expected, assertion.operator);
-      break;
-    }
-    case 'storage_check': {
-      if (!resolved) throw new Error('storage_check 缺少目标合约');
-      const slot = extra.slot !== undefined ? extra.slot : '0x0';
-      const value = await provider.getStorage(resolved.address, slot);
-      actual = value;
-      passed = compareValue(String(value).toLowerCase(), String(expected).toLowerCase(), assertion.operator);
-      break;
-    }
-    case 'owner_check': {
-      if (!resolved || !resolved.binding) throw new Error('owner_check 缺少目标合约绑定');
-      const abi = JSON.parse(resolved.binding.abi_json || '[]');
-      const fn = extra.function || 'owner';
-      const contract = new ethers.Contract(resolved.address, abi, provider);
-      const value = await contract[fn]();
-      actual = String(value).toLowerCase();
-      passed = compareValue(actual, String(expected).toLowerCase(), assertion.operator);
-      break;
-    }
-    case 'event_check': {
-      const targetAddress = resolved ? resolved.address.toLowerCase() : '';
-      const topic0 = String(extra.topic0 || extra.event_signature || '').toLowerCase();
-      const logs = receipt && Array.isArray(receipt.logs) ? receipt.logs : [];
-      const logCount = logs.filter((log) => {
-        if (targetAddress && String(log.address || '').toLowerCase() !== targetAddress) return false;
-        if (topic0 && (!Array.isArray(log.topics) || String(log.topics[0] || '').toLowerCase() !== topic0)) return false;
-        return true;
-      }).length;
-      actual = BigInt(logCount);
-      passed = compareValue(BigInt(logCount), expected === null ? 0n : expected, assertion.operator || 'gt');
-      break;
-    }
-    case 'code_check': {
-      if (!resolved) throw new Error('code_check 缺少目标合约');
-      const code = await provider.getCode(resolved.address);
-      const size = BigInt(Math.max((code.length - 2) / 2, 0));
-      actual = size;
-      passed = compareValue(size, expected, assertion.operator);
-      break;
-    }
-    case 'custom_script': {
-      const script = String(extra.script || extra.javascript || '').trim();
-      if (!script) throw new Error('custom_script 缺少脚本内容');
-      const fn = new Function('ethers', 'provider', 'receipt', 'contracts', 'assertion', script);
-      const value = await fn(ethers, provider, receipt, Object.fromEntries(contractMaps.byName.entries()), assertion);
-      if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'passed')) {
-        actual = value.actual !== undefined ? value.actual : '';
-        passed = Boolean(value.passed);
-      } else {
-        actual = value;
-        passed = Boolean(value);
-      }
-      break;
-    }
-    default:
-      throw new Error('不支持的断言类型: ' + assertion.assertion_type);
-  }
-  return {
-    type: assertion.assertion_type,
-    target: assertion.target || '',
-    expected: assertion.expected_value || '',
-    actual: formatActual(actual),
-    passed
-  };
-}
-
-async function main() {
-  const startedAt = Date.now();
-  const payload = parseJSONBase64();
-  const provider = new ethers.JsonRpcProvider(payload.rpc_url);
-  const signer = await provider.getSigner(0);
-  const contractMaps = normalizeContracts(payload.contracts);
-  let txHash = null;
-  let receipt = null;
-  let errorMessage = null;
-  try {
-    const execResult = await executeSubmission(provider, signer, payload, contractMaps);
-    txHash = execResult.txHash;
-    if (txHash) {
-      receipt = await provider.getTransactionReceipt(txHash);
-    }
-  } catch (error) {
-    errorMessage = error && error.shortMessage ? error.shortMessage : (error && error.message ? error.message : String(error));
-  }
-  const results = [];
-  if (!errorMessage) {
-    for (const assertion of (payload.assertions || [])) {
-      results.push(await evaluateAssertion(provider, receipt, assertion, contractMaps));
-    }
-  }
-  const allPassed = !errorMessage && results.every((item) => item.passed);
-  const executionTimeMS = Date.now() - startedAt;
-  process.stdout.write(JSON.stringify({
-    all_passed: allPassed,
-    results,
-    execution_time_ms: executionTimeMS,
-    tx_hash: txHash,
-    error_message: errorMessage
-  }));
-}
-
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
-`
-
-// runtimePatchVerificationScript 负责补丁编译、ABI兼容校验和官方 PoC 回放。
-const runtimePatchVerificationScript = `
-const { ethers } = require('ethers');
-let solc = null;
-try { solc = require('solc'); } catch (error) { solc = null; }
-
-function compilePatch(source) {
-  if (!solc) {
-    throw new Error('补丁编译依赖 solc 未安装');
-  }
-  const input = {
-    language: 'Solidity',
-    sources: { 'Patch.sol': { content: source } },
-    settings: {
-      optimizer: { enabled: false, runs: 200 },
-      outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } }
-    }
-  };
-  const output = JSON.parse(solc.compile(JSON.stringify(input)));
-  if (Array.isArray(output.errors)) {
-    const fatal = output.errors.filter((item) => item.severity === 'error');
-    if (fatal.length > 0) {
-      throw new Error(fatal.map((item) => item.formattedMessage || item.message).join('\n'));
-    }
-  }
-  const contracts = output.contracts['Patch.sol'] || {};
-  return Object.entries(contracts).map(([name, item]) => ({
-    name,
-    abi: item.abi || [],
-    bytecode: item.evm && item.evm.bytecode ? item.evm.bytecode.object || '' : ''
-  })).filter((item) => item.bytecode);
-}
-
-function publicSignatures(abi) {
-  return (abi || [])
-    .filter((item) => item.type === 'function')
-    .map((item) => item.name + '(' + (item.inputs || []).map((input) => input.type).join(',') + ')')
-    .sort();
-}
-
-async function replayPoc(provider, signer, targetAddress, poc) {
-  const raw = String(poc || '').trim();
-  if (!raw) return null;
-  const tx = await signer.sendTransaction({ to: targetAddress, data: raw, gasLimit: 12000000 });
-  await tx.wait();
-  return tx.hash;
-}
-
-async function main() {
-  const payload = JSON.parse(Buffer.from(process.env.PAYLOAD_BASE64, 'base64').toString('utf8'));
-  const provider = new ethers.JsonRpcProvider(payload.rpc_url);
-  const signer = await provider.getSigner(0);
-  const compiled = compilePatch(payload.patch_source_code || '');
-  if (compiled.length === 0) {
-    throw new Error('补丁编译结果为空');
-  }
-  const original = (payload.original_contracts || [])[0];
-  const originalName = original && original.contract_name ? original.contract_name : null;
-  const candidate = compiled.find((item) => item.name === originalName) || compiled[0];
-  const originalAbi = original && original.abi_json ? JSON.parse(original.abi_json) : [];
-  const oldSigs = publicSignatures(originalAbi);
-  const newSigs = publicSignatures(candidate.abi);
-  const missing = oldSigs.filter((sig) => !newSigs.includes(sig));
-  if (missing.length > 0) {
-    process.stdout.write(JSON.stringify({
-      functionality_passed: false,
-      vulnerability_fixed: false,
-      rejection_reason: '功能完整性检查未通过：缺少接口 ' + missing.join(', '),
-      patched_contracts: []
-    }));
-    return;
-  }
-  const factory = new ethers.ContractFactory(candidate.abi, '0x' + candidate.bytecode.replace(/^0x/, ''), signer);
-  const contract = await factory.deploy();
-  await contract.waitForDeployment();
-  const patchedAddress = await contract.getAddress();
-  const txHash = payload.official_poc ? await replayPoc(provider, signer, patchedAddress, payload.official_poc) : null;
-  const receipt = txHash ? await provider.getTransactionReceipt(txHash) : null;
-  const balance = await provider.getBalance(patchedAddress);
-  const assertions = payload.assertions || [];
-  let allPassed = true;
-  for (const assertion of assertions) {
-    if ((assertion.assertion_type || '').toLowerCase() === 'balance_check') {
-      const expectedRaw = String(assertion.expected_value || '').trim();
-      const expected = expectedRaw.toLowerCase().endsWith(' ether')
-        ? ethers.parseEther(expectedRaw.slice(0, -6).trim())
-        : BigInt(expectedRaw || '0');
-      const passed = (assertion.operator || 'lt').toLowerCase() === 'lt' ? balance < expected : balance === expected;
-      if (passed) allPassed = false;
-    }
-    if ((assertion.assertion_type || '').toLowerCase() === 'event_check' && receipt && Array.isArray(receipt.logs) && receipt.logs.length > 0) {
-      allPassed = false;
-    }
-  }
-  process.stdout.write(JSON.stringify({
-    functionality_passed: true,
-    vulnerability_fixed: allPassed,
-    rejection_reason: allPassed ? null : '漏洞修复验证失败：官方PoC仍可成功执行',
-    patched_contracts: (payload.target_contracts || []).map((item) => {
-      if (item.contract_name === candidate.name || item.contract_name === originalName) {
-        return {
-          challenge_id: item.challenge_id,
-          contract_name: item.contract_name,
-          address: patchedAddress,
-          patch_version: Number(item.patch_version || 0) + 1,
-          is_patched: true
-        };
-      }
-      return item;
-    })
-  }));
-}
-
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
-`

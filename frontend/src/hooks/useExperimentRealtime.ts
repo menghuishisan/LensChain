@@ -26,10 +26,6 @@ export interface RealtimeMessage<TType extends string = string> {
   data?: JsonObject;
   content?: string;
   container?: string;
-  command?: string;
-  stdout?: string;
-  stderr?: string;
-  exit_code?: number;
   timestamp?: string | number;
 }
 
@@ -47,6 +43,7 @@ export interface UseExperimentRealtimeResult<TMessage> {
   latestMessage: TMessage | null;
   error: string | null;
   sendJson: (message: JsonObject) => boolean;
+  sendRaw: (data: string) => boolean;
   reconnect: () => void;
   clearMessages: () => void;
 }
@@ -154,12 +151,22 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
     return true;
   }, []);
 
+  const sendRaw = useCallback((data: string) => {
+    const socket = socketRef.current;
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    socket.send(data);
+    return true;
+  }, []);
+
   return {
     status,
     messages,
     latestMessage: messages.at(-1) ?? null,
     error,
     sendJson,
+    sendRaw,
     reconnect: connect,
     clearMessages: () => setMessages([]),
   };
@@ -194,7 +201,8 @@ export function useCourseExperimentMonitorRealtime(courseID: ID, templateID?: ID
 }
 
 /**
- * useExperimentTerminal 连接学生可执行终端 WebSocket。
+ * useExperimentTerminal 连接学生 PTY 终端 WebSocket。
+ * 通过 xterm-server 代理提供真 PTY 终端体验。
  */
 export function useExperimentTerminal(instanceID: ID, container?: string, enabled = true) {
   const realtime = useExperimentRealtime<RealtimeMessage<ExperimentTerminalWSMessageType>>(`/experiment-instances/${instanceID}/terminal`, {
@@ -203,7 +211,10 @@ export function useExperimentTerminal(instanceID: ID, container?: string, enable
   });
   return {
     ...realtime,
-    sendCommand: (command: string) => realtime.sendJson({ type: "terminal_command", container: container ?? "", command }),
+    /** 发送原始键击数据到 PTY。 */
+    sendInput: (data: string) => realtime.sendRaw(data),
+    /** 发送终端尺寸变更到 xterm-server。 */
+    sendResize: (cols: number, rows: number) => realtime.sendJson({ type: "resize", cols, rows }),
   };
 }
 
