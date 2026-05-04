@@ -23,10 +23,13 @@ resources:
   - rbac/sim-engine-clusterrole.yaml
   - rbac/image-prepuller-role.yaml
   - network-policies/platform-default.yaml
-  - network-policies/experiment-deny-all.yaml
-  - network-policies/experiment-egress-registry.yaml
-  - network-policies/experiment-egress-backend.yaml
-  - network-policies/ctf-team-isolation.yaml
+  # 以下策略模板由后端运行时动态 apply 到对应 Namespace，不在此静态部署：
+  # - network-policies/experiment-deny-all.yaml
+  # - network-policies/experiment-egress-registry.yaml
+  # - network-policies/experiment-egress-backend.yaml
+  # - network-policies/experiment-collaborate-group.yaml
+  # - network-policies/experiment-shared-infra.yaml
+  # - network-policies/ctf-team-isolation.yaml
   - daemonset/image-prepuller.yaml
   - daemonset/image-prepuller-configmap.yaml
   - cronjobs/pv-cleanup.yaml

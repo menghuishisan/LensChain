@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
         - name: nats
-          image: nats:2.10-alpine
+          image: registry.lianjing.com/middleware/nats:2.10-alpine
           args: ["-js", "-m", "8222"]
           ports:
             - containerPort: 4222
@@ -58,6 +58,8 @@ spec:
               port: 8222
             initialDelaySeconds: 5
             periodSeconds: 5
+      imagePullSecrets:
+        - name: registry-pull-secret
   volumeClaimTemplates:
     - metadata:
         name: data

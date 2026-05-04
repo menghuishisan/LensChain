@@ -64,6 +64,8 @@ spec:
               command: ["pg_isready", "-U", "lenschain"]
             initialDelaySeconds: 5
             periodSeconds: 5
+      imagePullSecrets:
+        - name: registry-pull-secret
   volumeClaimTemplates:
     - metadata:
         name: data

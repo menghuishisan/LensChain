@@ -37,12 +37,26 @@ spec:
         - name: backend
           image: registry.lianjing.com/lenschain/backend:v1.0.0
           imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # 从 POD_NAME 哈希派生唯一 snowflake node_id（范围 1-1023）
+              NODE_ID=$(echo -n "${POD_NAME}" | cksum | awk '{print ($1 % 1023) + 1}')
+              export LENSCHAIN_SNOWFLAKE_NODE_ID="${NODE_ID}"
+              exec /app/lenschain-backend
           ports:
             - containerPort: 8080
               name: http
           env:
             - name: TZ
               value: UTC
+            - name: LENSCHAIN_CONFIG
+              value: /app/configs/config.yaml
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: LENSCHAIN_DATABASE_HOST
               value: postgres
             - name: LENSCHAIN_DATABASE_PORT
@@ -58,6 +72,11 @@ spec:
               value: redis
             - name: LENSCHAIN_REDIS_PORT
               value: "6379"
+            - name: LENSCHAIN_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: redis-password
             - name: LENSCHAIN_JWT_ACCESS_SECRET
               valueFrom:
                 secretKeyRef:
@@ -68,6 +87,16 @@ spec:
                 secretKeyRef:
                   name: backend-secret
                   key: jwt-refresh-secret
+            - name: LENSCHAIN_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-user
+            - name: LENSCHAIN_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: root-password
           volumeMounts:
             - name: config
               mountPath: /app/configs

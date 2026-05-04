@@ -54,6 +54,14 @@ deploy/
 
 ## 本地开发怎么起依赖
 
+如果已填写 `config.env`，使用 `--env-file` 从中读取密码：
+
+```bash
+docker compose --env-file deploy/config.env -f deploy/docker-compose/docker-compose.dev.yml up -d
+```
+
+若未填写 `config.env`，也可以直接起（使用内置默认值）：
+
 ```bash
 docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
 ```
@@ -61,7 +69,7 @@ docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
 可选地启动 SimEngine：
 
 ```bash
-docker compose -f deploy/docker-compose/docker-compose.dev.yml --profile full up -d
+docker compose --env-file deploy/config.env -f deploy/docker-compose/docker-compose.dev.yml --profile full up -d
 ```
 
 ## 脚本路径
@@ -190,60 +198,90 @@ $env:PHASE_FILTER="1"; .\deploy\scripts\powershell\docker-prepull.ps1
 
 - [config.example.env](/abs/path/E:/code/LensChain/deploy/config.example.env)
 
+密码生成方式见 [config.example.env](/abs/path/E:/code/LensChain/deploy/config.example.env) 顶部说明。
+
+填写完 `config.env` 后，可用脚本一键创建所有 K8s Secret：
+
+```bash
+./deploy/scripts/bash/create-secrets.sh
+```
+
+```powershell
+.\deploy\scripts\powershell\create-secrets.ps1
+```
+
+脚本会自动从 `config.env` 读取密码并创建对应的 K8s Secret，无需手动执行 kubectl 命令。
+
+以下是每个 Secret 的详细说明：
+
 ### 1. backend-secret
 
 需要的键：
 
-- `database-password`
-- `jwt-access-secret`
-- `jwt-refresh-secret`
-
-生成示例：
+- `database-password` — 数据库密码；使用 32 位随机密码生成，必须与 postgres-secret 的 password 一致
+- `jwt-access-secret` — Access Token 签名密钥；使用 64 位十六进制密钥生成
+- `jwt-refresh-secret` — Refresh Token 签名密钥；使用 64 位十六进制密钥生成
+- `redis-password` — Redis 密码；使用 32 位随机密码生成，必须与 redis-secret 的 password 一致
+- `snapshot-encryption-key` — SimEngine 快照加密密钥；使用 64 位十六进制密钥生成
 
 ```bash
 kubectl -n lenschain create secret generic backend-secret \
-  --from-literal=database-password='<db-password>' \
-  --from-literal=jwt-access-secret='<access-secret>' \
-  --from-literal=jwt-refresh-secret='<refresh-secret>' \
-  --dry-run=client -o yaml > backend-secret.yaml
+  --from-literal=database-password='<数据库密码>' \
+  --from-literal=jwt-access-secret='<Access Token 密钥>' \
+  --from-literal=jwt-refresh-secret='<Refresh Token 密钥>' \
+  --from-literal=redis-password='<Redis 密码>' \
+  --from-literal=snapshot-encryption-key='<快照加密密钥>' \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 ### 2. postgres-secret
 
 需要的键：
 
-- `password`
+- `password` — PostgreSQL 密码；必须与 backend-secret 的 database-password 一致
 
 ```bash
 kubectl -n lenschain create secret generic postgres-secret \
-  --from-literal=password='<postgres-password>' \
-  --dry-run=client -o yaml > postgres-secret.yaml
+  --from-literal=password='<数据库密码>' \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### 3. minio-secret
+### 3. redis-secret
 
 需要的键：
 
-- `root-user`
-- `root-password`
+- `password` — Redis 密码；必须与 backend-secret 的 redis-password 一致
+
+```bash
+kubectl -n lenschain create secret generic redis-secret \
+  --from-literal=password='<Redis 密码>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+### 4. minio-secret
+
+需要的键：
+
+- `root-user` — MinIO 管理员用户名
+- `root-password` — MinIO 管理员密码；使用 32 位随机密码生成
 
 ```bash
 kubectl -n lenschain create secret generic minio-secret \
   --from-literal=root-user='minioadmin' \
-  --from-literal=root-password='<minio-password>' \
-  --dry-run=client -o yaml > minio-secret.yaml
+  --from-literal=root-password='<MinIO 密码>' \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### 4. registry-pull-secret
+### 5. registry-pull-secret
 
 类型必须是 `kubernetes.io/dockerconfigjson`。
 
 ```bash
 kubectl -n lenschain create secret docker-registry registry-pull-secret \
   --docker-server=registry.lianjing.com \
-  --docker-username='<registry-user>' \
-  --docker-password='<registry-password>' \
-  --dry-run=client -o yaml > registry-pull-secret.yaml
+  --docker-username='<镜像仓库用户名>' \
+  --docker-password='<镜像仓库密码>' \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 说明：

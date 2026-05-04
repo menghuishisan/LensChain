@@ -59,5 +59,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=20s \
     CMD curl -fsS http://localhost:8080/healthz || exit 1
 
+ENV LENSCHAIN_CONFIG=/app/configs/config.yaml
+
 ENTRYPOINT ["/app/lenschain-backend"]
-CMD ["--config", "/app/configs/config.yaml"]

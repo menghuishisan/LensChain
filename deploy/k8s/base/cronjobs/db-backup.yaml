@@ -1,6 +1,7 @@
 # deploy/k8s/base/cronjobs/db-backup.yaml
 # 数据库备份 CronJob
-# 定时执行数据库备份并将结果上传到对象存储
+# 定时执行数据库备份，pg_dump 后通过 mc 上传到 MinIO 对象存储
+# 备份文件路径：s3://lenschain-backup/db/{date}.sql.gz
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -26,9 +27,24 @@ spec:
                 - /bin/bash
                 - -c
                 - |
+                  set -euo pipefail
+                  BACKUP_FILE="/tmp/lenschain-$(date +%F-%H%M%S).sql.gz"
+                  echo "[backup] starting pg_dump ..."
                   pg_dump -h postgres.lenschain.svc.cluster.local \
                           -U lenschain lenschain \
-                          | gzip > /backup/lenschain-$(date +%F).sql.gz
+                          | gzip > "${BACKUP_FILE}"
+                  echo "[backup] pg_dump done, uploading to MinIO ..."
+                  # 安装 mc（MinIO Client）
+                  curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+                  chmod +x /usr/local/bin/mc
+                  mc alias set backup "${MINIO_ENDPOINT}" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
+                  mc mb --ignore-existing backup/lenschain-backup
+                  mc cp "${BACKUP_FILE}" "backup/lenschain-backup/db/$(basename ${BACKUP_FILE})"
+                  echo "[backup] upload complete: $(basename ${BACKUP_FILE})"
+                  # 清理超过保留天数的旧备份
+                  mc rm --older-than "${RETENTION_DAYS}d" --recursive --force backup/lenschain-backup/db/ || true
+                  rm -f "${BACKUP_FILE}"
+                  echo "[backup] cleanup done"
               env:
                 - name: TZ
                   value: UTC
@@ -37,9 +53,20 @@ spec:
                     secretKeyRef:
                       name: postgres-secret
                       key: password
-              volumeMounts:
-                - name: backup
-                  mountPath: /backup
+                - name: MINIO_ENDPOINT
+                  value: "http://minio.lenschain.svc.cluster.local:9000"
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-secret
+                      key: root-user
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-secret
+                      key: root-password
+                - name: RETENTION_DAYS
+                  value: "30"
               resources:
                 requests:
                   cpu: 100m
@@ -47,7 +74,6 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 1Gi
-          volumes:
-            - name: backup
-              emptyDir: {}
+          imagePullSecrets:
+            - name: registry-pull-secret
           restartPolicy: OnFailure

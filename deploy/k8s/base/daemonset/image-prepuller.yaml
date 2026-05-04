@@ -28,6 +28,10 @@ spec:
       containers:
         - name: prepuller
           image: registry.lianjing.com/lenschain/image-prepuller:v1.0.0
+          securityContext:
+            # crictl 需要访问 containerd socket，必须以 root 运行
+            runAsUser: 0
+            runAsNonRoot: false
           env:
             - name: TZ
               value: UTC
@@ -52,6 +56,8 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      imagePullSecrets:
+        - name: registry-pull-secret
       volumes:
         - name: image-manifest
           configMap:

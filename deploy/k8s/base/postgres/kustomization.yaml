@@ -7,3 +7,4 @@ kind: Kustomization
 resources:
   - statefulset.yaml
   - service.yaml
+  - secret.yaml

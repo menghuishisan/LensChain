@@ -1,0 +1,51 @@
+# 拓扑模式3：多人协作组网 — 同组跨 Namespace 互通策略模板
+# 后端动态创建 exp-* Namespace 时，根据分组信息为同组学生 Namespace 应用此策略
+# 需要后端在创建 Namespace 时注入 label: lenschain.io/group-id={group_id}
+#
+# 使用方式：后端将 {GROUP_ID} 替换为实际 group_id 后 apply 到组内每个 Namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-collaborate-group
+  labels:
+    app.kubernetes.io/name: experiment-collaborate-group
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: backend
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 允许同组 Namespace 的所有 Pod 入站访问
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/group-id: "{GROUP_ID}"
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # 允许出站到同组 Namespace 的所有 Pod
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/group-id: "{GROUP_ID}"
+    # 允许出站到后端 API（心跳、检查点上报等）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - port: 8080
+          protocol: TCP
+    # 允许出站到 Registry（镜像拉取）
+    - ports:
+        - port: 443
+          protocol: TCP

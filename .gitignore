@@ -31,6 +31,9 @@ backend/.gocache/
 .env
 .env.*
 !.env.example
+config.env
+deploy/config.env
+backend/configs/config.yaml
 
 # Runtime data
 /tmp/

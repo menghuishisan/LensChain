@@ -13,6 +13,11 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
 spec:
   type: ClusterIP
+  # WebSocket 有状态连接需绑定到同一 Pod，避免仿真会话跨实例丢失
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 14400
   selector:
     app.kubernetes.io/name: sim-engine
   ports:

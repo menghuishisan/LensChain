@@ -15,22 +15,67 @@ data:
     server:
       port: 8080
       mode: release
+      read_timeout: "30s"
+      write_timeout: "3600s"
+      max_header_bytes: 1048576
     database:
       host: postgres
       port: 5432
       user: lenschain
       dbname: lenschain
       sslmode: disable
-      max_open_conns: 50
-      max_idle_conns: 10
+      max_open_conns: 100
+      max_idle_conns: 20
+      conn_max_lifetime: "1h"
+      log_level: "warn"
     redis:
       host: redis
       port: 6379
       db: 0
+      pool_size: 200
+      min_idle_conns: 20
     minio:
       endpoint: minio:9000
       use_ssl: false
+      bucket: "lenschain"
     nats:
       url: nats://nats:4222
+      max_reconnects: 60
+      reconnect_wait: "2s"
+    cors:
+      allowed_origins:
+        - "https://app.lianjing.com"
+      allowed_methods:
+        - "GET"
+        - "POST"
+        - "PUT"
+        - "PATCH"
+        - "DELETE"
+        - "OPTIONS"
+      allowed_headers:
+        - "Authorization"
+        - "Content-Type"
+      max_age: "12h"
+    rate_limit:
+      enabled: true
+      requests_per_second: 500
+      burst: 1000
     k8s:
+      in_cluster: true
+      platform_namespace: "lenschain"
+      namespace_prefix: "exp"
+      image_pull_secret_name: "registry-pull-secret"
+      default_cpu: "250m"
+      default_memory: "512Mi"
       collector_image_template: "registry.lianjing.com/lenschain/collector-agent-%s:v1.0.0"
+      timeout: "15s"
+    sim_engine:
+      grpc_addr: "sim-engine:50051"
+      ws_addr: "sim-engine:50052"
+      timeout: "10s"
+      max_retries: 3
+      tls_enabled: false
+    log:
+      level: "info"
+      format: "json"
+      output: "stdout"

@@ -8,8 +8,8 @@ set -euo pipefail
 
 MINIO_HOST=${MINIO_HOST:-localhost}
 MINIO_PORT=${MINIO_PORT:-9010}
-MINIO_USER=${MINIO_USER:-minioadmin}
-MINIO_PASSWORD=${MINIO_PASSWORD:-minioadmin}
+MINIO_USER=${MINIO_ROOT_USER:-${MINIO_USER:-minioadmin}}
+MINIO_PASSWORD=${MINIO_ROOT_PASSWORD:-${MINIO_PASSWORD:-minioadmin}}
 
 echo "==> Configuring MinIO client alias"
 mc alias set local "http://${MINIO_HOST}:${MINIO_PORT}" "$MINIO_USER" "$MINIO_PASSWORD"

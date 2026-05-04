@@ -24,4 +24,27 @@ spec:
             matchLabels:
               lenschain.io/namespace-type: platform
   egress:
-    - {}
+    # DNS
+    - ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # 同 Namespace 内部通信（backend ↔ 中间件）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: platform
+    # 动态实验/竞赛 Namespace（后端需要管理运行时资源）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: lenschain
+    # Registry（镜像元数据查询）
+    - ports:
+        - port: 443
+          protocol: TCP
+    # K8s API Server（后端通过 ServiceAccount 调用 K8s API）
+    - ports:
+        - port: 6443
+          protocol: TCP

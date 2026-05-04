@@ -1,0 +1,68 @@
+# 拓扑模式4：共享基础设施 — 学生 Namespace 到共享 Namespace 的访问策略模板
+# 后端创建共享 Namespace 时注入 label: lenschain.io/shared-infra-id={template_id}-{lesson_id}
+# 学生 Namespace 注入相同的 label 以标识归属关系
+#
+# 此文件包含两个策略：
+# 1. 应用到学生 Namespace：允许出站到共享 Namespace
+# 2. 应用到共享 Namespace：允许学生 Namespace 入站访问
+
+# --- 策略1：学生 Namespace 出站到共享基础设施 ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-shared-infra
+  labels:
+    app.kubernetes.io/name: experiment-shared-infra-egress
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: backend
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # 允许出站到同 shared-infra-id 的共享 Namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/shared-infra-id: "{SHARED_INFRA_ID}"
+    # 允许出站到后端 API
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/namespace-type: platform
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Registry
+    - ports:
+        - port: 443
+          protocol: TCP
+---
+# --- 策略2：共享 Namespace 接受学生 Namespace 入站 ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-students
+  labels:
+    app.kubernetes.io/name: experiment-shared-infra-ingress
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: backend
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # 允许带有相同 shared-infra-id 标签的学生 Namespace 入站
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              lenschain.io/shared-infra-id: "{SHARED_INFRA_ID}"

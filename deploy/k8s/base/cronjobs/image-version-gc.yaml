@@ -35,4 +35,6 @@ spec:
                 limits:
                   cpu: 200m
                   memory: 256Mi
+          imagePullSecrets:
+            - name: registry-pull-secret
           restartPolicy: OnFailure

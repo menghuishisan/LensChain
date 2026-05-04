@@ -68,6 +68,8 @@ spec:
               port: 9000
             initialDelaySeconds: 5
             periodSeconds: 10
+      imagePullSecrets:
+        - name: registry-pull-secret
   volumeClaimTemplates:
     - metadata:
         name: data

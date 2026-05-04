@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $MinioHost = if ($env:MINIO_HOST) { $env:MINIO_HOST } else { "localhost" }
 $MinioPort = if ($env:MINIO_PORT) { $env:MINIO_PORT } else { "9010" }
-$MinioUser = if ($env:MINIO_USER) { $env:MINIO_USER } else { "minioadmin" }
-$MinioPassword = if ($env:MINIO_PASSWORD) { $env:MINIO_PASSWORD } else { "minioadmin" }
+$MinioUser = if ($env:MINIO_ROOT_USER) { $env:MINIO_ROOT_USER } elseif ($env:MINIO_USER) { $env:MINIO_USER } else { "minioadmin" }
+$MinioPassword = if ($env:MINIO_ROOT_PASSWORD) { $env:MINIO_ROOT_PASSWORD } elseif ($env:MINIO_PASSWORD) { $env:MINIO_PASSWORD } else { "minioadmin" }
 $buckets = @("attachments", "reports", "snapshots", "images", "exports", "backups")
 
 function Require-Command {
