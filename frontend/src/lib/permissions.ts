@@ -168,6 +168,14 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
       roles: ["super_admin"],
     },
     {
+      id: "super-users",
+      label: "用户管理",
+      href: "/super/users",
+      icon: "Users",
+      description: "全平台用户、安全策略与日志",
+      roles: ["super_admin"],
+    },
+    {
       id: "super-experiments",
       label: "实验支持",
       href: "/super/images",
@@ -189,6 +197,14 @@ export const NAVIGATION_BY_ROLE: Record<UserRole, readonly NavigationItem[]> = {
       href: "/super/grades/analytics",
       icon: "ChartArea",
       description: "跨校成绩趋势与平台评测概览",
+      roles: ["super_admin"],
+    },
+    {
+      id: "super-notifications",
+      label: "通知公告",
+      href: "/super/notifications/announcements",
+      icon: "Megaphone",
+      description: "系统公告、消息模板与推送统计",
       roles: ["super_admin"],
     },
     {

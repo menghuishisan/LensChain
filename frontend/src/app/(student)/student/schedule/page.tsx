@@ -8,5 +8,5 @@ import { PermissionGate } from "@/components/business/PermissionGate";
  * StudentSchedulePage 我的课程表页。
  */
 export default function StudentSchedulePage() {
-  return <PermissionGate allowedRoles={["student", "teacher", "school_admin", "super_admin"]}><SchedulePanel /></PermissionGate>;
+  return <PermissionGate allowedRoles={["student"]}><SchedulePanel /></PermissionGate>;
 }

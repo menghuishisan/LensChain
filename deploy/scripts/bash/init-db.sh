@@ -49,12 +49,20 @@ fi
 go run cmd/migrate/main.go up
 
 DEMO_SEED_FILE="migrations/010_seed_demo_data.up.sql"
+DEMO_SUPPLEMENT_FILE="migrations/011_seed_demo_supplement.up.sql"
 
 if [ -f "$DEMO_SEED_FILE" ]; then
   echo "==> Seeding demo data from $DEMO_SEED_FILE"
   psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$DEMO_SEED_FILE"
 else
   echo "==> Demo seed file not found, skipping"
+fi
+
+if [ -f "$DEMO_SUPPLEMENT_FILE" ]; then
+  echo "==> Seeding supplement data from $DEMO_SUPPLEMENT_FILE"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$DEMO_SUPPLEMENT_FILE"
+else
+  echo "==> Supplement seed file not found, skipping"
 fi
 
 echo "==> Database initialization complete"

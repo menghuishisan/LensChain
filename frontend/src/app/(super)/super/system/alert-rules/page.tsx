@@ -2,10 +2,11 @@
 // 模块08告警规则页面。
 
 import { AlertRuleEditor } from "@/components/business/AlertRuleEditor";
+import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**
  * SuperSystemAlertRulesPage 告警规则页面。
  */
 export default function SuperSystemAlertRulesPage() {
-  return <AlertRuleEditor />;
+  return <PermissionGate allowedRoles={["super_admin"]}><AlertRuleEditor /></PermissionGate>;
 }

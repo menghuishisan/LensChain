@@ -90,7 +90,7 @@ export function SchoolApplicationReviewList() {
                     <TableCell>{formatDateTime(item.created_at)}</TableCell>
                     <TableCell><SchoolApplicationStatusBadge status={item.status} text={item.status_text} /></TableCell>
                     <TableCell>
-                      <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/admin/school-applications/${item.id}`}>
+                      <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/school-applications/${item.id}`}>
                         {item.status === 1 ? "审核" : "详情"}
                       </Link>
                     </TableCell>
@@ -132,7 +132,7 @@ export function SchoolApplicationReviewDetail({ applicationID }: { applicationID
 
   return (
     <div className="space-y-5">
-      <Link className={buttonClassName({ variant: "ghost" })} href="/admin/school-applications">返回列表</Link>
+      <Link className={buttonClassName({ variant: "ghost" })} href="/super/school-applications">返回列表</Link>
       <Card>
         <CardHeader className="flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>

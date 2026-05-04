@@ -3,7 +3,7 @@
 // UserManagementPanels.tsx
 // 模块01用户管理组件：用户列表、用户详情、创建编辑表单和账号操作。
 
-import { Archive, KeyRound, Pencil, Plus, RotateCcw, Trash2, Upload, UserCheck, UserX } from "lucide-react";
+import { Archive, KeyRound, Pencil, Plus, RotateCcw, Trash2, UserCheck, UserX } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -34,7 +34,6 @@ import {
   useUser,
   useUsers,
 } from "@/hooks/useUsers";
-import { useAuth } from "@/hooks/useAuth";
 import { getEnumText } from "@/lib/enum";
 import { formatDateTime } from "@/lib/format";
 import { ROLE_TEXT } from "@/lib/permissions";
@@ -64,10 +63,9 @@ interface UserFormState extends Omit<CreateUserRequest, "role"> {
 /**
  * UserListPanel 用户管理列表组件。
  */
-export function UserListPanel() {
+export function UserListPanel({ basePath, showSchoolColumn = false, headerActions }: { basePath: string; showSchoolColumn?: boolean; headerActions?: React.ReactNode }) {
   const { showToast } = useToast();
-  const { roles } = useAuth("school_admin");
-  const isSuperAdmin = roles.includes("super_admin");
+  const userBasePath = basePath;
   const [params, setParams] = useState<UserListParams>({ page: 1, page_size: 20, sort_by: "created_at", sort_order: "desc" });
   const [selectedIDs, setSelectedIDs] = useState<ID[]>([]);
   const [resetTarget, setResetTarget] = useState<ID | null>(null);
@@ -102,14 +100,11 @@ export function UserListPanel() {
           <CardDescription>在这里查看、筛选和维护账号信息。</CardDescription>
         </div>
           <div className="flex flex-wrap gap-2">
-            <Link className={buttonClassName({ variant: "primary" })} href="/admin/users/create">
+            <Link className={buttonClassName({ variant: "primary" })} href={`${userBasePath}/create`}>
               <Plus className="h-4 w-4" />
               添加用户
             </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href="/admin/users/import">
-              <Upload className="h-4 w-4" />
-              导入用户
-            </Link>
+            {headerActions}
             <ConfirmDialog
               title="确认批量删除账号"
               description="批量删除为软删除操作，请确认已选择正确账号。"
@@ -155,7 +150,7 @@ export function UserListPanel() {
                       <TableHead>姓名</TableHead>
                       <TableHead>手机号</TableHead>
                       <TableHead>学号/工号</TableHead>
-                      {isSuperAdmin && <TableHead>学校</TableHead>}
+                      {showSchoolColumn && <TableHead>学校</TableHead>}
                       <TableHead>角色</TableHead>
                       <TableHead>学院</TableHead>
                       <TableHead>状态</TableHead>
@@ -181,7 +176,7 @@ export function UserListPanel() {
                         <TableCell className="font-semibold">{userItem.name}</TableCell>
                         <TableCell>{maskPhone(userItem.phone)}</TableCell>
                         <TableCell>{userItem.student_no ?? "—"}</TableCell>
-                        {isSuperAdmin && <TableCell>{userItem.school_name}</TableCell>}
+                        {showSchoolColumn && <TableCell>{userItem.school_name}</TableCell>}
                         <TableCell>{userItem.roles.map((role) => ROLE_TEXT[role]).join(" / ")}</TableCell>
                         <TableCell>{userItem.college ?? "—"}</TableCell>
                         <TableCell>
@@ -194,6 +189,7 @@ export function UserListPanel() {
                           <UserActions
                             id={userItem.id}
                             status={userItem.status}
+                            basePath={userBasePath}
                             onStatus={handleStatus}
                             onReset={() => setResetTarget(userItem.id)}
                             onUnlock={() =>
@@ -261,14 +257,14 @@ export function UserListPanel() {
 /**
  * UserFormPanel 用户创建/编辑表单组件。
  */
-export function UserFormPanel({ userID }: { userID?: ID }) {
+export function UserFormPanel({ userID, basePath = "/admin/users", canCreateSuperAdmin = false }: { userID?: ID; basePath?: string; canCreateSuperAdmin?: boolean }) {
   const router = useRouter();
   const { showToast } = useToast();
   const detailQuery = useUser(userID ?? "");
   const createMutation = useCreateUserMutation();
   const createSuperAdminMutation = useCreateSuperAdminMutation();
   const updateMutation = useUpdateUserMutation(userID ?? "");
-  const { user: currentUser, roles } = useAuth("school_admin");
+  const userBasePath = basePath;
   const isEdit = userID !== undefined;
   const detail = detailQuery.data;
   const [form, setForm] = useState<UserFormState>({
@@ -285,8 +281,6 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
     remark: "",
     school_id: "",
   });
-  const canCreateSuperAdmin = roles.includes("super_admin");
-
   useEffect(() => {
     if (detail === undefined) {
       return;
@@ -348,7 +342,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
               updateMutation.mutate(submitPayload, {
                 onSuccess: () => {
                   showToast({ title: "用户信息已更新", variant: "success" });
-                  router.push(`/admin/users/${userID}`);
+                  router.push(`${userBasePath}/${userID}`);
                 },
                 onError: (error) => showToast({ title: "更新失败", description: error.message, variant: "destructive" }),
               });
@@ -367,7 +361,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
               createSuperAdminMutation.mutate(payload, {
                 onSuccess: (created) => {
                   showToast({ title: "超级管理员已创建", variant: "success" });
-                  router.push(`/admin/users/${created.id}`);
+                  router.push(`${userBasePath}/${created.id}`);
                 },
                 onError: (error) => showToast({ title: "创建失败", description: error.message, variant: "destructive" }),
               });
@@ -391,7 +385,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
             createMutation.mutate(createPayload, {
               onSuccess: (created) => {
                 showToast({ title: "用户已创建", variant: "success" });
-                router.push(`/admin/users/${created.id}`);
+                router.push(`${userBasePath}/${created.id}`);
               },
               onError: (error) => showToast({ title: "创建失败", description: error.message, variant: "destructive" }),
             });
@@ -432,7 +426,7 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
             <Button type="submit" disabled={!canSubmit} isLoading={createMutation.isPending || createSuperAdminMutation.isPending || updateMutation.isPending}>
               {isEdit ? "保存修改" : "创建用户"}
             </Button>
-            <Link className={buttonClassName({ variant: "outline" })} href="/admin/users">
+            <Link className={buttonClassName({ variant: "outline" })} href={userBasePath}>
               返回列表
             </Link>
           </div>
@@ -445,7 +439,8 @@ export function UserFormPanel({ userID }: { userID?: ID }) {
 /**
  * UserDetailPanel 用户详情组件。
  */
-export function UserDetailPanel({ userID }: { userID: ID }) {
+export function UserDetailPanel({ userID, basePath = "/admin/users" }: { userID: ID; basePath?: string }) {
+  const userBasePath = basePath;
   const query = useUser(userID);
 
   if (query.isLoading) {
@@ -469,7 +464,7 @@ export function UserDetailPanel({ userID }: { userID: ID }) {
             <CardDescription>{user.school_name ?? "学校信息不可见"} · {maskPhone(user.phone)}</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className={buttonClassName({ variant: "primary" })} href={`/admin/users/${userID}/edit`}>
+            <Link className={buttonClassName({ variant: "primary" })} href={`${userBasePath}/${userID}/edit`}>
               <Pencil className="h-4 w-4" />
               编辑信息
             </Link>
@@ -529,6 +524,7 @@ function UserFilters({ params, onChange }: { params: UserListParams; onChange: (
 function UserActions({
   id,
   status,
+  basePath,
   onStatus,
   onReset,
   onUnlock,
@@ -536,6 +532,7 @@ function UserActions({
 }: {
   id: ID;
   status: UserStatus;
+  basePath: string;
   onStatus: (id: ID, status: UserStatus, reason: string) => void;
   onReset: () => void;
   onUnlock: () => void;
@@ -543,7 +540,7 @@ function UserActions({
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/admin/users/${id}`}>详情</Link>
+      <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`${basePath}/${id}`}>详情</Link>
       <Button size="sm" variant="outline" onClick={onReset}><KeyRound className="h-4 w-4" />重置</Button>
       {status === 1 ? (
         <>

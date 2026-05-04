@@ -41,6 +41,7 @@ const PREVIEW_STORAGE_KEY = "lenschain-user-import-preview";
 export function UserImportPanel() {
   const router = useRouter();
   const { showToast } = useToast();
+  const userBasePath = "/admin/users";
   const [type, setType] = useState<UserImportType>("student");
   const [file, setFile] = useState<File | null>(null);
   const templateMutation = useDownloadUserImportTemplateMutation();
@@ -101,7 +102,7 @@ export function UserImportPanel() {
                     onSuccess: (preview) => {
                       sessionStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(preview));
                       showToast({ title: "文件解析完成", variant: "success" });
-                      router.push("/admin/users/import/preview");
+                      router.push(`${userBasePath}/import/preview`);
                     },
                     onError: (error) => showToast({ title: "预览失败", description: error.message, variant: "destructive" }),
                   },
@@ -122,6 +123,7 @@ export function UserImportPanel() {
  */
 export function UserImportPreviewPanel() {
   const { showToast } = useToast();
+  const userBasePath = "/admin/users";
   const [preview, setPreview] = useState<UserImportPreviewResponse | null>(null);
   const [filter, setFilter] = useState<"all" | UserImportPreviewStatus>("all");
   const [strategy, setStrategy] = useState<UserImportConflictStrategy>("skip");
@@ -150,7 +152,7 @@ export function UserImportPreviewPanel() {
   }, [filter, preview]);
 
   if (preview === null) {
-    return <EmptyState title="暂无导入预览" description="请先上传 Excel/CSV 文件并完成预览。" action={<Link className={buttonClassName({ variant: "primary" })} href="/admin/users/import">返回导入页</Link>} />;
+    return <EmptyState title="暂无导入预览" description="请先上传 Excel/CSV 文件并完成预览。" action={<Link className={buttonClassName({ variant: "primary" })} href={`${userBasePath}/import`}>返回导入页</Link>} />;
   }
 
   return (
@@ -222,7 +224,7 @@ export function UserImportPreviewPanel() {
             </TabsContent>
           </Tabs>
           <div className="flex justify-between">
-            <Link className={buttonClassName({ variant: "outline" })} href="/admin/users/import">取消</Link>
+            <Link className={buttonClassName({ variant: "outline" })} href={`${userBasePath}/import`}>取消</Link>
             <Button
               type="button"
               disabled={preview.valid === 0 || preview.invalid > 0}
@@ -266,7 +268,7 @@ export function UserImportPreviewPanel() {
                 下载失败明细
               </Button>
             ) : null}
-            <Link className={buttonClassName({ variant: "primary" })} href="/admin/users">完成</Link>
+            <Link className={buttonClassName({ variant: "primary" })} href={userBasePath}>完成</Link>
           </DialogFooter>
         </DialogContent>
       </Dialog>

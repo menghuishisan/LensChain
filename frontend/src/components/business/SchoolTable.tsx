@@ -76,7 +76,7 @@ export function SchoolTable() {
           <CardTitle>学校管理</CardTitle>
           <CardDescription>查看、搜索和筛选学校信息，管理服务有效期与当前状态。</CardDescription>
         </div>
-        <Link className={buttonClassName({ variant: "primary" })} href="/admin/schools/create">创建学校</Link>
+        <div className="flex gap-2"><Link className={buttonClassName({ variant: "primary" })} href="/super/schools/create">创建学校</Link><Link className={buttonClassName({ variant: "outline" })} href="/super/school-applications">入驻申请</Link></div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 md:grid-cols-[1fr_12rem_auto]">
@@ -121,7 +121,7 @@ export function SchoolTable() {
                     <TableCell>{school.contact_name} · {maskSchoolPhone(school.contact_phone)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
-                        <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/admin/schools/${school.id}`}>详情/编辑</Link>
+                        <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/schools/${school.id}`}>详情/编辑</Link>
                         <Button size="sm" variant="outline" onClick={() => setLicenseTarget(school.id)}>有效期</Button>
                         {school.status === 4 ? (
                           <Button size="sm" variant="outline" onClick={() => lifecycle.unfreeze.mutate(school.id, { onSuccess: () => showToast({ title: "学校已解冻", variant: "success" }) })}>解冻</Button>
@@ -287,7 +287,7 @@ export function SchoolFormPanel({ schoolID }: { schoolID?: ID }) {
           ) : null}
           <div className="flex gap-3 md:col-span-2">
             <Button type="submit" disabled={!canSubmit} isLoading={createMutation.isPending || updateMutation.isPending}>{isEdit ? "保存修改" : "创建学校"}</Button>
-            <Link className={buttonClassName({ variant: "outline" })} href="/admin/schools">返回列表</Link>
+            <Link className={buttonClassName({ variant: "outline" })} href="/super/schools">返回列表</Link>
           </div>
         </form>
       </CardContent>

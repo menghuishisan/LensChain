@@ -4,7 +4,7 @@
 // 模块04实验实例、教师监控和管理端资源页面级业务面板。
 
 import { Activity, BarChart3, CheckCircle, Circle, Eye, Loader2, Play, RotateCcw, Square } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -138,10 +138,11 @@ export function StudentExperimentListPanel() {
  */
 export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const templateQuery = useExperimentTemplate(templateID);
   const lifecycle = useExperimentInstanceLifecycleMutations();
-  const [courseID, setCourseID] = useState("");
-  const [groupID, setGroupID] = useState("");
+  const [courseID, setCourseID] = useState(searchParams.get("course_id") ?? "");
+  const [groupID, setGroupID] = useState(searchParams.get("group_id") ?? "");
   const [snapshotID, setSnapshotID] = useState("");
   const [launchedInstanceID, setLaunchedInstanceID] = useState("");
 

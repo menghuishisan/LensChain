@@ -8,5 +8,5 @@ import { SharedCoursesPanel } from "@/components/business/SharedCoursesPanel";
  * SharedCoursesCanonicalPage 共享课程库页。
  */
 export default function SharedCoursesCanonicalPage() {
-  return <PermissionGate allowedRoles={["teacher", "school_admin", "super_admin"]}><SharedCoursesPanel /></PermissionGate>;
+  return <PermissionGate allowedRoles={["teacher"]}><SharedCoursesPanel /></PermissionGate>;
 }

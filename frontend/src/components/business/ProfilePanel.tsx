@@ -54,7 +54,7 @@ export function ProfilePanel() {
   }
 
   const isEmailValid = validateOptionalEmail(email);
-  const isStudent = data.roles.includes("student");
+  const showLearningOverview = data.roles.includes("student");
 
   return (
     <div className="space-y-6">
@@ -81,7 +81,7 @@ export function ProfilePanel() {
         </div>
       </section>
 
-      <div className={isStudent ? "grid gap-6 xl:grid-cols-[1.2fr_0.8fr]" : "grid gap-6"}>
+      <div className={showLearningOverview ? "grid gap-6 xl:grid-cols-[1.2fr_0.8fr]" : "grid gap-6"}>
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div>
@@ -141,7 +141,7 @@ export function ProfilePanel() {
           </CardContent>
         </Card>
 
-        {isStudent ? (
+        {showLearningOverview ? (
           <Card>
             <CardHeader>
               <CardTitle>学习概览</CardTitle>

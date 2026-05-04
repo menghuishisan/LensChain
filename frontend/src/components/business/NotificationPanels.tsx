@@ -4,6 +4,7 @@
 // 模块07页面级通知面板，组合收件箱、偏好、公告、模板、统计和定向通知。
 
 import { BarChart3, Send } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { AnnouncementPanel } from "@/components/business/AnnouncementPanel";
@@ -11,7 +12,7 @@ import { NotificationInbox } from "@/components/business/NotificationInbox";
 import { NotificationPreferenceForm } from "@/components/business/NotificationPreferenceForm";
 import { NotificationTemplateEditor } from "@/components/business/NotificationTemplateEditor";
 import { PermissionGate } from "@/components/business/PermissionGate";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
@@ -32,11 +33,25 @@ export function NotificationPreferencePagePanel() {
   return <NotificationPreferenceForm />;
 }
 
+/** SuperNotificationNav 超管通知子页面导航。 */
+function SuperNotificationNav() {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Link className={buttonClassName({ variant: "outline" })} href="/super/notifications/announcements">系统公告</Link>
+      <Link className={buttonClassName({ variant: "outline" })} href="/super/notifications/templates">消息模板</Link>
+      <Link className={buttonClassName({ variant: "outline" })} href="/super/notifications/statistics">消息统计</Link>
+    </div>
+  );
+}
+
 /** AdminAnnouncementPagePanel 管理端公告页面面板。 */
 export function AdminAnnouncementPagePanel({ announcementID }: { announcementID?: ID }) {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
-      <AnnouncementPanel mode="admin" announcementID={announcementID} />
+      <div className="space-y-5">
+        <SuperNotificationNav />
+        <AnnouncementPanel mode="admin" announcementID={announcementID} />
+      </div>
     </PermissionGate>
   );
 }
@@ -45,7 +60,10 @@ export function AdminAnnouncementPagePanel({ announcementID }: { announcementID?
 export function AdminTemplatePagePanel({ templateID }: { templateID?: ID }) {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
-      <NotificationTemplateEditor templateID={templateID} />
+      <div className="space-y-5">
+        <SuperNotificationNav />
+        <NotificationTemplateEditor templateID={templateID} />
+      </div>
     </PermissionGate>
   );
 }
@@ -122,6 +140,7 @@ export function NotificationStatisticsPanel() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <div className="space-y-5">
+        <SuperNotificationNav />
         <div className="grid gap-3 md:grid-cols-3">
           <MetricCard title="发送总数" value={String(data?.total_sent ?? 0)} />
           <MetricCard title="已读总数" value={String(data?.total_read ?? 0)} />

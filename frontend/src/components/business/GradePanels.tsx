@@ -4,6 +4,7 @@
 // 模块06页面级业务面板，组合学习概览、GPA、审核、申诉、预警、成绩单和分析页面。
 
 import { Plus } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { AcademicWarningPanel } from "@/components/business/AcademicWarningPanel";
@@ -13,7 +14,7 @@ import { LearningOverviewPanel } from "@/components/business/LearningOverviewPan
 import { SemesterGradeTable } from "@/components/business/SemesterGradeTable";
 import { TranscriptPanel } from "@/components/business/TranscriptPanel";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormField } from "@/components/ui/FormField";
@@ -41,9 +42,9 @@ export function StudentGradesPanel() {
       <LearningOverviewPanel />
       <SemesterGradeTable />
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => window.location.assign("/student/grades/gpa")}>查看GPA趋势</Button>
-        <Button variant="outline" onClick={() => window.location.assign("/student/grades/transcripts")}>下载成绩单</Button>
-        <Button variant="ghost" onClick={() => window.location.assign("/student/grades/appeals")}>成绩申诉</Button>
+        <Link className={buttonClassName()} href="/student/grades/gpa">查看GPA趋势</Link>
+        <Link className={buttonClassName({ variant: "outline" })} href="/student/grades/transcripts">下载成绩单</Link>
+        <Link className={buttonClassName({ variant: "ghost" })} href="/student/grades/appeals">成绩申诉</Link>
       </div>
     </div>
   );
@@ -499,7 +500,10 @@ function TeacherCourseReviewItem({ courseID, courseName, semesterID, semesterNam
           <p className="font-semibold">{courseName}</p>
           <p className="mt-1 text-sm text-muted-foreground">{semesterName} · 成绩完成 {completedCount}/{studentCount}</p>
         </div>
-        <Badge variant={reviewStatus === "可提交" ? "success" : reviewStatus === "未提交" ? "outline" : "destructive"}>{reviewStatus}</Badge>
+        <div className="flex items-center gap-2">
+          <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/teacher/grades/analytics/${courseID}`}>成绩分析</Link>
+          <Badge variant={reviewStatus === "可提交" ? "success" : reviewStatus === "未提交" ? "outline" : "destructive"}>{reviewStatus}</Badge>
+        </div>
       </div>
       {reviewStatus === "可提交" && semesterID ? (
         <p className="mt-2 text-xs text-muted-foreground">请在上方“成绩审核提交”区域填入课程ID `{courseID}` 和学期ID `{semesterID}` 提交审核。</p>

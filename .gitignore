@@ -46,6 +46,11 @@ CLAUDE.md
 **/AGENTS.md
 **/CLAUDE.md
 
-# Non-project local notes / temporary docs
-docs/superpowers/
-docs/frontend-implementation-audit.md
+# Docs: ignore all, then whitelist modules/ standards/ and overview files
+docs/*
+!docs/modules/
+!docs/standards/
+!docs/00-项目总览与文档规范.md
+!docs/API接口总览.md
+!docs/数据库表总览.md
+!docs/项目功能总览.md

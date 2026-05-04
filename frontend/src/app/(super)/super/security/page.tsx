@@ -5,9 +5,9 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 import { SecurityPolicyPanel } from "@/components/business/SecurityPolicyPanel";
 
 /**
- * AdminSecurityPage 安全策略配置页。
+ * SuperSecurityPage 安全策略配置页。
  */
-export default function AdminSecurityPage() {
+export default function SuperSecurityPage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <SecurityPolicyPanel />

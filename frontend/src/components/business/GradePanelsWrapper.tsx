@@ -1,7 +1,10 @@
 // GradePanelsWrapper.tsx
 // 模块06页面包装组件，负责角色门禁和对应页面面板选择。
 
+import Link from "next/link";
+
 import { PermissionGate } from "@/components/business/PermissionGate";
+import { buttonClassName } from "@/components/ui/Button";
 import {
   AdminGradeAnalyticsPanel,
   AdminGradeReviewsPanel,
@@ -40,9 +43,15 @@ export function GradePanelsStudentWrapper({ page }: { page: "grades" | "gpa" | "
 export function GradePanelsTeacherWrapper({ page, courseID }: { page: "reviews" | "appeals" | "analytics"; courseID?: ID }) {
   return (
     <PermissionGate allowedRoles={["teacher"]}>
-      {page === "reviews" ? <TeacherGradeReviewsPanel /> : null}
-      {page === "appeals" ? <TeacherGradeAppealsPanel /> : null}
-      {page === "analytics" && courseID ? <TeacherGradeAnalyticsPanel courseID={courseID} /> : null}
+      <div className="space-y-5">
+        <div className="flex flex-wrap gap-2">
+          <Link className={buttonClassName({ variant: "outline" })} href="/teacher/grades/reviews">成绩审核</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/teacher/grades/appeals">申诉处理</Link>
+        </div>
+        {page === "reviews" ? <TeacherGradeReviewsPanel /> : null}
+        {page === "appeals" ? <TeacherGradeAppealsPanel /> : null}
+        {page === "analytics" && courseID ? <TeacherGradeAnalyticsPanel courseID={courseID} /> : null}
+      </div>
     </PermissionGate>
   );
 }
@@ -53,13 +62,23 @@ export function GradePanelsTeacherWrapper({ page, courseID }: { page: "reviews" 
 export function GradePanelsAdminWrapper({ page, reviewID }: { page: "semesters" | "level-configs" | "reviews" | "review-detail" | "warnings" | "warning-configs" | "analytics"; reviewID?: ID }) {
   return (
     <PermissionGate allowedRoles={["school_admin"]}>
-      {page === "semesters" ? <AdminSemestersPanel /> : null}
-      {page === "level-configs" ? <AdminLevelConfigsPanel /> : null}
-      {page === "reviews" ? <AdminGradeReviewsPanel /> : null}
-      {page === "review-detail" && reviewID ? <AdminGradeReviewsPanel reviewID={reviewID} /> : null}
-      {page === "warnings" ? <AdminWarningsPanel /> : null}
-      {page === "warning-configs" ? <AdminWarningConfigPanel /> : null}
-      {page === "analytics" ? <AdminGradeAnalyticsPanel /> : null}
+      <div className="space-y-5">
+        <div className="flex flex-wrap gap-2">
+          <Link className={buttonClassName({ variant: "outline" })} href="/admin/grades/semesters">学期管理</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/admin/grades/level-configs">等级映射</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/admin/grades/reviews">成绩审核</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/admin/grades/warnings">学业预警</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/admin/grades/warning-configs">预警配置</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/admin/grades/analytics">全校分析</Link>
+        </div>
+        {page === "semesters" ? <AdminSemestersPanel /> : null}
+        {page === "level-configs" ? <AdminLevelConfigsPanel /> : null}
+        {page === "reviews" ? <AdminGradeReviewsPanel /> : null}
+        {page === "review-detail" && reviewID ? <AdminGradeReviewsPanel reviewID={reviewID} /> : null}
+        {page === "warnings" ? <AdminWarningsPanel /> : null}
+        {page === "warning-configs" ? <AdminWarningConfigPanel /> : null}
+        {page === "analytics" ? <AdminGradeAnalyticsPanel /> : null}
+      </div>
     </PermissionGate>
   );
 }

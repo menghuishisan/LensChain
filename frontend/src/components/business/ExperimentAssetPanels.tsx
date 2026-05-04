@@ -4,10 +4,11 @@
 // 模块04镜像与仿真场景业务面板，负责镜像上传、镜像详情/审核和仿真场景库。
 
 import { FileArchive, Grid3X3, Image as ImageIcon, List, ShieldCheck, ShieldAlert, UploadCloud } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -158,6 +159,17 @@ export function ExperimentImageLibraryPanel({ reviewMode = false }: { reviewMode
 
   return (
     <div className="space-y-5">
+      {reviewMode ? (
+        <div className="flex flex-wrap gap-2">
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/images">镜像仓库</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/sim-scenarios">仿真场景</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/resource-monitor">资源监控</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/resource-quotas">资源配额</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/experiment-instances">实验实例</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/k8s-cluster">K8s集群</Link>
+          <Link className={buttonClassName({ variant: "outline" })} href="/super/image-pull-status">镜像预拉取</Link>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-3xl font-semibold">镜像仓库管理</h1>
         <div className="flex gap-2">
@@ -241,9 +253,9 @@ export function ExperimentImageLibraryPanel({ reviewMode = false }: { reviewMode
                   <TableCell>{image.usage_count}</TableCell>
                   <TableCell><Badge variant={image.status === 2 ? "outline" : image.status === 1 ? "success" : "secondary"}>{image.status_text}</Badge></TableCell>
                   <TableCell>
-                    <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/images/${image.id}`)}>
+                    <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/images/${image.id}`}>
                       {image.status === 2 ? "审核" : "详情"}
-                    </Button>
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}
@@ -621,9 +633,9 @@ function ImageLibraryCard({ image, reviewMode }: { image: ImageListItem; reviewM
         </div>
         <p className="text-sm text-muted-foreground">引用 {image.usage_count} 次 · {image.status_text}</p>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/images/${image.id}`)}>
+          <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/images/${image.id}`}>
             {image.status === 2 ? "审核" : "查看"}
-          </Button>
+          </Link>
           {reviewMode && image.status === 2 ? (
             <>
               <Button size="sm" onClick={() => imageMutations.review.mutate({ action: "approve", comment: "审核通过" })}>通过</Button>

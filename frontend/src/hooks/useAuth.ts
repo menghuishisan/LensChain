@@ -162,7 +162,7 @@ export function useSsoCallbackMutation() {
 export function getAuthHomePath(roles: readonly UserRole[]) {
   const primaryRole = getPrimaryRole(roles);
   if (primaryRole === "super_admin") {
-    return "/admin/schools";
+    return "/super/schools";
   }
   if (primaryRole === "school_admin") {
     return "/admin/users";

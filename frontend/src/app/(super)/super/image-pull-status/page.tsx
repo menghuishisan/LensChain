@@ -1,11 +1,11 @@
 // page.tsx
-// 管理端镜像预拉取状态页。
+// 超级管理员镜像预拉取状态页。
 
 import { ImagePullStatusPanel } from "@/components/business/ExperimentAdminPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
-/** AdminImagePullStatusPage 管理端镜像预拉取状态页面。 */
-export default function AdminImagePullStatusPage() {
+/** SuperImagePullStatusPage 超级管理员镜像预拉取状态页面。 */
+export default function SuperImagePullStatusPage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <ImagePullStatusPanel />

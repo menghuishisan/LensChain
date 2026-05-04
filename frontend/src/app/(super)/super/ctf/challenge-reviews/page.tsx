@@ -4,7 +4,7 @@
 import { CtfChallengeReviewPanel } from "@/components/business/CtfPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
-/** AdminCtfChallengeReviewsPage 超级管理员CTF题目审核列表页面。 */
-export default function AdminCtfChallengeReviewsPage() {
+/** SuperCtfChallengeReviewsPage 超级管理员CTF题目审核列表页面。 */
+export default function SuperCtfChallengeReviewsPage() {
   return <PermissionGate allowedRoles={["super_admin"]}><CtfChallengeReviewPanel /></PermissionGate>;
 }

@@ -127,6 +127,15 @@ export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
             <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/announcements`}>
               公告
             </Link>
+            <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/evaluations`}>
+              评价
+            </Link>
+            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/experiment-monitor`}>
+              实验监控
+            </Link>
+            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/experiment-statistics`}>
+              实验统计
+            </Link>
             <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/statistics`}>
               统计
             </Link>

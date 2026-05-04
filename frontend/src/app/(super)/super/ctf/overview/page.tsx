@@ -4,7 +4,7 @@
 import { CtfAdminOverviewPanel } from "@/components/business/CtfPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
-/** AdminCtfOverviewPage 超级管理员CTF全平台概览页面。 */
-export default function AdminCtfOverviewPage() {
+/** SuperCtfOverviewPage 超级管理员CTF全平台概览页面。 */
+export default function SuperCtfOverviewPage() {
   return <PermissionGate allowedRoles={["super_admin"]}><CtfAdminOverviewPanel /></PermissionGate>;
 }

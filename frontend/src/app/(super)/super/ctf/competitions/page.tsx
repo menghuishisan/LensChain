@@ -4,7 +4,7 @@
 import { CtfAdminCompetitionListPanel } from "@/components/business/CtfPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
-/** AdminCtfCompetitionsPage 超级管理员CTF竞赛管理页面。 */
-export default function AdminCtfCompetitionsPage() {
+/** SuperCtfCompetitionsPage 超级管理员CTF竞赛管理页面。 */
+export default function SuperCtfCompetitionsPage() {
   return <PermissionGate allowedRoles={["super_admin"]}><CtfAdminCompetitionListPanel /></PermissionGate>;
 }

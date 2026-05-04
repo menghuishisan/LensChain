@@ -93,10 +93,16 @@ export function ExperimentTemplateListPanel() {
           <h1 className="font-display text-3xl font-semibold">实验内容中心</h1>
           <p className="mt-2 text-sm text-muted-foreground">创建、检查并发布实验内容，完善环境、说明和评分要求。</p>
         </div>
-        <Button onClick={() => router.push("/teacher/experiment-templates/create")}>
-          <Plus className="h-4 w-4" />
-          新建实验内容
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => router.push("/teacher/experiment-templates/create")}>
+            <Plus className="h-4 w-4" />
+            新建实验内容
+          </Button>
+          <Button variant="outline" onClick={() => router.push("/teacher/experiment-groups")}>分组管理</Button>
+          <Button variant="outline" onClick={() => router.push("/teacher/shared-experiment-templates")}>共享实验库</Button>
+          <Button variant="outline" onClick={() => router.push("/teacher/images/upload")}>上传镜像</Button>
+          <Button variant="outline" onClick={() => router.push("/teacher/sim-scenarios/upload")}>上传仿真场景</Button>
+        </div>
       </div>
       <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索实验标题" />
       {templates.length === 0 ? (

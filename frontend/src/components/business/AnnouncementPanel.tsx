@@ -3,10 +3,11 @@
 // AnnouncementPanel.tsx
 // 模块07系统公告组件，区分用户视角公告列表与管理员视角创建/编辑/发布/下架管理。
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormField } from "@/components/ui/FormField";
@@ -138,7 +139,7 @@ export function AnnouncementPanel({ mode, announcementID }: AnnouncementPanelPro
                 </div>
                 <div className="flex gap-2">
                   {item.status_text ? <Badge variant="outline">{item.status_text}</Badge> : null}
-                  <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/notifications/announcements/${item.id}/edit`)}>编辑</Button>
+                  <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/notifications/announcements/${item.id}/edit`}>编辑</Link>
                 </div>
               </div>
             </div>

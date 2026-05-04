@@ -71,6 +71,7 @@ if ($LASTEXITCODE -ne 0) {
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $backendDir = Join-Path $repoRoot "backend"
 $seedFile = Join-Path $backendDir "migrations/010_seed_demo_data.up.sql"
+$seedSupplementFile = Join-Path $backendDir "migrations/011_seed_demo_supplement.up.sql"
 $goCacheDir = Join-Path $backendDir ".gocache"
 
 if (-not $env:GOCACHE) {
@@ -101,6 +102,17 @@ if (Test-Path $seedFile) {
 }
 else {
     Write-Host "==> Demo seed file not found, skipping"
+}
+
+if (Test-Path $seedSupplementFile) {
+    Write-Host "==> Seeding supplement data from migrations/011_seed_demo_supplement.up.sql"
+    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedSupplementFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "导入补充 demo 数据失败"
+    }
+}
+else {
+    Write-Host "==> Supplement seed file not found, skipping"
 }
 
 Write-Host "==> Database initialization complete"

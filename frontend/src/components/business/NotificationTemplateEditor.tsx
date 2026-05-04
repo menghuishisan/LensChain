@@ -3,9 +3,10 @@
 // NotificationTemplateEditor.tsx
 // 模块07消息模板组件，支持模板列表、详情、更新和安全预览。
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
@@ -50,7 +51,7 @@ export function NotificationTemplateEditor({ templateID }: NotificationTemplateE
                   <p className="mt-1 text-sm text-muted-foreground">{item.title_template}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{item.category_text} · {item.is_enabled ? "已启用" : "已停用"}</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => window.location.assign(`/admin/notifications/templates?id=${item.id}`)}>编辑</Button>
+                <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/notifications/templates?id=${item.id}`}>编辑</Link>
               </div>
             </div>
           ))}

@@ -5,9 +5,9 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 import { SchoolFormPanel } from "@/components/business/SchoolTable";
 
 /**
- * AdminSchoolCreatePage 创建学校页。
+ * SuperSchoolCreatePage 创建学校页。
  */
-export default function AdminSchoolCreatePage() {
+export default function SuperSchoolCreatePage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <SchoolFormPanel />

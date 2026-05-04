@@ -5,9 +5,9 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 import { SchoolTable } from "@/components/business/SchoolTable";
 
 /**
- * AdminSchoolsPage 学校管理列表页。
+ * SuperSchoolsPage 学校管理列表页。
  */
-export default function AdminSchoolsPage() {
+export default function SuperSchoolsPage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <SchoolTable />

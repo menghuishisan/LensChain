@@ -90,9 +90,10 @@ interface TeacherAssignmentCardProps {
 
 function TeacherAssignmentCard({ assignment, courseID }: TeacherAssignmentCardProps) {
   const detail = useAssignment(assignment.id);
-  const submissions = useSubmissions(assignment.id, { page: 1, page_size: 1 });
+  const submissions = useSubmissions(assignment.id, { page: 1, page_size: 20 });
   const mutations = useAssignmentMutations(courseID, assignment.id);
   const hasSubmission = (submissions.data?.list?.length ?? 0) > 0;
+  const [showSubmissions, setShowSubmissions] = useState(false);
   const questionCount = detail.data?.questions.length ?? 0;
 
   return (
@@ -140,7 +141,19 @@ function TeacherAssignmentCard({ assignment, courseID }: TeacherAssignmentCardPr
           <Button variant="destructive" disabled={hasSubmission} onClick={() => mutations.deleteAssignment.mutate()}>
             删除作业
           </Button>
+          {hasSubmission ? <Button variant="outline" onClick={() => setShowSubmissions((v) => !v)}>{showSubmissions ? "收起提交" : "查看提交"}</Button> : null}
         </div>
+        {showSubmissions && submissions.data?.list ? (
+          <div className="rounded-xl border border-border p-4 space-y-2">
+            <p className="text-sm font-semibold">提交列表（{submissions.data.list.length} 份）</p>
+            {submissions.data.list.map((sub) => (
+              <div key={sub.id} className="flex items-center justify-between rounded-lg bg-muted/60 p-3 text-sm">
+                <span>{sub.student_name ?? sub.student_id} · 第{sub.submission_no}次提交 · {sub.status_text}{sub.total_score != null ? ` · ${sub.total_score}分` : ""}</span>
+                <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/teacher/submissions/${sub.id}/grade`}>批改</Link>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

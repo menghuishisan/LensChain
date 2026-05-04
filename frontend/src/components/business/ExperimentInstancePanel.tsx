@@ -4,6 +4,8 @@
 // 模块04实验实例详情面板，组合生命周期、终端、检查点、快照、报告和 SimEngine。
 
 import { ExternalLink, FlaskConical, Pause, Play, RotateCcw, Send, Square, Upload, Code, Monitor, Gamepad2, BookOpen, CheckCircle } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 
@@ -24,7 +26,7 @@ import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
-import { useCheckpointMutations, useExperimentInstance, useExperimentInstanceLifecycleMutations, useExperimentOperationLogs, useExperimentReport, useExperimentReportMutations, useExperimentMonitorMutations } from "@/hooks/useExperimentInstances";
+import { useCheckpointMutations, useExperimentInstance, useExperimentInstanceLifecycleMutations, useExperimentReport, useExperimentReportMutations, useExperimentMonitorMutations } from "@/hooks/useExperimentInstances";
 import { useExperimentInstanceRealtime } from "@/hooks/useExperimentRealtime";
 import { useExperimentTemplate } from "@/hooks/useExperimentTemplates";
 import { formatDateTime, formatFileSize, formatScore } from "@/lib/format";
@@ -53,19 +55,17 @@ function getInstanceStatusVariant(status: number) {
  * ExperimentInstancePanel 实验实例工作台组件。
  */
 export function ExperimentInstancePanel({ instanceID, mode = "student" }: ExperimentInstancePanelProps) {
+  const router = useRouter();
   const instanceQuery = useExperimentInstance(instanceID);
   const lifecycle = useExperimentInstanceLifecycleMutations(instanceID);
   const realtime = useExperimentInstanceRealtime(instanceID);
   const checkpointMutations = useCheckpointMutations(instanceID);
   const monitorMutations = useExperimentMonitorMutations();
   const [reportContent, setReportContent] = useState("");
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [guidanceMessage, setGuidanceMessage] = useState("");
   const [manualScore, setManualScore] = useState("");
   const [manualComment, setManualComment] = useState("");
   const reportQuery = useExperimentReport(instanceID);
-  const logsQuery = useExperimentOperationLogs(instanceID, { page: 1, page_size: 20 });
-  const reportMutations = useExperimentReportMutations(instanceID);
   const templateID = instanceQuery.data?.template.id ?? "";
   const templateQuery = useExperimentTemplate(templateID);
   const guidanceMessages = useMemo(
@@ -131,42 +131,6 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
   const desktopTool = instance.tools.find((t) => t.kind === "desktop");
   const explorerTool = instance.tools.find((t) => t.kind === "explorer");
   const monitorTool = instance.tools.find((t) => t.kind === "monitor");
-
-  const uploadReportFile = (file: File) => {
-    reportMutations.upload.mutate(
-      { file, purpose: "experiment_report", onUploadProgress: setUploadProgress },
-      {
-        onSuccess: (uploaded) => {
-          const payload = {
-            content: reportContent,
-            file_url: uploaded.file_url,
-            file_name: uploaded.file_name,
-            file_size: uploaded.file_size,
-          };
-          if (reportQuery.data) {
-            reportMutations.update.mutate(payload);
-          } else {
-            reportMutations.create.mutate(payload);
-          }
-        },
-        onSettled: () => setUploadProgress(null),
-      },
-    );
-  };
-
-  const saveReport = () => {
-    const payload = {
-      content: reportContent,
-      file_url: reportQuery.data?.file_url ?? null,
-      file_name: reportQuery.data?.file_name ?? null,
-      file_size: reportQuery.data?.file_size ?? null,
-    };
-    if (reportQuery.data) {
-      reportMutations.update.mutate(payload);
-    } else {
-      reportMutations.create.mutate(payload);
-    }
-  };
 
   const submitGuidance = () => {
     const content = guidanceMessage.trim();
@@ -244,14 +208,28 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
               <RotateCcw className="h-4 w-4" />
               重启
             </Button>
-            {isStudentMode ? <ConfirmDialog
-              title="确认提交实验"
-              description="提交后将触发检查点评分和报告验收，运行态实例会进入已提交状态。"
-              confirmText="提交"
-              confirmVariant="primary"
-              trigger={<Button size="sm">提交实验</Button>}
-              onConfirm={() => lifecycle.submit.mutate()}
-            /> : null}
+            {isStudentMode ? (
+              <>
+                <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => router.push(`/student/experiment-instances/${instanceID}/report`)}>
+                  <ExternalLink className="h-4 w-4" />
+                  独立报告
+                </Button>
+                <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => router.push(`/student/experiment-instances/${instanceID}/result`)}>
+                  实验结果
+                </Button>
+                <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => router.push(`/student/experiment-instances/${instanceID}/history`)}>
+                  操作历史
+                </Button>
+                <ConfirmDialog
+                  title="确认提交实验"
+                  description="提交后将触发检查点评分和报告验收，运行态实例会进入已提交状态。"
+                  confirmText="提交"
+                  confirmVariant="primary"
+                  trigger={<Button size="sm">提交实验</Button>}
+                  onConfirm={() => lifecycle.submit.mutate()}
+                />
+              </>
+            ) : null}
             <ConfirmDialog
               title="确认销毁实验环境"
               description="结束后会释放实验环境，未保存的运行数据可能丢失。"
@@ -318,37 +296,33 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
             {!isGradeMode && (
               <TabsContent value="snapshots" className="flex-1 overflow-auto p-4">
                 <SnapshotPanel instanceID={instanceID} />
-                <div className="mt-4 space-y-3 border-t pt-4">
-                  <p className="text-sm font-medium">操作历史</p>
-                  {(logsQuery.data?.list ?? []).length === 0 ? <p className="text-sm text-muted-foreground">暂无操作历史。</p> : null}
-                  {(logsQuery.data?.list ?? []).map((log) => (
-                    <div key={log.id} className="rounded-lg border border-border p-3 text-sm">
-                      <p className="font-medium">{log.operation_type}</p>
-                      <p className="mt-1 text-muted-foreground">{log.detail ?? "无详细信息"}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatDateTime(log.created_at)}</p>
-                    </div>
-                  ))}
-                </div>
+                {isStudentMode && (
+                  <div className="mt-4 border-t pt-4">
+                    <Link className="text-sm font-medium text-primary hover:underline" href={`/student/experiment-instances/${instanceID}/history`}>查看完整操作历史 →</Link>
+                  </div>
+                )}
               </TabsContent>
             )}
 
             <TabsContent value="report" className="flex-1 overflow-auto p-4">
-              <FormField label="报告正文">
-                <Textarea value={reportContent} onChange={(e) => setReportContent(e.target.value)} rows={8} />
-              </FormField>
-              {reportQuery.data?.file_name && (
-                <div className="mt-2 rounded-lg border bg-muted/35 p-3 text-sm">
-                  当前附件：{reportQuery.data.file_name}，{formatFileSize(reportQuery.data.file_size ?? 0)}
-                </div>
-              )}
-              {!isGradeMode && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" onClick={saveReport} isLoading={reportMutations.create.isPending || reportMutations.update.isPending}>保存报告</Button>
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium hover:bg-muted">
-                    <Upload className="h-4 w-4" />上传附件
-                    <input className="sr-only" type="file" accept=".pdf,.doc,.docx,.md,.txt,.zip" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadReportFile(f); }} />
-                  </label>
-                  {uploadProgress !== null && <span className="self-center text-sm text-muted-foreground">上传 {uploadProgress}%</span>}
+              {isGradeMode ? (
+                <>
+                  <FormField label="报告正文">
+                    <Textarea value={reportContent} onChange={(e) => setReportContent(e.target.value)} rows={8} disabled />
+                  </FormField>
+                  {reportQuery.data?.file_name && (
+                    <div className="mt-2 rounded-lg border bg-muted/35 p-3 text-sm">
+                      当前附件：{reportQuery.data.file_name}，{formatFileSize(reportQuery.data.file_size ?? 0)}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">{reportQuery.data?.content ? `报告已提交（${reportQuery.data.content.length}字）` : "报告尚未提交"}</p>
+                  {reportQuery.data?.file_name && (
+                    <p className="text-sm text-muted-foreground">附件：{reportQuery.data.file_name}，{formatFileSize(reportQuery.data.file_size ?? 0)}</p>
+                  )}
+                  <Link className="text-sm font-medium text-primary hover:underline" href={`/student/experiment-instances/${instanceID}/report`}>前往独立报告页编辑 →</Link>
                 </div>
               )}
             </TabsContent>
@@ -424,6 +398,97 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
           </Tabs>
         </Panel>
       </PanelGroup>
+    </div>
+  );
+}
+
+/**
+ * ExperimentReportPanel 独立实验报告编辑组件。
+ */
+export function ExperimentReportPanel({ instanceID }: { instanceID: ID }) {
+  const instanceQuery = useExperimentInstance(instanceID);
+  const reportQuery = useExperimentReport(instanceID);
+  const reportMutations = useExperimentReportMutations(instanceID);
+  const [reportContent, setReportContent] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (reportQuery.data?.content !== undefined && reportQuery.data.content !== null) {
+      setReportContent(reportQuery.data.content);
+    }
+  }, [reportQuery.data?.content]);
+
+  if (instanceQuery.isLoading) {
+    return <LoadingState title="正在加载实验报告" description="读取报告信息。" />;
+  }
+
+  if (!instanceQuery.data) {
+    return <ErrorState title="加载失败" description="请确认当前账号仍可查看此实验。" />;
+  }
+
+  const instance = instanceQuery.data;
+
+  const uploadReportFile = (file: File) => {
+    reportMutations.upload.mutate(
+      { file, purpose: "experiment_report", onUploadProgress: setUploadProgress },
+      {
+        onSuccess: (uploaded) => {
+          const payload = { content: reportContent, file_url: uploaded.file_url, file_name: uploaded.file_name, file_size: uploaded.file_size };
+          if (reportQuery.data) {
+            reportMutations.update.mutate(payload);
+          } else {
+            reportMutations.create.mutate(payload);
+          }
+        },
+        onSettled: () => setUploadProgress(null),
+      },
+    );
+  };
+
+  const saveReport = () => {
+    const payload = {
+      content: reportContent,
+      file_url: reportQuery.data?.file_url ?? null,
+      file_name: reportQuery.data?.file_name ?? null,
+      file_size: reportQuery.data?.file_size ?? null,
+    };
+    if (reportQuery.data) {
+      reportMutations.update.mutate(payload);
+    } else {
+      reportMutations.create.mutate(payload);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card className="overflow-hidden border-emerald-500/20 bg-gradient-to-br from-slate-950 via-emerald-950 to-cyan-950 text-white">
+        <CardHeader>
+          <CardTitle className="text-white">{instance.template.title} · 实验报告</CardTitle>
+        </CardHeader>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>报告正文</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <FormField label="报告内容">
+            <Textarea value={reportContent} onChange={(e) => setReportContent(e.target.value)} rows={12} />
+          </FormField>
+          {reportQuery.data?.file_name && (
+            <div className="rounded-lg border bg-muted/35 p-3 text-sm">
+              当前附件：{reportQuery.data.file_name}，{formatFileSize(reportQuery.data.file_size ?? 0)}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={saveReport} isLoading={reportMutations.create.isPending || reportMutations.update.isPending}>保存报告</Button>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium hover:bg-muted">
+              <Upload className="h-4 w-4" />上传附件
+              <input className="sr-only" type="file" accept=".pdf,.doc,.docx,.md,.txt,.zip" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadReportFile(f); }} />
+            </label>
+            {uploadProgress !== null && <span className="self-center text-sm text-muted-foreground">上传 {uploadProgress}%</span>}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

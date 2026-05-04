@@ -1,16 +1,14 @@
-// page.tsx
-// 用户创建页，对应模块01 P-06。
+﻿// page.tsx
+// 超级管理员创建用户页。
 
 import { PermissionGate } from "@/components/business/PermissionGate";
 import { UserFormPanel } from "@/components/business/UserManagementPanels";
 
-/**
- * AdminUserCreatePage 用户创建页。
- */
-export default function AdminUserCreatePage() {
+/** SuperUserCreatePage 超级管理员创建用户页。 */
+export default function SuperUserCreatePage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
-      <UserFormPanel />
+      <UserFormPanel basePath="/super/users" canCreateSuperAdmin />
     </PermissionGate>
   );
 }

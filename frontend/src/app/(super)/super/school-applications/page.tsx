@@ -5,9 +5,9 @@ import { PermissionGate } from "@/components/business/PermissionGate";
 import { SchoolApplicationReviewList } from "@/components/business/SchoolApplicationAdminPanels";
 
 /**
- * AdminSchoolApplicationsPage 入驻申请管理列表页。
+ * SuperSchoolApplicationsPage 入驻申请管理列表页。
  */
-export default function AdminSchoolApplicationsPage() {
+export default function SuperSchoolApplicationsPage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <SchoolApplicationReviewList />

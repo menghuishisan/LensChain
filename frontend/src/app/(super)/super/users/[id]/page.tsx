@@ -1,16 +1,14 @@
 // page.tsx
-// 用户详情页，对应模块01 P-05。
+// 超级管理员用户详情页。
 
 import { PermissionGate } from "@/components/business/PermissionGate";
 import { UserDetailPanel } from "@/components/business/UserManagementPanels";
 
-/**
- * AdminUserDetailPage 用户详情页。
- */
-export default function AdminUserDetailPage({ params }: { params: { id: string } }) {
+/** SuperUserDetailPage 超级管理员用户详情页。 */
+export default function SuperUserDetailPage({ params }: { params: { id: string } }) {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
-      <UserDetailPanel userID={params.id} />
+      <UserDetailPanel userID={params.id} basePath="/super/users" />
     </PermissionGate>
   );
 }

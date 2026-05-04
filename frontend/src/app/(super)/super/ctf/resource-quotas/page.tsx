@@ -4,7 +4,7 @@
 import { CtfResourceQuotaPanel } from "@/components/business/CtfPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
-/** AdminCtfResourceQuotasPage 超级管理员CTF资源配额页面。 */
-export default function AdminCtfResourceQuotasPage() {
+/** SuperCtfResourceQuotasPage 超级管理员CTF资源配额页面。 */
+export default function SuperCtfResourceQuotasPage() {
   return <PermissionGate allowedRoles={["super_admin"]}><CtfResourceQuotaPanel /></PermissionGate>;
 }

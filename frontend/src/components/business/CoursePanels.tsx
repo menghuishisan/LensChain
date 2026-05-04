@@ -46,7 +46,7 @@ export function TeacherCourseListPanel() {
   const list = query.data?.list ?? [];
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h2 className="font-display text-3xl font-semibold">我的课程</h2><Link className={buttonClassName()} href="/teacher/courses/create">创建课程</Link></div>
+      <div className="flex items-center justify-between"><h2 className="font-display text-3xl font-semibold">我的课程</h2><div className="flex gap-2"><Link className={buttonClassName()} href="/teacher/courses/create">创建课程</Link><Link className={buttonClassName({ variant: "outline" })} href="/shared-courses">共享课程库</Link></div></div>
       {list.length === 0 ? <EmptyState title="暂无课程" description="创建课程后可继续维护章节、作业和学生。" /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{list.map((item) => <CourseCard key={item.id} course={item} href={`/teacher/courses/${item.id}`} />)}</div>}
       {query.data?.pagination ? <Pagination page={query.data.pagination.page} totalPages={query.data.pagination.total_pages} total={query.data.pagination.total} onPageChange={setPage} /> : null}
     </div>
@@ -64,7 +64,7 @@ export function StudentCourseListPanel() {
   const list = query.data?.list ?? [];
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h2 className="font-display text-3xl font-semibold">我的课程</h2><Link className={buttonClassName({ variant: "outline" })} href="/student/courses/join">加入课程</Link></div>
+      <div className="flex items-center justify-between"><h2 className="font-display text-3xl font-semibold">我的课程</h2><div className="flex gap-2"><Link className={buttonClassName({ variant: "outline" })} href="/student/schedule">课程表</Link><Link className={buttonClassName({ variant: "outline" })} href="/student/courses/join">加入课程</Link></div></div>
       {list.length === 0 ? <EmptyState title="暂无课程" description="输入教师提供的邀请码加入课程。" /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{list.map((item) => <CourseCard key={item.id} course={item} href={`/student/courses/${item.id}`} />)}</div>}
       {query.data?.pagination ? <Pagination page={query.data.pagination.page} totalPages={query.data.pagination.total_pages} total={query.data.pagination.total} onPageChange={setPage} /> : null}
     </div>
@@ -122,7 +122,7 @@ export function StudentCourseHomePanel({ courseID }: { courseID: ID }) {
   const lessonProgressByID = new Map((progress.data?.lessons ?? []).map((lesson) => [lesson.lesson_id, lesson]));
   return (
     <div className="space-y-5">
-      <Card><CardHeader><CardTitle>{course.data?.title}</CardTitle><CardDescription>{course.data?.teacher_name}</CardDescription></CardHeader><CardContent className="space-y-4"><div className="h-3 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${progress.data?.progress ?? 0}%` }} /></div><p className="mt-2 text-sm text-muted-foreground">{progress.data?.completed_count ?? 0}/{progress.data?.total_lessons ?? 0} 课时 · {progress.data?.total_study_hours ?? 0}小时</p><div className="flex flex-wrap gap-2"><Link className={buttonClassName({ variant: "outline" })} href={`#course-content`}>内容</Link><Link className={buttonClassName({ variant: "outline" })} href={`/student/courses/${courseID}/assignments`}>作业</Link><Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/discussions`}>讨论</Link><Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/announcements`}>公告</Link><Link className={buttonClassName({ variant: "outline" })} href={`/student/courses/${courseID}/grades`}>成绩</Link></div></CardContent></Card>
+      <Card><CardHeader><CardTitle>{course.data?.title}</CardTitle><CardDescription>{course.data?.teacher_name}</CardDescription></CardHeader><CardContent className="space-y-4"><div className="h-3 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${progress.data?.progress ?? 0}%` }} /></div><p className="mt-2 text-sm text-muted-foreground">{progress.data?.completed_count ?? 0}/{progress.data?.total_lessons ?? 0} 课时 · {progress.data?.total_study_hours ?? 0}小时</p><div className="flex flex-wrap gap-2"><Link className={buttonClassName({ variant: "outline" })} href={`#course-content`}>内容</Link><Link className={buttonClassName({ variant: "outline" })} href={`/student/courses/${courseID}/assignments`}>作业</Link><Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/discussions`}>讨论</Link><Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/announcements`}>公告</Link><Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/evaluations`}>评价</Link><Link className={buttonClassName({ variant: "outline" })} href={`/student/courses/${courseID}/grades`}>成绩</Link></div></CardContent></Card>
       {course.data?.chapters.map((chapter) => <Card key={chapter.id}><CardHeader><CardTitle>{chapter.title}</CardTitle></CardHeader><CardContent id="course-content" className="grid gap-2">{chapter.lessons.map((lesson) => { const lessonProgress = lessonProgressByID.get(lesson.id); return <Link className="rounded-lg bg-muted/60 p-3" key={lesson.id} href={`/student/lessons/${lesson.id}`}><div className="flex items-center justify-between gap-3"><span>{lesson.title} · {lesson.content_type_text}</span><Badge variant={lessonProgress?.status_text === "已完成" ? "success" : "outline"}>{lessonProgress?.status_text ?? "未开始"}</Badge></div></Link>; })}</CardContent></Card>)}
     </div>
   );
@@ -196,7 +196,7 @@ export function StudentLessonPanel({ lessonID }: { lessonID: ID }) {
           </div>
         ) : null}
         {lesson.data.content ? <pre className="whitespace-pre-wrap rounded-xl bg-muted/60 p-4 text-sm">{safeMarkdownText(lesson.data.content)}</pre> : null}
-        {lesson.data.experiment_id ? <Link className={buttonClassName({ variant: "outline" })} href={`/student/experiments/${lesson.data.experiment_id}/launch`}>启动实验环境</Link> : null}
+        {lesson.data.experiment_id ? <Link className={buttonClassName({ variant: "outline" })} href={`/student/experiments/${lesson.data.experiment_id}/launch?course_id=${lesson.data.course_id}`}>启动实验环境</Link> : null}
         <div className="grid gap-2">
           {lesson.data.attachments.map((attachment) => (
             <a key={attachment.id} className="rounded-lg border border-border p-3 text-sm text-primary hover:bg-muted" href={attachment.file_url}>

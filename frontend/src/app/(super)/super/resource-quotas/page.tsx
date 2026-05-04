@@ -1,11 +1,11 @@
 // page.tsx
-// 管理端资源配额页。
+// 超级管理员资源配额页。
 
 import { PermissionGate } from "@/components/business/PermissionGate";
 import { ResourceQuotaPanel } from "@/components/business/ExperimentAdminPanels";
 
-/** AdminResourceQuotasPage 管理端资源配额页面。 */
-export default function AdminResourceQuotasPage() {
+/** SuperResourceQuotasPage 超级管理员资源配额页面。 */
+export default function SuperResourceQuotasPage() {
   return (
     <PermissionGate allowedRoles={["super_admin"]}>
       <ResourceQuotaPanel />

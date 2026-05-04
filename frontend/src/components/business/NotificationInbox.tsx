@@ -106,6 +106,7 @@ export function NotificationInbox({ messageID }: NotificationInboxProps) {
             <CheckCheck className="h-4 w-4" />
             全部标记已读
           </Button>
+          <Link className="inline-flex items-center rounded-lg border border-input bg-background px-4 py-2 text-sm font-semibold hover:bg-muted" href="/notifications/preferences">通知偏好</Link>
         </div>
       </div>
 

@@ -4,6 +4,7 @@
 // 模块05 CTF页面级业务面板，组合竞赛、题目、团队、排行榜、攻防、监控和结果组件。
 
 import { Activity, ChevronDown, ChevronUp, Plus, Send, ShieldCheck, Swords, Trophy } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
@@ -14,7 +15,7 @@ import { CtfCompetitionCard } from "@/components/business/CtfCompetitionCard";
 import { CtfLeaderboard } from "@/components/business/CtfLeaderboard";
 import { VulnerabilityConvertPanel } from "@/components/business/VulnerabilityConvertPanel";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -193,6 +194,8 @@ export function CtfCompetitionDetailPanel({ competitionID }: { competitionID: ID
             <Button onClick={() => teamMutations.register.mutate(registrationQuery.data?.team_id)} isLoading={teamMutations.register.isPending}>{competition.team_mode === 1 ? "报名参赛" : "团队报名"}</Button>
             <Button variant="outline" onClick={() => router.push(targetPath)}>进入竞赛</Button>
             <Button variant="ghost" onClick={() => router.push(`/ctf/${competitionID}/team`)}>我的团队</Button>
+            <Button variant="ghost" onClick={() => router.push(`/ctf/${competitionID}/leaderboard`)}>排行榜</Button>
+            <Button variant="ghost" onClick={() => router.push(`/ctf/${competitionID}/results`)}>竞赛结果</Button>
           </div>
         </CardContent>
       </Card>
@@ -364,9 +367,9 @@ export function CtfAdminCompetitionListPanel() {
   const competitionsQuery = useCtfCompetitions({ page: 1, page_size: 30 });
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">CTF竞赛管理</h1><Button onClick={() => router.push("/admin/ctf/competitions/create")}><Plus className="h-4 w-4" />创建竞赛</Button></div>
+      <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">CTF竞赛管理</h1><Button onClick={() => router.push("/super/ctf/competitions/create")}><Plus className="h-4 w-4" />创建竞赛</Button></div>
       <TableContainer><Table><TableHeader><TableRow><TableHead>竞赛</TableHead><TableHead>类型</TableHead><TableHead>状态</TableHead><TableHead>队伍</TableHead><TableHead>操作</TableHead></TableRow></TableHeader><TableBody>
-        {(competitionsQuery.data?.list ?? []).map((competition) => <TableRow key={competition.id}><TableCell>{competition.title}</TableCell><TableCell>{competition.competition_type_text}</TableCell><TableCell><Badge>{competition.status_text}</Badge></TableCell><TableCell>{competition.registered_teams}/{competition.max_teams ?? "不限"}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => router.push(`/admin/ctf/competitions/${competition.id}/monitor`)}>查看运行情况</Button></TableCell></TableRow>)}
+        {(competitionsQuery.data?.list ?? []).map((competition) => <TableRow key={competition.id}><TableCell>{competition.title}</TableCell><TableCell>{competition.competition_type_text}</TableCell><TableCell><Badge>{competition.status_text}</Badge></TableCell><TableCell>{competition.registered_teams}/{competition.max_teams ?? "不限"}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => router.push(`/super/ctf/competitions/${competition.id}/monitor`)}>查看运行情况</Button></TableCell></TableRow>)}
       </TableBody></Table></TableContainer>
     </div>
   );
@@ -551,7 +554,7 @@ export function CtfChallengeManagementPanel() {
   const challengesQuery = useCtfChallenges({ page: 1, page_size: 30, keyword, category: category === "all" ? undefined : category, status: status === "all" ? undefined : (Number(status) as CtfChallengeStatus) });
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">我的CTF题目</h1><div className="flex gap-2"><Button onClick={() => router.push("/teacher/ctf/challenges/create")}>创建题目</Button><Button variant="outline" onClick={() => router.push("/teacher/ctf/challenges/import")}>漏洞转化</Button></div></div>
+      <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">我的CTF题目</h1><div className="flex gap-2"><Button onClick={() => router.push("/teacher/ctf/challenges/create")}>创建题目</Button><Button variant="outline" onClick={() => router.push("/teacher/ctf/challenges/import")}>漏洞转化</Button><Button variant="outline" onClick={() => router.push("/teacher/ctf/templates")}>模板库</Button></div></div>
       <div className="grid gap-3 md:grid-cols-3">
         <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索题目名称" />
         <Select value={category} onValueChange={(value) => setCategory(value as CtfChallengeCategory | "all")}><SelectTrigger><SelectValue placeholder="全部类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem><SelectItem value="contract">智能合约</SelectItem><SelectItem value="blockchain">链上分析</SelectItem><SelectItem value="crypto">密码学</SelectItem></SelectContent></Select>
@@ -652,7 +655,7 @@ export function CtfChallengeEditorPanel() {
         <TabsContent value="actions">
           <Card><CardHeader><CardTitle>验证与审核</CardTitle></CardHeader><CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => window.location.assign(`/teacher/ctf/challenges/${challengeID}/verify`)}>发起预验证</Button>
+              <Link className={buttonClassName()} href={`/teacher/ctf/challenges/${challengeID}/verify`}>发起预验证</Link>
               <Button variant="outline" onClick={() => mutations.submitReview.mutate()} isLoading={mutations.submitReview.isPending}>提交审核</Button>
             </div>
             <p className="text-sm text-muted-foreground">链上验证题目必须完成预验证后才能审核通过。当前状态：{currentChallenge?.status_text ?? "草稿"}</p>
