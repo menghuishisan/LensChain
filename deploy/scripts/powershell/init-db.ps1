@@ -2,15 +2,40 @@
 # 初始化数据库：建库 + 执行迁移 + 种子数据
 # 用途：Windows / PowerShell 环境下首次部署或清空数据库后执行
 # 幂等：可重复执行不出错
+# 密码来源：统一从 deploy/config.env 读取，不硬编码
+
+param(
+    [string]$EnvFile = "$PSScriptRoot\..\..\config.env"
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$DB_HOST = if ($env:DB_HOST) { $env:DB_HOST } else { "localhost" }
-$DB_PORT = if ($env:DB_PORT) { $env:DB_PORT } else { "5442" }
-$DB_USER = if ($env:DB_USER) { $env:DB_USER } else { "lenschain" }
-$DB_PASSWORD = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { "lenschain" }
-$DB_NAME = if ($env:DB_NAME) { $env:DB_NAME } else { "lenschain" }
+# ---------------------------------------------------------------------------
+# 加载 config.env
+# ---------------------------------------------------------------------------
+
+if (-not (Test-Path $EnvFile)) {
+    Write-Error "找不到配置文件: $EnvFile`n请先将 config.example.env 复制为 config.env 并填入真实值"
+    exit 1
+}
+
+$envVars = @{}
+Get-Content $EnvFile | ForEach-Object {
+    $line = $_.Trim()
+    if ($line -and -not $line.StartsWith('#')) {
+        $parts = $line -split '=', 2
+        if ($parts.Count -eq 2) {
+            $envVars[$parts[0].Trim()] = $parts[1].Trim()
+        }
+    }
+}
+
+$DB_HOST = if ($env:DB_HOST) { $env:DB_HOST } elseif ($envVars.ContainsKey("DB_HOST")) { $envVars["DB_HOST"] } else { "localhost" }
+$DB_PORT = if ($env:DB_PORT) { $env:DB_PORT } elseif ($envVars.ContainsKey("DB_PORT")) { $envVars["DB_PORT"] } else { "5442" }
+$DB_USER = if ($env:DB_USER) { $env:DB_USER } elseif ($envVars.ContainsKey("DB_USER")) { $envVars["DB_USER"] } else { "lenschain" }
+$DB_PASSWORD = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } elseif ($envVars.ContainsKey("DB_PASSWORD")) { $envVars["DB_PASSWORD"] } else { throw "DB_PASSWORD 未设置，请检查 config.env" }
+$DB_NAME = if ($env:DB_NAME) { $env:DB_NAME } elseif ($envVars.ContainsKey("DB_NAME")) { $envVars["DB_NAME"] } else { "lenschain" }
 
 $env:PGPASSWORD = $DB_PASSWORD
 $env:LENSCHAIN_DATABASE_HOST = $DB_HOST

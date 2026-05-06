@@ -54,16 +54,17 @@ deploy/
 
 ## 本地开发怎么起依赖
 
-如果已填写 `config.env`，使用 `--env-file` 从中读取密码：
+首先准备 `config.env`（密码不使用弱默认值，必须显式传入）：
+
+```bash
+cp deploy/config.example.env deploy/config.env
+# 编辑 config.env，将所有 CHANGE_ME 替换为强密码
+```
+
+启动依赖容器：
 
 ```bash
 docker compose --env-file deploy/config.env -f deploy/docker-compose/docker-compose.dev.yml up -d
-```
-
-若未填写 `config.env`，也可以直接起（使用内置默认值）：
-
-```bash
-docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
 ```
 
 可选地启动 SimEngine：

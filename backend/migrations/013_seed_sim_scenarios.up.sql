@@ -741,63 +741,63 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO template_checkpoints (
     id, template_id, title, description,
-    check_type, check_config, score, sort_order,
+    check_type, assertion_config, score, sort_order,
     created_at, updated_at
 )
 VALUES
--- 共识机制可视化对比（8001）
+-- 共识机制可视化对比（8001）— check_type: 3=SimEngine状态断言
 (920000000000010001, 920000000000008001, '观察 PoW 出块', '在 PoW 场景中推进至少 10 个 Tick，观察一次成功出块。',
- 'sim_state', '{"scene_code":"pow-mining","condition":"tick >= 10"}'::jsonb, 25, 1, NOW(), NOW()),
+ 3, '{"scene_code":"pow-mining","condition":"tick >= 10"}'::jsonb, 25, 1, NOW(), NOW()),
 (920000000000010002, 920000000000008001, '注入拜占庭节点', '在 PBFT 场景中触发注入拜占庭节点交互。',
- 'sim_interaction', '{"scene_code":"pbft-consensus","action_code":"inject_byzantine_node"}'::jsonb, 25, 2, NOW(), NOW()),
+ 3, '{"scene_code":"pbft-consensus","action_code":"inject_byzantine_node"}'::jsonb, 25, 2, NOW(), NOW()),
 (920000000000010003, 920000000000008001, '触发 Raft Leader 故障', '在 Raft 场景中让 Leader 宕机并观察重新选举。',
- 'sim_interaction', '{"scene_code":"raft-election","action_code":"fail_leader"}'::jsonb, 25, 3, NOW(), NOW()),
+ 3, '{"scene_code":"raft-election","action_code":"fail_leader"}'::jsonb, 25, 3, NOW(), NOW()),
 (920000000000010004, 920000000000008001, '完成四种共识对比', '将四个共识场景都推进至结束状态。',
- 'sim_state', '{"all_scenes_completed":true}'::jsonb, 25, 4, NOW(), NOW()),
+ 3, '{"all_scenes_completed":true}'::jsonb, 25, 4, NOW(), NOW()),
 
 -- 密码学基础（8002）
 (920000000000010005, 920000000000008002, '观察雪崩效应', '在 SHA-256 场景中修改输入，对比哈希变化。',
- 'sim_interaction', '{"scene_code":"sha256-hash","action_code":"mutate_input"}'::jsonb, 25, 1, NOW(), NOW()),
+ 3, '{"scene_code":"sha256-hash","action_code":"mutate_input"}'::jsonb, 25, 1, NOW(), NOW()),
 (920000000000010006, 920000000000008002, '完成 ECDSA 签名', '在 ECDSA 场景中完成一次签名和验签流程。',
- 'sim_state', '{"scene_code":"ecdsa-sign","condition":"tick >= 12"}'::jsonb, 25, 2, NOW(), NOW()),
+ 3, '{"scene_code":"ecdsa-sign","condition":"tick >= 12"}'::jsonb, 25, 2, NOW(), NOW()),
 (920000000000010007, 920000000000008002, '篡改 Merkle 叶子', '篡改一个叶子并观察验证路径失效。',
- 'sim_interaction', '{"scene_code":"merkle-tree","action_code":"tamper_leaf"}'::jsonb, 25, 3, NOW(), NOW()),
+ 3, '{"scene_code":"merkle-tree","action_code":"tamper_leaf"}'::jsonb, 25, 3, NOW(), NOW()),
 (920000000000010008, 920000000000008002, '完成零知识证明交互', '在 ZKP 场景中完成承诺-挑战-响应全流程。',
- 'sim_state', '{"scene_code":"zkp-basic","condition":"tick >= 12"}'::jsonb, 25, 4, NOW(), NOW()),
+ 3, '{"scene_code":"zkp-basic","condition":"tick >= 12"}'::jsonb, 25, 4, NOW(), NOW()),
 
 -- 交易与 Gas（8003）
 (920000000000010009, 920000000000008003, '追踪交易生命周期', '在交易生命周期场景中创建交易并观察完整流程。',
- 'sim_interaction', '{"scene_code":"tx-lifecycle","action_code":"create_tx"}'::jsonb, 34, 1, NOW(), NOW()),
+ 3, '{"scene_code":"tx-lifecycle","action_code":"create_tx"}'::jsonb, 34, 1, NOW(), NOW()),
 (920000000000010010, 920000000000008003, '分析 Gas 消耗', '在 Gas 计算场景中切换操作码对比消耗差异。',
- 'sim_interaction', '{"scene_code":"gas-calculation","action_code":"switch_opcode"}'::jsonb, 33, 2, NOW(), NOW()),
+ 3, '{"scene_code":"gas-calculation","action_code":"switch_opcode"}'::jsonb, 33, 2, NOW(), NOW()),
 (920000000000010011, 920000000000008003, '观察 MEV 攻击', '在 MEV 场景中注入抢跑机器人并观察排序变化。',
- 'sim_interaction', '{"scene_code":"tx-ordering-mev","action_code":"inject_mev_bot"}'::jsonb, 33, 3, NOW(), NOW()),
+ 3, '{"scene_code":"tx-ordering-mev","action_code":"inject_mev_bot"}'::jsonb, 33, 3, NOW(), NOW()),
 
 -- 攻防安全（8004）
 (920000000000010012, 920000000000008004, '执行 51% 攻击', '提升攻击者算力至 55%，观察链重组。',
- 'sim_interaction', '{"scene_code":"51-percent-attack","action_code":"boost_attacker_hashrate"}'::jsonb, 25, 1, NOW(), NOW()),
+ 3, '{"scene_code":"51-percent-attack","action_code":"boost_attacker_hashrate"}'::jsonb, 25, 1, NOW(), NOW()),
 (920000000000010013, 920000000000008004, '触发双花攻击', '发送冲突交易，观察商家交易被替换。',
- 'sim_interaction', '{"scene_code":"double-spend","action_code":"send_conflict_tx"}'::jsonb, 25, 2, NOW(), NOW()),
+ 3, '{"scene_code":"double-spend","action_code":"send_conflict_tx"}'::jsonb, 25, 2, NOW(), NOW()),
 (920000000000010014, 920000000000008004, '触发重入攻击', '执行重入攻击并观察余额被清空。',
- 'sim_interaction', '{"scene_code":"reentrancy-attack","action_code":"trigger_reentrancy"}'::jsonb, 25, 3, NOW(), NOW()),
+ 3, '{"scene_code":"reentrancy-attack","action_code":"trigger_reentrancy"}'::jsonb, 25, 3, NOW(), NOW()),
 (920000000000010015, 920000000000008004, '观察整数溢出', '增加数值到临界点并观察回绕现象。',
- 'sim_interaction', '{"scene_code":"integer-overflow","action_code":"add_value"}'::jsonb, 25, 4, NOW(), NOW()),
+ 3, '{"scene_code":"integer-overflow","action_code":"add_value"}'::jsonb, 25, 4, NOW(), NOW()),
 
--- EVM 混合实验（8005）
+-- EVM 混合实验（8005）— check_type: 1=脚本验证, 3=SimEngine断言
 (920000000000010016, 920000000000008005, '部署合约到 geth', '在 Remix IDE 中编译并部署合约到本地 geth 节点。',
- 'command', '{"target_container":"remix-ide","command":"curl -s http://geth:8545 | jq .result","expected":"0x"}'::jsonb, 40, 1, NOW(), NOW()),
+ 1, '{"target_container":"remix-ide","command":"curl -s http://geth:8545 | jq .result","expected":"0x"}'::jsonb, 40, 1, NOW(), NOW()),
 (920000000000010017, 920000000000008005, '跟踪 EVM 执行', '在仿真面板的 EVM 执行步进场景中至少推进 10 步。',
- 'sim_state', '{"scene_code":"evm-execution","condition":"tick >= 10"}'::jsonb, 30, 2, NOW(), NOW()),
+ 3, '{"scene_code":"evm-execution","condition":"tick >= 10"}'::jsonb, 30, 2, NOW(), NOW()),
 (920000000000010018, 920000000000008005, '观察合约状态变化', '在合约状态机场景中触发至少一次状态迁移。',
- 'sim_interaction', '{"scene_code":"contract-state-machine","action_code":"fire_event"}'::jsonb, 30, 3, NOW(), NOW()),
+ 3, '{"scene_code":"contract-state-machine","action_code":"fire_event"}'::jsonb, 30, 3, NOW(), NOW()),
 
 -- PoW 混合实验（8006）
 (920000000000010019, 920000000000008006, '启动 geth 挖矿', '连接 geth 节点并确认出块。',
- 'command', '{"target_container":"blockscout","command":"curl -s http://geth:8545 -X POST -H \"Content-Type:application/json\" -d ''{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}''","expected":"0x"}'::jsonb, 30, 1, NOW(), NOW()),
+ 1, '{"target_container":"blockscout","command":"curl -s http://geth:8545 -X POST -H \"Content-Type:application/json\" -d ''{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}''","expected":"0x"}'::jsonb, 30, 1, NOW(), NOW()),
 (920000000000010020, 920000000000008006, '观察 PoW 仿真', '在 PoW 挖矿仿真场景中推进至少 15 个 Tick。',
- 'sim_state', '{"scene_code":"pow-mining","condition":"tick >= 15"}'::jsonb, 35, 2, NOW(), NOW()),
+ 3, '{"scene_code":"pow-mining","condition":"tick >= 15"}'::jsonb, 35, 2, NOW(), NOW()),
 (920000000000010021, 920000000000008006, '对比真实与仿真区块同步', '在区块同步场景中观察至少一次新区块传播。',
- 'sim_state', '{"scene_code":"block-sync","condition":"tick >= 10"}'::jsonb, 35, 3, NOW(), NOW())
+ 3, '{"scene_code":"block-sync","condition":"tick >= 10"}'::jsonb, 35, 3, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 -- =====================================================================
@@ -847,23 +847,24 @@ ON CONFLICT (template_id, tag_id) DO NOTHING;
 -- =====================================================================
 -- 11. 课程章节、课时与实验关联
 -- =====================================================================
--- 给 010 中已有的课程 (910000000000003001) 添加仿真实验章节
+-- 给 010 中已有的课程 (910000000000007001) 添加仿真实验章节
 
 INSERT INTO chapters (id, course_id, title, description, sort_order, created_at, updated_at)
 VALUES
-(920000000000013001, 910000000000003001, '第四章 区块链原理可视化', '通过仿真实验理解区块链核心原理。', 4, NOW(), NOW())
+(920000000000013001, 910000000000007001, '第四章 区块链原理可视化', '通过仿真实验理解区块链核心原理。', 4, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO lessons (id, chapter_id, title, description, lesson_type, sort_order, duration, created_at, updated_at)
+-- content_type=4 实验课时，experiment_id 指向 experiment_templates
+INSERT INTO lessons (id, chapter_id, course_id, title, content_type, experiment_id, sort_order, estimated_minutes, created_at, updated_at)
 VALUES
-(920000000000013101, 920000000000013001, '4.1 共识机制仿真', '通过仿真对比 PoW/PoS/PBFT/Raft。', 'experiment', 1, 45, NOW(), NOW()),
-(920000000000013102, 920000000000013001, '4.2 密码学基础仿真', '通过仿真理解哈希、签名与 Merkle 树。', 'experiment', 2, 40, NOW(), NOW()),
-(920000000000013103, 920000000000013001, '4.3 交易与 Gas 仿真', '通过仿真理解交易生命周期与 Gas 机制。', 'experiment', 3, 40, NOW(), NOW())
+(920000000000013101, 920000000000013001, 910000000000007001, '4.1 共识机制仿真', 4, 920000000000008001, 1, 45, NOW(), NOW()),
+(920000000000013102, 920000000000013001, 910000000000007001, '4.2 密码学基础仿真', 4, 920000000000008002, 2, 40, NOW(), NOW()),
+(920000000000013103, 920000000000013001, 910000000000007001, '4.3 交易与 Gas 仿真', 4, 920000000000008003, 3, 40, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO course_experiments (id, course_id, lesson_id, template_id, is_required, sort_order, created_at, updated_at)
+INSERT INTO course_experiments (id, course_id, experiment_id, title, sort_order, created_at)
 VALUES
-(920000000000014001, 910000000000003001, 920000000000013101, 920000000000008001, TRUE, 1, NOW(), NOW()),
-(920000000000014002, 910000000000003001, 920000000000013102, 920000000000008002, TRUE, 2, NOW(), NOW()),
-(920000000000014003, 910000000000003001, 920000000000013103, 920000000000008003, TRUE, 3, NOW(), NOW())
+(920000000000014001, 910000000000007001, 920000000000008001, '共识机制可视化对比', 1, NOW()),
+(920000000000014002, 910000000000007001, 920000000000008002, '密码学基础可视化', 2, NOW()),
+(920000000000014003, 910000000000007001, 920000000000008003, '交易与Gas机制仿真', 3, NOW())
 ON CONFLICT (id) DO NOTHING;

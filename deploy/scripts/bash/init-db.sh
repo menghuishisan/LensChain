@@ -3,14 +3,40 @@
 # 初始化数据库：建库 + 执行迁移 + 种子数据
 # 用途：首次部署或清空数据库后执行
 # 幂等：可重复执行不出错
+# 密码来源：统一从 deploy/config.env 读取，不硬编码
 
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# 加载 config.env
+# ---------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="${1:-${SCRIPT_DIR}/../../config.env}"
+
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "[init-db] 错误：找不到配置文件: ${ENV_FILE}"
+    echo "请先将 config.example.env 复制为 config.env 并填入真实值"
+    exit 1
+fi
+
+# 解析 config.env（跳过注释和空行）
+while IFS='=' read -r key value; do
+    key=$(echo "$key" | xargs)
+    value=$(echo "$value" | xargs)
+    [[ -z "$key" || "$key" == \#* ]] && continue
+    export "$key=$value"
+done < "$ENV_FILE"
 
 DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-5442}
 DB_USER=${DB_USER:-lenschain}
-DB_PASSWORD=${DB_PASSWORD:-lenschain}
 DB_NAME=${DB_NAME:-lenschain}
+
+if [ -z "${DB_PASSWORD:-}" ]; then
+    echo "[init-db] 错误：DB_PASSWORD 未设置，请检查 config.env"
+    exit 1
+fi
 
 export PGPASSWORD="$DB_PASSWORD"
 export LENSCHAIN_DATABASE_HOST="$DB_HOST"

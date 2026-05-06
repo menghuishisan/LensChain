@@ -9,6 +9,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -41,8 +42,8 @@ func main() {
 	// 构建数据库连接 URL
 	dbURL := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.Database.User,
-		cfg.Database.Password,
+		url.QueryEscape(cfg.Database.User),
+		url.QueryEscape(cfg.Database.Password),
 		cfg.Database.Host,
 		cfg.Database.Port,
 		cfg.Database.DBName,

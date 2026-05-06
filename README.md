@@ -48,10 +48,18 @@ LensChain/
 
 如果你想尽快把项目跑起来，推荐按下面顺序进行。
 
+### 0. 准备配置文件
+
+```bash
+cp deploy/config.example.env deploy/config.env
+```
+
+打开 `deploy/config.env`，将所有 `CHANGE_ME` 替换为强密码。同时确保 `backend/configs/config.yaml` 中的数据库、Redis、MinIO 密码与 `config.env` 一致。
+
 ### 1. 启动本地依赖
 
 ```bash
-docker compose -f deploy/docker-compose/docker-compose.dev.yml up -d
+docker compose --env-file deploy/config.env -f deploy/docker-compose/docker-compose.dev.yml up -d
 ```
 
 ### 2. 初始化数据库和 demo 数据
