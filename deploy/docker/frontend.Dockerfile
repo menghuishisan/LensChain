@@ -10,7 +10,9 @@
 FROM node:20-alpine AS deps
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+# 先复制 workspace 包，再安装依赖
+COPY sim-engine/renderers /sim-engine/renderers
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # ============================
@@ -22,8 +24,9 @@ ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_WS_BASE_URL
 
 WORKDIR /app
+COPY --from=deps /sim-engine/renderers /sim-engine/renderers
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY frontend/ .
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
@@ -49,7 +52,10 @@ ENV TZ=UTC \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000
 
-RUN apk add --no-cache curl tzdata && \
+RUN for i in 1 2 3; do \
+      apk add --no-cache curl tzdata && break; \
+      echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
+    done && \
     addgroup -S -g 1001 lenschain && \
     adduser -S -u 1001 -G lenschain lenschain
 

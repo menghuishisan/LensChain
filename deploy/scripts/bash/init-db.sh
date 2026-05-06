@@ -56,6 +56,9 @@ go run cmd/migrate/main.go up
 
 DEMO_SEED_FILE="migrations/010_seed_demo_data.up.sql"
 DEMO_SUPPLEMENT_FILE="migrations/011_seed_demo_supplement.up.sql"
+IMAGES_SEED_FILE="migrations/012_seed_images_experiments.up.sql"
+SIM_SCENARIOS_SEED_FILE="migrations/013_seed_sim_scenarios.up.sql"
+CTF_SEED_FILE="migrations/014_seed_ctf.up.sql"
 
 if [ -f "$DEMO_SEED_FILE" ]; then
   echo "==> Seeding demo data from $DEMO_SEED_FILE"
@@ -69,6 +72,27 @@ if [ -f "$DEMO_SUPPLEMENT_FILE" ]; then
   psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$DEMO_SUPPLEMENT_FILE"
 else
   echo "==> Supplement seed file not found, skipping"
+fi
+
+if [ -f "$IMAGES_SEED_FILE" ]; then
+  echo "==> Seeding images & experiments data from $IMAGES_SEED_FILE"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$IMAGES_SEED_FILE"
+else
+  echo "==> Images & experiments seed file not found, skipping"
+fi
+
+if [ -f "$SIM_SCENARIOS_SEED_FILE" ]; then
+  echo "==> Seeding sim scenarios data from $SIM_SCENARIOS_SEED_FILE"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$SIM_SCENARIOS_SEED_FILE"
+else
+  echo "==> Sim scenarios seed file not found, skipping"
+fi
+
+if [ -f "$CTF_SEED_FILE" ]; then
+  echo "==> Seeding CTF data from $CTF_SEED_FILE"
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$CTF_SEED_FILE"
+else
+  echo "==> CTF seed file not found, skipping"
 fi
 
 echo "==> Database initialization complete"

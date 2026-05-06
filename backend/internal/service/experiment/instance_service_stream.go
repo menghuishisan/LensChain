@@ -93,7 +93,7 @@ func (s *instanceService) ResolveTerminalProxyTarget(ctx context.Context, sc *sv
 				return &TerminalProxyTarget{
 					InstanceID:    instance.ID,
 					ContainerName: c.ContainerName,
-					WebSocketURL:  buildXtermWSURL(&c),
+					WebSocketURL:  buildXtermWSURL(c),
 				}, nil
 			}
 			return nil, nil
@@ -112,7 +112,7 @@ func (s *instanceService) ResolveTerminalProxyTarget(ctx context.Context, sc *sv
 		return &TerminalProxyTarget{
 			InstanceID:    instance.ID,
 			ContainerName: c.ContainerName,
-			WebSocketURL:  buildXtermWSURL(&c),
+			WebSocketURL:  buildXtermWSURL(c),
 		}, nil
 	}
 

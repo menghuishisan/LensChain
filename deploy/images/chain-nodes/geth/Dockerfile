@@ -1,10 +1,10 @@
 # chain-nodes/geth/Dockerfile
 # Go-Ethereum 全功能客户端（基于官方镜像薄封装）
 # 支持 dev/mainnet/testnet 模式，教学场景主要使用 dev 模式
-# 构建参数：--build-arg VERSION=1.14.0
+# 构建参数：--build-arg VERSION=v1.14.0
 
-ARG VERSION=1.14.0
-FROM ethereum/client-go:v${VERSION}
+ARG VERSION=v1.14.0
+FROM ethereum/client-go:${VERSION}
 
 ARG VERSION
 LABEL org.opencontainers.image.title="geth"

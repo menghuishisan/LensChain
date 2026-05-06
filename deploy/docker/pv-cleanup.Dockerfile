@@ -17,7 +17,10 @@ LABEL lenschain.io/service="pv-cleanup"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache bash ca-certificates curl jq coreutils tzdata && \
+RUN for i in 1 2 3; do \
+      apk add --no-cache bash ca-certificates curl jq coreutils tzdata && break; \
+      echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
+    done && \
     curl -L "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl && \
     addgroup -S -g 1001 lenschain && \
@@ -27,7 +30,7 @@ RUN apk add --no-cache bash ca-certificates curl jq coreutils tzdata && \
 
 WORKDIR /app
 
-COPY --chown=lenschain:lenschain deploy/scripts/pv-cleanup.sh /app/pv-cleanup.sh
+COPY --chown=lenschain:lenschain deploy/scripts/bash/pv-cleanup.sh /app/pv-cleanup.sh
 
 USER lenschain
 

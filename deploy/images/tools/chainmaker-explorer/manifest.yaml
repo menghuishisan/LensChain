@@ -4,7 +4,10 @@ ecosystem: chainmaker
 description: 长安链浏览器
 maintainer: lenschain-platform
 license: Apache-2.0
-official_source: chainmaker/chainmaker-explorer
+official_source: https://git.chainmaker.org.cn/chainmaker/chainmaker-explorer
+build_from_source: true
+base_image: node:20-alpine
+note: 无官方 Docker 镜像，需从源码构建
 registry_project: tools
 
 versions:

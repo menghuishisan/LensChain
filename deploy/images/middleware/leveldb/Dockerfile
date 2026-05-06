@@ -14,7 +14,7 @@ LABEL lenschain.io/category="middleware"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache leveldb leveldb-tools ca-certificates tzdata && \
+RUN apk add --no-cache leveldb leveldb-dev ca-certificates tzdata && \
     addgroup -S lenschain && adduser -S lenschain -G lenschain
 
 USER lenschain

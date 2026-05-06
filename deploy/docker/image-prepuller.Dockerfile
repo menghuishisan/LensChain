@@ -17,7 +17,10 @@ LABEL lenschain.io/service="image-prepuller"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache bash ca-certificates curl tar tzdata && \
+RUN for i in 1 2 3; do \
+      apk add --no-cache bash ca-certificates curl tar tzdata && break; \
+      echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
+    done && \
     curl -L "https://github.com/kubernetes-sigs/cri-tools/releases/download/v${CRICTL_VERSION}/crictl-v${CRICTL_VERSION}-linux-amd64.tar.gz" \
       | tar -xz -C /usr/local/bin crictl && \
     addgroup -S -g 1001 lenschain && \
@@ -27,7 +30,7 @@ RUN apk add --no-cache bash ca-certificates curl tar tzdata && \
 
 WORKDIR /app
 
-COPY --chown=lenschain:lenschain deploy/scripts/image-prepuller.sh /app/image-prepuller.sh
+COPY --chown=lenschain:lenschain deploy/scripts/bash/image-prepuller.sh /app/image-prepuller.sh
 
 USER lenschain
 

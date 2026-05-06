@@ -319,8 +319,6 @@ SET provider = EXCLUDED.provider,
     tested_at = EXCLUDED.tested_at,
     updated_at = NOW(),
     updated_by = EXCLUDED.updated_by;
-
--- ---------------------------------------------------------------------------
 -- 04. 镜像分类 / 镜像 / 镜像版本
 -- ---------------------------------------------------------------------------
 
@@ -328,7 +326,8 @@ INSERT INTO image_categories (id, name, code, description, sort_order, created_a
 VALUES
     (910000000000004001, '基础开发环境', 'base', '开发环境与工具基础镜像', 1, NOW(), NOW()),
     (910000000000004002, '链节点', 'chain-nodes', '链节点与协议运行镜像', 2, NOW(), NOW()),
-    (910000000000004003, '区块链中间件', 'middleware', '部署、索引与链上调试中间件镜像', 3, NOW(), NOW())
+    (910000000000004003, '区块链中间件', 'middleware', '部署、索引与链上调试中间件镜像', 3, NOW(), NOW()),
+    (910000000000004004, '工具镜像', 'tools', '浏览器、IDE、CLI 与调试分析工具镜像', 4, NOW(), NOW())
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO images (
@@ -379,7 +378,7 @@ VALUES
     ),
     (
         910000000000005003,
-        910000000000004003,
+        910000000000004004,
         'blockscout',
         'Blockscout Explorer',
         '用于教学环境的区块浏览器，便于学生观察交易与区块状态。',
@@ -387,10 +386,10 @@ VALUES
         1,
         1,
         '[{"port":4000,"protocol":"tcp","name":"Web UI"}]'::jsonb,
+        '[{"key":"ETHEREUM_JSONRPC_HTTP_URL","value":"http://geth:8545","desc":"EVM 节点 RPC 地址","conditions":[]}]'::jsonb,
         '[]'::jsonb,
-        '[]'::jsonb,
-        '{"required":[{"image":"geth","reason":"依赖链节点提供区块与交易数据"}],"recommended":[],"optional":[]}'::jsonb,
-        '[]'::jsonb,
+        '{"required":[{"image":"geth","reason":"依赖链节点提供区块与交易数据"},{"image":"postgres","reason":"数据存储后端"}],"recommended":[],"optional":[]}'::jsonb,
+        '["geth","postgres"]'::jsonb,
         '{"cpu":"0.5","memory":"1Gi","disk":"8Gi"}'::jsonb,
         '/docs/images/blockscout',
         0,
@@ -432,8 +431,8 @@ VALUES
     (
         910000000000006003,
         910000000000005003,
-        '6.8',
-        'registry.lianjing.com/middleware/blockscout:v6.8.0',
+        '6.3',
+        'registry.lianjing.com/tools/blockscout:v6.3.0',
         '500m',
         '1Gi',
         '8Gi',

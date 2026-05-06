@@ -13,6 +13,17 @@ import "@/app/globals.css";
 export const metadata: Metadata = {
   title: "链镜平台 LensChain",
   description: "区块链教学、实验实践与 CTF 竞赛一体化平台",
+  icons: {
+    icon: "/favicon.png",
+    apple: "/lenschain-logo.png",
+  },
+  manifest: "/site.webmanifest",
+  themeColor: "#1CA882",
+  openGraph: {
+    title: "链镜平台 LensChain",
+    description: "区块链教学、实验实践与 CTF 竞赛一体化平台",
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+  },
 };
 
 /**

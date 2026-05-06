@@ -18,7 +18,6 @@ bin/
 dist/
 build/
 frontend/.next/
-frontend/node_modules/
 
 # Go
 *.test
@@ -39,8 +38,8 @@ backend/configs/config.yaml
 /tmp/
 deploy/docker-compose/data/
 
-# SimEngine local dependencies
-sim-engine/renderers/node_modules/
+# Node.js dependencies (all locations)
+**/node_modules/
 sim-engine/renderers/package-lock.json
 
 # Internal guidance / local assistant docs

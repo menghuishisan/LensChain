@@ -4,7 +4,7 @@
 
 FROM eclipse-temurin:17-jdk-jammy
 
-ARG UBUNTU_MIRROR=mirrors.ustc.edu.cn
+ARG UBUNTU_MIRROR=mirrors.tuna.tsinghua.edu.cn
 ARG VERSION=v1.0.0
 ARG GHIDRA_VERSION=11.0.3
 LABEL org.opencontainers.image.title="ghidra-server"
@@ -20,8 +20,12 @@ ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
 
 RUN sed -i "s|archive.ubuntu.com|${UBUNTU_MIRROR}|g; s|security.ubuntu.com|${UBUNTU_MIRROR}|g" /etc/apt/sources.list && \
     apt-get -o Acquire::Retries=5 update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates curl unzip && \
+    for i in 1 2 3; do \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends --fix-missing \
+            ca-certificates curl unzip && break; \
+        echo ">>> apt-get install attempt $i failed, waiting 10s..."; \
+        sleep 10; apt-get clean; apt-get -o Acquire::Retries=5 update; \
+    done && \
     curl -fsSL "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_20240410.zip" \
         -o /tmp/ghidra.zip && \
     unzip /tmp/ghidra.zip -d /opt && \

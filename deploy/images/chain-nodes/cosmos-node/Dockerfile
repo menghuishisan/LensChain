@@ -2,8 +2,8 @@
 # Cosmos SDK 节点（基于官方 simapp 镜像薄封装）
 # Cosmos 生态应用链开发框架
 
-ARG VERSION=v0.50.0
-FROM interchainio/simapp:${VERSION}
+ARG VERSION=v0.46.16
+FROM ghcr.io/cosmos/simapp:${VERSION}
 
 ARG VERSION
 LABEL org.opencontainers.image.title="cosmos-node"

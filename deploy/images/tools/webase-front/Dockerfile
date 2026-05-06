@@ -2,7 +2,7 @@
 # WeBase 前端节点管理（基于官方镜像薄封装）
 # FISCO BCOS 节点前端管理工具
 
-ARG VERSION=v3.1.1
+ARG VERSION=v1.5.5
 FROM webasepro/webase-front:${VERSION}
 
 ARG VERSION

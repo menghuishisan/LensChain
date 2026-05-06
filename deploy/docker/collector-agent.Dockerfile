@@ -8,7 +8,7 @@
 # ============================
 # 构建阶段
 # ============================
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 ARG ADAPTER=ethereum
 ARG VERSION=dev
@@ -16,16 +16,19 @@ ARG COMMIT_SHA=unknown
 
 WORKDIR /src
 
-COPY go.mod go.sum ./
+ENV GOPROXY=https://goproxy.cn,direct
+
+COPY core/go.mod core/go.sum ./
+COPY proto/gen/go /proto/gen/go
 RUN go mod download
 
-COPY . .
+COPY core/ .
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -tags ${ADAPTER} \
     -ldflags="-s -w -X main.Version=${VERSION} -X main.Adapter=${ADAPTER}" \
     -o /out/collector \
-    ./cmd/collector
+    ./cmd/collector-agent
 
 # ============================
 # 运行阶段
@@ -44,7 +47,10 @@ LABEL lenschain.io/adapter="${ADAPTER}"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache ca-certificates tzdata && \
+RUN for i in 1 2 3; do \
+      apk add --no-cache ca-certificates tzdata && break; \
+      echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
+    done && \
     addgroup -S collector && adduser -S collector -G collector
 
 COPY --from=builder --chown=collector:collector /out/collector /usr/local/bin/collector

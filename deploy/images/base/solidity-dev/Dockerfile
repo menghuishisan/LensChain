@@ -9,14 +9,18 @@
 # ============================
 FROM rust:1.77-slim-bookworm AS foundry-builder
 
-ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
+ARG DEBIAN_MIRROR=mirrors.tuna.tsinghua.edu.cn
 
 RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources && \
     apt-get -o Acquire::Retries=5 update && \
-    apt-get install -y --no-install-recommends ca-certificates curl git && \
+    for i in 1 2 3; do \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends --fix-missing ca-certificates curl git && break; \
+        echo ">>> apt-get install attempt $i failed, waiting 10s..."; \
+        sleep 10; apt-get clean; apt-get -o Acquire::Retries=5 update; \
+    done && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://github.com/foundry-rs/foundry/releases/download/nightly-5b7e4cb3c882b28f3c32ba580de27ce7381f415a/foundry_nightly_linux_amd64.tar.gz \
+RUN curl --retry 5 --retry-delay 10 -fsSL https://github.com/foundry-rs/foundry/releases/download/nightly-5b7e4cb3c882b28f3c32ba580de27ce7381f415a/foundry_nightly_linux_amd64.tar.gz \
     -o /tmp/foundry.tar.gz && \
     tar -xzf /tmp/foundry.tar.gz -C /usr/local/bin && \
     rm /tmp/foundry.tar.gz && \
@@ -25,9 +29,9 @@ RUN curl -fsSL https://github.com/foundry-rs/foundry/releases/download/nightly-5
 # ============================
 # 运行阶段：开发环境
 # ============================
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
-ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
+ARG DEBIAN_MIRROR=mirrors.tuna.tsinghua.edu.cn
 
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="solidity-dev"
@@ -40,10 +44,14 @@ LABEL lenschain.io/category="base"
 ENV TZ=UTC \
     DEBIAN_FRONTEND=noninteractive
 
-RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources && \
     apt-get -o Acquire::Retries=5 update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates curl git python3 make g++ && \
+    for i in 1 2 3; do \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends --fix-missing \
+            ca-certificates curl git python3 make g++ && break; \
+        echo ">>> apt-get install attempt $i failed, waiting 10s..."; \
+        sleep 10; apt-get clean; apt-get -o Acquire::Retries=5 update; \
+    done && \
     rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g solc@0.8.25 hardhat truffle @openzeppelin/contracts

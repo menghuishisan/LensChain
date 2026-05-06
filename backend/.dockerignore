@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+*.pem
+*.key
+*.log
+.vscode
+.idea
+*.swp
+README.md
+AGENTS.md
+docs/

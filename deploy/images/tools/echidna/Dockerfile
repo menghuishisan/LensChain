@@ -2,7 +2,7 @@
 # Echidna 智能合约模糊测试工具（基于官方镜像薄封装）
 # 基于属性的 Solidity 模糊测试框架
 
-ARG VERSION=2.2.3
+ARG VERSION=v2.2.4
 FROM trailofbits/echidna:${VERSION}
 
 ARG VERSION

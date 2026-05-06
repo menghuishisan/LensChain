@@ -2,7 +2,7 @@
 # Slither 智能合约静态分析工具（基于官方镜像薄封装）
 # 检测 Solidity 合约安全漏洞
 
-ARG VERSION=0.10.1
+ARG VERSION=latest
 FROM trailofbits/slither:${VERSION}
 
 ARG VERSION

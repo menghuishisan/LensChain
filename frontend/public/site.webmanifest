@@ -1,0 +1,17 @@
+{
+  "name": "LensChain 链镜平台",
+  "short_name": "LensChain",
+  "description": "区块链综合教学、实验实践与 CTF 竞赛平台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0C1220",
+  "theme_color": "#1CA882",
+  "icons": [
+    {
+      "src": "/lenschain-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

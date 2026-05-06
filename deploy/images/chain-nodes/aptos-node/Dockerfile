@@ -2,7 +2,7 @@
 # Aptos 验证节点（基于官方镜像薄封装）
 # Move 语言生态公链
 
-ARG VERSION=mainnet_b5e6bf0d
+ARG VERSION=mainnet
 FROM aptoslabs/validator:${VERSION}
 
 ARG VERSION

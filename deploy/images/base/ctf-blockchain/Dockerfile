@@ -17,9 +17,9 @@ RUN apk add --no-cache curl tar && \
 # ============================
 # 运行阶段：CTF 开发环境
 # ============================
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
-ARG DEBIAN_MIRROR=mirrors.ustc.edu.cn
+ARG DEBIAN_MIRROR=mirrors.tuna.tsinghua.edu.cn
 ARG VERSION=v1.0.0
 LABEL org.opencontainers.image.title="ctf-blockchain"
 LABEL org.opencontainers.image.description="CTF 区块链方向基础镜像"
@@ -29,15 +29,23 @@ LABEL lenschain.io/ecosystem="ethereum"
 LABEL lenschain.io/category="base"
 LABEL lenschain.io/scope="ctf"
 
-ENV TZ=UTC DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC DEBIAN_FRONTEND=noninteractive \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
 
-RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list && \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources && \
     apt-get -o Acquire::Retries=5 update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates curl git python3 python3-pip make g++ && \
-    npm install -g hardhat solc && \
+    for i in 1 2 3; do \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends --fix-missing \
+            ca-certificates curl git python3 python3-pip python3-dev make g++ && break; \
+        echo ">>> apt-get install attempt $i failed, waiting 10s..."; \
+        sleep 10; apt-get clean; apt-get -o Acquire::Retries=5 update; \
+    done && \
+    npm install -g hardhat solc ethers && \
     pip3 install --no-cache-dir --break-system-packages \
-        web3 eth-ape slither-analyzer mythril && \
+        web3 slither-analyzer && \
+    pip3 install --no-cache-dir --break-system-packages \
+        mythril && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=foundry-builder /usr/local/bin/forge /usr/local/bin/forge

@@ -10,7 +10,7 @@ registry_project: chain-nodes
 versions:
   - version: "mainnet"
     tag: "mainnet"
-    upstream_tag: "mainnet_b5e6bf0d"
+    upstream_tag: "mainnet"
     min_cpu: "0.25"
     min_memory: "512Mi"
     recommended_cpu: "0.5"

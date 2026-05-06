@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Node modules (frontend)
+frontend/node_modules
+frontend/.next
+frontend/out
+
+# Deploy artifacts (avoid recursive context)
+deploy/images/
+deploy/docker/
+deploy/k8s/
+deploy/scripts/
+!deploy/scripts/bash/image-gc.sh
+!deploy/scripts/bash/image-prepuller.sh
+!deploy/scripts/bash/pv-cleanup.sh
+
+# Test & temp files
+**/*_test.go
+**/.env*
+**/tmp/
+**/*.log
+
+# OS files
+Thumbs.db
+.DS_Store

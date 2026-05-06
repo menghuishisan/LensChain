@@ -81,6 +81,9 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScript
 $backendDir = Join-Path $repoRoot "backend"
 $seedFile = Join-Path $backendDir "migrations/010_seed_demo_data.up.sql"
 $seedSupplementFile = Join-Path $backendDir "migrations/011_seed_demo_supplement.up.sql"
+$seedImagesFile = Join-Path $backendDir "migrations/012_seed_images_experiments.up.sql"
+$seedSimScenariosFile = Join-Path $backendDir "migrations/013_seed_sim_scenarios.up.sql"
+$seedCtfFile = Join-Path $backendDir "migrations/014_seed_ctf.up.sql"
 $goCacheDir = Join-Path $backendDir ".gocache"
 
 if (-not $env:GOCACHE) {
@@ -122,6 +125,39 @@ if (Test-Path $seedSupplementFile) {
 }
 else {
     Write-Host "==> Supplement seed file not found, skipping"
+}
+
+if (Test-Path $seedImagesFile) {
+    Write-Host "==> Seeding images & experiments data from migrations/012_seed_images_experiments.up.sql"
+    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedImagesFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "导入镜像与实验模板数据失败"
+    }
+}
+else {
+    Write-Host "==> Images & experiments seed file not found, skipping"
+}
+
+if (Test-Path $seedSimScenariosFile) {
+    Write-Host "==> Seeding sim scenarios data from migrations/013_seed_sim_scenarios.up.sql"
+    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedSimScenariosFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "导入仿真场景数据失败"
+    }
+}
+else {
+    Write-Host "==> Sim scenarios seed file not found, skipping"
+}
+
+if (Test-Path $seedCtfFile) {
+    Write-Host "==> Seeding CTF data from migrations/014_seed_ctf.up.sql"
+    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedCtfFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "导入 CTF 竞赛数据失败"
+    }
+}
+else {
+    Write-Host "==> CTF seed file not found, skipping"
 }
 
 Write-Host "==> Database initialization complete"

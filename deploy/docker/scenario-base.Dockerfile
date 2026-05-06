@@ -12,7 +12,10 @@ LABEL lenschain.io/service="scenario-base"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache ca-certificates tzdata && \
+RUN for i in 1 2 3; do \
+      apk add --no-cache ca-certificates tzdata && break; \
+      echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
+    done && \
     addgroup -S scenario && adduser -S scenario -G scenario
 
 WORKDIR /scenario

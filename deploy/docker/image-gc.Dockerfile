@@ -16,7 +16,10 @@ LABEL lenschain.io/service="image-gc"
 
 ENV TZ=UTC
 
-RUN apk add --no-cache bash ca-certificates curl jq coreutils tzdata && \
+RUN for i in 1 2 3; do \
+      apk add --no-cache bash ca-certificates curl jq coreutils tzdata && break; \
+      echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
+    done && \
     addgroup -S -g 1001 lenschain && \
     adduser -S -u 1001 -G lenschain lenschain && \
     mkdir -p /app && \
@@ -24,7 +27,7 @@ RUN apk add --no-cache bash ca-certificates curl jq coreutils tzdata && \
 
 WORKDIR /app
 
-COPY --chown=lenschain:lenschain deploy/scripts/image-gc.sh /app/image-gc.sh
+COPY --chown=lenschain:lenschain deploy/scripts/bash/image-gc.sh /app/image-gc.sh
 
 USER lenschain
 

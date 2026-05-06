@@ -6,9 +6,7 @@ package internal
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"math/big"
 	"strings"
 	"time"

@@ -1,16 +1,16 @@
-name: burpsuite-ce
+name: zaproxy
 category: tools
 ecosystem: general
-description: Burp Suite Community Edition Web 安全测试工具
+description: OWASP ZAP Web 安全测试代理
 maintainer: lenschain-platform
-license: Proprietary
-official_source: portswigger/burpsuite
+license: Apache-2.0
+official_source: zaproxy/zaproxy
 registry_project: tools
 
 versions:
-  - version: "1.0"
-    tag: "v1.0.0"
-    upstream_tag: "v1.0.0"
+  - version: "2.15"
+    tag: "v2.15.0"
+    upstream_tag: "2.15.0"
     min_cpu: "0.25"
     min_memory: "512Mi"
     recommended_cpu: "0.5"
@@ -21,7 +21,7 @@ default_ports:
   - port: 8080
     protocol: tcp
     name: Proxy
-    description: 代理端口
+    description: ZAP 代理端口
 
 default_env_vars: []
 conditional_env_vars: []
@@ -36,17 +36,17 @@ required_dependencies: []
 supported_tools: []
 
 healthcheck:
-  test: ["CMD", "true"]
+  test: ["CMD", "curl", "-fsS", "http://localhost:8080/"]
   interval: 60s
   timeout: 5s
-  retries: 1
-  start_period: 30s
+  retries: 3
+  start_period: 60s
 
-documentation_url: /docs/images/burpsuite-ce
+documentation_url: /docs/images/zaproxy
 prepull_phase: 1
 prepull_node_tier: light
 
 security_scan:
   enabled: true
-  allow_critical: true
+  allow_critical: false
   allow_high: true

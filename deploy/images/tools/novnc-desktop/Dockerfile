@@ -2,7 +2,7 @@
 # noVNC 图形化桌面（基于官方镜像薄封装）
 # 提供浏览器内图形化桌面环境，用于 GUI 工具操作
 
-ARG VERSION=1.4.0
+ARG VERSION=latest
 FROM theasp/novnc:${VERSION}
 
 ARG VERSION

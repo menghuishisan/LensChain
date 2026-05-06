@@ -8,9 +8,9 @@ official_source: crytic/slither
 registry_project: tools
 
 versions:
-  - version: "0.10"
-    tag: "v0.10.1"
-    upstream_tag: "0.10.1"
+  - version: "latest"
+    tag: "latest"
+    upstream_tag: "latest"
     min_cpu: "0.1"
     min_memory: "128Mi"
     recommended_cpu: "0.25"

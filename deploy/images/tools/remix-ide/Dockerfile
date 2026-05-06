@@ -2,7 +2,7 @@
 # Remix IDE Solidity 在线开发环境（基于官方镜像薄封装）
 # EVM 生态智能合约开发、编译、部署、调试
 
-ARG VERSION=v0.35.0
+ARG VERSION=latest
 FROM remixproject/remix-ide:${VERSION}
 
 ARG VERSION

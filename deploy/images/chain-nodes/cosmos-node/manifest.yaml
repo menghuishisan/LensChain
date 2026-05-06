@@ -4,13 +4,13 @@ ecosystem: cosmos
 description: Cosmos SDK 节点
 maintainer: lenschain-platform
 license: Apache-2.0
-official_source: cosmos/cosmos-sdk
+official_source: interchainio/simapp
 registry_project: chain-nodes
 
 versions:
-  - version: "0.50"
-    tag: "v0.50.0"
-    upstream_tag: "v0.50.0"
+  - version: "0.46"
+    tag: "v0.46.16"
+    upstream_tag: "v0.46.16"
     min_cpu: "0.25"
     min_memory: "512Mi"
     recommended_cpu: "0.5"

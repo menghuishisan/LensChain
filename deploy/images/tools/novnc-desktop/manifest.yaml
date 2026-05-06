@@ -8,9 +8,9 @@ official_source: novnc/noVNC
 registry_project: tools
 
 versions:
-  - version: "1.4"
-    tag: "v1.4.0"
-    upstream_tag: "1.4.0"
+  - version: "latest"
+    tag: "latest"
+    upstream_tag: "latest"
     min_cpu: "0.25"
     min_memory: "512Mi"
     recommended_cpu: "0.5"
