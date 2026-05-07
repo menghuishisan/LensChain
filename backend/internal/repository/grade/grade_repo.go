@@ -338,7 +338,7 @@ func (r *studentSemesterGradeRepository) CourseAnalytics(ctx context.Context, sc
 	var stats CourseGradeAnalytics
 	err := r.db.WithContext(ctx).Model(&entity.StudentSemesterGrade{}).
 		Select(`
-			course_id,
+			? AS course_id,
 			COUNT(DISTINCT student_id) AS student_count,
 			COALESCE(AVG(final_score), 0) AS average_score,
 			COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY final_score), 0) AS median_score,
@@ -346,9 +346,8 @@ func (r *studentSemesterGradeRepository) CourseAnalytics(ctx context.Context, sc
 			COALESCE(MIN(final_score), 0) AS lowest_score,
 			COALESCE(AVG(gpa_point), 0) AS average_gpa,
 			COALESCE(AVG(CASE WHEN final_score >= 60 THEN 1.0 ELSE 0 END), 0) AS pass_rate
-		`).
+		`, courseID).
 		Where("school_id = ? AND course_id = ?", schoolID, courseID).
-		Group("course_id").
 		Scan(&stats).Error
 	if err != nil {
 		return nil, err
@@ -383,16 +382,8 @@ func (r *studentSemesterGradeRepository) CourseScoreDistribution(ctx context.Con
 			COUNT(*) AS count
 		`).
 		Where("school_id = ? AND course_id = ?", schoolID, courseID).
-		Group("range").
-		Order(`
-			CASE range
-				WHEN '90-100' THEN 1
-				WHEN '80-89' THEN 2
-				WHEN '70-79' THEN 3
-				WHEN '60-69' THEN 4
-				ELSE 5
-			END
-		`).
+		Group("1").
+		Order("1 DESC").
 		Find(&items).Error
 	return items, err
 }

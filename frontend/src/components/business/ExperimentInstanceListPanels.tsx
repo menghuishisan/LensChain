@@ -9,7 +9,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
@@ -28,8 +29,8 @@ import {
 } from "@/hooks/useExperimentInstances";
 import { useExperimentGroupMutations, useExperimentGroups } from "@/hooks/useExperimentGroups";
 import { useCourseExperimentMonitorRealtime, useExperimentInstanceRealtime } from "@/hooks/useExperimentRealtime";
-import { useExperimentTemplate, useExperimentTemplates } from "@/hooks/useExperimentTemplates";
-import { formatDateTime, formatScore } from "@/lib/format";
+import { useStudentExperimentTemplate, useStudentExperimentTemplates } from "@/hooks/useExperimentTemplates";
+import { formatDateTime, formatMinutes, formatPercent, formatScore } from "@/lib/format";
 import type { ID } from "@/types/api";
 import type { ExperimentSnapshot } from "@/types/experiment";
 
@@ -39,7 +40,7 @@ import type { ExperimentSnapshot } from "@/types/experiment";
 export function StudentExperimentListPanel() {
   const router = useRouter();
   const instancesQuery = useExperimentInstances({ page: 1, page_size: 20 });
-  const templatesQuery = useExperimentTemplates({ page: 1, page_size: 50, status: 2 });
+  const templatesQuery = useStudentExperimentTemplates({ page: 1, page_size: 50 });
   const lifecycle = useExperimentInstanceLifecycleMutations();
   const [templateID, setTemplateID] = useState("");
 
@@ -57,7 +58,7 @@ export function StudentExperimentListPanel() {
   };
 
   if (instancesQuery.isLoading) {
-    return <LoadingState title="正在加载我的实验" description="正在整理实验记录、状态和报告入口。" />;
+    return <LoadingState variant="list" title="正在加载我的实验" description="正在整理实验记录、状态和报告入口。" />;
   }
 
   if (instancesQuery.isError) {
@@ -78,11 +79,12 @@ export function StudentExperimentListPanel() {
             <Play className="h-5 w-5 text-primary" />
             启动实验
           </CardTitle>
+          <CardDescription>选择一个实验模板，点击"启动"后系统将自动分配容器环境。首次启动通常需要 10-30 秒。</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
           <FormField label="已发布实验模板">
             <Select value={templateID} onValueChange={setTemplateID}>
-              <SelectTrigger><SelectValue placeholder="选择实验模板" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="请先选择实验模板" /></SelectTrigger>
               <SelectContent>
                 {(templatesQuery.data?.list ?? []).map((template) => (
                   <SelectItem key={template.id} value={template.id}>{template.title}</SelectItem>
@@ -113,7 +115,7 @@ export function StudentExperimentListPanel() {
               {instances.map((instance) => (
                 <TableRow key={instance.id}>
                   <TableCell className="font-semibold">{instance.template_title}</TableCell>
-                  <TableCell><Badge variant={instance.status === 7 ? "success" : "outline"}>{instance.status_text}</Badge></TableCell>
+                  <TableCell><Badge variant={instance.status === 7 ? "success" : instance.status === 3 ? "default" : [8, 9].includes(instance.status) ? "destructive" : "warning"}>{instance.status_text}</Badge></TableCell>
                   <TableCell>{formatScore(instance.total_score ?? 0)}</TableCell>
                   <TableCell>{formatDateTime(instance.started_at)}</TableCell>
                   <TableCell>
@@ -139,7 +141,7 @@ export function StudentExperimentListPanel() {
 export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const templateQuery = useExperimentTemplate(templateID);
+  const templateQuery = useStudentExperimentTemplate(templateID);
   const lifecycle = useExperimentInstanceLifecycleMutations();
   const [courseID, setCourseID] = useState(searchParams.get("course_id") ?? "");
   const [groupID, setGroupID] = useState(searchParams.get("group_id") ?? "");
@@ -225,7 +227,7 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
   };
 
   if (templateQuery.isLoading) {
-    return <LoadingState title="正在加载实验内容" description="正在读取实验要求、时长和评分方式。" />;
+    return <LoadingState variant="hero" title="正在加载实验内容" description="正在读取实验要求、时长和评分方式。" />;
   }
 
   if (!templateQuery.data) {
@@ -365,7 +367,7 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
   const router = useRouter();
 
   if (monitorQuery.isLoading) {
-    return <LoadingState title="正在加载课堂实验观察" description="正在整理学生进度、评分情况和资源使用。" />;
+    return <LoadingState variant="table" title="正在加载课堂实验观察" description="正在整理学生进度、评分情况和资源使用。" />;
   }
 
   const monitor = monitorQuery.data;
@@ -380,9 +382,9 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
         <Badge variant={realtime.status === "open" ? "success" : "outline"}>{realtime.status === "open" ? "实时连接" : "未连接"}</Badge>
       </div>
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard title="运行中" value={monitor?.summary.running ?? 0} />
-        <MetricCard title="已完成" value={monitor?.summary.completed ?? 0} />
-        <MetricCard title="平均进度" value={`${monitor?.summary.avg_progress ?? 0}%`} />
+        <MetricCard title="运行中" value={monitor?.summary?.running ?? 0} />
+        <MetricCard title="已完成" value={monitor?.summary?.completed ?? 0} />
+        <MetricCard title="平均进度" value={formatPercent(monitor?.summary?.avg_progress ?? 0)} />
         <MetricCard title="实时事件" value={realtime.messages.length} />
       </div>
       <TableContainer>
@@ -403,7 +405,7 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
                   <p className="font-semibold">{student.student_name}</p>
                   <p className="text-xs text-muted-foreground">{student.student_no}</p>
                 </TableCell>
-                <TableCell><Badge variant={student.status === 7 ? "success" : "outline"}>{student.status_text ?? "未开始"}</Badge></TableCell>
+                <TableCell><Badge variant={student.status === 7 ? "success" : student.status === 3 ? "default" : [8, 9].includes(student.status ?? 0) ? "destructive" : "warning"}>{student.status_text ?? "未开始"}</Badge></TableCell>
                 <TableCell>{student.checkpoints_passed}/{student.checkpoints_total} · {student.progress_percent}%</TableCell>
                 <TableCell>{student.cpu_usage ?? "-"} / {student.memory_usage ?? "-"}</TableCell>
                 <TableCell className="space-x-2">
@@ -411,10 +413,13 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
                     <>
                       <Button size="sm" variant="outline" onClick={() => router.push(`/teacher/experiment-instances/${student.instance_id}/assist`)}>协助</Button>
                       <Button size="sm" variant="outline" onClick={() => router.push(`/teacher/experiment-instances/${student.instance_id}/grade`)}>评分</Button>
-                      <Button size="sm" variant="destructive" onClick={() => mutations.forceDestroy.mutate(student.instance_id ?? "")}>
-                        <Square className="h-4 w-4" />
-                        销毁
-                      </Button>
+                      <ConfirmDialog
+                        title="销毁实验实例"
+                        description={`确定要强制销毁 ${student.student_name} 的实验实例吗？该操作不可撤销。`}
+                        confirmText="销毁"
+                        onConfirm={() => mutations.forceDestroy.mutate(student.instance_id ?? "")}
+                        trigger={<Button size="sm" variant="destructive"><Square className="h-4 w-4" />销毁</Button>}
+                      />
                     </>
                   ) : null}
                 </TableCell>
@@ -434,7 +439,7 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
           {(statisticsQuery.data?.templates ?? []).map((template) => (
             <div key={template.template_id} className="rounded-xl border border-border p-4">
               <p className="font-semibold">{template.template_title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">实例 {template.total_instances}，已提交 {template.submitted_instances}，均分 {formatScore(template.avg_score ?? 0)}</p>
+              <p className="mt-1 text-sm text-muted-foreground">学生 {template.statistics?.started_count ?? 0}/{template.statistics?.total_students ?? 0}，已完成 {template.statistics?.completed_count ?? 0}，均分 {formatScore(template.statistics?.avg_score ?? 0)}</p>
             </div>
           ))}
         </CardContent>
@@ -450,7 +455,11 @@ export function TeacherExperimentStatisticsPanel({ courseID }: { courseID: ID })
   const statisticsQuery = useCourseExperimentStatistics(courseID);
 
   if (statisticsQuery.isLoading) {
-    return <LoadingState title="正在加载实验数据" description="正在整理实验完成情况、得分和通过率。" />;
+    return <LoadingState variant="table" title="正在加载实验数据" description="正在整理实验完成情况、得分和通过率。" />;
+  }
+
+  if (statisticsQuery.isError) {
+    return <ErrorState description={statisticsQuery.error?.message ?? "加载实验统计失败"} />;
   }
 
   return (
@@ -467,10 +476,10 @@ export function TeacherExperimentStatisticsPanel({ courseID }: { courseID: ID })
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 md:grid-cols-4">
-                  <MetricCard title="实例数" value={template.total_instances} />
-                  <MetricCard title="已提交" value={template.submitted_instances} />
-                  <MetricCard title="平均分" value={formatScore(template.avg_score ?? 0)} />
-                  <MetricCard title="平均耗时" value={template.avg_duration_minutes ? `${template.avg_duration_minutes} 分钟` : "-"} />
+                  <MetricCard title="开始人数" value={`${template.statistics?.started_count ?? 0}/${template.statistics?.total_students ?? 0}`} />
+                  <MetricCard title="已完成" value={template.statistics?.completed_count ?? 0} />
+                  <MetricCard title="平均分" value={formatScore(template.statistics?.avg_score ?? 0)} />
+                  <MetricCard title="平均耗时" value={template.statistics?.avg_duration_minutes ? formatMinutes(template.statistics.avg_duration_minutes) : "-"} />
                 </div>
                 <TableContainer>
                   <Table>
@@ -481,10 +490,10 @@ export function TeacherExperimentStatisticsPanel({ courseID }: { courseID: ID })
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {template.checkpoint_pass_rates.map((checkpoint) => (
+                      {(template.statistics?.checkpoint_pass_rates ?? []).map((checkpoint) => (
                         <TableRow key={checkpoint.checkpoint_id}>
                           <TableCell>{checkpoint.title}</TableCell>
-                          <TableCell>{checkpoint.pass_rate}%</TableCell>
+                          <TableCell>{formatPercent(checkpoint.pass_rate)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -506,7 +515,7 @@ export function ExperimentOperationHistoryPanel({ instanceID }: { instanceID: ID
   const logsQuery = useExperimentOperationLogs(instanceID, { page: 1, page_size: 50 });
 
   if (logsQuery.isLoading) {
-    return <LoadingState title="正在加载操作记录" description="正在整理实验过程中的关键操作记录。" />;
+    return <LoadingState variant="table" title="正在加载操作记录" description="正在整理实验过程中的关键操作记录。" />;
   }
 
   return (

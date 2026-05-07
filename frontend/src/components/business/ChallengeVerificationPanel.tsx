@@ -92,16 +92,18 @@ export function ChallengeVerificationPanel({ challengeID }: ChallengeVerificatio
         </CardHeader>
         <CardContent className="space-y-3">
           {(verificationsQuery.data?.list ?? []).map((item) => (
-            <button key={item.id} className="w-full rounded-xl border border-border p-4 text-left" onClick={() => setSelectedVerificationID(item.id)}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {item.status === 2 ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <CircleAlert className="h-4 w-4 text-amber-500" />}
-                  <span className="font-semibold">{item.status_text}</span>
+            <Button key={item.id} variant="ghost" className="h-auto w-full justify-start rounded-xl border border-border p-4 text-left" onClick={() => setSelectedVerificationID(item.id)}>
+              <div className="w-full">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {item.status === 2 ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <CircleAlert className="h-4 w-4 text-amber-500" />}
+                    <span className="font-semibold">{item.status_text}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{formatDateTime(item.started_at)}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">{formatDateTime(item.started_at)}</span>
+                {item.error_message ? <p className="mt-2 text-sm text-destructive">{item.error_message}</p> : null}
               </div>
-              {item.error_message ? <p className="mt-2 text-sm text-destructive">{item.error_message}</p> : null}
-            </button>
+            </Button>
           ))}
         </CardContent>
       </Card>

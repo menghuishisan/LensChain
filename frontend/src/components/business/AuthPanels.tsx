@@ -198,7 +198,7 @@ export function SsoCallbackPanel() {
     );
   }
 
-  return <LoadingState className="mx-auto mt-16 max-w-xl" title="正在完成SSO登录" description="请稍候，链镜正在校验学校统一认证结果。" />;
+  return <LoadingState variant="spinner" className="mx-auto mt-16 max-w-xl" title="正在完成SSO登录" description="请稍候，链镜正在校验学校统一认证结果。" />;
 }
 
 /**

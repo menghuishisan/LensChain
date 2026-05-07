@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
@@ -320,9 +321,9 @@ export function ResourceQuotaPanel({ schoolID = "", readOnly = false }: { school
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">本校资源配额</h1>
       <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard title="运行实例" value={schoolMonitorQuery.data?.summary.running ?? 0} />
-        <MetricCard title="本校镜像" value={schoolImagesQuery.data?.pagination.total ?? 0} />
-        <MetricCard title="配额规则" value={quotasQuery.data?.pagination.total ?? 0} />
+        <MetricCard title="运行实例" value={schoolMonitorQuery.data?.running_instances ?? 0} />
+        <MetricCard title="本校镜像" value={schoolImagesQuery.data?.pagination?.total ?? 0} />
+        <MetricCard title="配额规则" value={quotasQuery.data?.pagination?.total ?? 0} />
       </div>
 
       {/* 学校级配额进度条 */}
@@ -450,7 +451,7 @@ export function SchoolImageLibraryPanel() {
   const imagesQuery = useSchoolImages({ page: 1, page_size: 30 });
 
   if (imagesQuery.isLoading) {
-    return <LoadingState title="正在加载本校镜像" description="读取本校自定义镜像和审核状态。" />;
+    return <LoadingState variant="grid" title="正在加载本校镜像" description="读取本校自定义镜像和审核状态。" />;
   }
 
   return (
@@ -486,7 +487,7 @@ export function SchoolImageLibraryPanel() {
  * 含镜像×节点矩阵视图、展开详情、全量拉取按钮和进度条。
  */
 export function ImagePullStatusPanel() {
-  const pullStatusQuery = useImagePullStatus({ page: 1, page_size: 200 });
+  const pullStatusQuery = useImagePullStatus({ page: 1, page_size: 100 });
   const triggerMutation = useTriggerImagePullMutation();
   const [imageVersionID, setImageVersionID] = useState("");
   const [expandedImage, setExpandedImage] = useState("");
@@ -630,7 +631,11 @@ export function SchoolExperimentMonitorPanel() {
   const monitorQuery = useSchoolExperimentMonitor();
 
   if (monitorQuery.isLoading) {
-    return <LoadingState title="正在加载本校实验概览" description="正在整理本校实验进度和资源使用情况。" />;
+    return <LoadingState variant="table" title="正在加载本校实验概览" description="正在整理本校实验进度和资源使用情况。" />;
+  }
+
+  if (monitorQuery.isError) {
+    return <ErrorState description={monitorQuery.error?.message ?? "加载本校实验概览失败"} />;
   }
 
   const monitor = monitorQuery.data;
@@ -639,28 +644,28 @@ export function SchoolExperimentMonitorPanel() {
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">本校实验概览</h1>
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard title="总学生" value={monitor?.summary.total_students ?? 0} />
-        <MetricCard title="运行中" value={monitor?.summary.running ?? 0} />
-        <MetricCard title="已完成" value={monitor?.summary.completed ?? 0} />
-        <MetricCard title="平均进度" value={`${monitor?.summary.avg_progress ?? 0}%`} />
+        <MetricCard title="总学生" value={monitor?.total_students ?? 0} />
+        <MetricCard title="运行中" value={monitor?.running_instances ?? 0} />
+        <MetricCard title="活跃学生" value={monitor?.active_students ?? 0} />
+        <MetricCard title="总实例" value={monitor?.total_instances ?? 0} />
       </div>
       <TableContainer>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>学生</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>进度</TableHead>
-              <TableHead>资源</TableHead>
+              <TableHead>课程</TableHead>
+              <TableHead>教师</TableHead>
+              <TableHead>运行实例</TableHead>
+              <TableHead>总学生</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(monitor?.students ?? []).map((student) => (
-              <TableRow key={student.student_id}>
-                <TableCell>{student.student_name}</TableCell>
-                <TableCell><Badge>{student.status_text ?? "未开始"}</Badge></TableCell>
-                <TableCell>{student.progress_percent}%</TableCell>
-                <TableCell>{student.cpu_usage ?? "-"} / {student.memory_usage ?? "-"}</TableCell>
+            {(monitor?.courses ?? []).map((course) => (
+              <TableRow key={course.course_id}>
+                <TableCell>{course.course_title}</TableCell>
+                <TableCell>{course.teacher_name}</TableCell>
+                <TableCell>{course.running_instances}</TableCell>
+                <TableCell>{course.total_students}</TableCell>
               </TableRow>
             ))}
           </TableBody>

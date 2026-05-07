@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { useMyLearningOverview } from "@/hooks/useGrades";
-import { formatNumber } from "@/lib/format";
+import { formatHours, formatNumber } from "@/lib/format";
 
 /**
  * LearningOverviewPanel 学习概览组件。
@@ -19,7 +19,7 @@ export function LearningOverviewPanel() {
   const overviewQuery = useMyLearningOverview();
 
   if (overviewQuery.isLoading) {
-    return <LoadingState title="正在加载学习概览" description="正在整理你的课程、实验、竞赛和学习时长。" />;
+    return <LoadingState variant="hero" title="正在加载学习概览" description="正在整理你的课程、实验、竞赛和学习时长。" />;
   }
 
   if (overviewQuery.isError) {
@@ -37,7 +37,7 @@ export function LearningOverviewPanel() {
       <OverviewMetric icon={BookOpen} title="课程数" value={formatNumber(overview.course_count)} accent="text-sky-600" />
       <OverviewMetric icon={FlaskConical} title="实验数" value={formatNumber(overview.experiment_count)} accent="text-emerald-600" />
       <OverviewMetric icon={Trophy} title="竞赛数" value={formatNumber(overview.competition_count)} accent="text-amber-600" />
-      <OverviewMetric icon={Clock3} title="总学习时长" value={`${overview.total_study_hours} 小时`} accent="text-primary" />
+      <OverviewMetric icon={Clock3} title="总学习时长" value={formatHours(overview.total_study_hours)} accent="text-primary" />
     </div>
   );
 }

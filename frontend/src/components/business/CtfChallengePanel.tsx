@@ -3,7 +3,8 @@
 // CtfChallengePanel.tsx
 // 模块05解题赛题目面板，覆盖环境启动、Flag/攻击交易提交和明确成功失败反馈。
 
-import { Copy, Play, RotateCcw, Send, Server, Trash2 } from "lucide-react";
+import { Check, Copy, Play, RotateCcw, Send, Server, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -35,12 +36,14 @@ function getSubmitType(challenge: CtfCompetitionChallengeListItem) {
 export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePanelProps) {
   const challengesQuery = useCtfCompetitionChallenges(competitionID);
   const selected = (challengesQuery.data?.list ?? []).find((item) => item.challenge.id === challengeID) ?? challengesQuery.data?.list[0];
-  const environmentID = selected?.my_team_environment ?? "";
+  const [startedEnvID, setStartedEnvID] = useState("");
+  const environmentID = selected?.my_team_environment ?? startedEnvID;
   const environmentQuery = useCtfChallengeEnvironment(environmentID);
   const environmentMutations = useCtfEnvironmentMutations(competitionID, selected?.challenge.id, environmentID);
   const submitMutation = useSubmitCtfChallengeMutation(competitionID);
   const submissionsQuery = useCtfSubmissions(competitionID, { page: 1, page_size: 10 });
   const [content, setContent] = useState("");
+  const [copied, setCopied] = useState(false);
 
   if (!selected) {
     return <EmptyState title="暂无题目" description="竞赛开始后题目会在这里全量展示。" />;
@@ -58,13 +61,15 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
         </CardHeader>
         <CardContent className="space-y-2">
           {(challengesQuery.data?.list ?? []).map((item) => (
-            <div key={item.id} className="rounded-xl border border-border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold">{item.challenge.title}</p>
-                <Badge variant={item.my_team_solved ? "success" : "outline"}>{item.my_team_solved ? "已解" : `${item.current_score ?? item.base_score}分`}</Badge>
+            <Link key={item.id} href={`/ctf/${competitionID}/jeopardy/${item.challenge.id}`} className="block">
+              <div className={`rounded-xl border p-3 transition-colors hover:bg-muted/40 cursor-pointer ${item.challenge.id === challenge.id ? "border-primary bg-primary/5" : "border-border"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold">{item.challenge.title}</p>
+                  <Badge variant={item.my_team_solved ? "success" : "outline"}>{item.my_team_solved ? "已解" : `${item.current_score ?? item.base_score}分`}</Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{item.challenge.category_text} · {item.challenge.difficulty_text} · 解出 {item.solve_count}</p>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{item.challenge.category_text} · {item.challenge.difficulty_text} · 解出 {item.solve_count}</p>
-            </div>
+            </Link>
           ))}
         </CardContent>
       </Card>
@@ -99,32 +104,75 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
           </CardHeader>
           <CardContent className="space-y-3">
             {environmentID ? (
-              <div className="rounded-xl border border-border p-4">
-                <p className="font-semibold">{environmentQuery.data?.status_text ?? "读取环境状态中"}</p>
-                <p className="mt-1 text-sm text-muted-foreground">Namespace: {environmentQuery.data?.namespace ?? "-"}</p>
+              <div className="rounded-xl border border-border p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant={environmentQuery.data?.status === 2 ? "success" : "outline"}>
+                    {environmentQuery.data?.status_text ?? "读取环境状态中"}
+                  </Badge>
+                </div>
                 {environmentQuery.data?.chain_rpc_url ? (
-                  <p className="mt-2 flex items-center gap-2 rounded-lg bg-muted p-2 font-mono text-xs">
-                    {environmentQuery.data.chain_rpc_url}
-                    <Copy className="h-3.5 w-3.5" />
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">RPC地址</p>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-lg bg-muted p-2 font-mono text-xs hover:bg-muted/70 transition-colors cursor-pointer"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(environmentQuery.data!.chain_rpc_url!);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      <span className="flex-1 text-left truncate">{environmentQuery.data.chain_rpc_url}</span>
+                      {copied ? <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
+                    </button>
+                  </div>
+                ) : null}
+                {environmentQuery.data?.container_status ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">容器状态</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(environmentQuery.data.container_status).map(([name, info]) => (
+                        <span key={name} className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs">
+                          {info.status === "running" ? "✅" : info.status === "pending" ? "🔄" : "❌"}
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 ) : null}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">需要运行环境的题目请先启动环境，其他题目可直接提交答案。</p>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => environmentMutations.start.mutate()} isLoading={environmentMutations.start.isPending}>
-                <Play className="h-4 w-4" />
-                启动环境
-              </Button>
-              <Button variant="outline" disabled={!environmentID} onClick={() => environmentMutations.reset.mutate()} isLoading={environmentMutations.reset.isPending}>
-                <RotateCcw className="h-4 w-4" />
-                重置
-              </Button>
-              <Button variant="destructive" disabled={!environmentID} onClick={() => environmentMutations.destroy.mutate()} isLoading={environmentMutations.destroy.isPending}>
-                <Trash2 className="h-4 w-4" />
-                销毁
-              </Button>
+              {!environmentID ? (
+                <Button
+                  onClick={() => {
+                    environmentMutations.start.mutate(undefined, {
+                      onSuccess: (data) => {
+                        if (data?.environment_id) {
+                          setStartedEnvID(data.environment_id);
+                        }
+                      },
+                    });
+                  }}
+                  isLoading={environmentMutations.start.isPending}
+                >
+                  <Play className="h-4 w-4" />
+                  启动环境
+                </Button>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={() => environmentMutations.reset.mutate()} isLoading={environmentMutations.reset.isPending}>
+                    <RotateCcw className="h-4 w-4" />
+                    重置
+                  </Button>
+                  <Button variant="destructive" onClick={() => { environmentMutations.destroy.mutate(); setStartedEnvID(""); }} isLoading={environmentMutations.destroy.isPending}>
+                    <Trash2 className="h-4 w-4" />
+                    销毁
+                  </Button>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -98,7 +98,7 @@ export function AlertEventPanel() {
   }, [detailQuery.data]);
 
   if (listQuery.isLoading && listQuery.data === undefined) {
-    return <LoadingState title="正在加载运行提醒" description="正在整理提醒列表、概览数据和当前详情。" />;
+    return <LoadingState variant="table" title="正在加载运行提醒" description="正在整理提醒列表、概览数据和当前详情。" />;
   }
 
   if (listQuery.isError && listQuery.data === undefined) {
@@ -107,7 +107,7 @@ export function AlertEventPanel() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#1e1b4b_0%,#5b21b6_45%,#7f1d1d_100%)] text-white shadow-[0_34px_95px_-42px_rgba(30,27,75,0.72)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_8%),hsl(var(--primary)/0.4)_45%,hsl(220_40%_12%))] text-white shadow-[0_34px_95px_-42px_rgba(30,27,75,0.72)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">

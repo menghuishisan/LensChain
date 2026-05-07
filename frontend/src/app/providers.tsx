@@ -18,9 +18,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 30 * 1000,
+            // 默认 1 分钟内数据视为新鲜，避免列表页频繁重复请求；
+            // 列表/表格类数据通过 refetchOnMount 手动控制，详情类用 invalidateQueries 强制刷新。
+            staleTime: 60 * 1000,
+            // 缓存保留 5 分钟，路由切换返回时直接复用而不闪烁加载。
+            gcTime: 5 * 60 * 1000,
             refetchOnWindowFocus: false,
+            refetchOnReconnect: true,
             retry: 1,
+            retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
           },
           mutations: {
             retry: 0,

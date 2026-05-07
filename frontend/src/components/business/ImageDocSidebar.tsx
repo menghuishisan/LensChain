@@ -46,7 +46,7 @@ export function ImageDocSidebar({ imageID, onClose }: ImageDocSidebarProps) {
       {/* 内容区域 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         {docQuery.isLoading ? (
-          <LoadingState title="加载文档" description="正在读取镜像文档内容。" />
+          <LoadingState variant="spinner" title="加载文档" description="正在读取镜像文档内容。" />
         ) : docQuery.isError ? (
           <p className="text-sm text-destructive">文档加载失败，请稍后重试。</p>
         ) : docQuery.data ? (

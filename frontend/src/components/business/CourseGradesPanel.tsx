@@ -5,13 +5,15 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
+import Link from "next/link";
+
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { useAssignments, useCourseGrades, useGradeMutations } from "@/hooks/useAssignments";
+import { useAssignments, useGradeConfig, useGradeMutations, useGradeSummary, useMyGrades } from "@/hooks/useAssignments";
 import type { ID } from "@/types/api";
 
 export interface CourseGradesPanelProps {
@@ -21,32 +23,34 @@ export interface CourseGradesPanelProps {
 
 // CourseGradesPanel 根据角色展示教师成绩管理页或学生成绩查看页。
 export function CourseGradesPanel({ courseID, role }: CourseGradesPanelProps) {
-  const grades = useCourseGrades(courseID);
+  const config = useGradeConfig(role === "teacher" ? courseID : "");
+  const summary = useGradeSummary(role === "teacher" ? courseID : "");
+  const mine = useMyGrades(role === "student" ? courseID : "");
   const assignments = useAssignments(courseID, { page: 1, page_size: 100 });
   const mutations = useGradeMutations(courseID);
   const [weights, setWeights] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (grades.config?.data?.items?.length) {
-      setWeights(Object.fromEntries(grades.config.data.items.map((item) => [item.assignment_id, item.weight])));
+    if (config.data?.items?.length) {
+      setWeights(Object.fromEntries(config.data.items.map((item) => [item.assignment_id, item.weight])));
       return;
     }
 
     if (assignments.data?.list?.length && Object.keys(weights).length === 0) {
       setWeights(Object.fromEntries(assignments.data.list.map((item) => [item.id, 0])));
     }
-  }, [assignments.data?.list, grades.config?.data?.items, weights]);
+  }, [assignments.data?.list, config.data?.items, weights]);
 
-  if (grades.summary.isLoading || grades.mine.isLoading || assignments.isLoading) {
-    return <LoadingState />;
+  if ((role === "teacher" && summary.isLoading) || (role === "student" && mine.isLoading) || assignments.isLoading) {
+    return <LoadingState variant="hero" />;
   }
 
-  if (grades.summary.isError) {
-    return <ErrorState description={grades.summary.error.message} />;
+  if (role === "teacher" && summary.isError) {
+    return <ErrorState description={summary.error.message} />;
   }
 
-  if (grades.mine.isError) {
-    return <ErrorState description={grades.mine.error.message} />;
+  if (role === "student" && mine.isError) {
+    return <ErrorState description={mine.error.message} />;
   }
 
   if (assignments.isError) {
@@ -56,10 +60,10 @@ export function CourseGradesPanel({ courseID, role }: CourseGradesPanelProps) {
   const totalWeight = Object.values(weights).reduce((sum, value) => sum + value, 0);
 
   if (role === "student") {
-    const mine = grades.mine.data;
+    const myData = mine.data;
     return (
       <div className="space-y-5">
-        <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(28_46%_28%))] p-6 text-primary-foreground">
+        <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
           <p className="text-sm text-primary-foreground/75">课程成绩</p>
           <h1 className="mt-2 font-display text-3xl font-semibold">查看加权总分与各作业成绩</h1>
         </div>
@@ -71,9 +75,9 @@ export function CourseGradesPanel({ courseID, role }: CourseGradesPanelProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-3">
-              <MetricCard label="最终成绩" value={mine?.final_score ?? "暂无"} />
-              <MetricCard label="加权总分" value={mine?.weighted_total ?? "暂无"} />
-              <MetricCard label="成绩状态" value={mine?.is_adjusted ? "已调整" : "自动计算"} />
+              <MetricCard label="最终成绩" value={myData?.final_score ?? "暂无"} />
+              <MetricCard label="加权总分" value={myData?.weighted_total ?? "暂无"} />
+              <MetricCard label="成绩状态" value={myData?.is_adjusted ? "已调整" : "自动计算"} />
             </div>
             <div className="grid gap-3">
               {(assignments.data?.list ?? []).map((assignment) => (
@@ -82,9 +86,18 @@ export function CourseGradesPanel({ courseID, role }: CourseGradesPanelProps) {
                     <p className="font-medium text-foreground">{assignment.title}</p>
                     <p className="mt-1 text-muted-foreground">总分 {assignment.total_score}</p>
                   </div>
-                  <span className="text-base font-semibold">{mine?.scores?.[assignment.id] ?? "-"}</span>
+                  <span className="text-base font-semibold">{myData?.scores?.[assignment.id] ?? "-"}</span>
                 </div>
               ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/20 p-4 text-sm">
+              <div>
+                <p className="font-medium text-foreground">对成绩有疑问？</p>
+                <p className="mt-1 text-muted-foreground">可针对单项作业或最终成绩提交申诉，由教师审核处理。</p>
+              </div>
+              <Link className={buttonClassName({ variant: "outline" })} href="/student/grades/appeals">
+                提交申诉
+              </Link>
             </div>
           </CardContent>
         </Card>
@@ -92,11 +105,11 @@ export function CourseGradesPanel({ courseID, role }: CourseGradesPanelProps) {
     );
   }
 
-  const students = grades.summary.data?.students ?? [];
+  const students = summary.data?.students ?? [];
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(28_46%_28%))] p-6 text-primary-foreground">
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
         <p className="text-sm text-primary-foreground/75">成绩管理</p>
         <h1 className="mt-2 font-display text-3xl font-semibold">配置权重、查看汇总并导出成绩单</h1>
       </div>

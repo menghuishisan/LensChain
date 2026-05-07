@@ -113,7 +113,7 @@ function SystemConfigEditorView() {
   }, [draftMap]);
 
   if (query.isLoading && query.data === undefined) {
-    return <LoadingState title="正在加载平台设置" description="正在读取平台基础设置、安全规则和数据保障选项。" />;
+    return <LoadingState variant="hero" title="正在加载平台设置" description="正在读取平台基础设置、安全规则和数据保障选项。" />;
   }
 
   if (query.isError && query.data === undefined) {
@@ -124,7 +124,7 @@ function SystemConfigEditorView() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#0f172a_0%,#0f766e_45%,#1e293b_100%)] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_8%),hsl(var(--primary)/0.45)_45%,hsl(220_40%_12%))] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
@@ -302,7 +302,7 @@ function SystemConfigChangeLogView() {
   const query = useSystemConfigChangeLogs(params);
 
   if (query.isLoading && query.data === undefined) {
-    return <LoadingState title="正在加载调整记录" description="正在读取平台设置的历史调整情况。" />;
+    return <LoadingState variant="table" title="正在加载调整记录" description="正在读取平台设置的历史调整情况。" />;
   }
 
   if (query.isError && query.data === undefined) {
@@ -311,7 +311,7 @@ function SystemConfigChangeLogView() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#0f172a_0%,#1d4d4f_45%,#312e81_100%)] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_8%),hsl(var(--primary)/0.35)_45%,hsl(220_40%_12%))] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
@@ -418,8 +418,8 @@ function SystemConfigChangeLogView() {
                     <TableRow key={item.id}>
                       <TableCell>{formatDateTime(item.changed_at)}</TableCell>
                       <TableCell>{item.config_group}.{item.config_key}</TableCell>
-                      <TableCell>{item.old_value ?? "—"}</TableCell>
-                      <TableCell>{item.new_value}</TableCell>
+                      <TableCell><code className="whitespace-pre-wrap break-all text-xs">{item.old_value ?? "—"}</code></TableCell>
+                      <TableCell><code className="whitespace-pre-wrap break-all text-xs">{item.new_value}</code></TableCell>
                       <TableCell>{item.changed_by_name}</TableCell>
                       <TableCell>{item.ip}</TableCell>
                     </TableRow>

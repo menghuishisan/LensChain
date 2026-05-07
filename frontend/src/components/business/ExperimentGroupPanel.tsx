@@ -43,7 +43,7 @@ export function ExperimentGroupPanel({ groupID }: ExperimentGroupPanelProps) {
   const [viewingMemberID, setViewingMemberID] = useState("");
 
   if (groupQuery.isLoading) {
-    return <LoadingState title="正在加载分组" description="读取组员、角色和协作进度。" />;
+    return <LoadingState variant="list" title="正在加载分组" description="读取组员、角色和协作进度。" />;
   }
 
   const group = groupQuery.data;

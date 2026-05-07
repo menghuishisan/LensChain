@@ -2,7 +2,7 @@
 // 教师课程列表页，对应模块03 P-01。
 
 import { PermissionGate } from "@/components/business/PermissionGate";
-import { TeacherCourseListPanel } from "@/components/business/CoursePanels";
+import { TeacherCourseListPanel } from "@/components/business/CourseListPanels";
 
 /**
  * TeacherCoursesPage 教师课程列表页。

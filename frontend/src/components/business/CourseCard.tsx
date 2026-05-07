@@ -6,7 +6,14 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatDateTime } from "@/lib/format";
-import type { CourseListItem, MyCourseItem, SharedCourseItem } from "@/types/course";
+import type { CourseListItem, CourseStatus, MyCourseItem, SharedCourseItem } from "@/types/course";
+
+function getCourseStatusVariant(status: CourseStatus) {
+  if (status === 3) return "success" as const;
+  if (status === 1) return "warning" as const;
+  if (status === 5) return "secondary" as const;
+  return "default" as const;
+}
 
 /**
  * CourseCard 组件属性。
@@ -21,12 +28,13 @@ export interface CourseCardProps {
  */
 export function CourseCard({ course, href }: CourseCardProps) {
   const statusText = "status_text" in course ? course.status_text : "共享课程";
+  const statusVariant = "status" in course ? getCourseStatusVariant(course.status) : "outline" as const;
   const meta = "teacher_name" in course ? course.teacher_name : "student_count" in course ? `${course.student_count}人` : "";
 
   return (
     <Link href={href}>
       <Card className="h-full overflow-hidden transition hover:-translate-y-1 hover:border-primary/40 hover:shadow-glow">
-        <div className="h-32 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.22),transparent_18rem),linear-gradient(135deg,hsl(174_60%_23%),hsl(34_72%_42%))]">
+        <div className="h-32 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.22),transparent_18rem),linear-gradient(135deg,hsl(var(--primary)/0.8),hsl(var(--primary)/0.55))]">
           {course.cover_url ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={course.cover_url} alt={course.title} className="h-full w-full object-cover" />
@@ -35,7 +43,7 @@ export function CourseCard({ course, href }: CourseCardProps) {
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-            <Badge variant="secondary">{statusText}</Badge>
+            <Badge variant={statusVariant}>{statusText}</Badge>
           </div>
           <CardDescription>{course.course_type_text} · {meta}</CardDescription>
         </CardHeader>

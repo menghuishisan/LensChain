@@ -33,16 +33,28 @@ export function Pagination({ page, totalPages, total, className, onPageChange }:
   const currentPage = Math.min(Math.max(page, 1), safeTotalPages);
   const pages = getVisiblePages(currentPage, safeTotalPages);
 
+  if (safeTotalPages <= 1) {
+    return typeof total === "number" ? (
+      <p className={cn("text-sm text-muted-foreground", className)}>共 {total} 条</p>
+    ) : null;
+  }
+
   return (
     <nav className={cn("flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between", className)} aria-label="分页">
       <p className="text-sm text-muted-foreground">
-        第 {currentPage} / {safeTotalPages} 页{typeof total === "number" ? `，共 ${total} 条` : ""}
+        {typeof total === "number" ? `共 ${total} 条` : `第 ${currentPage} 页`}
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <Button variant="outline" size="icon" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
           <ChevronLeft className="h-4 w-4" />
           <span className="sr-only">上一页</span>
         </Button>
+        {pages[0] > 1 ? (
+          <>
+            <Button variant="outline" size="sm" onClick={() => onPageChange(1)}>1</Button>
+            {pages[0] > 2 ? <span className="px-1 text-sm text-muted-foreground">…</span> : null}
+          </>
+        ) : null}
         {pages.map((item) => (
           <Button
             key={item}
@@ -53,6 +65,12 @@ export function Pagination({ page, totalPages, total, className, onPageChange }:
             {item}
           </Button>
         ))}
+        {pages[pages.length - 1] < safeTotalPages ? (
+          <>
+            {pages[pages.length - 1] < safeTotalPages - 1 ? <span className="px-1 text-sm text-muted-foreground">…</span> : null}
+            <Button variant="outline" size="sm" onClick={() => onPageChange(safeTotalPages)}>{safeTotalPages}</Button>
+          </>
+        ) : null}
         <Button
           variant="outline"
           size="icon"

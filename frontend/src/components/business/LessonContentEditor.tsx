@@ -59,7 +59,10 @@ export function LessonContentEditor({ lessonID }: LessonContentEditorProps) {
 
   return (
     <Card>
-      <CardHeader><CardTitle>课时内容编辑</CardTitle><CardDescription>编辑课时内容并保存附件元数据，实际对象存储上传由后续存储能力提供。</CardDescription></CardHeader>
+      <CardHeader>
+        <CardTitle>课时内容编辑</CardTitle>
+        <CardDescription>编辑课时内容并保存附件元数据，实际对象存储上传由后续存储能力提供。</CardDescription>
+      </CardHeader>
       <CardContent>
         <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); mutations.updateLesson.mutate(form, { onSuccess: () => showToast({ title: "课时已保存", variant: "success" }) }); }}>
           <FormField id="lesson-title" label="课时标题" required><Input id="lesson-title" value={form.title ?? ""} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} /></FormField>

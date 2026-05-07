@@ -28,7 +28,12 @@ func Init(cfg *config.DatabaseConfig) error {
 
 	var err error
 	db, err = gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(logLevel),
+		Logger: gormlogger.New(newZapWriter(), gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logLevel,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		}),
 		NamingStrategy: schema.NamingStrategy{
 			SingularTable: false, // 使用复数表名（users, courses 等）
 		},
@@ -79,6 +84,17 @@ func Close() error {
 		return sqlDB.Close()
 	}
 	return nil
+}
+
+// zapWriter 将 GORM 日志桥接到 zap。
+type zapWriter struct{}
+
+func (w *zapWriter) Printf(format string, args ...interface{}) {
+	logger.S.Infof(format, args...)
+}
+
+func newZapWriter() *zapWriter {
+	return &zapWriter{}
 }
 
 // parseLogLevel 解析 GORM 日志级别

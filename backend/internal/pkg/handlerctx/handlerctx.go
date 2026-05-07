@@ -7,9 +7,11 @@ package handlerctx
 
 import (
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/requestctx"
 	"github.com/lenschain/backend/internal/pkg/response"
 )
@@ -36,5 +38,10 @@ func HandleError(c *gin.Context, err error) {
 		response.Error(c, appErr)
 		return
 	}
+	logger.L.Error("未预期的内部错误",
+		zap.String("path", c.Request.URL.Path),
+		zap.String("method", c.Request.Method),
+		zap.Error(err),
+	)
 	response.Error(c, errcode.ErrInternal)
 }

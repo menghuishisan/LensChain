@@ -151,6 +151,14 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 		sharedTemplates.GET("/:id", eh.TemplateHandler.GetSharedTemplate)
 	}
 
+	// ========== 3.5 学生端模板只读 ==========
+	studentTemplates := rg.Group("/student/experiment-templates")
+	studentTemplates.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireStudent())
+	{
+		studentTemplates.GET("", eh.TemplateHandler.StudentListTemplates)
+		studentTemplates.GET("/:id", eh.TemplateHandler.StudentGetTemplate)
+	}
+
 	// ========== 4. 实验实例 ==========
 	instances := rg.Group("/experiment-instances")
 	instances.Use(middleware.JWTAuth(), middleware.TenantIsolation())

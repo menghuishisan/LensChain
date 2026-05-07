@@ -154,7 +154,7 @@ func ensureCourseInteractionAllowed(course *entity.Course) error {
 }
 
 // ensureCourseEnrollmentManageable 校验课程当前是否允许管理学生名单。
-// 文档要求学生加入与教师管理学生发生在已发布、进行中两个阶段；已结束后进入只读数据阶段。
+// 仅已发布、进行中两个阶段允许教师管理学生名单；草稿课程学生不可见，无需管理。
 func ensureCourseEnrollmentManageable(course *entity.Course) error {
 	if course == nil {
 		return nil
@@ -167,7 +167,7 @@ func ensureCourseEnrollmentManageable(course *entity.Course) error {
 	case enum.CourseStatusArchived:
 		return errcode.ErrForbidden.WithMessage("课程已归档，仅支持查看和导出")
 	default:
-		return errcode.ErrForbidden.WithMessage("课程未发布，无法管理学生")
+		return errcode.ErrForbidden.WithMessage("课程未发布，请先发布课程再管理学生")
 	}
 }
 

@@ -52,7 +52,7 @@ export function SystemHealthDashboard() {
     null;
 
   if (isInitialLoading) {
-    return <LoadingState title="正在加载运行总览" description="正在汇总平台状态、资源使用和运行提醒。" />;
+    return <LoadingState variant="hero" title="正在加载运行总览" description="正在汇总平台状态、资源使用和运行提醒。" />;
   }
 
   if (blockingError !== null) {
@@ -84,7 +84,7 @@ export function SystemHealthDashboard() {
   return (
     <div className="space-y-6">
       <Card className="relative overflow-hidden border-none bg-slate-950 text-white shadow-[0_30px_80px_-35px_rgba(15,23,42,0.7)]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.22),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(249,115,22,0.18),transparent_34%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.22),transparent_38%),radial-gradient(circle_at_bottom_right,hsl(var(--primary)/0.12),transparent_34%)]" />
         <CardContent className="relative p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl space-y-3">

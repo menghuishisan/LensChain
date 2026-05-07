@@ -58,7 +58,7 @@ export function ProfilePanel() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.18),transparent_28rem),linear-gradient(135deg,hsl(var(--card)),hsl(40_76%_95%))] p-6 shadow-panel">
+      <section className="rounded-[2rem] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.18),transparent_28rem),linear-gradient(135deg,hsl(var(--card)),hsl(var(--secondary)))] p-6 shadow-panel">
         <div className="flex flex-col gap-5 md:flex-row md:items-center">
           <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-primary/12 text-primary">
             {data.avatar_url ? (

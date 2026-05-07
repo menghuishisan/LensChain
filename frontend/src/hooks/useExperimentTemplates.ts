@@ -28,6 +28,7 @@ import {
   getImageDocumentation,
   getSimScenario,
   getExperimentTemplate,
+  getStudentExperimentTemplate,
   getTemplateK8sConfig,
   listImageCategories,
   listImagePullStatus,
@@ -36,6 +37,7 @@ import {
   listSimLinkGroups,
   listSimScenarios,
   listSharedExperimentTemplates,
+  listStudentExperimentTemplates,
   listExperimentTags,
   listExperimentTemplates,
   publishExperimentTemplate,
@@ -157,6 +159,20 @@ export function useExperimentTemplates(params: ExperimentTemplateListParams) {
  */
 export function useSharedExperimentTemplates(params: QueryParams = {}) {
   return useQuery({ queryKey: ["experiment", "shared-templates", params], queryFn: () => listSharedExperimentTemplates(params) });
+}
+
+/**
+ * useStudentExperimentTemplates 学生端已发布模板列表。
+ */
+export function useStudentExperimentTemplates(params: QueryParams = {}) {
+  return useQuery({ queryKey: ["experiment", "student-templates", params], queryFn: () => listStudentExperimentTemplates(params) });
+}
+
+/**
+ * useStudentExperimentTemplate 学生端模板摘要详情（P-42 启动页使用）。
+ */
+export function useStudentExperimentTemplate(templateID: ID) {
+  return useQuery({ queryKey: ["experiment", "student-template", templateID], queryFn: () => getStudentExperimentTemplate(templateID), enabled: templateID.length > 0 });
 }
 
 /**

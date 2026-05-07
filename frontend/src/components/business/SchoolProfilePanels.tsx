@@ -123,7 +123,7 @@ export function SchoolLicensePanel() {
         {license.is_expiring_soon ? <div className="rounded-xl bg-amber-500/12 p-4 text-amber-700">学校授权将在7天内到期，请尽快联系平台管理员。</div> : null}
         {license.status === 3 ? <div className="rounded-xl bg-destructive/10 p-4 text-destructive">学校处于缓冲期，缓冲期结束后将被冻结。</div> : null}
         {license.status === 4 ? <ErrorState title="学校已冻结" description="当前学校授权已冻结，功能访问将受到限制。" /> : null}
-        <div className="rounded-[2rem] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.18),transparent_24rem),linear-gradient(135deg,hsl(var(--card)),hsl(40_76%_95%))] p-8 shadow-panel">
+        <div className="rounded-[2rem] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.18),transparent_24rem),linear-gradient(135deg,hsl(var(--card)),hsl(var(--secondary)))] p-8 shadow-panel">
           <SchoolStatusBadge status={license.status} text={license.status_text} />
           <p className="mt-6 text-sm text-muted-foreground">授权期限</p>
           <h2 className="mt-2 font-display text-3xl font-semibold">

@@ -8,6 +8,7 @@ import { useState } from "react";
 
 import { CourseEditorForm } from "@/components/business/CourseEditorForm";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { useCourse, useCourseLifecycleMutations, useCourseSchedule, useSetCourseScheduleMutation } from "@/hooks/useCourses";
@@ -75,9 +76,13 @@ export function CourseSettingsPanel({ courseID }: { courseID: ID }) {
             <Button variant="outline" onClick={() => lifecycle.clone.mutate()}>
               克隆课程
             </Button>
-            <Button variant="destructive" onClick={() => lifecycle.remove.mutate()}>
-              删除课程
-            </Button>
+            <ConfirmDialog
+              title="删除课程"
+              description="删除后课程及其所有内容将无法恢复，确定继续吗？"
+              confirmText="删除"
+              onConfirm={() => lifecycle.remove.mutate()}
+              trigger={<Button variant="destructive">删除课程</Button>}
+            />
           </div>
         </CardContent>
       </Card>

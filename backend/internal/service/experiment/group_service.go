@@ -227,7 +227,6 @@ func (s *groupService) Create(ctx context.Context, sc *svcctx.ServiceContext, re
 // List 获取分组列表
 func (s *groupService) List(ctx context.Context, sc *svcctx.ServiceContext, req *dto.GroupListReq) ([]*dto.GroupListItem, int64, error) {
 	params := &experimentrepo.GroupListParams{
-		SchoolID: sc.SchoolID,
 		Status:   req.Status,
 		Page:     1,
 		PageSize: 10000,

@@ -17,6 +17,7 @@ import { VulnerabilityConvertPanel } from "@/components/business/VulnerabilityCo
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClassName } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
@@ -26,8 +27,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/Table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
-import { useCtfChallenge, useCtfChallengeAssetMutations, useCtfChallengeAssets, useCtfChallengeMutations, useCtfChallenges, useCtfVerification, usePendingCtfChallengeReviews } from "@/hooks/useCtfChallenges";
-import { useCtfAdminOverview, useCtfAnnouncementMutations, useCtfAnnouncements, useCtfCompetition, useCtfCompetitionChallenges, useCtfCompetitionMonitor, useCtfCompetitionMutations, useCtfCompetitionResults, useCtfCompetitions, useCtfCompetitionStatistics, useCtfLeaderboardHistory, useCtfResourceQuota, useCtfResourceQuotaMutation } from "@/hooks/useCtfCompetitions";
+import {
+  useCtfChallenge, useCtfChallengeAssetMutations, useCtfChallengeAssets,
+  useCtfChallengeMutations, useCtfChallenges, useCtfVerification, usePendingCtfChallengeReviews,
+} from "@/hooks/useCtfChallenges";
+import {
+  useCtfAdminOverview, useCtfAnnouncementMutations, useCtfAnnouncements,
+  useCtfCompetition, useCtfCompetitionChallenges, useCtfCompetitionMonitor,
+  useCtfCompetitionMutations, useCtfCompetitionResults, useCtfCompetitions,
+  useCtfCompetitionStatistics, useCtfLeaderboardHistory, useCtfResourceQuota,
+  useCtfResourceQuotaMutation,
+} from "@/hooks/useCtfCompetitions";
 import { useCtfTeam, useCtfTeamMutations, useCtfTeams, useMyCtfRegistration } from "@/hooks/useCtfTeams";
 import { useCtfRealtime } from "@/hooks/useCtfRealtime";
 import { formatDateTime, formatScore } from "@/lib/format";
@@ -42,8 +52,16 @@ const DEFAULT_COMPETITION: CreateCtfCompetitionRequest = {
   max_team_size: 4,
   min_team_size: 1,
   max_teams: 100,
-  jeopardy_config: { scoring: { decay_factor: 0.95, min_score_ratio: 0.2, first_blood_bonus: 0.1 }, submission_limit: { max_per_minute: 5, cooldown_threshold: 10, cooldown_minutes: 5 } },
-  ad_config: { total_rounds: 10, attack_duration_minutes: 10, defense_duration_minutes: 10, initial_token: 10000, attack_bonus_ratio: 0.05, defense_reward_per_round: 50, first_patch_bonus: 200, first_blood_bonus_ratio: 0.1, vulnerability_decay_factor: 0.8, max_teams_per_group: 8, judge_chain_image: "judge-service:latest", team_chain_image: "ganache:latest" },
+  jeopardy_config: {
+    scoring: { decay_factor: 0.95, min_score_ratio: 0.2, first_blood_bonus: 0.1 },
+    submission_limit: { max_per_minute: 5, cooldown_threshold: 10, cooldown_minutes: 5 },
+  },
+  ad_config: {
+    total_rounds: 10, attack_duration_minutes: 10, defense_duration_minutes: 10,
+    initial_token: 10000, attack_bonus_ratio: 0.05, defense_reward_per_round: 50,
+    first_patch_bonus: 200, first_blood_bonus_ratio: 0.1, vulnerability_decay_factor: 0.8,
+    max_teams_per_group: 8, judge_chain_image: "judge-service:latest", team_chain_image: "ganache:latest",
+  },
 };
 
 /** CtfHallPanel 学生竞赛大厅页面。 */
@@ -121,7 +139,7 @@ export function CtfCompetitionDetailPanel({ competitionID }: { competitionID: ID
   const [inviteCode, setInviteCode] = useState("");
 
   if (competitionQuery.isLoading) {
-    return <LoadingState title="正在加载竞赛" description="读取竞赛信息、报名状态和组队规则。" />;
+    return <LoadingState variant="hero" title="正在加载竞赛" description="读取竞赛信息、报名状态和组队规则。" />;
   }
 
   if (!competitionQuery.data) {
@@ -134,8 +152,8 @@ export function CtfCompetitionDetailPanel({ competitionID }: { competitionID: ID
 
   return (
     <div className="space-y-5">
-      <Card className="border-amber-500/20 bg-gradient-to-br from-slate-950 via-zinc-950 to-amber-950 text-white">
-        <div className="h-36 bg-[radial-gradient(circle_at_20%_30%,rgba(251,191,36,0.28),transparent_28%),linear-gradient(135deg,rgba(15,23,42,0.88),rgba(120,53,15,0.56))]" />
+      <Card className="border-primary/20 bg-gradient-to-br from-slate-950 via-slate-900 to-[hsl(var(--primary)/0.15)] text-white">
+        <div className="h-36 bg-[radial-gradient(circle_at_20%_30%,hsl(var(--primary)/0.28),transparent_28%),linear-gradient(135deg,hsl(220_40%_8%/0.88),hsl(var(--primary)/0.18))]" />
         <CardHeader>
           <CardTitle className="text-white">{competition.title}</CardTitle>
         </CardHeader>
@@ -143,7 +161,7 @@ export function CtfCompetitionDetailPanel({ competitionID }: { competitionID: ID
           <div className="flex flex-wrap gap-2">
             <Badge>{competition.competition_type_text}</Badge>
             <Badge variant="outline" className="border-white/18 bg-white/8 text-white">{competition.team_mode_text}</Badge>
-            <Badge variant="secondary">{competition.status_text}</Badge>
+            <Badge variant={competition.status === 3 ? "success" : competition.status === 4 || competition.status === 5 ? "secondary" : "warning"}>{competition.status_text}</Badge>
           </div>
           <div className="grid gap-3 md:grid-cols-4">
             <MetricCard title="报名截止" value={formatDateTime(competition.registration_end_at)} />
@@ -214,7 +232,11 @@ export function CtfCompetitionDetailPanel({ competitionID }: { competitionID: ID
               <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{announcement.content}</p>
             </div>
           ))}
-          {realtime.messages.filter((message) => message.channel === "announcement").length > 0 ? <p className="text-xs text-muted-foreground">实时公告通道已同步 {realtime.messages.filter((message) => message.channel === "announcement").length} 条消息。</p> : null}
+          {realtime.messages.filter((message) => message.channel === "announcement").length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              实时公告通道已同步 {realtime.messages.filter((message) => message.channel === "announcement").length} 条消息。
+            </p>
+          ) : null}
         </CardContent>
       </Card>
     </div>
@@ -253,7 +275,13 @@ export function CtfTeamPanel({ competitionID }: { competitionID: ID }) {
             <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
               <Input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="新团队名称" />
               <Button variant="outline" onClick={() => teamMutations.updateTeam.mutate({ teamID: myTeam.id, name: teamName })} isLoading={teamMutations.updateTeam.isPending}>修改队名</Button>
-              <Button variant="destructive" onClick={() => teamMutations.disbandTeam.mutate(myTeam.id)} isLoading={teamMutations.disbandTeam.isPending}>解散团队</Button>
+              <ConfirmDialog
+                title="解散团队"
+                description="解散后所有成员将被移出，确定继续吗？"
+                confirmText="解散"
+                onConfirm={() => teamMutations.disbandTeam.mutate(myTeam.id)}
+                trigger={<Button variant="destructive">解散团队</Button>}
+              />
             </div>
             <Button variant="ghost" onClick={() => teamMutations.leaveTeam.mutate(myTeam.id)} isLoading={teamMutations.leaveTeam.isPending}>退出团队</Button>
           </CardContent>
@@ -332,7 +360,14 @@ export function CtfResultsPanel({ competitionID }: { competitionID: ID }) {
       </div>
       <TableContainer>
         <Table>
-          <TableHeader><TableRow><TableHead>排名</TableHead><TableHead>团队</TableHead><TableHead>分数/Token</TableHead><TableHead>解题/攻防</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>排名</TableHead>
+              <TableHead>团队</TableHead>
+              <TableHead>分数/Token</TableHead>
+              <TableHead>解题/攻防</TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             {(resultsQuery.data?.rankings ?? []).map((item) => (
               <TableRow key={item.team_id}>
@@ -367,10 +402,36 @@ export function CtfAdminCompetitionListPanel() {
   const competitionsQuery = useCtfCompetitions({ page: 1, page_size: 30 });
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">CTF竞赛管理</h1><Button onClick={() => router.push("/super/ctf/competitions/create")}><Plus className="h-4 w-4" />创建竞赛</Button></div>
-      <TableContainer><Table><TableHeader><TableRow><TableHead>竞赛</TableHead><TableHead>类型</TableHead><TableHead>状态</TableHead><TableHead>队伍</TableHead><TableHead>操作</TableHead></TableRow></TableHeader><TableBody>
-        {(competitionsQuery.data?.list ?? []).map((competition) => <TableRow key={competition.id}><TableCell>{competition.title}</TableCell><TableCell>{competition.competition_type_text}</TableCell><TableCell><Badge>{competition.status_text}</Badge></TableCell><TableCell>{competition.registered_teams}/{competition.max_teams ?? "不限"}</TableCell><TableCell><Button size="sm" variant="outline" onClick={() => router.push(`/super/ctf/competitions/${competition.id}/monitor`)}>查看运行情况</Button></TableCell></TableRow>)}
-      </TableBody></Table></TableContainer>
+      <div className="flex items-center justify-between">
+        <h1 className="font-display text-3xl font-semibold">CTF竞赛管理</h1>
+        <Button onClick={() => router.push("/super/ctf/competitions/create")}><Plus className="h-4 w-4" />创建竞赛</Button>
+      </div>
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>竞赛</TableHead>
+              <TableHead>类型</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>队伍</TableHead>
+              <TableHead>操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(competitionsQuery.data?.list ?? []).map((competition) => (
+              <TableRow key={competition.id}>
+                <TableCell>{competition.title}</TableCell>
+                <TableCell>{competition.competition_type_text}</TableCell>
+                <TableCell><Badge>{competition.status_text}</Badge></TableCell>
+                <TableCell>{competition.registered_teams}/{competition.max_teams ?? "不限"}</TableCell>
+                <TableCell>
+                  <Button size="sm" variant="outline" onClick={() => router.push(`/super/ctf/competitions/${competition.id}/monitor`)}>查看运行情况</Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </div>
   );
 }
@@ -401,7 +462,7 @@ export function CtfCompetitionEditorPanel() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(28_46%_28%))] p-6 text-primary-foreground">
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
         <p className="text-sm text-primary-foreground/75">竞赛配置</p>
         <h1 className="mt-2 font-display text-3xl font-semibold">创建或编辑 CTF 竞赛</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-primary-foreground/80">按基本信息、题目安排和发布确认三步完成竞赛设置。</p>
@@ -412,113 +473,294 @@ export function CtfCompetitionEditorPanel() {
         <Badge variant={step === 3 ? "default" : "outline"}>发布确认</Badge>
       </div>
       {step === 1 ? (
-        <Card><CardContent className="grid gap-4 p-5 md:grid-cols-2">
-          <FormField label="竞赛名称" required><Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} /></FormField>
-          <FormField label="竞赛类型"><Select value={String(form.competition_type)} onValueChange={(value) => setForm((current) => ({ ...current, competition_type: Number(value) as 1 | 2 }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">解题赛</SelectItem><SelectItem value="2">攻防对抗赛</SelectItem></SelectContent></Select></FormField>
-          <FormField label="竞赛范围"><Select value={String(form.scope)} onValueChange={(value) => setForm((current) => ({ ...current, scope: Number(value) as 1 | 2 }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">平台级</SelectItem><SelectItem value="2">校级</SelectItem></SelectContent></Select></FormField>
-          <FormField label="参赛模式"><Select value={String(form.team_mode)} onValueChange={(value) => setForm((current) => {
-            const mode = Number(value) as 1 | 2 | 3;
-            return mode === 1 ? { ...current, team_mode: mode, min_team_size: 1, max_team_size: 1 } : { ...current, team_mode: mode };
-          })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">个人赛</SelectItem><SelectItem value="2">自由组队</SelectItem><SelectItem value="3">指定组队</SelectItem></SelectContent></Select></FormField>
-          <FormField label="团队最小人数"><Input type="number" value={form.min_team_size} disabled={form.team_mode === 1} onChange={(event) => setForm((current) => ({ ...current, min_team_size: Number(event.target.value) }))} /></FormField>
-          <FormField label="团队最大人数"><Input type="number" value={form.max_team_size} disabled={form.team_mode === 1} onChange={(event) => setForm((current) => ({ ...current, max_team_size: Number(event.target.value) }))} /></FormField>
-          <FormField label="队伍上限"><Input type="number" value={form.max_teams ?? ""} onChange={(event) => setForm((current) => ({ ...current, max_teams: Number(event.target.value) }))} /></FormField>
-          <FormField label="冻结时间"><Input type="datetime-local" value={toDateTimeLocal(form.freeze_at)} onChange={(event) => setForm((current) => ({ ...current, freeze_at: fromDateTimeLocal(event.target.value) }))} /></FormField>
-          <FormField label="报名开始"><Input type="datetime-local" value={toDateTimeLocal(form.registration_start_at)} onChange={(event) => setForm((current) => ({ ...current, registration_start_at: fromDateTimeLocal(event.target.value) }))} /></FormField>
-          <FormField label="报名结束"><Input type="datetime-local" value={toDateTimeLocal(form.registration_end_at)} onChange={(event) => setForm((current) => ({ ...current, registration_end_at: fromDateTimeLocal(event.target.value) }))} /></FormField>
-          <FormField label="竞赛开始"><Input type="datetime-local" value={toDateTimeLocal(form.start_at)} onChange={(event) => setForm((current) => ({ ...current, start_at: fromDateTimeLocal(event.target.value) }))} /></FormField>
-          <FormField label="竞赛结束"><Input type="datetime-local" value={toDateTimeLocal(form.end_at)} onChange={(event) => setForm((current) => ({ ...current, end_at: fromDateTimeLocal(event.target.value) }))} /></FormField>
-          <FormField label="竞赛描述" className="md:col-span-2"><Textarea value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={6} /></FormField>
-          <FormField label="竞赛规则" className="md:col-span-2"><Textarea value={form.rules ?? ""} onChange={(event) => setForm((current) => ({ ...current, rules: event.target.value }))} rows={6} /></FormField>
-          {form.competition_type === 1 ? (
-            <div className="grid gap-4 md:col-span-2 md:grid-cols-3 rounded-xl border border-border p-4">
-              <FormField label="衰减因子"><Input type="number" step="0.01" value={form.jeopardy_config?.scoring.decay_factor ?? 0.95} onChange={(event) => setForm((current) => ({ ...current, jeopardy_config: { ...(current.jeopardy_config ?? DEFAULT_COMPETITION.jeopardy_config!), scoring: { ...(current.jeopardy_config?.scoring ?? DEFAULT_COMPETITION.jeopardy_config!.scoring), decay_factor: Number(event.target.value) } } }))} /></FormField>
-              <FormField label="最低分比例"><Input type="number" step="0.01" value={form.jeopardy_config?.scoring.min_score_ratio ?? 0.2} onChange={(event) => setForm((current) => ({ ...current, jeopardy_config: { ...(current.jeopardy_config ?? DEFAULT_COMPETITION.jeopardy_config!), scoring: { ...(current.jeopardy_config?.scoring ?? DEFAULT_COMPETITION.jeopardy_config!.scoring), min_score_ratio: Number(event.target.value) } } }))} /></FormField>
-              <FormField label="First Blood"><Input type="number" step="0.01" value={form.jeopardy_config?.scoring.first_blood_bonus ?? 0.1} onChange={(event) => setForm((current) => ({ ...current, jeopardy_config: { ...(current.jeopardy_config ?? DEFAULT_COMPETITION.jeopardy_config!), scoring: { ...(current.jeopardy_config?.scoring ?? DEFAULT_COMPETITION.jeopardy_config!.scoring), first_blood_bonus: Number(event.target.value) } } }))} /></FormField>
+        <Card>
+          <CardContent className="grid gap-4 p-5 md:grid-cols-2">
+            <FormField label="竞赛名称" required>
+              <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+            </FormField>
+            <FormField label="竞赛类型">
+              <Select value={String(form.competition_type)} onValueChange={(value) => setForm((current) => ({ ...current, competition_type: Number(value) as 1 | 2 }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">解题赛</SelectItem>
+                  <SelectItem value="2">攻防对抗赛</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="竞赛范围">
+              <Select value={String(form.scope)} onValueChange={(value) => setForm((current) => ({ ...current, scope: Number(value) as 1 | 2 }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">平台级</SelectItem>
+                  <SelectItem value="2">校级</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="参赛模式">
+              <Select value={String(form.team_mode)} onValueChange={(value) => setForm((current) => {
+                const mode = Number(value) as 1 | 2 | 3;
+                return mode === 1 ? { ...current, team_mode: mode, min_team_size: 1, max_team_size: 1 } : { ...current, team_mode: mode };
+              })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">个人赛</SelectItem>
+                  <SelectItem value="2">自由组队</SelectItem>
+                  <SelectItem value="3">指定组队</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="团队最小人数">
+              <Input type="number" value={form.min_team_size} disabled={form.team_mode === 1} onChange={(event) => setForm((current) => ({ ...current, min_team_size: Number(event.target.value) }))} />
+            </FormField>
+            <FormField label="团队最大人数">
+              <Input type="number" value={form.max_team_size} disabled={form.team_mode === 1} onChange={(event) => setForm((current) => ({ ...current, max_team_size: Number(event.target.value) }))} />
+            </FormField>
+            <FormField label="队伍上限">
+              <Input type="number" value={form.max_teams ?? ""} onChange={(event) => setForm((current) => ({ ...current, max_teams: Number(event.target.value) }))} />
+            </FormField>
+            <FormField label="冻结时间">
+              <Input type="datetime-local" value={toDateTimeLocal(form.freeze_at)} onChange={(event) => setForm((current) => ({ ...current, freeze_at: fromDateTimeLocal(event.target.value) }))} />
+            </FormField>
+            <FormField label="报名开始">
+              <Input
+                type="datetime-local"
+                value={toDateTimeLocal(form.registration_start_at)}
+                onChange={(event) => setForm((current) => ({ ...current, registration_start_at: fromDateTimeLocal(event.target.value) }))}
+              />
+            </FormField>
+            <FormField label="报名结束">
+              <Input
+                type="datetime-local"
+                value={toDateTimeLocal(form.registration_end_at)}
+                onChange={(event) => setForm((current) => ({ ...current, registration_end_at: fromDateTimeLocal(event.target.value) }))}
+              />
+            </FormField>
+            <FormField label="竞赛开始">
+              <Input type="datetime-local" value={toDateTimeLocal(form.start_at)} onChange={(event) => setForm((current) => ({ ...current, start_at: fromDateTimeLocal(event.target.value) }))} />
+            </FormField>
+            <FormField label="竞赛结束">
+              <Input type="datetime-local" value={toDateTimeLocal(form.end_at)} onChange={(event) => setForm((current) => ({ ...current, end_at: fromDateTimeLocal(event.target.value) }))} />
+            </FormField>
+            <FormField label="竞赛描述" className="md:col-span-2">
+              <Textarea value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={6} />
+            </FormField>
+            <FormField label="竞赛规则" className="md:col-span-2">
+              <Textarea value={form.rules ?? ""} onChange={(event) => setForm((current) => ({ ...current, rules: event.target.value }))} rows={6} />
+            </FormField>
+            {form.competition_type === 1 ? (
+              <div className="grid gap-4 md:col-span-2 md:grid-cols-3 rounded-xl border border-border p-4">
+                <FormField label="衰减因子">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.jeopardy_config?.scoring.decay_factor ?? 0.95}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      jeopardy_config: {
+                        ...(current.jeopardy_config ?? DEFAULT_COMPETITION.jeopardy_config!),
+                        scoring: { ...(current.jeopardy_config?.scoring ?? DEFAULT_COMPETITION.jeopardy_config!.scoring), decay_factor: Number(event.target.value) },
+                      },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="最低分比例">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.jeopardy_config?.scoring.min_score_ratio ?? 0.2}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      jeopardy_config: {
+                        ...(current.jeopardy_config ?? DEFAULT_COMPETITION.jeopardy_config!),
+                        scoring: { ...(current.jeopardy_config?.scoring ?? DEFAULT_COMPETITION.jeopardy_config!.scoring), min_score_ratio: Number(event.target.value) },
+                      },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="First Blood">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.jeopardy_config?.scoring.first_blood_bonus ?? 0.1}
+                    onChange={(event) => setForm((current) => ({
+                      ...current,
+                      jeopardy_config: {
+                        ...(current.jeopardy_config ?? DEFAULT_COMPETITION.jeopardy_config!),
+                        scoring: { ...(current.jeopardy_config?.scoring ?? DEFAULT_COMPETITION.jeopardy_config!.scoring), first_blood_bonus: Number(event.target.value) },
+                      },
+                    }))}
+                  />
+                </FormField>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:col-span-2 md:grid-cols-3 rounded-xl border border-border p-4">
+                <FormField label="总回合数">
+                  <Input
+                    type="number"
+                    value={form.ad_config?.total_rounds ?? 10}
+                    onChange={(event) => setForm((current) => ({
+                      ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), total_rounds: Number(event.target.value) },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="攻击时长">
+                  <Input
+                    type="number"
+                    value={form.ad_config?.attack_duration_minutes ?? 10}
+                    onChange={(event) => setForm((current) => ({
+                      ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), attack_duration_minutes: Number(event.target.value) },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="防守时长">
+                  <Input
+                    type="number"
+                    value={form.ad_config?.defense_duration_minutes ?? 10}
+                    onChange={(event) => setForm((current) => ({
+                      ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), defense_duration_minutes: Number(event.target.value) },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="初始 Token">
+                  <Input
+                    type="number"
+                    value={form.ad_config?.initial_token ?? 10000}
+                    onChange={(event) => setForm((current) => ({
+                      ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), initial_token: Number(event.target.value) },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="攻击奖励比例">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={form.ad_config?.attack_bonus_ratio ?? 0.05}
+                    onChange={(event) => setForm((current) => ({
+                      ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), attack_bonus_ratio: Number(event.target.value) },
+                    }))}
+                  />
+                </FormField>
+                <FormField label="每组最大队伍数">
+                  <Input
+                    type="number"
+                    value={form.ad_config?.max_teams_per_group ?? 8}
+                    onChange={(event) => setForm((current) => ({
+                      ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), max_teams_per_group: Number(event.target.value) },
+                    }))}
+                  />
+                </FormField>
+              </div>
+            )}
+            <div className="flex gap-2 md:col-span-2">
+              <Button disabled={!form.title} onClick={saveDraft} isLoading={mutations.create.isPending || mutations.update.isPending}>保存草稿</Button>
+              <Button variant="outline" disabled={!form.title} onClick={saveDraft}>下一步</Button>
             </div>
-          ) : (
-            <div className="grid gap-4 md:col-span-2 md:grid-cols-3 rounded-xl border border-border p-4">
-              <FormField label="总回合数"><Input type="number" value={form.ad_config?.total_rounds ?? 10} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), total_rounds: Number(event.target.value) } }))} /></FormField>
-              <FormField label="攻击时长"><Input type="number" value={form.ad_config?.attack_duration_minutes ?? 10} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), attack_duration_minutes: Number(event.target.value) } }))} /></FormField>
-              <FormField label="防守时长"><Input type="number" value={form.ad_config?.defense_duration_minutes ?? 10} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), defense_duration_minutes: Number(event.target.value) } }))} /></FormField>
-              <FormField label="初始 Token"><Input type="number" value={form.ad_config?.initial_token ?? 10000} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), initial_token: Number(event.target.value) } }))} /></FormField>
-              <FormField label="攻击奖励比例"><Input type="number" step="0.01" value={form.ad_config?.attack_bonus_ratio ?? 0.05} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), attack_bonus_ratio: Number(event.target.value) } }))} /></FormField>
-              <FormField label="每组最大队伍数"><Input type="number" value={form.ad_config?.max_teams_per_group ?? 8} onChange={(event) => setForm((current) => ({ ...current, ad_config: { ...(current.ad_config ?? DEFAULT_COMPETITION.ad_config!), max_teams_per_group: Number(event.target.value) } }))} /></FormField>
-            </div>
-          )}
-          <div className="flex gap-2 md:col-span-2">
-            <Button disabled={!form.title} onClick={saveDraft} isLoading={mutations.create.isPending || mutations.update.isPending}>保存草稿</Button>
-            <Button variant="outline" disabled={!form.title} onClick={saveDraft}>下一步</Button>
-          </div>
-        </CardContent></Card>
+          </CardContent>
+        </Card>
       ) : null}
       {step === 2 ? (
-        <Card><CardContent className="space-y-4 p-5">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-3">
-              <p className="font-semibold">已选题目</p>
-              {(selectedChallengesQuery.data?.list ?? []).map((item, index) => (
-                <div key={item.id} className="rounded-xl border border-border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span>{index + 1}. {item.challenge.title}</span>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" disabled={index === 0} onClick={() => mutations.sortChallenges.mutate(reorderCompetitionItems(selectedChallengesQuery.data?.list ?? [], item.id, -1))}><ChevronUp className="h-4 w-4" /></Button>
-                      <Button size="sm" variant="ghost" disabled={index === (selectedChallengesQuery.data?.list.length ?? 1) - 1} onClick={() => mutations.sortChallenges.mutate(reorderCompetitionItems(selectedChallengesQuery.data?.list ?? [], item.id, 1))}><ChevronDown className="h-4 w-4" /></Button>
-                      <Button size="sm" variant="destructive" onClick={() => mutations.removeChallenge.mutate(item.id)}>移除</Button>
+        <Card>
+          <CardContent className="space-y-4 p-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <p className="font-semibold">已选题目</p>
+                {(selectedChallengesQuery.data?.list ?? []).map((item, index) => (
+                  <div key={item.id} className="rounded-xl border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{index + 1}. {item.challenge.title}</span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={index === 0}
+                          onClick={() => mutations.sortChallenges.mutate(reorderCompetitionItems(selectedChallengesQuery.data?.list ?? [], item.id, -1))}
+                        >
+                          <ChevronUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={index === (selectedChallengesQuery.data?.list.length ?? 1) - 1}
+                          onClick={() => mutations.sortChallenges.mutate(reorderCompetitionItems(selectedChallengesQuery.data?.list ?? [], item.id, 1))}
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => mutations.removeChallenge.mutate(item.id)}>移除</Button>
+                      </div>
                     </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.challenge.category_text} · {item.challenge.difficulty_text} · 基础分 {item.base_score}</p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.challenge.category_text} · {item.challenge.difficulty_text} · 基础分 {item.base_score}</p>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div className="space-y-3">
+                <Input value={challengeKeyword} onChange={(event) => setChallengeKeyword(event.target.value)} placeholder="搜索题库" />
+                {(challengeLibraryQuery.data?.list ?? []).map((challenge) => (
+                  <label key={challenge.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+                    <div>
+                      <p className="font-semibold">{challenge.title}</p>
+                      <p className="text-xs text-muted-foreground">{challenge.category_text} · {challenge.difficulty_text} · {challenge.base_score}</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={selectedChallengeIDs.includes(challenge.id)}
+                      onChange={(event) => setSelectedChallengeIDs((current) => event.target.checked ? [...new Set([...current, challenge.id])] : current.filter((id) => id !== challenge.id))}
+                    />
+                  </label>
+                ))}
+                <Button
+                  disabled={selectedChallengeIDs.length === 0}
+                  onClick={() => mutations.addChallenges.mutate(selectedChallengeIDs)}
+                  isLoading={mutations.addChallenges.isPending}
+                >
+                  添加选中题目
+                </Button>
+              </div>
             </div>
-            <div className="space-y-3">
-              <Input value={challengeKeyword} onChange={(event) => setChallengeKeyword(event.target.value)} placeholder="搜索题库" />
-              {(challengeLibraryQuery.data?.list ?? []).map((challenge) => (
-                <label key={challenge.id} className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
-                  <div>
-                    <p className="font-semibold">{challenge.title}</p>
-                    <p className="text-xs text-muted-foreground">{challenge.category_text} · {challenge.difficulty_text} · {challenge.base_score}</p>
-                  </div>
-                  <input type="checkbox" checked={selectedChallengeIDs.includes(challenge.id)} onChange={(event) => setSelectedChallengeIDs((current) => event.target.checked ? [...new Set([...current, challenge.id])] : current.filter((id) => id !== challenge.id))} />
-                </label>
-              ))}
-              <Button disabled={selectedChallengeIDs.length === 0} onClick={() => mutations.addChallenges.mutate(selectedChallengeIDs)} isLoading={mutations.addChallenges.isPending}>添加选中题目</Button>
+            <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
+              {form.competition_type === 2
+                ? "攻防赛请确认所选题目适合按分组环境初始化，并在发布前检查攻防配置、回合数和 Token 参数。"
+                : "解题赛发布后题目会向参赛队伍开放，排行榜和分值会自动更新。"}
             </div>
-          </div>
-          <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
-            {form.competition_type === 2
-              ? "攻防赛请确认所选题目适合按分组环境初始化，并在发布前检查攻防配置、回合数和 Token 参数。"
-              : "解题赛发布后题目会向参赛队伍开放，排行榜和分值会自动更新。"}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setStep(1)}>上一步</Button>
-            <Button onClick={() => setStep(3)}>下一步</Button>
-          </div>
-        </CardContent></Card>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setStep(1)}>上一步</Button>
+              <Button onClick={() => setStep(3)}>下一步</Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
       {step === 3 ? (
-        <Card><CardContent className="space-y-4 p-5">
-          <p className="font-semibold">发布确认</p>
-          <div className="grid gap-3 md:grid-cols-4">
-            <MetricCard title="赛制" value={form.competition_type === 2 ? "攻防赛" : "解题赛"} />
-            <MetricCard title="范围" value={form.scope === 2 ? "校级" : "平台级"} />
-            <MetricCard title="队伍模式" value={form.team_mode === 1 ? "个人赛" : form.team_mode === 2 ? "自由组队" : "指定组队"} />
-            <MetricCard title="题目数" value={selectedChallengesQuery.data?.list.length ?? 0} />
-          </div>
-          <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground whitespace-pre-wrap">{form.description || "暂无描述"}</div>
-          {form.competition_type === 2 ? (
+        <Card>
+          <CardContent className="space-y-4 p-5">
+            <p className="font-semibold">发布确认</p>
             <div className="grid gap-3 md:grid-cols-4">
-              <MetricCard title="总回合数" value={form.ad_config?.total_rounds ?? 0} />
-              <MetricCard title="攻击时长" value={`${form.ad_config?.attack_duration_minutes ?? 0} 分钟`} />
-              <MetricCard title="防守时长" value={`${form.ad_config?.defense_duration_minutes ?? 0} 分钟`} />
-              <MetricCard title="初始 Token" value={form.ad_config?.initial_token ?? 0} />
+              <MetricCard title="赛制" value={form.competition_type === 2 ? "攻防赛" : "解题赛"} />
+              <MetricCard title="范围" value={form.scope === 2 ? "校级" : "平台级"} />
+              <MetricCard title="队伍模式" value={form.team_mode === 1 ? "个人赛" : form.team_mode === 2 ? "自由组队" : "指定组队"} />
+              <MetricCard title="题目数" value={selectedChallengesQuery.data?.list.length ?? 0} />
             </div>
-          ) : null}
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setStep(2)}>上一步</Button>
-            <Button onClick={() => mutations.publish.mutate()} isLoading={mutations.publish.isPending} disabled={competitionID.length === 0}>发布竞赛</Button>
-          </div>
-        </CardContent></Card>
+            <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground whitespace-pre-wrap">
+              {form.description || "暂无描述"}
+            </div>
+            {form.competition_type === 2 ? (
+              <div className="grid gap-3 md:grid-cols-4">
+                <MetricCard title="总回合数" value={form.ad_config?.total_rounds ?? 0} />
+                <MetricCard title="攻击时长" value={`${form.ad_config?.attack_duration_minutes ?? 0} 分钟`} />
+                <MetricCard title="防守时长" value={`${form.ad_config?.defense_duration_minutes ?? 0} 分钟`} />
+                <MetricCard title="初始 Token" value={form.ad_config?.initial_token ?? 0} />
+              </div>
+            ) : null}
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setStep(2)}>上一步</Button>
+              <Button
+                onClick={() => mutations.publish.mutate()}
+                isLoading={mutations.publish.isPending}
+                disabled={competitionID.length === 0}
+              >
+                发布竞赛
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
     </div>
   );
@@ -532,15 +774,76 @@ export function CtfCompetitionMonitorPanel({ competitionID }: { competitionID: I
   return (
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">竞赛运行情况</h1>
-      <div className="grid gap-3 md:grid-cols-4"><MetricCard title="参赛队伍" value={monitorQuery.data?.overview.registered_teams ?? 0} /><MetricCard title="总提交" value={monitorQuery.data?.overview.total_submissions ?? 0} /><MetricCard title="正确提交" value={monitorQuery.data?.overview.correct_submissions ?? 0} /><MetricCard title="运行环境" value={monitorQuery.data?.overview.running_environments ?? 0} /></div>
-      <Card><CardHeader><CardTitle>资源使用</CardTitle></CardHeader><CardContent className="space-y-2">
-        <MetricBar label="CPU" used={monitorQuery.data?.resource_usage.cpu_used ?? "0"} total={monitorQuery.data?.resource_usage.cpu_max ?? "0"} ratio={percentFromText(monitorQuery.data?.resource_usage.cpu_used, monitorQuery.data?.resource_usage.cpu_max)} />
-        <MetricBar label="内存" used={monitorQuery.data?.resource_usage.memory_used ?? "0"} total={monitorQuery.data?.resource_usage.memory_max ?? "0"} ratio={percentFromText(monitorQuery.data?.resource_usage.memory_used, monitorQuery.data?.resource_usage.memory_max)} />
-        <MetricBar label="Namespace" used={String(monitorQuery.data?.resource_usage.namespaces_used ?? 0)} total={String(monitorQuery.data?.resource_usage.namespaces_max ?? 0)} ratio={percentFromNumber(monitorQuery.data?.resource_usage.namespaces_used ?? 0, monitorQuery.data?.resource_usage.namespaces_max ?? 0)} />
-      </CardContent></Card>
-      <Card><CardHeader><CardTitle>题目统计</CardTitle></CardHeader><CardContent className="space-y-2">{(monitorQuery.data?.challenge_stats ?? []).map((item) => <div key={item.challenge_id} className="rounded-xl border border-border p-3 text-sm">{item.title} · 解题 {item.solve_count} · 正确率 {Math.round(item.solve_rate * 100)}% · 当前分 {item.current_score ?? "-"} · 环境 {item.environments_running}</div>)}</CardContent></Card>
-      <Card><CardHeader><CardTitle>最近提交</CardTitle></CardHeader><CardContent className="space-y-2">{(monitorQuery.data?.recent_submissions ?? []).map((item) => <div key={`${item.team_name}-${item.submitted_at}`} className="rounded-xl border border-border p-3 text-sm">{item.team_name} → {item.challenge_title} {item.is_correct ? "正确" : "错误"} · {formatDateTime(item.submitted_at)}</div>)}</CardContent></Card>
-      <div className="flex gap-2"><Button onClick={() => announcementMutation.mutate({ title: "竞赛公告", content: "请关注竞赛规则更新", announcement_type: 1 })} isLoading={announcementMutation.isPending}><Send className="h-4 w-4" />发布公告</Button><Button variant="destructive" onClick={() => competitionMutations.terminate.mutate("管理员终止竞赛")} isLoading={competitionMutations.terminate.isPending}>强制终止竞赛</Button></div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard title="参赛队伍" value={monitorQuery.data?.overview.registered_teams ?? 0} />
+        <MetricCard title="总提交" value={monitorQuery.data?.overview.total_submissions ?? 0} />
+        <MetricCard title="正确提交" value={monitorQuery.data?.overview.correct_submissions ?? 0} />
+        <MetricCard title="运行环境" value={monitorQuery.data?.overview.running_environments ?? 0} />
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>资源使用</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <MetricBar
+            label="CPU"
+            used={monitorQuery.data?.resource_usage.cpu_used ?? "0"}
+            total={monitorQuery.data?.resource_usage.cpu_max ?? "0"}
+            ratio={percentFromText(monitorQuery.data?.resource_usage.cpu_used, monitorQuery.data?.resource_usage.cpu_max)}
+          />
+          <MetricBar
+            label="内存"
+            used={monitorQuery.data?.resource_usage.memory_used ?? "0"}
+            total={monitorQuery.data?.resource_usage.memory_max ?? "0"}
+            ratio={percentFromText(monitorQuery.data?.resource_usage.memory_used, monitorQuery.data?.resource_usage.memory_max)}
+          />
+          <MetricBar
+            label="Namespace"
+            used={String(monitorQuery.data?.resource_usage.namespaces_used ?? 0)}
+            total={String(monitorQuery.data?.resource_usage.namespaces_max ?? 0)}
+            ratio={percentFromNumber(monitorQuery.data?.resource_usage.namespaces_used ?? 0, monitorQuery.data?.resource_usage.namespaces_max ?? 0)}
+          />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>题目统计</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {(monitorQuery.data?.challenge_stats ?? []).map((item) => (
+            <div key={item.challenge_id} className="rounded-xl border border-border p-3 text-sm">
+              {item.title} · 解题 {item.solve_count} · 正确率 {Math.round(item.solve_rate * 100)}% · 当前分 {item.current_score ?? "-"} · 环境 {item.environments_running}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>最近提交</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {(monitorQuery.data?.recent_submissions ?? []).map((item) => (
+            <div key={`${item.team_name}-${item.submitted_at}`} className="rounded-xl border border-border p-3 text-sm">
+              {item.team_name} → {item.challenge_title} {item.is_correct ? "正确" : "错误"} · {formatDateTime(item.submitted_at)}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <div className="flex gap-2">
+        <Button
+          onClick={() => announcementMutation.mutate({ title: "竞赛公告", content: "请关注竞赛规则更新", announcement_type: 1 })}
+          isLoading={announcementMutation.isPending}
+        >
+          <Send className="h-4 w-4" />发布公告
+        </Button>
+        <ConfirmDialog
+          title="强制终止竞赛"
+          description="终止后竞赛将不可恢复，所有竞赛进度将停止，确定继续吗？"
+          confirmText="终止"
+          onConfirm={() => competitionMutations.terminate.mutate("管理员终止竞赛")}
+          trigger={<Button variant="destructive">强制终止竞赛</Button>}
+        />
+      </div>
     </div>
   );
 }
@@ -551,18 +854,70 @@ export function CtfChallengeManagementPanel() {
   const [keyword, setKeyword] = useState("");
   const [category, setCategory] = useState<CtfChallengeCategory | "all">("all");
   const [status, setStatus] = useState("all");
-  const challengesQuery = useCtfChallenges({ page: 1, page_size: 30, keyword, category: category === "all" ? undefined : category, status: status === "all" ? undefined : (Number(status) as CtfChallengeStatus) });
+  const challengesQuery = useCtfChallenges({
+    page: 1, page_size: 30, keyword,
+    category: category === "all" ? undefined : category,
+    status: status === "all" ? undefined : (Number(status) as CtfChallengeStatus),
+  });
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between"><h1 className="font-display text-3xl font-semibold">我的CTF题目</h1><div className="flex gap-2"><Button onClick={() => router.push("/teacher/ctf/challenges/create")}>创建题目</Button><Button variant="outline" onClick={() => router.push("/teacher/ctf/challenges/import")}>漏洞转化</Button><Button variant="outline" onClick={() => router.push("/teacher/ctf/templates")}>模板库</Button></div></div>
+      <div className="flex items-center justify-between">
+        <h1 className="font-display text-3xl font-semibold">我的CTF题目</h1>
+        <div className="flex gap-2">
+          <Button onClick={() => router.push("/teacher/ctf/challenges/create")}>创建题目</Button>
+          <Button variant="outline" onClick={() => router.push("/teacher/ctf/challenges/import")}>漏洞转化</Button>
+          <Button variant="outline" onClick={() => router.push("/teacher/ctf/templates")}>模板库</Button>
+        </div>
+      </div>
       <div className="grid gap-3 md:grid-cols-3">
         <Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索题目名称" />
-        <Select value={category} onValueChange={(value) => setCategory(value as CtfChallengeCategory | "all")}><SelectTrigger><SelectValue placeholder="全部类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem><SelectItem value="contract">智能合约</SelectItem><SelectItem value="blockchain">链上分析</SelectItem><SelectItem value="crypto">密码学</SelectItem></SelectContent></Select>
-        <Select value={status} onValueChange={setStatus}><SelectTrigger><SelectValue placeholder="全部状态" /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="1">草稿</SelectItem><SelectItem value="2">待审核</SelectItem><SelectItem value="3">已通过</SelectItem><SelectItem value="4">已拒绝</SelectItem></SelectContent></Select>
+        <Select value={category} onValueChange={(value) => setCategory(value as CtfChallengeCategory | "all")}>
+          <SelectTrigger><SelectValue placeholder="全部类型" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部类型</SelectItem>
+            <SelectItem value="contract">智能合约</SelectItem>
+            <SelectItem value="blockchain">链上分析</SelectItem>
+            <SelectItem value="crypto">密码学</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger><SelectValue placeholder="全部状态" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="1">草稿</SelectItem>
+            <SelectItem value="2">待审核</SelectItem>
+            <SelectItem value="3">已通过</SelectItem>
+            <SelectItem value="4">已拒绝</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
-      <TableContainer><Table><TableHeader><TableRow><TableHead>题目</TableHead><TableHead>类型</TableHead><TableHead>运行时</TableHead><TableHead>状态</TableHead><TableHead>操作</TableHead></TableRow></TableHeader><TableBody>
-        {(challengesQuery.data?.list ?? []).map((challenge) => <TableRow key={challenge.id}><TableCell>{challenge.title}</TableCell><TableCell>{challenge.category_text}</TableCell><TableCell>{challenge.runtime_mode_text ?? "-"}</TableCell><TableCell><Badge>{challenge.status_text}</Badge></TableCell><TableCell className="space-x-2"><Button size="sm" variant="outline" onClick={() => router.push(`/teacher/ctf/challenges/${challenge.id}/verify`)}>验证</Button><Button size="sm" variant="ghost" onClick={() => router.push(`/teacher/ctf/challenges/create?challenge_id=${challenge.id}`)}>编辑</Button></TableCell></TableRow>)}
-      </TableBody></Table></TableContainer>
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>题目</TableHead>
+              <TableHead>类型</TableHead>
+              <TableHead>运行时</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead>操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(challengesQuery.data?.list ?? []).map((challenge) => (
+              <TableRow key={challenge.id}>
+                <TableCell>{challenge.title}</TableCell>
+                <TableCell>{challenge.category_text}</TableCell>
+                <TableCell>{challenge.runtime_mode_text ?? "-"}</TableCell>
+                <TableCell><Badge>{challenge.status_text}</Badge></TableCell>
+                <TableCell className="space-x-2">
+                  <Button size="sm" variant="outline" onClick={() => router.push(`/teacher/ctf/challenges/${challenge.id}/verify`)}>验证</Button>
+                  <Button size="sm" variant="ghost" onClick={() => router.push(`/teacher/ctf/challenges/create?challenge_id=${challenge.id}`)}>编辑</Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
     </div>
   );
 }
@@ -576,7 +931,14 @@ export function CtfChallengeEditorPanel() {
   const assetsQuery = useCtfChallengeAssets(challengeID);
   const mutations = useCtfChallengeMutations(challengeID);
   const assetMutations = useCtfChallengeAssetMutations(challengeID);
-  const [form, setForm] = useState<CreateCtfChallengeRequest>({ title: "", description: "", category: "contract", difficulty: 2, base_score: 300, flag_type: 3, runtime_mode: 1, setup_transactions: [], attachment_urls: [], chain_config: { chain_type: "evm", chain_version: "london", block_number: 0, accounts: [{ name: "deployer", balance: "100 ether" }, { name: "attacker", balance: "10 ether" }] } });
+  const [form, setForm] = useState<CreateCtfChallengeRequest>({
+    title: "", description: "", category: "contract", difficulty: 2, base_score: 300,
+    flag_type: 3, runtime_mode: 1, setup_transactions: [], attachment_urls: [],
+    chain_config: {
+      chain_type: "evm", chain_version: "london", block_number: 0,
+      accounts: [{ name: "deployer", balance: "100 ether" }, { name: "attacker", balance: "10 ether" }],
+    },
+  });
   const [contractName, setContractName] = useState("VulnerableBank");
   const [contractSource, setContractSource] = useState("pragma solidity ^0.8.20;\ncontract VulnerableBank {\n  bool public solved;\n  function attack() external { solved = true; }\n}");
   const [assertionTarget, setAssertionTarget] = useState("solved");
@@ -607,7 +969,7 @@ export function CtfChallengeEditorPanel() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(28_44%_28%))] p-6 text-primary-foreground">
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
         <p className="text-sm text-primary-foreground/75">题目配置</p>
         <h1 className="mt-2 font-display text-3xl font-semibold">{hasDraft ? "编辑题目" : "创建题目"}</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-primary-foreground/80">按基本信息、合约与断言、验证与审核三部分完成题目设置。</p>
@@ -619,52 +981,155 @@ export function CtfChallengeEditorPanel() {
           <TabsTrigger value="actions" disabled={!hasDraft}>验证与审核</TabsTrigger>
         </TabsList>
         <TabsContent value="basic">
-          <Card><CardContent className="grid gap-4 p-5 md:grid-cols-2">
-            <FormField label="题目名称"><Input value={form.title || currentChallenge?.title || ""} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} /></FormField>
-            <FormField label="运行时模式"><Select value={String(form.runtime_mode ?? currentChallenge?.runtime_mode ?? 1)} onValueChange={(value) => setForm((current) => ({ ...current, runtime_mode: Number(value) as 1 | 2 }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">isolated 独立链</SelectItem><SelectItem value="2">forked 固定区块 Fork</SelectItem></SelectContent></Select></FormField>
-            <FormField label="分类"><Select value={form.category || currentChallenge?.category || "contract"} onValueChange={(value) => setForm((current) => ({ ...current, category: value as CreateCtfChallengeRequest["category"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contract">智能合约</SelectItem><SelectItem value="blockchain">链上分析</SelectItem><SelectItem value="crypto">密码学</SelectItem><SelectItem value="web">Web</SelectItem><SelectItem value="reverse">逆向</SelectItem><SelectItem value="misc">综合</SelectItem></SelectContent></Select></FormField>
-            <FormField label="基础分"><Input type="number" value={form.base_score || currentChallenge?.base_score || 300} onChange={(event) => setForm((current) => ({ ...current, base_score: Number(event.target.value) }))} /></FormField>
-            <FormField label="难度"><Select value={String(form.difficulty || currentChallenge?.difficulty || 2)} onValueChange={(value) => setForm((current) => ({ ...current, difficulty: Number(value) as CreateCtfChallengeRequest["difficulty"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">Warmup</SelectItem><SelectItem value="2">Easy</SelectItem><SelectItem value="3">Medium</SelectItem><SelectItem value="4">Hard</SelectItem><SelectItem value="5">Insane</SelectItem></SelectContent></Select></FormField>
-            <FormField label="Flag 类型"><Select value={String(form.flag_type || currentChallenge?.flag_type || 3)} onValueChange={(value) => setForm((current) => ({ ...current, flag_type: Number(value) as CreateCtfChallengeRequest["flag_type"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1">静态 Flag</SelectItem><SelectItem value="2">动态 Flag</SelectItem><SelectItem value="3">链上状态验证</SelectItem></SelectContent></Select></FormField>
-            <FormField label="描述" className="md:col-span-2"><Textarea value={form.description || currentChallenge?.description || ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={8} /></FormField>
-            <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground md:col-span-2">
-              链上验证题需在后续步骤补充合约、断言和链配置；发起预验证前至少保存一次题目草稿。
-            </div>
-            <Button className="md:col-span-2" disabled={!((form.title || currentChallenge?.title) && (form.description || currentChallenge?.description))} onClick={saveDraft} isLoading={mutations.create.isPending || mutations.update.isPending}>{hasDraft ? "保存修改" : "保存题目草稿"}</Button>
-          </CardContent></Card>
+          <Card>
+            <CardContent className="grid gap-4 p-5 md:grid-cols-2">
+              <FormField label="题目名称">
+                <Input value={form.title || currentChallenge?.title || ""} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
+              </FormField>
+              <FormField label="运行时模式">
+                <Select
+                  value={String(form.runtime_mode ?? currentChallenge?.runtime_mode ?? 1)}
+                  onValueChange={(value) => setForm((current) => ({ ...current, runtime_mode: Number(value) as 1 | 2 }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">isolated 独立链</SelectItem>
+                    <SelectItem value="2">forked 固定区块 Fork</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="分类">
+                <Select
+                  value={form.category || currentChallenge?.category || "contract"}
+                  onValueChange={(value) => setForm((current) => ({ ...current, category: value as CreateCtfChallengeRequest["category"] }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="contract">智能合约</SelectItem>
+                    <SelectItem value="blockchain">链上分析</SelectItem>
+                    <SelectItem value="crypto">密码学</SelectItem>
+                    <SelectItem value="web">Web</SelectItem>
+                    <SelectItem value="reverse">逆向</SelectItem>
+                    <SelectItem value="misc">综合</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="基础分">
+                <Input
+                  type="number"
+                  value={form.base_score || currentChallenge?.base_score || 300}
+                  onChange={(event) => setForm((current) => ({ ...current, base_score: Number(event.target.value) }))}
+                />
+              </FormField>
+              <FormField label="难度">
+                <Select
+                  value={String(form.difficulty || currentChallenge?.difficulty || 2)}
+                  onValueChange={(value) => setForm((current) => ({ ...current, difficulty: Number(value) as CreateCtfChallengeRequest["difficulty"] }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Warmup</SelectItem>
+                    <SelectItem value="2">Easy</SelectItem>
+                    <SelectItem value="3">Medium</SelectItem>
+                    <SelectItem value="4">Hard</SelectItem>
+                    <SelectItem value="5">Insane</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="Flag 类型">
+                <Select
+                  value={String(form.flag_type || currentChallenge?.flag_type || 3)}
+                  onValueChange={(value) => setForm((current) => ({ ...current, flag_type: Number(value) as CreateCtfChallengeRequest["flag_type"] }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">静态 Flag</SelectItem>
+                    <SelectItem value="2">动态 Flag</SelectItem>
+                    <SelectItem value="3">链上状态验证</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="描述" className="md:col-span-2">
+                <Textarea value={form.description || currentChallenge?.description || ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} rows={8} />
+              </FormField>
+              <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground md:col-span-2">
+                链上验证题需在后续步骤补充合约、断言和链配置；发起预验证前至少保存一次题目草稿。
+              </div>
+              <Button
+                className="md:col-span-2"
+                disabled={!((form.title || currentChallenge?.title) && (form.description || currentChallenge?.description))}
+                onClick={saveDraft}
+                isLoading={mutations.create.isPending || mutations.update.isPending}
+              >
+                {hasDraft ? "保存修改" : "保存题目草稿"}
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
         <TabsContent value="assets">
           <div className="grid gap-5 xl:grid-cols-2">
-            <Card><CardHeader><CardTitle>添加合约</CardTitle></CardHeader><CardContent className="space-y-4">
-              <FormField label="合约名称"><Input value={contractName} onChange={(event) => setContractName(event.target.value)} /></FormField>
-              <FormField label="源码"><Textarea value={contractSource} onChange={(event) => setContractSource(event.target.value)} rows={14} className="font-mono" /></FormField>
-              <Button onClick={() => assetMutations.createContract.mutate({ name: contractName, source_code: contractSource, abi: [], bytecode: "0x00", constructor_args: [], deploy_order: 1 })} isLoading={assetMutations.createContract.isPending}>添加合约</Button>
-              <div className="space-y-2">
-                {(assetsQuery.contracts.data?.list ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.name} · 部署顺序 {item.deploy_order}</div>)}
-              </div>
-            </CardContent></Card>
-            <Card><CardHeader><CardTitle>添加断言</CardTitle></CardHeader><CardContent className="space-y-4">
-              <FormField label="断言目标"><Input value={assertionTarget} onChange={(event) => setAssertionTarget(event.target.value)} /></FormField>
-              <Button onClick={() => assetMutations.createAssertion.mutate({ assertion_type: "storage_check", target: assertionTarget, operator: "eq", expected_value: "true", description: "漏洞利用后应设置 solved=true", extra_params: {}, sort_order: 1 })} isLoading={assetMutations.createAssertion.isPending}>添加断言</Button>
-              <div className="space-y-2">
-                {(assetsQuery.assertions.data?.list ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.assertion_type} · {item.target} {item.operator} {item.expected_value}</div>)}
-              </div>
-            </CardContent></Card>
+            <Card>
+              <CardHeader><CardTitle>添加合约</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <FormField label="合约名称">
+                  <Input value={contractName} onChange={(event) => setContractName(event.target.value)} />
+                </FormField>
+                <FormField label="源码">
+                  <Textarea value={contractSource} onChange={(event) => setContractSource(event.target.value)} rows={14} className="font-mono" />
+                </FormField>
+                <Button
+                  onClick={() => assetMutations.createContract.mutate({ name: contractName, source_code: contractSource, abi: [], bytecode: "0x00", constructor_args: [], deploy_order: 1 })}
+                  isLoading={assetMutations.createContract.isPending}
+                >
+                  添加合约
+                </Button>
+                <div className="space-y-2">
+                  {(assetsQuery.contracts.data?.list ?? []).map((item) => (
+                    <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.name} · 部署顺序 {item.deploy_order}</div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>添加断言</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <FormField label="断言目标">
+                  <Input value={assertionTarget} onChange={(event) => setAssertionTarget(event.target.value)} />
+                </FormField>
+                <Button
+                  onClick={() => assetMutations.createAssertion.mutate({
+                    assertion_type: "storage_check", target: assertionTarget, operator: "eq",
+                    expected_value: "true", description: "漏洞利用后应设置 solved=true", extra_params: {}, sort_order: 1,
+                  })}
+                  isLoading={assetMutations.createAssertion.isPending}
+                >
+                  添加断言
+                </Button>
+                <div className="space-y-2">
+                  {(assetsQuery.assertions.data?.list ?? []).map((item) => (
+                    <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.assertion_type} · {item.target} {item.operator} {item.expected_value}</div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
         <TabsContent value="actions">
-          <Card><CardHeader><CardTitle>验证与审核</CardTitle></CardHeader><CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <Link className={buttonClassName()} href={`/teacher/ctf/challenges/${challengeID}/verify`}>发起预验证</Link>
-              <Button variant="outline" onClick={() => mutations.submitReview.mutate()} isLoading={mutations.submitReview.isPending}>提交审核</Button>
-            </div>
-            <p className="text-sm text-muted-foreground">链上验证题目必须完成预验证后才能审核通过。当前状态：{currentChallenge?.status_text ?? "草稿"}</p>
-            {currentChallenge?.latest_verification ? (
-              <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
-                最近一次预验证：{currentChallenge.latest_verification.status_text}
+          <Card>
+            <CardHeader><CardTitle>验证与审核</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Link className={buttonClassName()} href={`/teacher/ctf/challenges/${challengeID}/verify`}>发起预验证</Link>
+                <Button variant="outline" onClick={() => mutations.submitReview.mutate()} isLoading={mutations.submitReview.isPending}>提交审核</Button>
               </div>
-            ) : null}
-          </CardContent></Card>
+              <p className="text-sm text-muted-foreground">链上验证题目必须完成预验证后才能审核通过。当前状态：{currentChallenge?.status_text ?? "草稿"}</p>
+              {currentChallenge?.latest_verification ? (
+                <div className="rounded-xl border border-border bg-muted/25 p-4 text-sm text-muted-foreground">
+                  最近一次预验证：{currentChallenge.latest_verification.status_text}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
@@ -677,7 +1142,17 @@ export function CtfChallengeReviewPanel() {
   return (
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">题目审核</h1>
-      {(reviewsQuery.data?.list ?? []).map((item) => <Card key={item.id}><CardContent className="flex items-center justify-between p-5"><div><p className="font-semibold">{item.title}</p><p className="text-sm text-muted-foreground">{item.category_text} · {item.difficulty_text} · {item.author_name}</p></div><Badge>待审核</Badge></CardContent></Card>)}
+      {(reviewsQuery.data?.list ?? []).map((item) => (
+        <Card key={item.id}>
+          <CardContent className="flex items-center justify-between p-5">
+            <div>
+              <p className="font-semibold">{item.title}</p>
+              <p className="text-sm text-muted-foreground">{item.category_text} · {item.difficulty_text} · {item.author_name}</p>
+            </div>
+            <Badge>待审核</Badge>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
@@ -690,16 +1165,44 @@ export function CtfChallengeReviewDetailPanel({ challengeID }: { challengeID: ID
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">题目审核详情</h1>
       <Card>
-        <CardHeader><CardTitle>{challengeQuery.data?.title ?? challengeID}</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>{challengeQuery.data?.title ?? challengeID}</CardTitle>
+        </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2"><Badge>{challengeQuery.data?.category_text ?? "-"}</Badge><Badge>{challengeQuery.data?.difficulty_text ?? "-"}</Badge><Badge>{challengeQuery.data?.runtime_mode_text ?? "非链上运行时"}</Badge></div>
+          <div className="flex flex-wrap gap-2">
+            <Badge>{challengeQuery.data?.category_text ?? "-"}</Badge>
+            <Badge>{challengeQuery.data?.difficulty_text ?? "-"}</Badge>
+            <Badge>{challengeQuery.data?.runtime_mode_text ?? "非链上运行时"}</Badge>
+          </div>
           <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{challengeQuery.data?.description}</p>
-          <Tabs defaultValue="contracts"><TabsList><TabsTrigger value="contracts">合约</TabsTrigger><TabsTrigger value="assertions">断言</TabsTrigger><TabsTrigger value="verification">预验证</TabsTrigger></TabsList>
-            <TabsContent value="contracts">{(challengeQuery.data?.contracts ?? []).map((item) => <pre key={item.id} className="overflow-auto rounded-xl bg-muted p-4 text-xs">{item.source_code}</pre>)}</TabsContent>
-            <TabsContent value="assertions">{(challengeQuery.data?.assertions ?? []).map((item) => <div key={item.id} className="rounded-xl border border-border p-3 text-sm">{item.assertion_type} · {item.target} {item.operator} {item.expected_value}</div>)}</TabsContent>
-            <TabsContent value="verification"><Badge variant={challengeQuery.data?.latest_verification?.status === 2 ? "success" : "outline"}>{challengeQuery.data?.latest_verification?.status_text ?? "无预验证"}</Badge></TabsContent>
+          <Tabs defaultValue="contracts">
+            <TabsList>
+              <TabsTrigger value="contracts">合约</TabsTrigger>
+              <TabsTrigger value="assertions">断言</TabsTrigger>
+              <TabsTrigger value="verification">预验证</TabsTrigger>
+            </TabsList>
+            <TabsContent value="contracts">
+              {(challengeQuery.data?.contracts ?? []).map((item) => (
+                <pre key={item.id} className="overflow-auto rounded-xl bg-muted p-4 text-xs">{item.source_code}</pre>
+              ))}
+            </TabsContent>
+            <TabsContent value="assertions">
+              {(challengeQuery.data?.assertions ?? []).map((item) => (
+                <div key={item.id} className="rounded-xl border border-border p-3 text-sm">
+                  {item.assertion_type} · {item.target} {item.operator} {item.expected_value}
+                </div>
+              ))}
+            </TabsContent>
+            <TabsContent value="verification">
+              <Badge variant={challengeQuery.data?.latest_verification?.status === 2 ? "success" : "outline"}>
+                {challengeQuery.data?.latest_verification?.status_text ?? "无预验证"}
+              </Badge>
+            </TabsContent>
           </Tabs>
-          <div className="flex gap-2"><Button onClick={() => mutations.review.mutate({ action: 1, comment: "审核通过" })}>通过</Button><Button variant="destructive" onClick={() => mutations.review.mutate({ action: 2, comment: "请修正预验证或题面" })}>拒绝</Button></div>
+          <div className="flex gap-2">
+            <Button onClick={() => mutations.review.mutate({ action: 1, comment: "审核通过" })}>通过</Button>
+            <Button variant="destructive" onClick={() => mutations.review.mutate({ action: 2, comment: "请修正预验证或题面" })}>拒绝</Button>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -718,15 +1221,33 @@ export function CtfResourceQuotaPanel() {
   return (
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">CTF资源配额</h1>
-      <Card><CardContent className="grid gap-3 p-5 md:grid-cols-5">
-        <FormField label="竞赛 ID"><Input value={competitionID} onChange={(event) => setCompetitionID(event.target.value)} /></FormField>
-        <FormField label="CPU"><Input value={maxCPU} onChange={(event) => setMaxCPU(event.target.value)} /></FormField>
-        <FormField label="内存"><Input value={maxMemory} onChange={(event) => setMaxMemory(event.target.value)} /></FormField>
-        <FormField label="存储"><Input value={maxStorage} onChange={(event) => setMaxStorage(event.target.value)} /></FormField>
-        <FormField label="Namespace"><Input type="number" value={maxNamespaces} onChange={(event) => setMaxNamespaces(event.target.value)} /></FormField>
-        <Button className="md:col-span-5" disabled={!competitionID} onClick={() => quotaMutation.mutate({ max_cpu: maxCPU, max_memory: maxMemory, max_storage: maxStorage, max_namespaces: Number(maxNamespaces) })} isLoading={quotaMutation.isPending}>保存配额</Button>
-      </CardContent></Card>
-      {quotaQuery.data ? <Card><CardContent className="grid gap-3 p-5 md:grid-cols-4"><MetricCard title="CPU" value={`${quotaQuery.data.used_cpu}/${quotaQuery.data.max_cpu}`} /><MetricCard title="内存" value={`${quotaQuery.data.used_memory}/${quotaQuery.data.max_memory}`} /><MetricCard title="存储" value={`${quotaQuery.data.used_storage}/${quotaQuery.data.max_storage}`} /><MetricCard title="Namespace" value={`${quotaQuery.data.current_namespaces}/${quotaQuery.data.max_namespaces}`} /></CardContent></Card> : null}
+      <Card>
+        <CardContent className="grid gap-3 p-5 md:grid-cols-5">
+          <FormField label="竞赛 ID"><Input value={competitionID} onChange={(event) => setCompetitionID(event.target.value)} /></FormField>
+          <FormField label="CPU"><Input value={maxCPU} onChange={(event) => setMaxCPU(event.target.value)} /></FormField>
+          <FormField label="内存"><Input value={maxMemory} onChange={(event) => setMaxMemory(event.target.value)} /></FormField>
+          <FormField label="存储"><Input value={maxStorage} onChange={(event) => setMaxStorage(event.target.value)} /></FormField>
+          <FormField label="Namespace"><Input type="number" value={maxNamespaces} onChange={(event) => setMaxNamespaces(event.target.value)} /></FormField>
+          <Button
+            className="md:col-span-5"
+            disabled={!competitionID}
+            onClick={() => quotaMutation.mutate({ max_cpu: maxCPU, max_memory: maxMemory, max_storage: maxStorage, max_namespaces: Number(maxNamespaces) })}
+            isLoading={quotaMutation.isPending}
+          >
+            保存配额
+          </Button>
+        </CardContent>
+      </Card>
+      {quotaQuery.data ? (
+        <Card>
+          <CardContent className="grid gap-3 p-5 md:grid-cols-4">
+            <MetricCard title="CPU" value={`${quotaQuery.data.used_cpu}/${quotaQuery.data.max_cpu}`} />
+            <MetricCard title="内存" value={`${quotaQuery.data.used_memory}/${quotaQuery.data.max_memory}`} />
+            <MetricCard title="存储" value={`${quotaQuery.data.used_storage}/${quotaQuery.data.max_storage}`} />
+            <MetricCard title="Namespace" value={`${quotaQuery.data.current_namespaces}/${quotaQuery.data.max_namespaces}`} />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
@@ -737,14 +1258,37 @@ export function CtfAdminOverviewPanel() {
   return (
     <div className="space-y-5">
       <h1 className="font-display text-3xl font-semibold">CTF竞赛概览</h1>
-      <div className="grid gap-3 md:grid-cols-4"><MetricCard title="竞赛总数" value={overviewQuery.data?.total_competitions ?? 0} /><MetricCard title="进行中" value={overviewQuery.data?.running_competitions ?? 0} /><MetricCard title="参赛人数" value={overviewQuery.data?.total_participants ?? 0} /><MetricCard title="活跃NS" value={overviewQuery.data?.total_resource_usage.namespaces_active ?? 0} /></div>
-      <Card><CardHeader><CardTitle>告警</CardTitle></CardHeader><CardContent>{(overviewQuery.data?.alerts ?? []).map((alert) => <p key={`${alert.competition_id}-${alert.created_at}`} className="text-sm text-muted-foreground">{alert.message} · {formatDateTime(alert.created_at)}</p>)}</CardContent></Card>
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricCard title="竞赛总数" value={overviewQuery.data?.total_competitions ?? 0} />
+        <MetricCard title="进行中" value={overviewQuery.data?.running_competitions ?? 0} />
+        <MetricCard title="参赛人数" value={overviewQuery.data?.total_participants ?? 0} />
+        <MetricCard title="活跃NS" value={overviewQuery.data?.total_resource_usage.namespaces_active ?? 0} />
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>告警</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(overviewQuery.data?.alerts ?? []).map((alert) => (
+            <p key={`${alert.competition_id}-${alert.created_at}`} className="text-sm text-muted-foreground">
+              {alert.message} · {formatDateTime(alert.created_at)}
+            </p>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 function MetricCard({ title, value }: { title: string; value: string | number }) {
-  return <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">{title}</p><p className="mt-1 font-display text-2xl font-semibold">{value}</p></CardContent></Card>;
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <p className="text-sm text-muted-foreground">{title}</p>
+        <p className="mt-1 font-display text-2xl font-semibold">{value}</p>
+      </CardContent>
+    </Card>
+  );
 }
 
 function MetricBar({ label, used, total, ratio }: { label: string; used: string; total: string; ratio: number }) {

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
@@ -32,7 +33,7 @@ export function SnapshotPanel({ instanceID }: SnapshotPanelProps) {
   const [description, setDescription] = useState("");
 
   if (snapshotsQuery.isLoading) {
-    return <LoadingState title="正在加载快照" description="读取实例快照列表。" />;
+    return <LoadingState variant="list" title="正在加载快照" description="读取实例快照列表。" />;
   }
 
   return (
@@ -70,10 +71,13 @@ export function SnapshotPanel({ instanceID }: SnapshotPanelProps) {
                   <RotateCcw className="h-4 w-4" />
                   恢复
                 </Button>
-                <Button variant="destructive" size="sm" onClick={() => mutations.remove.mutate(snapshot.id)} isLoading={mutations.remove.isPending}>
-                  <Trash2 className="h-4 w-4" />
-                  删除
-                </Button>
+                <ConfirmDialog
+                  title="删除快照"
+                  description="删除后快照将无法恢复，确定继续吗？"
+                  confirmText="删除"
+                  onConfirm={() => mutations.remove.mutate(snapshot.id)}
+                  trigger={<Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" />删除</Button>}
+                />
               </div>
             </div>
           ))}

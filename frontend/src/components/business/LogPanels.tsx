@@ -38,7 +38,7 @@ export function AdminLoginLogPanel() {
           })
         }
       />
-      {query.isLoading ? <LoadingState /> : null}
+      {query.isLoading ? <LoadingState variant="table" /> : null}
       {query.isError ? <ErrorState description={query.error.message} /> : null}
       {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无登录日志" description="当前筛选条件下没有日志记录。" /> : null}
       {list.length > 0 ? (
@@ -96,7 +96,7 @@ export function SuperLoginLogPanel() {
           })
         }
       />
-      {query.isLoading ? <LoadingState /> : null}
+      {query.isLoading ? <LoadingState variant="table" /> : null}
       {query.isError ? <ErrorState description={query.error.message} /> : null}
       {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无登录日志" description="当前筛选条件下没有日志记录。" /> : null}
       {list.length > 0 ? (
@@ -156,7 +156,7 @@ export function AdminOperationLogPanel() {
           })
         }
       />
-      {query.isLoading ? <LoadingState /> : null}
+      {query.isLoading ? <LoadingState variant="table" /> : null}
       {query.isError ? <ErrorState description={query.error.message} /> : null}
       {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无操作日志" description="当前筛选条件下没有日志记录。" /> : null}
       {list.length > 0 ? (
@@ -214,7 +214,7 @@ export function SuperOperationLogPanel() {
           })
         }
       />
-      {query.isLoading ? <LoadingState /> : null}
+      {query.isLoading ? <LoadingState variant="table" /> : null}
       {query.isError ? <ErrorState description={query.error.message} /> : null}
       {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无操作日志" description="当前筛选条件下没有日志记录。" /> : null}
       {list.length > 0 ? (

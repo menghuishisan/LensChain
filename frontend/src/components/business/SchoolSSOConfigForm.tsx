@@ -129,7 +129,7 @@ export function SchoolSSOConfigForm() {
                     onChange={(event) => setOauth2Config((current) => ({ ...current, client_secret: event.target.value }))}
                     hasError={Boolean(validation.errors.client_secret)}
                   />
-                  <Button type="button" variant="outline" size="icon" onClick={() => setShouldShowSecret((current) => !current)}>
+                  <Button type="button" variant="outline" size="icon" aria-label={shouldShowSecret ? "隐藏密钥" : "显示密钥"} onClick={() => setShouldShowSecret((current) => !current)}>
                     {shouldShowSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>

@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
@@ -78,10 +79,13 @@ export function NotificationInbox({ messageID }: NotificationInboxProps) {
           <div className="rounded-xl border border-border p-4 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">{stripHtmlToText(message.content)}</div>
           <div className="flex flex-wrap gap-2">
             {href ? <Link className="inline-flex items-center rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted" href={href}>前往查看</Link> : null}
-            <Button variant="destructive" onClick={() => detailMutations.remove.mutate()} isLoading={detailMutations.remove.isPending}>
-              <Trash2 className="h-4 w-4" />
-              删除消息
-            </Button>
+            <ConfirmDialog
+              title="删除消息"
+              description="删除后该消息将无法恢复，确定继续吗？"
+              confirmText="删除"
+              onConfirm={() => detailMutations.remove.mutate()}
+              trigger={<Button variant="destructive"><Trash2 className="h-4 w-4" />删除消息</Button>}
+            />
           </div>
         </CardContent>
       </Card>
@@ -89,7 +93,7 @@ export function NotificationInbox({ messageID }: NotificationInboxProps) {
   }
 
   if (inboxQuery.isLoading) {
-    return <LoadingState title="正在加载消息中心" description="读取收件箱、公告和未读计数。" />;
+    return <LoadingState variant="list" title="正在加载消息中心" description="读取收件箱、公告和未读计数。" />;
   }
 
   if (inboxQuery.isError) {

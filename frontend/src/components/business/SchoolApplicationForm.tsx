@@ -81,7 +81,7 @@ export function SchoolApplicationForm() {
 
   return (
     <main className="grid min-h-screen bg-slate-950 lg:grid-cols-[0.9fr_1.1fr]">
-      <section className="hidden bg-[radial-gradient(circle_at_20%_20%,rgba(20,184,166,.38),transparent_28rem),linear-gradient(135deg,#062f2c,#101827_62%,#3b2414)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+      <section className="hidden bg-[radial-gradient(circle_at_20%_20%,hsl(var(--primary)/0.38),transparent_28rem),linear-gradient(135deg,hsl(var(--primary)/0.25),hsl(220_40%_8%)_62%,hsl(var(--primary)/0.12))] p-10 text-white lg:flex lg:flex-col lg:justify-between">
         <div>
           <div className="mb-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/12">
             <Building2 className="h-8 w-8" />

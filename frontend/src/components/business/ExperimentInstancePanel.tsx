@@ -7,7 +7,9 @@ import { ExternalLink, FlaskConical, Pause, Play, RotateCcw, Send, Square, Uploa
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
+import remarkGfm from "remark-gfm";
 
 import { CheckpointPanel } from "@/components/business/CheckpointPanel";
 import { ExperimentTerminal } from "@/components/business/ExperimentTerminal";
@@ -28,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
 import { useCheckpointMutations, useExperimentInstance, useExperimentInstanceLifecycleMutations, useExperimentReport, useExperimentReportMutations, useExperimentMonitorMutations } from "@/hooks/useExperimentInstances";
 import { useExperimentInstanceRealtime } from "@/hooks/useExperimentRealtime";
-import { useExperimentTemplate } from "@/hooks/useExperimentTemplates";
+import { useStudentExperimentTemplate } from "@/hooks/useExperimentTemplates";
 import { formatDateTime, formatFileSize, formatScore } from "@/lib/format";
 import { buildExperimentResultSummary } from "@/lib/experiment";
 import type { ID } from "@/types/api";
@@ -48,7 +50,10 @@ function getInstanceStatusVariant(status: number) {
   if ([8, 9].includes(status)) {
     return "destructive" as const;
   }
-  return "outline" as const;
+  if ([4, 5, 6].includes(status)) {
+    return "secondary" as const;
+  }
+  return "warning" as const;
 }
 
 /**
@@ -67,7 +72,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
   const [manualComment, setManualComment] = useState("");
   const reportQuery = useExperimentReport(instanceID);
   const templateID = instanceQuery.data?.template.id ?? "";
-  const templateQuery = useExperimentTemplate(templateID);
+  const templateQuery = useStudentExperimentTemplate(templateID);
   const guidanceMessages = useMemo(
     () => realtime.messages.filter((message) => message.type === "guidance_message"),
     [realtime.messages],
@@ -108,7 +113,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
   }, [realtime.messages.length]);
 
   if (instanceQuery.isLoading) {
-    return <LoadingState title="正在加载实验详情" description="正在整理实验环境、评分进度、快照和报告内容。" />;
+    return <LoadingState variant="hero" title="正在加载实验详情" description="正在整理实验环境、评分进度、快照和报告内容。" />;
   }
 
   if (instanceQuery.isError || !instanceQuery.data) {
@@ -262,9 +267,9 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
             </TabsList>
 
             <TabsContent value="instructions" className="flex-1 overflow-auto p-4">
-              <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">
-                {instance.template.instructions ?? "当前模板未填写实验说明。"}
-              </p>
+              <div className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{instance.template.instructions ?? "当前模板未填写实验说明。"}</ReactMarkdown>
+              </div>
               {isAssistMode && (
                 <div className="mt-4 space-y-3 border-t pt-4">
                   <p className="text-sm font-medium">指导消息</p>
@@ -419,7 +424,7 @@ export function ExperimentReportPanel({ instanceID }: { instanceID: ID }) {
   }, [reportQuery.data?.content]);
 
   if (instanceQuery.isLoading) {
-    return <LoadingState title="正在加载实验报告" description="读取报告信息。" />;
+    return <LoadingState variant="hero" title="正在加载实验报告" description="读取报告信息。" />;
   }
 
   if (!instanceQuery.data) {
@@ -480,7 +485,7 @@ export function ExperimentReportPanel({ instanceID }: { instanceID: ID }) {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={saveReport} isLoading={reportMutations.create.isPending || reportMutations.update.isPending}>保存报告</Button>
+            <Button size="sm" disabled={!reportContent.trim() && !reportQuery.data?.file_url} onClick={saveReport} isLoading={reportMutations.create.isPending || reportMutations.update.isPending}>保存报告</Button>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium hover:bg-muted">
               <Upload className="h-4 w-4" />上传附件
               <input className="sr-only" type="file" accept=".pdf,.doc,.docx,.md,.txt,.zip" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadReportFile(f); }} />
@@ -501,7 +506,7 @@ export function ExperimentResultPanel({ instanceID }: { instanceID: ID }) {
   const reportQuery = useExperimentReport(instanceID);
 
   if (instanceQuery.isLoading) {
-    return <LoadingState title="正在加载实验结果" description="读取检查点、成绩和报告信息。" />;
+    return <LoadingState variant="hero" title="正在加载实验结果" description="读取检查点、成绩和报告信息。" />;
   }
 
   if (!instanceQuery.data) {
@@ -559,7 +564,9 @@ export function ExperimentResultPanel({ instanceID }: { instanceID: ID }) {
           <CardTitle>实验报告</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{reportQuery.data?.content ?? "未提交报告正文。"}</p>
+          <div className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{reportQuery.data?.content ?? "未提交报告正文。"}</ReactMarkdown>
+          </div>
           {reportQuery.data?.file_name ? (
             <div className="rounded-xl border border-border bg-muted/35 p-4 text-sm">
               附件：{reportQuery.data.file_name} · {formatFileSize(reportQuery.data.file_size ?? 0)}

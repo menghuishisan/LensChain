@@ -89,6 +89,43 @@ export function formatScore(value: number, precision = 2) {
 }
 
 /**
+ * 格式化学习时长，保留一位小数并去除多余零。
+ */
+export function formatHours(value: number) {
+  const normalized = normalizeNumber(value);
+  if (normalized === null) {
+    return EMPTY_TEXT;
+  }
+
+  return `${trimTrailingZeros(roundToPrecision(normalized, 1).toFixed(1))} 小时`;
+}
+
+/**
+ * 格式化百分比，保留一位小数并去除多余零。
+ * 接收已经是 0-100 范围的值，直接追加 % 后缀。
+ */
+export function formatPercent(value: number, precision = 1) {
+  const normalized = normalizeNumber(value);
+  if (normalized === null) {
+    return EMPTY_TEXT;
+  }
+
+  return `${trimTrailingZeros(roundToPrecision(normalized, precision).toFixed(precision))}%`;
+}
+
+/**
+ * 格式化分钟时长，四舍五入为整数。
+ */
+export function formatMinutes(value: number) {
+  const normalized = normalizeNumber(value);
+  if (normalized === null) {
+    return EMPTY_TEXT;
+  }
+
+  return `${Math.round(normalized)} 分钟`;
+}
+
+/**
  * 格式化 GPA，默认保留两位小数。
  */
 export function formatGPA(value: number, precision = 2) {

@@ -39,7 +39,7 @@ export function SharedExperimentTemplatePanel() {
   const totalPages = Math.ceil((templatesQuery.data?.pagination?.total ?? 0) / pageSize);
 
   if (templatesQuery.isLoading && page === 1) {
-    return <LoadingState title="正在加载共享实验内容" description="正在整理平台共享的实验内容。" />;
+    return <LoadingState variant="grid" title="正在加载共享实验内容" description="正在整理平台共享的实验内容。" />;
   }
 
   return (

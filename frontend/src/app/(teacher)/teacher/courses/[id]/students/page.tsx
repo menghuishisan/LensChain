@@ -1,7 +1,7 @@
 // page.tsx
 // 学生管理页，对应模块03 P-09。
 
-import { CourseStudentsPanel } from "@/components/business/CoursePanels";
+import { CourseStudentsPanel } from "@/components/business/CourseStudentPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

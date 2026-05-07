@@ -218,7 +218,7 @@ export function ExperimentImageLibraryPanel({ reviewMode = false }: { reviewMode
       </div>
 
       {imagesQuery.isLoading ? (
-        <LoadingState title="正在加载镜像库" description="读取镜像、版本和审核状态。" />
+        <LoadingState variant="grid" title="正在加载镜像库" description="读取镜像、版本和审核状态。" />
       ) : images.length === 0 ? (
         <EmptyState title="暂无匹配镜像" description="调整筛选条件或上传新镜像。" />
       ) : viewMode === "card" ? (
@@ -251,7 +251,7 @@ export function ExperimentImageLibraryPanel({ reviewMode = false }: { reviewMode
                   <TableCell>{image.ecosystem ?? "-"}</TableCell>
                   <TableCell>{image.version_count}</TableCell>
                   <TableCell>{image.usage_count}</TableCell>
-                  <TableCell><Badge variant={image.status === 2 ? "outline" : image.status === 1 ? "success" : "secondary"}>{image.status_text}</Badge></TableCell>
+                  <TableCell><Badge variant={image.status === 1 ? "success" : image.status === 2 ? "warning" : "secondary"}>{image.status_text}</Badge></TableCell>
                   <TableCell>
                     <Link className={buttonClassName({ variant: "outline", size: "sm" })} href={`/super/images/${image.id}`}>
                       {image.status === 2 ? "审核" : "详情"}
@@ -312,7 +312,7 @@ export function ExperimentImageDetailPanel({ imageID }: { imageID: ID }) {
   };
 
   if (imageQuery.isLoading) {
-    return <LoadingState title="正在加载镜像详情" description="读取镜像版本、配置模板和结构化文档。" />;
+    return <LoadingState variant="hero" title="正在加载镜像详情" description="读取镜像版本、配置模板和结构化文档。" />;
   }
 
   if (!image) {
@@ -496,7 +496,7 @@ export function ExperimentImageReviewPanel({ imageID }: { imageID: ID }) {
   const [comment, setComment] = useState("");
 
   if (imageQuery.isLoading) {
-    return <LoadingState title="正在加载镜像审核详情" description="读取目标镜像、版本和配置模板。" />;
+    return <LoadingState variant="hero" title="正在加载镜像审核详情" description="读取目标镜像、版本和配置模板。" />;
   }
 
   if (imageQuery.isError || !imageQuery.data) {
@@ -659,7 +659,7 @@ function SimScenarioCard({ scenario, reviewMode }: { scenario: NonNullable<Retur
         <div className="flex flex-wrap gap-2">
           <Badge>{scenario.category_text}</Badge>
           <Badge variant="outline">{scenario.time_control_mode}</Badge>
-          <Badge variant={scenario.status === 1 ? "success" : "outline"}>{scenario.status_text}</Badge>
+          <Badge variant={scenario.status === 1 ? "success" : "warning"}>{scenario.status_text}</Badge>
         </div>
         {reviewMode ? (
           <div className="flex gap-2">

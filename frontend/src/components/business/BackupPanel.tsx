@@ -66,7 +66,7 @@ export function BackupPanel() {
   );
 
   if (isInitialLoading) {
-    return <LoadingState title="正在加载数据备份" description="链镜正在读取备份配置、备份历史和当前执行状态。" />;
+    return <LoadingState variant="hero" title="正在加载数据备份" description="链镜正在读取备份配置、备份历史和当前执行状态。" />;
   }
 
   if (blockingError !== null) {
@@ -92,7 +92,7 @@ export function BackupPanel() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#1e293b_0%,#0f766e_52%,#164e63_100%)] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_12%),hsl(var(--primary)/0.45)_52%,hsl(220_40%_14%))] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">

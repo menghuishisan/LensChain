@@ -3,7 +3,7 @@
 // page.tsx
 // 课程评价页，对应模块03课程评价功能。
 
-import { EvaluationPanel } from "@/components/business/CoursePanels";
+import { EvaluationPanel } from "@/components/business/CourseInteractionPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 import { useAuth } from "@/hooks/useAuth";
 

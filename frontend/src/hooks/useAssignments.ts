@@ -139,13 +139,24 @@ export function useGradeSubmissionMutation(submissionID: ID) {
 }
 
 /**
- * useCourseGrades 查询课程成绩配置、汇总和我的成绩。
+ * useGradeConfig 查询课程成绩权重配置（教师）。
  */
-export function useCourseGrades(courseID: ID) {
-  const config = useQuery({ queryKey: ["course", "grade-config", courseID], queryFn: () => getGradeConfig(courseID), enabled: courseID.length > 0 });
-  const summary = useQuery({ queryKey: ["course", "grades", courseID], queryFn: () => getGradeSummary(courseID), enabled: courseID.length > 0 });
-  const mine = useQuery({ queryKey: ["course", "my-grades", courseID], queryFn: () => getMyGrades(courseID), enabled: courseID.length > 0 });
-  return { config, summary, mine };
+export function useGradeConfig(courseID: ID) {
+  return useQuery({ queryKey: ["course", "grade-config", courseID], queryFn: () => getGradeConfig(courseID), enabled: courseID.length > 0 });
+}
+
+/**
+ * useGradeSummary 查询课程成绩汇总（教师）。
+ */
+export function useGradeSummary(courseID: ID) {
+  return useQuery({ queryKey: ["course", "grades", courseID], queryFn: () => getGradeSummary(courseID), enabled: courseID.length > 0 });
+}
+
+/**
+ * useMyGrades 查询学生本人课程成绩（学生）。
+ */
+export function useMyGrades(courseID: ID) {
+  return useQuery({ queryKey: ["course", "my-grades", courseID], queryFn: () => getMyGrades(courseID), enabled: courseID.length > 0 });
 }
 
 /**

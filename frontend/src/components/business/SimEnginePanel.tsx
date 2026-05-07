@@ -13,17 +13,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/lib/utils';
 import type { ID } from '@/types/api';
-import type { TemplateSimScene } from '@/types/experiment';
 import type { RenderState, ControlDescriptor, InteractionAction, TimeControlCommand, InteractionInputValue } from '@lenschain/sim-engine-renderers';
+
+/** SimEnginePanel 接受的最小场景输入类型。 */
+export interface SimSceneInput {
+  id: ID;
+  scenario?: { code?: string; category?: string; name?: string; time_control_mode?: string } | null;
+}
 
 export interface SimEnginePanelProps {
   sessionID: ID;
-  scenes: TemplateSimScene[];
+  scenes: SimSceneInput[];
   onLayoutChange?: (layouts: Array<{ scene_id: ID; layout_position: Record<string, unknown> }>) => void;
   className?: string;
 }
 
-function getSceneCode(scene: TemplateSimScene) {
+function getSceneCode(scene: SimSceneInput) {
   return scene.scenario?.code ?? String(scene.id);
 }
 

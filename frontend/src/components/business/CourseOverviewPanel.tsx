@@ -11,7 +11,7 @@ import { buttonClassName, Button } from "@/components/ui/Button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatHours, formatPercent, formatScore } from "@/lib/format";
 import { useCourse, useCourseLifecycleMutations, useCourseStatistics } from "@/hooks/useCourses";
 import type { ID } from "@/types/api";
 
@@ -40,7 +40,7 @@ export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
   const stats = useCourseStatistics(courseID);
 
   if (query.isLoading || stats.overview.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="hero" />;
   }
 
   if (query.isError) {
@@ -62,7 +62,7 @@ export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-border/70 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_22rem),linear-gradient(135deg,hsl(186_38%_14%),hsl(32_58%_32%))] p-6 text-primary-foreground shadow-[0_20px_60px_rgba(0,0,0,0.18)]">
+      <div className="rounded-3xl border border-border/70 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.15),transparent_22rem),linear-gradient(135deg,hsl(220_40%_8%/0.88),hsl(var(--primary)/0.35))] p-6 text-primary-foreground shadow-[0_20px_60px_rgba(0,0,0,0.18)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-3">
             <Link className="inline-flex items-center text-sm text-primary-foreground/80 transition hover:text-primary-foreground" href="/teacher/courses">
@@ -100,50 +100,59 @@ export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>课程导航</CardTitle>
-            <CardDescription>按设计稿收口教师端课程管理主入口。</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}`}>
-              概览
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/content`}>
-              内容
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/assignments`}>
-              作业
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/students`}>
-              学生
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/grades`}>
-              成绩
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/discussions`}>
-              讨论
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/announcements`}>
-              公告
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/evaluations`}>
-              评价
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/experiment-monitor`}>
-              实验监控
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/experiment-statistics`}>
-              实验统计
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/statistics`}>
-              统计
-            </Link>
-            <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/settings`}>
-              设置
-            </Link>
-          </CardContent>
-        </Card>
+        <nav className="space-y-4">
+          <div>
+            <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">课程管理</p>
+            <div className="grid gap-1.5">
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}`}>
+                概览
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/content`}>
+                内容
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/students`}>
+                学生
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/settings`}>
+                设置
+              </Link>
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">教学工具</p>
+            <div className="grid gap-1.5">
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/assignments`}>
+                作业
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/discussions`}>
+                讨论
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/announcements`}>
+                公告
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/courses/${courseID}/evaluations`}>
+                评价
+              </Link>
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">数据分析</p>
+            <div className="grid gap-1.5">
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/grades`}>
+                成绩
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/statistics`}>
+                统计
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/experiment-monitor`}>
+                实验监控
+              </Link>
+              <Link className={buttonClassName({ variant: "outline" })} href={`/teacher/courses/${courseID}/experiment-statistics`}>
+                实验统计
+              </Link>
+            </div>
+          </div>
+        </nav>
 
         <div className="space-y-6">
           <Card>
@@ -155,9 +164,9 @@ export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
               <StatCard title="学生" value={course.student_count} hint="当前已加入课程人数" />
               <StatCard title="课时" value={totalLessons} hint="按章节树统计课时总数" />
               <StatCard title="作业" value={totalAssignments} hint="课程当前作业数量" />
-              <StatCard title="完课率" value={`${overview.completion_rate}%`} hint="已完成课时的学生占比" />
-              <StatCard title="平均分" value={overview.avg_score} hint="课程当前加权平均分" />
-              <StatCard title="活跃度" value={`${overview.activity_rate}%`} hint="最近学习与互动活跃水平" />
+              <StatCard title="完课率" value={formatPercent(overview.completion_rate)} hint="已完成课时的学生占比" />
+              <StatCard title="平均分" value={formatScore(overview.avg_score)} hint="课程当前加权平均分" />
+              <StatCard title="活跃度" value={formatPercent(overview.activity_rate)} hint="最近学习与互动活跃水平" />
             </CardContent>
           </Card>
 
@@ -177,7 +186,7 @@ export function CourseOverviewPanel({ courseID }: { courseID: ID }) {
               </div>
               <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
                 <p className="font-medium text-foreground">最近进度摘要</p>
-                <p className="mt-1">平均学习进度 {overview.avg_progress}% ，累计学习时长 {overview.total_study_hours} 小时，完课率 {overview.completion_rate}% 。</p>
+                <p className="mt-1">平均学习进度 {formatPercent(overview.avg_progress)} ，累计学习时长 {formatHours(overview.total_study_hours)} ，完课率 {formatPercent(overview.completion_rate)} 。</p>
               </div>
             </CardContent>
           </Card>

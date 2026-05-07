@@ -55,7 +55,7 @@ export function SubmissionReviewPanel({ submissionID }: SubmissionReviewPanelPro
     );
   }, [query.data]);
 
-  if (query.isLoading) return <LoadingState />;
+  if (query.isLoading) return <LoadingState variant="list" />;
   if (query.isError) return <ErrorState description={query.error.message} />;
   if (!query.data) return null;
 

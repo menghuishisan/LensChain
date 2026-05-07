@@ -38,7 +38,7 @@ export interface SchoolStatusBadgeProps {
  * SchoolStatusBadge 学校状态徽标。
  */
 export function SchoolStatusBadge({ status, text }: SchoolStatusBadgeProps) {
-  const variant = status === 2 ? "success" : status === 3 ? "secondary" : status === 4 || status === 6 ? "destructive" : "outline";
+  const variant = status === 2 ? "success" : status === 1 || status === 3 ? "warning" : status === 4 || status === 6 ? "destructive" : "secondary";
   return <Badge variant={variant}>{text ?? getEnumText(SCHOOL_STATUS_TEXT, status)}</Badge>;
 }
 
@@ -46,6 +46,6 @@ export function SchoolStatusBadge({ status, text }: SchoolStatusBadgeProps) {
  * SchoolApplicationStatusBadge 入驻申请状态徽标。
  */
 export function SchoolApplicationStatusBadge({ status, text }: { status: SchoolApplicationStatus; text?: string }) {
-  const variant = status === 1 ? "secondary" : status === 2 ? "success" : "destructive";
+  const variant = status === 1 ? "warning" : status === 2 ? "success" : "destructive";
   return <Badge variant={variant}>{text ?? getEnumText(SCHOOL_APPLICATION_STATUS_TEXT, status)}</Badge>;
 }

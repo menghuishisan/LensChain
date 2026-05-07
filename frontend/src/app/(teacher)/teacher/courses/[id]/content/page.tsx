@@ -1,7 +1,7 @@
 // page.tsx
 // 课程内容管理页，对应模块03 P-04。
 
-import { CourseContentManagerPanel } from "@/components/business/CoursePanels";
+import { CourseContentManagerPanel } from "@/components/business/CourseContentPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

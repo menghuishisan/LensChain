@@ -1,7 +1,7 @@
 // page.tsx
 // 学生我的课程列表页，对应模块03 P-20。
 
-import { StudentCourseListPanel } from "@/components/business/CoursePanels";
+import { StudentCourseListPanel } from "@/components/business/CourseListPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

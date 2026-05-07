@@ -27,7 +27,7 @@ function getStatusVariant(status: number) {
   if (status === 3) {
     return "secondary" as const;
   }
-  return "outline" as const;
+  return "warning" as const;
 }
 
 /**

@@ -63,7 +63,7 @@ export function SchoolApplicationReviewList() {
             <option value="3">已拒绝</option>
           </select>
         </div>
-        {query.isLoading ? <LoadingState /> : null}
+        {query.isLoading ? <LoadingState variant="list" /> : null}
         {query.isError ? <ErrorState description={query.error.message} /> : null}
         {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无入驻申请" description="当前筛选条件下没有申请记录。" /> : null}
         {list.length > 0 ? (

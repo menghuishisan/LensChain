@@ -278,13 +278,11 @@ func (s *courseService) Update(ctx context.Context, sc *svcctx.ServiceContext, i
 	}
 	nextStartAt := course.StartAt
 	if parsedStartAt, ok := fields["start_at"]; ok {
-		value := parsedStartAt.(time.Time)
-		nextStartAt = &value
+		nextStartAt = parsedStartAt.(*time.Time)
 	}
 	nextEndAt := course.EndAt
 	if parsedEndAt, ok := fields["end_at"]; ok {
-		value := parsedEndAt.(time.Time)
-		nextEndAt = &value
+		nextEndAt = parsedEndAt.(*time.Time)
 	}
 	if err := validateCourseTimeRange(nextStartAt, nextEndAt); err != nil {
 		return err

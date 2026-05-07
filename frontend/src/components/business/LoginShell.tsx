@@ -4,6 +4,7 @@
 // 登录页布局壳，按模块01文档展示品牌 Hero、手机号密码表单和 SSO 入口。
 
 import { Blocks, FlaskConical, Network, ShieldCheck, Trophy } from "lucide-react";
+import Link from "next/link";
 
 import { LoginForm, SSOLoginButton } from "@/components/business/AuthPanels";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -21,7 +22,7 @@ const FEATURE_ITEMS = [
 export function LoginShell() {
   return (
     <main className="grid min-h-screen overflow-hidden bg-slate-950 text-foreground lg:grid-cols-[1.08fr_0.92fr]">
-      <section className="relative hidden min-h-screen overflow-hidden bg-[radial-gradient(circle_at_20%_20%,rgba(20,184,166,0.42),transparent_30rem),linear-gradient(135deg,#052e2b,#101827_58%,#2c1d12)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+      <section className="relative hidden min-h-screen overflow-hidden bg-[radial-gradient(circle_at_20%_20%,hsl(var(--primary)/0.42),transparent_30rem),linear-gradient(135deg,hsl(var(--primary)/0.25),hsl(220_40%_8%)_58%,hsl(var(--primary)/0.12))] p-10 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.08)_1px,transparent_1px)] [background-size:44px_44px]" />
         <div className="relative z-10 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/12 ring-1 ring-white/20">
@@ -59,7 +60,7 @@ export function LoginShell() {
         <div className="relative z-10 text-sm text-white/55">© 2026 链镜平台</div>
       </section>
 
-      <section className="relative flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.16),transparent_22rem),linear-gradient(180deg,hsl(var(--background)),hsl(42_68%_95%))] px-5 py-10">
+      <section className="relative flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_right,hsl(var(--primary)/0.12),transparent_22rem),linear-gradient(180deg,hsl(var(--background)),hsl(var(--secondary)))] px-5 py-10">
         <Card className="w-full max-w-md animate-fade-up border-white/70 bg-white/86 shadow-[0_32px_100px_rgba(15,23,42,0.18)]">
           <CardContent className="p-7 sm:p-9">
             <div className="mb-8 text-center">
@@ -79,6 +80,11 @@ export function LoginShell() {
             </div>
 
             <SSOLoginButton />
+
+            <div className="mt-6 text-center text-sm text-muted-foreground">
+              <p>学校尚未入驻？<Link href="/apply" className="font-medium text-primary hover:underline">申请入驻</Link></p>
+              <p className="mt-1">已提交申请？<Link href="/apply/query" className="font-medium text-primary hover:underline">查询进度</Link></p>
+            </div>
           </CardContent>
         </Card>
       </section>

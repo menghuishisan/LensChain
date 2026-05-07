@@ -1,16 +1,24 @@
 // layout.tsx
 // Next.js 根布局，挂载全局样式、元信息与客户端 Providers。
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import { AppProviders } from "@/app/providers";
 import "@/app/globals.css";
 
 /**
+ * 应用根视口配置。
+ */
+export const viewport: Viewport = {
+  themeColor: "#1CA882",
+};
+
+/**
  * 应用根元信息。
  */
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   title: "链镜平台 LensChain",
   description: "区块链教学、实验实践与 CTF 竞赛一体化平台",
   icons: {
@@ -18,7 +26,6 @@ export const metadata: Metadata = {
     apple: "/lenschain-logo.png",
   },
   manifest: "/site.webmanifest",
-  themeColor: "#1CA882",
   openGraph: {
     title: "链镜平台 LensChain",
     description: "区块链教学、实验实践与 CTF 竞赛一体化平台",

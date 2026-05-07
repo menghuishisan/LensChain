@@ -1,7 +1,7 @@
 // page.tsx
 // 学生作业作答页，对应模块03 P-25。
 
-import { AssignmentAnswerPanel } from "@/components/business/CoursePanels";
+import { AssignmentAnswerPanel } from "@/components/business/CourseStudentPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

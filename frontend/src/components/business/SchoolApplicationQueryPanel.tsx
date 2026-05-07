@@ -88,7 +88,7 @@ export function SchoolApplicationQueryPanel() {
             </div>
           </form>
 
-          {query.isLoading ? <LoadingState /> : null}
+          {query.isLoading ? <LoadingState variant="spinner" /> : null}
           {query.isError ? <ErrorState description={query.error.message} /> : null}
           {query.data?.applications.length === 0 ? <EmptyState title="暂无申请记录" description="该手机号下没有可查询的入驻申请。" /> : null}
           <div className="grid gap-4">

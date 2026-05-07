@@ -2074,6 +2074,8 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 
 **权限：** 课程教师
 
+**前置条件：** 课程状态为已发布或进行中（草稿/已结束/已归档课程不允许管理学生名单）
+
 **请求体：**
 
 ```json
@@ -2092,6 +2094,8 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 ### 2.58 POST /api/v1/courses/:id/students/batch — 批量添加学生
 
 **权限：** 课程教师
+
+**前置条件：** 课程状态为已发布或进行中
 
 **请求体：**
 
@@ -2114,6 +2118,8 @@ Content-Disposition: attachment; filename*=UTF-8''课程统计报告.xlsx
 ### 2.59 DELETE /api/v1/courses/:id/students/:student_id — 移除学生
 
 **权限：** 课程教师
+
+**前置条件：** 课程状态为已发布或进行中
 
 **说明：**
 

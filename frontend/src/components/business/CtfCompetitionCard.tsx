@@ -22,7 +22,10 @@ function getStatusVariant(status: number) {
   if (status === 4 || status === 5) {
     return "secondary" as const;
   }
-  return "outline" as const;
+  if (status === 2) {
+    return "warning" as const;
+  }
+  return "warning" as const;
 }
 
 /** CtfCompetitionCard CTF竞赛卡片组件。 */

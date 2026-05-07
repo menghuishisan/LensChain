@@ -130,7 +130,7 @@ export function UserListPanel({ basePath, showSchoolColumn = false, headerAction
         </CardHeader>
         <CardContent className="space-y-4">
           <UserFilters params={params} onChange={(next) => setParams({ ...next, page: 1 })} />
-          {query.isLoading ? <LoadingState /> : null}
+          {query.isLoading ? <LoadingState variant="table" /> : null}
           {query.isError ? <ErrorState description={query.error.message} /> : null}
           {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无用户" description="可通过添加用户或导入用户创建账号。" /> : null}
           {list.length > 0 ? (
@@ -544,14 +544,34 @@ function UserActions({
       <Button size="sm" variant="outline" onClick={onReset}><KeyRound className="h-4 w-4" />重置</Button>
       {status === 1 ? (
         <>
-          <ConfirmDialog title="确认禁用账号" description="禁用后该用户当前会话立即失效。" trigger={<Button size="sm" variant="outline"><UserX className="h-4 w-4" />禁用</Button>} onConfirm={() => onStatus(id, 2, "管理员禁用")} />
-          <ConfirmDialog title="确认归档账号" description="归档后账号无法登录，历史数据保留。" trigger={<Button size="sm" variant="outline"><Archive className="h-4 w-4" />归档</Button>} onConfirm={() => onStatus(id, 3, "管理员归档")} />
+          <ConfirmDialog
+            title="确认禁用账号"
+            description="禁用后该用户当前会话立即失效。"
+            trigger={<Button size="sm" variant="outline"><UserX className="h-4 w-4" />禁用</Button>}
+            onConfirm={() => onStatus(id, 2, "管理员禁用")}
+          />
+          <ConfirmDialog
+            title="确认归档账号"
+            description="归档后账号无法登录，历史数据保留。"
+            trigger={<Button size="sm" variant="outline"><Archive className="h-4 w-4" />归档</Button>}
+            onConfirm={() => onStatus(id, 3, "管理员归档")}
+          />
         </>
       ) : (
-        <ConfirmDialog title="确认启用账号" description="启用后用户可重新登录。" trigger={<Button size="sm" variant="outline"><UserCheck className="h-4 w-4" />启用</Button>} onConfirm={() => onStatus(id, 1, "管理员启用")} />
+        <ConfirmDialog
+          title="确认启用账号"
+          description="启用后用户可重新登录。"
+          trigger={<Button size="sm" variant="outline"><UserCheck className="h-4 w-4" />启用</Button>}
+          onConfirm={() => onStatus(id, 1, "管理员启用")}
+        />
       )}
       <Button size="sm" variant="outline" onClick={onUnlock}><RotateCcw className="h-4 w-4" />解锁</Button>
-      <ConfirmDialog title="确认删除账号" description="删除后，历史学习和操作记录仍会保留。" trigger={<Button size="sm" variant="destructive"><Trash2 className="h-4 w-4" />删除</Button>} onConfirm={onDelete} />
+      <ConfirmDialog
+        title="确认删除账号"
+        description="删除后，历史学习和操作记录仍会保留。"
+        trigger={<Button size="sm" variant="destructive"><Trash2 className="h-4 w-4" />删除</Button>}
+        onConfirm={onDelete}
+      />
     </div>
   );
 }

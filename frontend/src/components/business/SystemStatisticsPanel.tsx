@@ -51,7 +51,7 @@ export function SystemStatisticsPanel() {
     null;
 
   if (isInitialLoading) {
-    return <LoadingState title="正在加载数据概览" description="正在整理平台趋势和学校使用情况。" />;
+    return <LoadingState variant="hero" title="正在加载数据概览" description="正在整理平台趋势和学校使用情况。" />;
   }
 
   if (blockingError !== null) {
@@ -81,7 +81,7 @@ export function SystemStatisticsPanel() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#0f172a_0%,#10293b_45%,#134e4a_100%)] text-white shadow-[0_32px_90px_-38px_rgba(15,23,42,0.7)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_8%),hsl(var(--primary)/0.3)_45%,hsl(var(--primary)/0.2))] text-white shadow-[0_32px_90px_-38px_rgba(15,23,42,0.7)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
@@ -302,7 +302,7 @@ function TrendChart({
   const areaPath = `${linePath} ${chartPoints[chartPoints.length - 1]?.x ?? paddingX},${height - paddingBottom} ${chartPoints[0]?.x ?? paddingX},${height - paddingBottom}`;
 
   return (
-    <div className="overflow-hidden rounded-[1.75rem] border border-border bg-[linear-gradient(180deg,rgba(15,23,42,0.03),rgba(15,23,42,0.08))] p-4">
+    <div className="overflow-hidden rounded-[1.75rem] border border-border bg-[linear-gradient(180deg,hsl(var(--foreground)/0.03),hsl(var(--foreground)/0.08))] p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-foreground">{metricLabel}趋势</p>

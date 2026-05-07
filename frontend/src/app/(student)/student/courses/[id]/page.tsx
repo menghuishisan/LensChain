@@ -1,7 +1,7 @@
 // page.tsx
 // 学生课程学习主页，对应模块03 P-22。
 
-import { StudentCourseHomePanel } from "@/components/business/CoursePanels";
+import { StudentCourseHomePanel } from "@/components/business/CourseContentPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

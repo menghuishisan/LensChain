@@ -6,11 +6,13 @@ package graderepo
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/errcode"
 )
 
 // CourseGradeSourceRepository 课程成绩来源只读数据访问接口。
@@ -54,6 +56,9 @@ func (r *courseGradeSourceRepository) GetCourse(ctx context.Context, courseID in
 	var course entity.Course
 	err := r.db.WithContext(ctx).First(&course, courseID).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errcode.ErrCourseNotFound
+		}
 		return nil, err
 	}
 	return &course, nil

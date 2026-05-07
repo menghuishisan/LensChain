@@ -39,6 +39,9 @@ type TemplateService interface {
 	GetK8sConfig(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.K8sConfigResp, error)
 	SetK8sConfig(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.K8sConfigReq) error
 	Validate(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.ValidateTemplateReq) (*dto.ValidateTemplateResp, error)
+	// 学生端只读接口
+	StudentList(ctx context.Context, sc *svcctx.ServiceContext, req *dto.StudentTemplateListReq) ([]*dto.TemplateListItem, int64, error)
+	StudentGetSummary(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.StudentTemplateSummaryResp, error)
 }
 
 // templateService 实验模板服务实现

@@ -454,6 +454,57 @@ type TemplateListItem struct {
 	UpdatedAt          string    `json:"updated_at"`
 }
 
+// StudentTemplateSummaryResp 学生端实验模板摘要响应
+// GET /api/v1/student/experiment-templates/:id
+// 仅包含 P-42 启动页和 P-41 操作页需要展示的信息，不暴露 K8s 配置、初始化脚本等教师管理字段。
+type StudentTemplateSummaryResp struct {
+	ID                 string                       `json:"id"`
+	Title              string                       `json:"title"`
+	Description        *string                      `json:"description"`
+	Objectives         *string                      `json:"objectives"`
+	Instructions       *string                      `json:"instructions"`
+	ExperimentType     int16                        `json:"experiment_type"`
+	ExperimentTypeText string                       `json:"experiment_type_text"`
+	TopologyMode       int16                        `json:"topology_mode"`
+	TopologyModeText   string                       `json:"topology_mode_text"`
+	TotalScore         int                          `json:"total_score"`
+	MaxDuration        int                          `json:"max_duration"`
+	CPULimit           *string                      `json:"cpu_limit"`
+	MemoryLimit        *string                      `json:"memory_limit"`
+	DiskLimit          *string                      `json:"disk_limit"`
+	Containers         []StudentContainerSummary    `json:"containers"`
+	CheckpointCount    int                          `json:"checkpoint_count"`
+	Tags               []TagResp                    `json:"tags"`
+	SimScenes          []StudentSimSceneSummary     `json:"sim_scenes"`
+}
+
+// StudentSimSceneSummary 学生端仿真场景摘要（仅供 SimEngine 面板判断时间控制模式）
+type StudentSimSceneSummary struct {
+	ID       string                          `json:"id"`
+	Scenario *StudentSimScenarioMinimal      `json:"scenario"`
+}
+
+// StudentSimScenarioMinimal 仿真场景最小信息（供 SimEngine 面板渲染）
+type StudentSimScenarioMinimal struct {
+	Code            string `json:"code"`
+	Name            string `json:"name"`
+	Category        string `json:"category"`
+	TimeControlMode string `json:"time_control_mode"`
+}
+
+// StudentContainerSummary 学生端容器配置摘要（仅展示名称和镜像信息）
+type StudentContainerSummary struct {
+	ContainerName string                     `json:"container_name"`
+	ImageVersion  *ContainerImageVersionResp `json:"image_version,omitempty"`
+}
+
+// StudentTemplateListReq 学生端模板列表请求
+// GET /api/v1/student/experiment-templates
+type StudentTemplateListReq struct {
+	Page     int `form:"page"`
+	PageSize int `form:"page_size"`
+}
+
 // CreateTemplateResp 创建实验模板响应
 type CreateTemplateResp struct {
 	ID                 string `json:"id"`

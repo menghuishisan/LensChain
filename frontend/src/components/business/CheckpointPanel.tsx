@@ -32,7 +32,7 @@ export function CheckpointPanel({ instanceID, canGrade = false }: CheckpointPane
   const [scoreDraft, setScoreDraft] = useState<Record<ID, string>>({});
 
   if (instanceQuery.isLoading) {
-    return <LoadingState title="正在加载检查点" description="正在整理当前实验的检查结果。" />;
+    return <LoadingState variant="list" title="正在加载检查点" description="正在整理当前实验的检查结果。" />;
   }
 
   const checkpoints = instanceQuery.data?.checkpoints ?? [];

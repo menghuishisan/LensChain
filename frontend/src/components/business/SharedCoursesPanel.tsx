@@ -32,7 +32,7 @@ export function SharedCoursesPanel() {
   });
 
   if (query.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="grid" />;
   }
 
   if (query.isError) {
@@ -118,7 +118,7 @@ export function SharedCoursesPanel() {
 
 function CardHeaderBlock() {
   return (
-    <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(34_52%_30%))] p-6 text-primary-foreground">
+    <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
       <p className="text-sm text-primary-foreground/75">共享课程库</p>
       <h1 className="mt-2 font-display text-3xl font-semibold">浏览可复用课程并克隆为新课程</h1>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-primary-foreground/80">

@@ -2,7 +2,7 @@
 // 基础按钮组件，提供统一尺寸、语义变体和加载状态。
 
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -46,9 +46,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Va
 /**
  * Button 基础按钮组件。
  */
-export function Button({ className, variant, size, fullWidth, isLoading = false, disabled, children, ...props }: ButtonProps) {
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant, size, fullWidth, isLoading = false, disabled, children, ...props }, ref) {
   return (
     <button
+      ref={ref}
       className={cn(buttonVariants({ variant, size, fullWidth }), className)}
       disabled={disabled || isLoading}
       {...props}
@@ -57,7 +58,7 @@ export function Button({ className, variant, size, fullWidth, isLoading = false,
       {children}
     </button>
   );
-}
+});
 
 /**
  * buttonClassName 供少数需要渲染为 Link 的场景复用按钮视觉。

@@ -35,9 +35,12 @@ func RegisterCourseRoutes(rg *gin.RouterGroup, ch *CourseHandlers) {
 	courses := rg.Group("/courses")
 	courses.Use(middleware.JWTAuth(), middleware.TenantIsolation())
 	{
-		// 教师操作
-		courses.POST("", middleware.RequireTeacher(), ch.CourseHandler.Create)                                    // 创建课程
-		courses.GET("", middleware.RequireTeacher(), ch.CourseHandler.List)                                       // 课程列表
+		// ========== 无参数静态路径（必须在 /:id 路由之前注册，避免 Gin 路由树冲突） ==========
+		courses.POST("", middleware.RequireTeacher(), ch.CourseHandler.Create)                        // 创建课程
+		courses.GET("", middleware.RequireTeacher(), ch.CourseHandler.List)                           // 课程列表
+		courses.POST("/join", middleware.RequireStudent(), ch.CourseHandler.JoinByInviteCode)         // 通过邀请码加入课程
+
+		// ========== 1. 课程管理（教师） ==========
 		courses.GET("/:id", courseMemberOnly, ch.CourseHandler.GetByID)                                           // 课程详情
 		courses.PUT("/:id", middleware.RequireTeacher(), ch.CourseHandler.Update)                                 // 编辑课程信息
 		courses.DELETE("/:id", middleware.RequireTeacher(), ch.CourseHandler.Delete)                              // 删除课程（仅草稿）
@@ -54,7 +57,6 @@ func RegisterCourseRoutes(rg *gin.RouterGroup, ch *CourseHandlers) {
 		courses.PUT("/:id/chapters/sort", middleware.RequireTeacher(), ch.CourseHandler.SortChapters) // 章节排序
 
 		// ========== 3. 选课管理 ==========
-		courses.POST("/join", middleware.RequireStudent(), ch.CourseHandler.JoinByInviteCode)                    // 通过邀请码加入课程
 		courses.POST("/:id/students", middleware.RequireTeacher(), ch.CourseHandler.AddStudent)                  // 教师添加学生
 		courses.POST("/:id/students/batch", middleware.RequireTeacher(), ch.CourseHandler.BatchAddStudents)      // 批量添加学生
 		courses.DELETE("/:id/students/:student_id", middleware.RequireTeacher(), ch.CourseHandler.RemoveStudent) // 移除学生
@@ -82,7 +84,7 @@ func RegisterCourseRoutes(rg *gin.RouterGroup, ch *CourseHandlers) {
 
 		// ========== 9. 课程评价 ==========
 		courses.POST("/:id/evaluations", middleware.RequireStudent(), ch.DiscussionHandler.CreateEvaluation) // 提交评价
-		courses.GET("/:id/evaluations", middleware.RequireTeacher(), ch.DiscussionHandler.ListEvaluations)   // 评价列表
+		courses.GET("/:id/evaluations", middleware.RequireTeacher(), ch.DiscussionHandler.ListEvaluations) // 评价列表（文档：课程教师）
 
 		// ========== 10. 成绩管理 ==========
 		courses.PUT("/:id/grade-config", middleware.RequireTeacher(), ch.CourseHandler.SetGradeConfig)      // 配置成绩权重

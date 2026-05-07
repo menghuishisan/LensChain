@@ -93,7 +93,7 @@ export function SchoolTable() {
             即将到期
           </label>
         </div>
-        {query.isLoading ? <LoadingState /> : null}
+        {query.isLoading ? <LoadingState variant="table" /> : null}
         {query.isError ? <ErrorState description={query.error.message} /> : null}
         {!query.isLoading && !query.isError && list.length === 0 ? <EmptyState title="暂无学校" description="可通过创建学校或入驻申请审核通过生成学校记录。" /> : null}
         {list.length > 0 ? (

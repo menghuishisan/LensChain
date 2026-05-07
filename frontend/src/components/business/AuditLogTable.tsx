@@ -86,7 +86,7 @@ export function AuditLogTable() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#0f172a_0%,#1d4d4f_54%,#7c2d12_100%)] text-white shadow-[0_34px_95px_-42px_rgba(15,23,42,0.75)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_8%),hsl(var(--primary)/0.35)_54%,hsl(220_40%_12%))] text-white shadow-[0_34px_95px_-42px_rgba(15,23,42,0.75)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
@@ -294,7 +294,7 @@ export function AuditLogTable() {
         </CardContent>
       </Card>
 
-      {query.isLoading && query.data === undefined ? <LoadingState title="正在查询操作记录" description="正在整理不同来源的记录并按时间排序。" /> : null}
+      {query.isLoading && query.data === undefined ? <LoadingState variant="table" title="正在查询操作记录" description="正在整理不同来源的记录并按时间排序。" /> : null}
       {query.isError && query.data === undefined ? <ErrorState description={query.error.message} /> : null}
 
       {query.data !== undefined && query.data.list.length === 0 ? (

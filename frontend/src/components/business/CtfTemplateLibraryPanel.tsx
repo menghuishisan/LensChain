@@ -32,7 +32,7 @@ export function CtfTemplateLibraryPanel() {
   const [generatingID, setGeneratingID] = useState<ID>("");
 
   if (templatesQuery.isLoading) {
-    return <LoadingState title="正在加载模板库" description="读取参数化漏洞模板列表。" />;
+    return <LoadingState variant="grid" title="正在加载模板库" description="读取参数化漏洞模板列表。" />;
   }
 
   const templates = templatesQuery.data?.list ?? [];

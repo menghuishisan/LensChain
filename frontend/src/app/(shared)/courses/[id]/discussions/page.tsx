@@ -1,7 +1,7 @@
 // page.tsx
 // 课程讨论区，对应模块03 P-30。
 
-import { DiscussionListPanel } from "@/components/business/CoursePanels";
+import { DiscussionListPanel } from "@/components/business/CourseInteractionPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

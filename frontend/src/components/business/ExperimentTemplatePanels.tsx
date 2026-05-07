@@ -77,7 +77,7 @@ export function ExperimentTemplateListPanel() {
   const templatesQuery = useExperimentTemplates({ page: 1, page_size: 20, keyword });
 
   if (templatesQuery.isLoading) {
-    return <LoadingState title="正在加载实验内容" description="正在整理你可管理的实验内容列表。" />;
+    return <LoadingState variant="grid" title="正在加载实验内容" description="正在整理你可管理的实验内容列表。" />;
   }
 
   if (templatesQuery.isError) {

@@ -87,9 +87,6 @@ func (r *groupRepository) Delete(ctx context.Context, id int64) error {
 func (r *groupRepository) List(ctx context.Context, params *GroupListParams) ([]*entity.ExperimentGroup, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.ExperimentGroup{})
 
-	if params.SchoolID > 0 {
-		query = query.Scopes(database.WithSchoolID(params.SchoolID))
-	}
 	if params.TemplateID > 0 {
 		query = query.Where("template_id = ?", params.TemplateID)
 	}

@@ -257,7 +257,7 @@ export function AlertRuleEditor() {
   const mutations = useAlertRuleMutations();
 
   if (query.isLoading && query.data === undefined) {
-    return <LoadingState title="正在加载提醒规则" description="正在读取平台运行提醒的规则列表。" />;
+    return <LoadingState variant="table" title="正在加载提醒规则" description="正在读取平台运行提醒的规则列表。" />;
   }
 
   if (query.isError && query.data === undefined) {
@@ -266,7 +266,7 @@ export function AlertRuleEditor() {
 
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,#0f172a_0%,#4c1d95_45%,#7f1d1d_100%)] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
+      <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,hsl(220_40%_8%),hsl(var(--primary)/0.4)_45%,hsl(220_40%_12%))] text-white shadow-[0_32px_90px_-40px_rgba(15,23,42,0.72)]">
         <CardContent className="p-6 md:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">

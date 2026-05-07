@@ -8,6 +8,7 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClassName } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -29,7 +30,7 @@ export function AssignmentListPanel({ courseID, role }: AssignmentListPanelProps
   const query = useAssignments(courseID, { page, page_size: 20 });
 
   if (query.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="hero" />;
   }
 
   if (query.isError) {
@@ -40,7 +41,7 @@ export function AssignmentListPanel({ courseID, role }: AssignmentListPanelProps
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(24_56%_28%))] p-6 text-primary-foreground">
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-sm text-primary-foreground/75">{role === "teacher" ? "课程作业管理" : "课程作业列表"}</p>
@@ -138,9 +139,13 @@ function TeacherAssignmentCard({ assignment, courseID }: TeacherAssignmentCardPr
               查看详情
             </Link>
           )}
-          <Button variant="destructive" disabled={hasSubmission} onClick={() => mutations.deleteAssignment.mutate()}>
-            删除作业
-          </Button>
+          <ConfirmDialog
+            title="删除作业"
+            description="删除后该作业及其所有提交记录将无法恢复，确定继续吗？"
+            confirmText="删除"
+            onConfirm={() => mutations.deleteAssignment.mutate()}
+            trigger={<Button variant="destructive" disabled={hasSubmission}>删除作业</Button>}
+          />
           {hasSubmission ? <Button variant="outline" onClick={() => setShowSubmissions((v) => !v)}>{showSubmissions ? "收起提交" : "查看提交"}</Button> : null}
         </div>
         {showSubmissions && submissions.data?.list ? (

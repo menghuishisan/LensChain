@@ -1124,3 +1124,40 @@ func (h *TemplateHandler) ListSchoolImages(c *gin.Context) {
 	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
 	response.Paginated(c, items, total, page, pageSize)
 }
+
+// ---------------------------------------------------------------------------
+// 学生端模板只读接口
+// ---------------------------------------------------------------------------
+
+// StudentListTemplates 学生端已发布模板列表。
+// GET /api/v1/student/experiment-templates
+func (h *TemplateHandler) StudentListTemplates(c *gin.Context) {
+	var req dto.StudentTemplateListReq
+	if !validator.BindQuery(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	items, total, err := h.templateService.StudentList(c.Request.Context(), sc, &req)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	page, pageSize := pagination.NormalizeValues(req.Page, req.PageSize)
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+// StudentGetTemplate 学生端模板摘要详情。
+// GET /api/v1/student/experiment-templates/:id
+func (h *TemplateHandler) StudentGetTemplate(c *gin.Context) {
+	id, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	detail, err := h.templateService.StudentGetSummary(c.Request.Context(), sc, id)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, detail)
+}

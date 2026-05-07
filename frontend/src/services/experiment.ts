@@ -24,6 +24,7 @@ import type {
   ExperimentInstanceListParams,
   ExperimentInstanceListResponse,
   ExperimentMonitor,
+  SchoolExperimentMonitor,
   ExperimentOperationLogListResponse,
   ExperimentOverview,
   ExperimentReport,
@@ -51,6 +52,7 @@ import type {
   SimScenarioDetail,
   SimScenarioListResponse,
   SimScenarioRequest,
+  StudentTemplateSummary,
   TemplateCheckpoint,
   TemplateCheckpointRequest,
   TemplateContainer,
@@ -175,6 +177,20 @@ export function listExperimentTemplates(params: ExperimentTemplateListParams) {
  */
 export function listSharedExperimentTemplates(params: QueryParams = {}) {
   return apiClient.get<ExperimentTemplateListResponse>("/shared-experiment-templates", { query: params });
+}
+
+/**
+ * listStudentExperimentTemplates 对应 GET /api/v1/student/experiment-templates，学生端已发布模板列表。
+ */
+export function listStudentExperimentTemplates(params: QueryParams = {}) {
+  return apiClient.get<ExperimentTemplateListResponse>("/student/experiment-templates", { query: params });
+}
+
+/**
+ * getStudentExperimentTemplate 对应 GET /api/v1/student/experiment-templates/:id，学生端模板摘要详情。
+ */
+export function getStudentExperimentTemplate(templateID: ID) {
+  return apiClient.get<StudentTemplateSummary>(`/student/experiment-templates/${templateID}`);
 }
 
 /**
@@ -737,7 +753,7 @@ export function listSchoolImages(params: QueryParams = {}) {
  * getSchoolExperimentMonitor 对应 GET /api/v1/school/experiment-monitor，用于学校管理员监控本校实验。
  */
 export function getSchoolExperimentMonitor(params: QueryParams = {}) {
-  return apiClient.get<ExperimentMonitor>("/school/experiment-monitor", { query: params });
+  return apiClient.get<SchoolExperimentMonitor>("/school/experiment-monitor", { query: params });
 }
 
 /**

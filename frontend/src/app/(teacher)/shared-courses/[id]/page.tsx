@@ -2,7 +2,7 @@
 // 共享课程详情页。
 
 import { PermissionGate } from "@/components/business/PermissionGate";
-import { SharedCourseDetailPanel } from "@/components/business/CoursePanels";
+import { SharedCourseDetailPanel } from "@/components/business/CourseListPanels";
 
 /**
  * SharedCourseDetailPage 共享课程详情页。

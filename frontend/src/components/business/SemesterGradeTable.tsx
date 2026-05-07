@@ -28,7 +28,7 @@ export function SemesterGradeTable({ semesterID }: SemesterGradeTableProps) {
   const gradesQuery = useMySemesterGrades(semesterID ? { semester_id: semesterID } : {});
 
   if (gradesQuery.isLoading) {
-    return <LoadingState title="正在加载学期成绩" description="读取课程、学分、分数、等级和绩点。" />;
+    return <LoadingState variant="table" title="正在加载学期成绩" description="读取课程、学分、分数、等级和绩点。" />;
   }
 
   if (gradesQuery.isError) {

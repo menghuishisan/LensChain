@@ -32,13 +32,13 @@ export function DiscussionThread({ discussionID }: DiscussionThreadProps) {
   const { showToast } = useToast();
   const [reply, setReply] = useState("");
 
-  if (query.isLoading) return <LoadingState />;
+  if (query.isLoading) return <LoadingState variant="hero" />;
   if (query.isError) return <ErrorState description={query.error.message} />;
   if (!query.data) return null;
 
   return (
     <div className="space-y-5">
-      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(182_34%_14%),hsl(24_46%_28%))] p-6 text-primary-foreground">
+      <div className="rounded-3xl border border-border/70 bg-[linear-gradient(135deg,hsl(var(--primary)/0.85),hsl(var(--primary)/0.65))] p-6 text-primary-foreground">
         <p className="text-sm text-primary-foreground/75">帖子详情</p>
         <h1 className="mt-2 font-display text-3xl font-semibold">{query.data.title}</h1>
         <p className="mt-3 text-sm text-primary-foreground/80">

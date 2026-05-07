@@ -1,7 +1,7 @@
 // page.tsx
 // 学生加入课程页，对应模块03 P-21。
 
-import { JoinCoursePanel } from "@/components/business/CoursePanels";
+import { JoinCoursePanel } from "@/components/business/CourseListPanels";
 import { PermissionGate } from "@/components/business/PermissionGate";
 
 /**

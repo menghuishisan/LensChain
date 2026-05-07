@@ -404,6 +404,28 @@ export interface CreateExperimentTemplateResponse {
   status_text: string;
 }
 
+/** 学生端模板摘要（P-42 启动页 + P-41 操作页使用）。 */
+export interface StudentTemplateSummary {
+  id: ID;
+  title: string;
+  description: string | null;
+  objectives: string | null;
+  instructions: string | null;
+  experiment_type: ExperimentType;
+  experiment_type_text: string;
+  topology_mode: TopologyMode;
+  topology_mode_text: string;
+  total_score: number;
+  max_duration: number;
+  cpu_limit: string | null;
+  memory_limit: string | null;
+  disk_limit: string | null;
+  containers: Array<{ container_name: string; image_version?: { id: ID; image_name: string; image_display_name: string; version: string; icon_url: string | null } }>;
+  checkpoint_count: number;
+  tags: ExperimentTag[];
+  sim_scenes: Array<{ id: ID; scenario: { code: string; name: string; category: string; time_control_mode: SimTimeControlMode } | null }>;
+}
+
 /** 实验模板列表响应。 */
 export type ExperimentTemplateListResponse = PaginatedData<ExperimentTemplateListItem>;
 
@@ -723,15 +745,41 @@ export interface AutoAssignGroupsResponse {
   groups: Array<{ id: ID; group_name: string; members: Array<{ student_id: ID; student_name: string; role_name: string }> }>;
 }
 
-/** 监控面板响应。 */
+/** 课程实验监控面板响应（教师端）。 */
 export interface ExperimentMonitor {
   summary: { total_students: number; running: number; paused: number; completed: number; not_started: number; avg_progress: number; resource_usage: { cpu_used: string; cpu_total: string; memory_used: string; memory_total: string } };
   students: Array<{ student_id: ID; student_name: string; student_no: string; instance_id: ID | null; status: number | null; status_text: string | null; checkpoints_passed: number; checkpoints_total: number; progress_percent: number; cpu_usage: string | null; memory_usage: string | null; started_at: string | null; last_active_at: string | null }>;
 }
 
+/** 学校实验监控响应（学校管理员端）。 */
+export interface SchoolExperimentMonitor {
+  total_instances: number;
+  running_instances: number;
+  total_students: number;
+  active_students: number;
+  resource_usage: { cpu_used: string; cpu_total: string; memory_used: string; memory_total: string };
+  courses: Array<{ course_id: ID; course_title: string; teacher_name: string; running_instances: number; total_students: number }>;
+}
+
 /** 实验统计响应。 */
 export interface ExperimentStatistics {
-  templates: Array<{ template_id: ID; template_title: string; total_instances: number; submitted_instances: number; avg_score: number | null; avg_duration_minutes: number | null; checkpoint_pass_rates: Array<{ checkpoint_id: ID; title: string; pass_rate: number }> }>;
+  templates: Array<{
+    template_id: ID;
+    template_title: string;
+    statistics: {
+      total_students: number;
+      started_count: number;
+      completed_count: number;
+      completion_rate: number;
+      avg_score: number;
+      max_score: number;
+      min_score: number;
+      avg_duration_minutes: number;
+      avg_attempts: number;
+      checkpoint_pass_rates: Array<{ checkpoint_id: ID; title: string; pass_rate: number }> | null;
+      score_distribution: { excellent: number; good: number; medium: number; pass: number; fail: number };
+    };
+  }>;
 }
 
 /** 资源配额。 */

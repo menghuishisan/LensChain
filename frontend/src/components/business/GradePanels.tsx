@@ -27,11 +27,11 @@ import { useGradeAppeal, useGradeAppealMutations, useGradeAppeals } from "@/hook
 import { useGradeReviews } from "@/hooks/useGradeReviews";
 import { useCourseGradeAnalytics, useLevelConfigMutations, useLevelConfigs, useMySemesterGrades, usePlatformGradeAnalytics, useSchoolGradeAnalytics, useSemesterMutations, useSemesters } from "@/hooks/useGrades";
 import { GRADE_APPEAL_STATUS_OPTIONS, getGradeAppealStatusVariant } from "@/lib/grade";
-import { formatGPA, formatScore } from "@/lib/format";
+import { formatGPA, formatPercent, formatScore } from "@/lib/format";
 import type { ID } from "@/types/api";
 import type { GradeAppealStatus, GradeLevelItem } from "@/types/grade";
 import { useCourses } from "@/hooks/useCourses";
-import { useCourseGrades } from "@/hooks/useAssignments";
+import { useGradeSummary } from "@/hooks/useAssignments";
 
 /**
  * StudentGradesPanel 学生成绩总览页。
@@ -174,15 +174,15 @@ export function TeacherGradeAppealsPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           {(appealsQuery.data?.list ?? []).map((item) => (
-            <button key={item.id} className="w-full rounded-xl border border-border p-4 text-left" onClick={() => setAppealID(item.id)}>
-              <div className="flex items-center justify-between gap-3">
+            <Button key={item.id} variant="ghost" className="h-auto w-full justify-start rounded-xl border border-border p-4 text-left" onClick={() => setAppealID(item.id)}>
+              <div className="flex w-full items-center justify-between gap-3">
                 <div>
                   <p className="font-semibold">{item.student_name} · {item.course_name}</p>
                   <p className="mt-1 text-sm text-muted-foreground">原成绩 {formatScore(item.original_score)}</p>
                 </div>
                 <Badge variant={getGradeAppealStatusVariant(item.status)}>{item.status_text}</Badge>
               </div>
-            </button>
+            </Button>
           ))}
         </CardContent>
       </Card>
@@ -207,8 +207,8 @@ export function TeacherGradeAppealsPanel() {
               </FormField>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => mutations.approve.mutate({ new_score: Number(newScore), handle_comment: comment })} isLoading={mutations.approve.isPending}>同意修改</Button>
-              <Button variant="destructive" onClick={() => mutations.reject.mutate({ handle_comment: comment })} isLoading={mutations.reject.isPending}>驳回申诉</Button>
+              <Button disabled={!comment.trim()} onClick={() => mutations.approve.mutate({ new_score: Number(newScore), handle_comment: comment })} isLoading={mutations.approve.isPending}>同意修改</Button>
+              <Button disabled={!comment.trim()} variant="destructive" onClick={() => mutations.reject.mutate({ handle_comment: comment })} isLoading={mutations.reject.isPending}>驳回申诉</Button>
             </div>
           </CardContent>
         </Card>
@@ -231,7 +231,7 @@ export function TeacherGradeAnalyticsPanel({ courseID }: { courseID: ID }) {
         <Metric title="平均分" value={formatScore(analytics?.average_score ?? 0)} />
         <Metric title="中位数" value={formatScore(analytics?.median_score ?? 0)} />
         <Metric title="最高分" value={formatScore(analytics?.max_score ?? 0)} />
-        <Metric title="及格率" value={`${Math.round((analytics?.pass_rate ?? 0) * 100)}%`} />
+        <Metric title="及格率" value={formatPercent((analytics?.pass_rate ?? 0) * 100)} />
       </div>
       <Card>
         <CardHeader>
@@ -275,7 +275,15 @@ export function AdminSemestersPanel() {
       </Card>
       <TableContainer>
         <Table>
-          <TableHeader><TableRow><TableHead>学期</TableHead><TableHead>编码</TableHead><TableHead>起止日期</TableHead><TableHead>课程数</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>学期</TableHead>
+              <TableHead>编码</TableHead>
+              <TableHead>起止日期</TableHead>
+              <TableHead>课程数</TableHead>
+              <TableHead>操作</TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             {(semestersQuery.data?.list ?? []).map((semester) => (
               <TableRow key={semester.id}>
@@ -313,16 +321,16 @@ export function AdminLevelConfigsPanel() {
         <CardTitle>等级映射配置</CardTitle>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => mutations.resetDefault.mutate()} isLoading={mutations.resetDefault.isPending}>重置默认</Button>
-          <Button onClick={() => mutations.update.mutate(data)} isLoading={mutations.update.isPending}>保存</Button>
+          <Button onClick={() => mutations.update.mutate(data)} isLoading={mutations.update.isPending} disabled={data.some((item) => item.gpa_point < 0 || item.gpa_point > 4 || item.min_score < 0 || item.max_score > 100)}>保存</Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {data.map((item, index) => (
           <div key={item.id ?? `${item.level_name}-${index}`} className="grid gap-3 md:grid-cols-4">
             <Input value={item.level_name} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, level_name: event.target.value }))} />
-            <Input type="number" value={item.min_score} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, min_score: Number(event.target.value) }))} />
-            <Input type="number" value={item.max_score} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, max_score: Number(event.target.value) }))} />
-            <Input type="number" value={item.gpa_point} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, gpa_point: Number(event.target.value) }))} />
+            <Input type="number" min={0} max={100} step={0.01} placeholder="最低分" value={item.min_score} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, min_score: Number(event.target.value) }))} />
+            <Input type="number" min={0} max={100} step={0.01} placeholder="最高分" value={item.max_score} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, max_score: Number(event.target.value) }))} />
+            <Input type="number" min={0} max={4} step={0.01} placeholder="绩点(0-4)" value={item.gpa_point} onChange={(event) => setLevels((current) => replaceLevelRow(current, data, index, { ...item, gpa_point: Math.min(4, Math.max(0, Number(event.target.value))) }))} />
           </div>
         ))}
         <Button variant="outline" onClick={() => setLevels((current) => [...(current.length > 0 ? current : data), { level_name: "新等级", min_score: 0, max_score: 0, gpa_point: 0 }])}>添加等级</Button>
@@ -442,7 +450,13 @@ export function SuperGradeAnalyticsPanel() {
       </div>
       <TableContainer>
         <Table>
-          <TableHeader><TableRow><TableHead>学校</TableHead><TableHead>学生数</TableHead><TableHead>平均GPA</TableHead></TableRow></TableHeader>
+          <TableHeader>
+            <TableRow>
+              <TableHead>学校</TableHead>
+              <TableHead>学生数</TableHead>
+              <TableHead>平均GPA</TableHead>
+            </TableRow>
+          </TableHeader>
           <TableBody>
             {(analytics?.school_comparison ?? []).map((item) => (
               <TableRow key={item.school_name}>
@@ -487,10 +501,10 @@ function replaceLevelRow(current: GradeLevelItem[], fallback: GradeLevelItem[], 
 }
 
 function TeacherCourseReviewItem({ courseID, courseName, semesterID, semesterName }: { courseID: ID; courseName: string; semesterID?: ID; semesterName: string }) {
-  const gradeData = useCourseGrades(courseID);
-  const summary = gradeData.summary.data;
+  const summaryQuery = useGradeSummary(courseID);
+  const summary = summaryQuery.data;
   const studentCount = summary?.students.length ?? 0;
-  const completedCount = summary?.students.filter((student) => Number.isFinite(student.final_score)).length ?? 0;
+  const completedCount = summary?.students.filter((student: { final_score: number }) => Number.isFinite(student.final_score)).length ?? 0;
   const reviewStatus = completedCount === 0 ? "未提交" : completedCount < studentCount ? "未完成" : "可提交";
 
   return (

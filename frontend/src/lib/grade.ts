@@ -49,7 +49,7 @@ export function getGradeReviewStatusVariant(status: GradeReviewStatus) {
   if (status === 4) {
     return "destructive" as const;
   }
-  return "outline" as const;
+  return "warning" as const;
 }
 
 /**
@@ -62,7 +62,7 @@ export function getGradeAppealStatusVariant(status: GradeAppealStatus) {
   if (status === 3) {
     return "destructive" as const;
   }
-  return "outline" as const;
+  return "warning" as const;
 }
 
 /**
