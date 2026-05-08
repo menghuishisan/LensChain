@@ -6,6 +6,8 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,8 +78,9 @@ func NewMinIOSnapshotStore(ctx context.Context, cfg ObjectStorageConfig) (*MinIO
 	if strings.TrimSpace(cfg.Bucket) == "" {
 		return nil, errors.New("snapshot storage bucket is required")
 	}
-	if len(cfg.EncryptionKey) != 32 {
-		return nil, errors.New("snapshot encryption key must be 32 bytes")
+	keyBytes, err := decodeSnapshotEncryptionKey(cfg.EncryptionKey)
+	if err != nil {
+		return nil, err
 	}
 	if cfg.PresignDuration <= 0 {
 		cfg.PresignDuration = time.Hour
@@ -106,9 +109,43 @@ func NewMinIOSnapshotStore(ctx context.Context, cfg ObjectStorageConfig) (*MinIO
 		client:          client,
 		bucket:          cfg.Bucket,
 		objectPrefix:    strings.Trim(strings.TrimSpace(cfg.ObjectPrefix), "/"),
-		encryptionKey:   []byte(cfg.EncryptionKey),
+		encryptionKey:   keyBytes,
 		presignDuration: cfg.PresignDuration,
 	}, nil
+}
+
+// decodeSnapshotEncryptionKey 解析配置中的快照加密密钥，支持以下三种输入格式：
+//   - 32 字节 ASCII 原文（len == 32）
+//   - base64 标准/URL-safe 编码（解码后必须是 32 字节）
+//   - hex 编码（解码后必须是 32 字节，即 64 hex 字符）
+//
+// 推荐使用 base64 或 hex 编码的随机字节（如
+// `[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }) -as [byte[]])`），
+// 安全性高于 ASCII 字符串。
+func decodeSnapshotEncryptionKey(raw string) ([]byte, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, errors.New("snapshot encryption key is required")
+	}
+	if len(trimmed) == 32 {
+		return []byte(trimmed), nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	if decoded, err := hex.DecodeString(trimmed); err == nil && len(decoded) == 32 {
+		return decoded, nil
+	}
+	return nil, errors.New("snapshot encryption key 必须是 32 字节（ASCII/base64/hex 任一格式）")
 }
 
 // Save 将加密后的快照写入对象存储并返回预签名对象地址。
@@ -216,23 +253,23 @@ func decryptSnapshotPayload(key []byte, encryptedJSON []byte) ([]byte, error) {
 	return gcm.Open(nil, nonce, ciphertext, nil)
 }
 
-// ParseObjectStorageConfigFromEnv 从环境变量构造对象存储配置。
-func ParseObjectStorageConfigFromEnv(getenv func(string) string) (ObjectStorageConfig, error) {
-	cfg := ObjectStorageConfig{
-		Endpoint:        getenv("SIM_ENGINE_OBJECT_STORAGE_ENDPOINT"),
-		AccessKey:       getenv("SIM_ENGINE_OBJECT_STORAGE_ACCESS_KEY"),
-		SecretKey:       getenv("SIM_ENGINE_OBJECT_STORAGE_SECRET_KEY"),
-		Bucket:          getenv("SIM_ENGINE_OBJECT_STORAGE_BUCKET"),
-		Region:          getenv("SIM_ENGINE_OBJECT_STORAGE_REGION"),
-		ObjectPrefix:    getenv("SIM_ENGINE_OBJECT_STORAGE_PREFIX"),
-		EncryptionKey:   getenv("SIM_ENGINE_SNAPSHOT_ENCRYPTION_KEY"),
-		PresignDuration: time.Hour,
+// ValidateObjectStorageConfig 校验对象存储配置完整性。
+// 配置加载统一在 internal/config 中完成，本函数仅做必填项校验。
+func ValidateObjectStorageConfig(cfg ObjectStorageConfig) error {
+	if strings.TrimSpace(cfg.Endpoint) == "" {
+		return fmt.Errorf("object_storage.endpoint 不能为空")
 	}
-	useSSL := strings.TrimSpace(strings.ToLower(getenv("SIM_ENGINE_OBJECT_STORAGE_USE_SSL")))
-	cfg.UseSSL = useSSL == "1" || useSSL == "true" || useSSL == "yes"
-
-	if cfg.Endpoint == "" || cfg.AccessKey == "" || cfg.SecretKey == "" || cfg.Bucket == "" || cfg.EncryptionKey == "" {
-		return ObjectStorageConfig{}, fmt.Errorf("object storage env is incomplete")
+	if strings.TrimSpace(cfg.AccessKey) == "" {
+		return fmt.Errorf("object_storage.access_key 不能为空")
 	}
-	return cfg, nil
+	if strings.TrimSpace(cfg.SecretKey) == "" {
+		return fmt.Errorf("object_storage.secret_key 不能为空")
+	}
+	if strings.TrimSpace(cfg.Bucket) == "" {
+		return fmt.Errorf("object_storage.bucket 不能为空")
+	}
+	if strings.TrimSpace(cfg.EncryptionKey) == "" {
+		return fmt.Errorf("object_storage.encryption_key 不能为空")
+	}
+	return nil
 }

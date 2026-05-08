@@ -10,10 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { MarkdownContent } from "@/components/ui/MarkdownContent";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
 import { useDiscussion, useDiscussionMutations } from "@/hooks/useDiscussions";
-import { safeMarkdownText } from "@/lib/content-safety";
 import { formatDateTime } from "@/lib/format";
 
 /**
@@ -53,7 +53,9 @@ export function DiscussionThread({ discussionID }: DiscussionThreadProps) {
         <CardDescription>支持点赞、置顶和继续回复讨论。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <pre className="whitespace-pre-wrap rounded-xl bg-muted/60 p-4 text-sm">{safeMarkdownText(query.data.content)}</pre>
+        <div className="rounded-xl bg-muted/60 p-4">
+          <MarkdownContent content={query.data.content} empty="帖子无正文。" />
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => (query.data.is_liked ? mutations.unlike.mutate() : mutations.like.mutate())}>{query.data.is_liked ? "取消点赞" : "点赞"}</Button>
           <Button variant="outline" onClick={() => mutations.pin.mutate(!query.data.is_pinned)}>{query.data.is_pinned ? "取消置顶" : "置顶"}</Button>
@@ -63,11 +65,11 @@ export function DiscussionThread({ discussionID }: DiscussionThreadProps) {
             <div key={item.id} className="rounded-xl border border-border p-4">
               <p className="text-sm font-semibold">{item.author_name} · {formatDateTime(item.created_at)}</p>
               {item.reply_to_name ? <p className="mt-1 text-xs text-muted-foreground">@{item.reply_to_name}</p> : null}
-              <pre className="mt-2 whitespace-pre-wrap text-sm">{safeMarkdownText(item.content)}</pre>
+              <MarkdownContent className="mt-2" content={item.content} empty="回复无正文。" />
             </div>
           ))}
         </div>
-        <Textarea placeholder="回复内容，支持Markdown纯文本" value={reply} onChange={(event) => setReply(event.target.value)} />
+        <Textarea placeholder="回复内容，支持 Markdown（**粗体**、列表、代码块等）" value={reply} onChange={(event) => setReply(event.target.value)} />
         <Button
           disabled={!reply.trim()}
           isLoading={mutations.reply.isPending}

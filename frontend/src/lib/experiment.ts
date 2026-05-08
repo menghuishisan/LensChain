@@ -1,7 +1,59 @@
 // experiment.ts
-// 模块04实验配置纯函数：端口冲突、条件环境变量、服务发现变量和结果汇总。
+// 模块04实验配置纯函数：端口冲突、条件环境变量、服务发现变量、结果汇总以及实例状态机。
 
-import type { ExperimentInstanceDetail, ImageEnvVarItem } from "@/types/experiment";
+import type { ExperimentInstanceDetail, ExperimentInstanceStatus, ImageEnvVarItem } from "@/types/experiment";
+
+/**
+ * 实例状态码常量。
+ * 与后端 backend/internal/model/enum/experiment.go 中 InstanceStatus 保持一致。
+ */
+export const INSTANCE_STATUS = {
+  Creating: 1,
+  Initializing: 2,
+  Running: 3,
+  Paused: 4,
+  Completed: 5,
+  Expired: 6,
+  Error: 7,
+  Destroyed: 8,
+  CreateFailed: 9,
+  Queued: 10,
+} as const satisfies Record<string, ExperimentInstanceStatus>;
+
+const DESTRUCTIVE_STATUSES: number[] = [INSTANCE_STATUS.Error, INSTANCE_STATUS.Destroyed, INSTANCE_STATUS.CreateFailed];
+const SECONDARY_STATUSES: number[] = [INSTANCE_STATUS.Paused, INSTANCE_STATUS.Completed, INSTANCE_STATUS.Expired];
+const RESTARTABLE_STATUSES: number[] = [
+  INSTANCE_STATUS.Completed,
+  INSTANCE_STATUS.Expired,
+  INSTANCE_STATUS.Error,
+  INSTANCE_STATUS.Destroyed,
+  INSTANCE_STATUS.CreateFailed,
+];
+const NON_DESTROYABLE_STATUSES: number[] = [INSTANCE_STATUS.Destroyed, INSTANCE_STATUS.Completed, INSTANCE_STATUS.CreateFailed];
+
+/**
+ * getInstanceStatusVariant 返回实例状态对应的徽标样式。
+ */
+export function getInstanceStatusVariant(status: number) {
+  if (status === INSTANCE_STATUS.Running) return "success" as const;
+  if (DESTRUCTIVE_STATUSES.includes(status)) return "destructive" as const;
+  if (SECONDARY_STATUSES.includes(status)) return "secondary" as const;
+  return "warning" as const;
+}
+
+/**
+ * 实例生命周期操作的状态前置校验，与后端 instance_service_ops.go 严格保持一致，
+ * 用于在前端预先禁用按钮，避免触发 409 冲突。
+ */
+export const instanceStateMachine = {
+  canPause: (status: number) => status === INSTANCE_STATUS.Running,
+  canResume: (status: number) => status === INSTANCE_STATUS.Paused,
+  canRestart: (status: number) => RESTARTABLE_STATUSES.includes(status),
+  canSubmit: (status: number) => status === INSTANCE_STATUS.Running,
+  canDestroy: (status: number) => !NON_DESTROYABLE_STATUSES.includes(status),
+  canRunCheckpoint: (status: number) => status === INSTANCE_STATUS.Running,
+  canCreateSnapshot: (status: number) => status === INSTANCE_STATUS.Running || status === INSTANCE_STATUS.Paused,
+} as const;
 
 /** 容器端口配置输入。 */
 export interface ExperimentPortContainer {

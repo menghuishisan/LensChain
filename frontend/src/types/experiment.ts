@@ -573,6 +573,7 @@ export interface ExperimentInstanceDetail {
   scores: { auto_score: number | null; manual_score: number | null; total_score: number | null };
   started_at: string | null;
   last_active_at: string | null;
+  error_message?: string | null;
   created_at: string;
 }
 
@@ -657,10 +658,15 @@ export interface ExperimentReport {
 /** 实验操作日志。 */
 export interface ExperimentOperationLog {
   id: ID;
-  instance_id: ID;
-  operation_type: string;
+  operator_id: ID;
   operator_name: string;
-  detail: string | null;
+  action: string;
+  action_text: string;
+  target_container: string | null;
+  target_scene: string | null;
+  command: string | null;
+  command_output: string | null;
+  detail: Record<string, unknown> | null;
   created_at: string;
 }
 

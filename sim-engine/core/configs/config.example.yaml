@@ -1,0 +1,53 @@
+# sim-engine/core/configs/config.example.yaml
+# SimEngine Core 配置文件示例
+# 复制为 config.yaml 后按本机环境调整。
+# 也可通过环境变量覆盖，前缀 LENSCHAIN_SIM_，例如 LENSCHAIN_SIM_SERVER_GRPC_ADDR=:50051。
+
+server:
+  # http_addr: HTTP/WebSocket 监听地址（容器内监听 :50052，宿主映射 50062）。
+  http_addr: ":50052"
+  # grpc_addr: gRPC 监听地址（容器内监听 :50051，宿主映射 50061）。
+  grpc_addr: ":50051"
+  # public_base: 前端 WebSocket 连接的公开基地址。
+  # - 本地开发: ws://127.0.0.1:50062
+  # - 生产环境: wss://api.lianjing.com/ws/sim-engine（由 Ingress 暴露）
+  public_base: "ws://127.0.0.1:50062"
+  read_header_timeout: 5s
+  shutdown_timeout: 5s
+
+auth:
+  # ws_jwt_secret: 必须与 backend.jwt.access_secret 完全一致，用于校验前端连入 WS 的 JWT。
+  ws_jwt_secret: "lenschain-jwt-access-secret-2026"
+  ws_jwt_issuer: "lenschain"
+  ws_jwt_audience: "sim-engine"
+
+scene:
+  # endpoints: 场景算法容器端点映射，scene_code -> "host:port"。
+  # 本地开发未启动场景容器时，可保持为空映射；引擎正常启动，
+  # 但调用未配置场景的会话会返回 "scene endpoint is not configured"。
+  endpoints: {}
+  # 示例（生产/集成环境）：
+  # endpoints:
+  #   pow-mining: "scene-pow-mining:50053"
+  #   pbft-consensus: "scene-pbft-consensus:50053"
+
+object_storage:
+  # endpoint: MinIO/S3 地址（dev 环境可指向本地 lenschain-minio）。
+  endpoint: "lenschain-minio:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
+  use_ssl: false
+  bucket: "lenschain"
+  region: "us-east-1"
+  object_prefix: "snapshots/"
+  # encryption_key: 必须为 32 字节字符串。
+  encryption_key: "lenschain-snapshot-encryption-32"
+  presign_duration: 1h
+
+snapshot:
+  init_timeout: 10s
+
+loop:
+  clock_interval: 100ms
+  teacher_summary_interval: 5s
+  auto_snapshot_interval: 5m

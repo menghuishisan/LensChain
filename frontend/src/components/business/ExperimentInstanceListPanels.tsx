@@ -508,6 +508,45 @@ export function TeacherExperimentStatisticsPanel({ courseID }: { courseID: ID })
   );
 }
 
+/** 业务字段中文映射，用于把结构化 detail 渲染成易读文本。 */
+const operationLogDetailLabels: Record<string, string> = {
+  attempt_no: "尝试次数",
+  template_id: "模板ID",
+  snapshot_id: "快照ID",
+  snapshot_type: "快照类型",
+  previous_status: "原状态",
+  previous_attempt_no: "原尝试次数",
+  trigger: "触发方式",
+  auto_score: "自动分",
+  auto_total: "自动满分",
+  manual_total: "人工满分",
+  report_id: "报告ID",
+  has_file_attached: "附带文件",
+  type: "类型",
+  content: "内容",
+  is_passed: "通过",
+  scope: "范围",
+  score: "得分",
+  checkpoint_id: "检查点ID",
+};
+
+/** formatOperationLogDetail 将操作日志的结构化 detail 转换为多行可读文本。 */
+function formatOperationLogDetail(log: { detail: Record<string, unknown> | null; target_container: string | null; command: string | null; command_output: string | null }): string {
+  const segments: string[] = [];
+  if (log.target_container) segments.push(`容器：${log.target_container}`);
+  if (log.command) segments.push(`命令：${log.command}`);
+  if (log.command_output) segments.push(`输出：${log.command_output}`);
+  if (log.detail && typeof log.detail === "object") {
+    for (const [key, value] of Object.entries(log.detail)) {
+      if (value === null || value === undefined || value === "") continue;
+      const label = operationLogDetailLabels[key] ?? key;
+      const formatted = typeof value === "object" ? JSON.stringify(value) : String(value);
+      segments.push(`${label}：${formatted}`);
+    }
+  }
+  return segments.length > 0 ? segments.join("\n") : "-";
+}
+
 /**
  * ExperimentOperationHistoryPanel 实验操作日志面板。
  */
@@ -535,9 +574,11 @@ export function ExperimentOperationHistoryPanel({ instanceID }: { instanceID: ID
             {(logsQuery.data?.list ?? []).map((log) => (
               <TableRow key={log.id}>
                 <TableCell>{formatDateTime(log.created_at)}</TableCell>
-                <TableCell>{log.operator_name}</TableCell>
-                <TableCell><Badge>{log.operation_type}</Badge></TableCell>
-                <TableCell>{log.detail ?? "-"}</TableCell>
+                <TableCell>{log.operator_name || "-"}</TableCell>
+                <TableCell><Badge>{log.action_text || log.action}</Badge></TableCell>
+                <TableCell className="max-w-md whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                  {formatOperationLogDetail(log)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

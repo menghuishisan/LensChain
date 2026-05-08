@@ -47,6 +47,7 @@ type InstanceDetailResp struct {
 	Scores       InstanceScoresInfo       `json:"scores"`
 	StartedAt    *string                  `json:"started_at"`
 	LastActiveAt *string                  `json:"last_active_at"`
+	ErrorMessage *string                  `json:"error_message,omitempty"`
 	CreatedAt    string                   `json:"created_at"`
 }
 
@@ -316,9 +317,14 @@ type InstanceOpLogListReq struct {
 // InstanceOpLogItem 实例操作日志条目
 type InstanceOpLogItem struct {
 	ID              string          `json:"id"`
+	OperatorID      string          `json:"operator_id"`
+	OperatorName    string          `json:"operator_name"`
 	Action          string          `json:"action"`
+	ActionText      string          `json:"action_text"`
 	TargetContainer *string         `json:"target_container"`
+	TargetScene     *string         `json:"target_scene"`
 	Command         *string         `json:"command"`
+	CommandOutput   *string         `json:"command_output"`
 	Detail          json.RawMessage `json:"detail"`
 	CreatedAt       string          `json:"created_at"`
 }

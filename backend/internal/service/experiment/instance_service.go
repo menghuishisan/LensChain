@@ -437,7 +437,12 @@ func (s *instanceService) Create(ctx context.Context, sc *svcctx.ServiceContext,
 	})
 
 	// 记录操作日志
-	s.recordOpLog(ctx, instance.ID, sc.UserID, enum.ActionStart, nil, nil, nil, nil, nil)
+	startDetail, _ := json.Marshal(map[string]interface{}{
+		"attempt_no":  instance.AttemptNo,
+		"template_id": strconv.FormatInt(instance.TemplateID, 10),
+		"snapshot_id": snapshotID,
+	})
+	s.recordOpLog(ctx, instance.ID, sc.UserID, enum.ActionStart, nil, nil, nil, nil, startDetail)
 	s.pushCourseMonitorStatusChange(instance, 0, int(instance.Status))
 
 	// 更新配额已用并发
@@ -1108,6 +1113,10 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 	if instance.LastActiveAt != nil {
 		t := instance.LastActiveAt.Format(time.RFC3339)
 		resp.LastActiveAt = &t
+	}
+	if instance.ErrorMessage != nil && *instance.ErrorMessage != "" {
+		msg := *instance.ErrorMessage
+		resp.ErrorMessage = &msg
 	}
 
 	// 模板摘要

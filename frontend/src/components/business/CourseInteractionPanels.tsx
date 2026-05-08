@@ -10,10 +10,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
+import { MarkdownContent } from "@/components/ui/MarkdownContent";
 import { Pagination } from "@/components/ui/Pagination";
 import { Textarea } from "@/components/ui/Textarea";
 import { useAnnouncementMutations, useAnnouncements, useDiscussionMutations, useDiscussions, useEvaluations, useEvaluationMutations } from "@/hooks/useDiscussions";
-import { safeMarkdownText } from "@/lib/content-safety";
 import type { ID } from "@/types/api";
 
 /**
@@ -35,7 +35,7 @@ export function DiscussionListPanel({ courseID }: { courseID: ID }) {
       <CardContent className="space-y-4">
         <div className="grid gap-2">
           <Input placeholder="标题" value={title} onChange={(event) => setTitle(event.target.value)} />
-          <Textarea placeholder="内容，Markdown纯文本安全渲染" value={content} onChange={(event) => setContent(event.target.value)} />
+          <Textarea placeholder="帖子内容，支持 Markdown（**粗体**、列表、代码块等）" value={content} onChange={(event) => setContent(event.target.value)} />
           <Button
             disabled={!title || !content}
             onClick={() => mutations.create.mutate({ title, content }, { onSuccess: () => { setTitle(""); setContent(""); } })}
@@ -89,7 +89,7 @@ export function AnnouncementPanel({ courseID, role }: { courseID: ID; role: "tea
         {isTeacher ? (
           <div className="grid gap-2">
             <Input placeholder="公告标题" value={title} onChange={(event) => setTitle(event.target.value)} />
-            <Textarea placeholder="公告内容" value={content} onChange={(event) => setContent(event.target.value)} />
+            <Textarea placeholder="公告内容，支持 Markdown（**粗体**、列表、代码块等）" value={content} onChange={(event) => setContent(event.target.value)} />
             <Button
               disabled={!title || !content}
               onClick={() => mutations.create.mutate({ title, content }, { onSuccess: () => { setTitle(""); setContent(""); } })}
@@ -118,7 +118,7 @@ export function AnnouncementPanel({ courseID, role }: { courseID: ID; role: "tea
                     </div>
                   ) : null}
                 </div>
-                <pre className="mt-2 whitespace-pre-wrap text-sm">{safeMarkdownText(item.content)}</pre>
+                <MarkdownContent className="mt-2" content={item.content} empty="公告无内容。" />
               </div>
             ))}
           </div>
@@ -140,7 +140,7 @@ export function AnnouncementPanel({ courseID, role }: { courseID: ID; role: "tea
                 </div>
               ) : null}
             </div>
-            <pre className="mt-2 whitespace-pre-wrap text-sm">{safeMarkdownText(item.content)}</pre>
+            <MarkdownContent className="mt-2" content={item.content} empty="公告无内容。" />
           </div>
         ))}
         {query.data?.pagination ? (

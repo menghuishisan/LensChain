@@ -77,7 +77,11 @@ func (s *instanceService) Pause(ctx context.Context, sc *svcctx.ServiceContext, 
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionPause, nil, nil, nil, nil, nil)
+	pauseDetail, _ := json.Marshal(map[string]interface{}{
+		"snapshot_id":  strconv.FormatInt(snapshot.ID, 10),
+		"snapshot_type": enum.SnapshotTypePause,
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionPause, nil, nil, nil, nil, pauseDetail)
 	s.pushCourseMonitorStatusChange(instance, enum.InstanceStatusRunning, enum.InstanceStatusPaused)
 
 	return &dto.PauseInstanceResp{
@@ -164,7 +168,10 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 	})
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionResume, nil, nil, nil, nil, nil)
+	resumeDetail, _ := json.Marshal(map[string]interface{}{
+		"snapshot_id": stringifySnapshotID(snapshot),
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionResume, nil, nil, nil, nil, resumeDetail)
 	s.pushCourseMonitorStatusChange(instance, int(enum.InstanceStatusPaused), int(enum.InstanceStatusInitializing))
 
 	return &dto.ResumeInstanceResp{
@@ -241,8 +248,12 @@ func (s *instanceService) Restart(ctx context.Context, sc *svcctx.ServiceContext
 		req.GroupID = &gidStr
 	}
 
-	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionRestart, nil, nil, nil, nil, nil)
+	// 记录操作日志（在创建新实例之前，只记录在原实例上）
+	restartDetail, _ := json.Marshal(map[string]interface{}{
+		"previous_attempt_no": instance.AttemptNo,
+		"previous_status":    instance.Status,
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionRestart, nil, nil, nil, nil, restartDetail)
 
 	return s.Create(ctx, sc, req)
 }
@@ -346,7 +357,12 @@ func (s *instanceService) Submit(ctx context.Context, sc *svcctx.ServiceContext,
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSubmit, nil, nil, nil, nil, nil)
+	submitDetail, _ := json.Marshal(map[string]interface{}{
+		"auto_score":   autoScore,
+		"auto_total":   autoTotal,
+		"manual_total": manualTotal,
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSubmit, nil, nil, nil, nil, submitDetail)
 	s.pushCourseMonitorStatusChange(instance, int(enum.InstanceStatusRunning), int(enum.InstanceStatusCompleted))
 	s.pushCourseMonitorSubmitted(instance, autoScore, manualTotal > 0)
 
@@ -396,7 +412,11 @@ func (s *instanceService) Destroy(ctx context.Context, sc *svcctx.ServiceContext
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionDestroy, nil, nil, nil, nil, nil)
+	destroyDetail, _ := json.Marshal(map[string]interface{}{
+		"previous_status": instance.Status,
+		"trigger":         "user_initiated",
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionDestroy, nil, nil, nil, nil, destroyDetail)
 	s.pushCourseMonitorStatusChange(instance, int(instance.Status), int(enum.InstanceStatusDestroyed))
 
 	return nil
@@ -414,7 +434,11 @@ func (s *instanceService) ForceDestroy(ctx context.Context, sc *svcctx.ServiceCo
 	}
 
 	// 记录操作日志
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionForceDestroy, nil, nil, nil, nil, nil)
+	forceDestroyDetail, _ := json.Marshal(map[string]interface{}{
+		"previous_status": instance.Status,
+		"trigger":         "force_by_admin",
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionForceDestroy, nil, nil, nil, nil, forceDestroyDetail)
 	s.pushCourseMonitorStatusChange(instance, int(instance.Status), int(enum.InstanceStatusDestroyed))
 
 	return nil

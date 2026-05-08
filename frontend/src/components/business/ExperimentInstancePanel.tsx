@@ -4,6 +4,7 @@
 // 模块04实验实例详情面板，组合生命周期、终端、检查点、快照、报告和 SimEngine。
 
 import { ExternalLink, FlaskConical, Pause, Play, RotateCcw, Send, Square, Upload, Code, Monitor, Gamepad2, BookOpen, CheckCircle } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,11 +13,27 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "reac
 import remarkGfm from "remark-gfm";
 
 import { CheckpointPanel } from "@/components/business/CheckpointPanel";
-import { ExperimentTerminal } from "@/components/business/ExperimentTerminal";
-import { SimEnginePanel } from "@/components/business/SimEnginePanel";
 import { SnapshotPanel } from "@/components/business/SnapshotPanel";
-import { WebIDEPanel } from "@/components/business/WebIDEPanel";
-import { VNCDesktopPanel } from "@/components/business/VNCDesktopPanel";
+import { LoadingState } from "@/components/ui/LoadingState";
+
+// 重型子组件全部按需懒加载，避免在初始路由编译阶段把 xterm.js / sim-engine-renderers / iframe 桥接逻辑
+// 一次性打入同一个 dev chunk，否则 Next.js dev 编译会因 sourcemap 序列化体积过大触发 V8 OOM。
+const ExperimentTerminal = dynamic(
+  () => import("@/components/business/ExperimentTerminal").then((mod) => ({ default: mod.ExperimentTerminal })),
+  { ssr: false, loading: () => <LoadingState variant="spinner" /> },
+);
+const SimEnginePanel = dynamic(
+  () => import("@/components/business/SimEnginePanel").then((mod) => ({ default: mod.SimEnginePanel })),
+  { ssr: false, loading: () => <LoadingState variant="spinner" /> },
+);
+const WebIDEPanel = dynamic(
+  () => import("@/components/business/WebIDEPanel").then((mod) => ({ default: mod.WebIDEPanel })),
+  { ssr: false, loading: () => <LoadingState variant="spinner" /> },
+);
+const VNCDesktopPanel = dynamic(
+  () => import("@/components/business/VNCDesktopPanel").then((mod) => ({ default: mod.VNCDesktopPanel })),
+  { ssr: false, loading: () => <LoadingState variant="spinner" /> },
+);
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -25,14 +42,13 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { FormField } from "@/components/ui/FormField";
 import { Input } from "@/components/ui/Input";
-import { LoadingState } from "@/components/ui/LoadingState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
 import { useCheckpointMutations, useExperimentInstance, useExperimentInstanceLifecycleMutations, useExperimentReport, useExperimentReportMutations, useExperimentMonitorMutations } from "@/hooks/useExperimentInstances";
 import { useExperimentInstanceRealtime } from "@/hooks/useExperimentRealtime";
 import { useStudentExperimentTemplate } from "@/hooks/useExperimentTemplates";
 import { formatDateTime, formatFileSize, formatScore } from "@/lib/format";
-import { buildExperimentResultSummary } from "@/lib/experiment";
+import { buildExperimentResultSummary, getInstanceStatusVariant, instanceStateMachine } from "@/lib/experiment";
 import type { ID } from "@/types/api";
 
 /**
@@ -43,18 +59,6 @@ export interface ExperimentInstancePanelProps {
   mode?: "student" | "assist" | "grade";
 }
 
-function getInstanceStatusVariant(status: number) {
-  if ([3, 7].includes(status)) {
-    return "success" as const;
-  }
-  if ([8, 9].includes(status)) {
-    return "destructive" as const;
-  }
-  if ([4, 5, 6].includes(status)) {
-    return "secondary" as const;
-  }
-  return "warning" as const;
-}
 
 /**
  * ExperimentInstancePanel 实验实例工作台组件。
@@ -200,16 +204,52 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
               <p className="mt-1">{latestGuidance.content ?? "已收到教师消息"}</p>
             </div>
           ) : null}
+          {instance.error_message ? (
+            <div className="rounded-xl border border-red-300/30 bg-red-500/10 p-4 text-sm text-red-100">
+              <p className="font-medium">实验环境异常</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-red-50/90">{instance.error_message}</p>
+              <p className="mt-2 text-xs text-red-100/70">可点击右侧"重启"按钮重新创建环境，或"销毁"清理后重新启动实验。</p>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => lifecycle.pause.mutate()} isLoading={lifecycle.pause.isPending} disabled={isAssistMode || isGradeMode}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/18 bg-white/8 text-white hover:bg-white/14"
+              onClick={() => lifecycle.pause.mutate()}
+              isLoading={lifecycle.pause.isPending}
+              disabled={isAssistMode || isGradeMode || !instanceStateMachine.canPause(instance.status)}
+            >
               <Pause className="h-4 w-4" />
               暂停
             </Button>
-            <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => lifecycle.resume.mutate({})} isLoading={lifecycle.resume.isPending} disabled={isAssistMode || isGradeMode}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/18 bg-white/8 text-white hover:bg-white/14"
+              onClick={() => lifecycle.resume.mutate({})}
+              isLoading={lifecycle.resume.isPending}
+              disabled={isAssistMode || isGradeMode || !instanceStateMachine.canResume(instance.status)}
+            >
               <Play className="h-4 w-4" />
               恢复
             </Button>
-            <Button variant="outline" size="sm" className="border-white/18 bg-white/8 text-white hover:bg-white/14" onClick={() => lifecycle.restart.mutate()} isLoading={lifecycle.restart.isPending} disabled={isAssistMode}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/18 bg-white/8 text-white hover:bg-white/14"
+              onClick={() =>
+                lifecycle.restart.mutate(undefined, {
+                  onSuccess: (resp) => {
+                    if (resp?.instance_id && resp.instance_id !== instanceID) {
+                      router.push(`/student/experiment-instances/${resp.instance_id}`);
+                    }
+                  },
+                })
+              }
+              isLoading={lifecycle.restart.isPending}
+              disabled={isAssistMode || !instanceStateMachine.canRestart(instance.status)}
+            >
               <RotateCcw className="h-4 w-4" />
               重启
             </Button>
@@ -230,7 +270,11 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
                   description="提交后将触发检查点评分和报告验收，运行态实例会进入已提交状态。"
                   confirmText="提交"
                   confirmVariant="primary"
-                  trigger={<Button size="sm">提交实验</Button>}
+                  trigger={
+                    <Button size="sm" disabled={!instanceStateMachine.canSubmit(instance.status)}>
+                      提交实验
+                    </Button>
+                  }
                   onConfirm={() => lifecycle.submit.mutate()}
                 />
               </>
@@ -239,7 +283,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
               title="确认销毁实验环境"
               description="结束后会释放实验环境，未保存的运行数据可能丢失。"
               trigger={
-                <Button variant="destructive" size="sm">
+                <Button variant="destructive" size="sm" disabled={!instanceStateMachine.canDestroy(instance.status)}>
                   <Square className="h-4 w-4" />
                   销毁
                 </Button>

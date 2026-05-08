@@ -5,10 +5,16 @@
 
 import { BookOpen, FileText, Plus, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Editor } from "@monaco-editor/react";
+
+// Monaco 体积大（~5MB）且首屏不一定需要，懒加载避免拖累 dev 编译。
+const Editor = dynamic(() => import("@monaco-editor/react").then((mod) => ({ default: mod.Editor })), {
+  ssr: false,
+  loading: () => <div className="h-[180px] rounded-md border border-border bg-muted/40" />,
+});
 
 import { ExperimentTemplateCard } from "@/components/business/ExperimentTemplateCard";
 import { ImageDocSidebar } from "@/components/business/ImageDocSidebar";

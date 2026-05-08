@@ -2,7 +2,6 @@ package scene
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -34,24 +33,6 @@ func NewGRPCClientFactory(endpoints map[string]string) ClientFactory {
 			client: simscenariov1.NewSimScenarioServiceClient(conn),
 		}, nil
 	}
-}
-
-// ParseEndpointsConfig 解析环境变量中的场景地址配置。
-func ParseEndpointsConfig(raw string) (map[string]string, error) {
-	result := make(map[string]string)
-	if strings.TrimSpace(raw) == "" {
-		return result, errors.New("scene endpoints config is required")
-	}
-
-	items := strings.Split(raw, ",")
-	for _, item := range items {
-		parts := strings.SplitN(strings.TrimSpace(item), "=", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-			return nil, fmt.Errorf("invalid scene endpoint config item: %s", item)
-		}
-		result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-	}
-	return result, nil
 }
 
 // grpcScenarioClient 负责将 Core 的场景调用转发到远端场景容器。

@@ -13,10 +13,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input } from "@/components/ui/Input";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { MarkdownContent } from "@/components/ui/MarkdownContent";
 import { useCourse, useCourseProgress, useMySchedule } from "@/hooks/useCourses";
 import { useCourseChapters, useCourseContentMutations, useLesson } from "@/hooks/useCourseContent";
 import { buildLessonProgressPayload, buildLessonUnloadProgressPayload, getLessonResumeSecond, shouldReportVideoProgress } from "@/hooks/useLessonVideoProgress";
-import { safeMarkdownText } from "@/lib/content-safety";
 import { formatDateTime, formatHours } from "@/lib/format";
 import { resolveAdjacentLessons } from "@/lib/course-navigation";
 import { buildWeeklyScheduleGrid } from "@/lib/schedule-grid";
@@ -189,7 +189,9 @@ export function StudentLessonPanel({ lessonID }: { lessonID: ID }) {
           </div>
         ) : null}
         {lesson.data.content ? (
-          <pre className="whitespace-pre-wrap rounded-xl bg-muted/60 p-4 text-sm">{safeMarkdownText(lesson.data.content)}</pre>
+          <div className="rounded-xl bg-muted/60 p-4">
+            <MarkdownContent content={lesson.data.content} />
+          </div>
         ) : null}
         {lesson.data.experiment_id ? (
           <Link className={buttonClassName({ variant: "outline" })} href={`/student/experiments/${lesson.data.experiment_id}/launch?course_id=${lesson.data.course_id}`}>

@@ -55,6 +55,8 @@ RUN for i in 1 2 3; do \
 WORKDIR /app
 
 COPY --from=builder --chown=lenschain:lenschain /out/sim-engine-core /app/sim-engine-core
+# 内置默认配置示例；运行时建议通过卷挂载 /app/configs/config.yaml 覆盖
+COPY --chown=lenschain:lenschain core/configs/config.example.yaml /app/configs/config.yaml
 
 USER lenschain
 

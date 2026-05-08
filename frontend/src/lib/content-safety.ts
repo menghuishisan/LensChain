@@ -5,13 +5,6 @@ const VIDEO_MAX_SIZE = 500 * 1024 * 1024;
 const DOCUMENT_MAX_SIZE = 50 * 1024 * 1024;
 
 /**
- * safeMarkdownText 将 Markdown 当作纯文本渲染，由 React 默认转义，避免插入未清洗 HTML。
- */
-export function safeMarkdownText(content: string | null | undefined) {
-  return content ?? "";
-}
-
-/**
  * 附件校验结果。
  */
 export interface AttachmentValidationResult {

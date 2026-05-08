@@ -373,7 +373,11 @@ func (s *instanceService) CreateSnapshot(ctx context.Context, sc *svcctx.Service
 	if err != nil {
 		return nil, err
 	}
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotCreate, nil, nil, nil, nil, nil)
+	snapshotCreateDetail, _ := json.Marshal(map[string]interface{}{
+		"snapshot_id":   strconv.FormatInt(snapshot.ID, 10),
+		"snapshot_type": enum.SnapshotTypeManual,
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionSnapshotCreate, nil, nil, nil, nil, snapshotCreateDetail)
 	resp := buildSnapshotResp(ctx, snapshot)
 	return &resp, nil
 }
@@ -513,12 +517,25 @@ func (s *instanceService) ListOperationLogs(ctx context.Context, sc *svcctx.Serv
 	}
 	items := make([]dto.InstanceOpLogItem, 0, len(logs))
 	for _, log := range logs {
+		operatorName := ""
+		if s.userNameQuerier != nil {
+			operatorName = s.userNameQuerier.GetUserName(ctx, log.StudentID)
+		}
+		var detail json.RawMessage
+		if len(log.Detail) > 0 {
+			detail = json.RawMessage(log.Detail)
+		}
 		items = append(items, dto.InstanceOpLogItem{
 			ID:              strconv.FormatInt(log.ID, 10),
+			OperatorID:      strconv.FormatInt(log.StudentID, 10),
+			OperatorName:    operatorName,
 			Action:          log.Action,
+			ActionText:      enum.GetOperationActionText(log.Action),
 			TargetContainer: log.TargetContainer,
+			TargetScene:     log.TargetScene,
 			Command:         log.Command,
-			Detail:          json.RawMessage(log.Detail),
+			CommandOutput:   log.CommandOutput,
+			Detail:          detail,
 			CreatedAt:       log.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
@@ -578,7 +595,11 @@ func (s *instanceService) CreateReport(ctx context.Context, sc *svcctx.ServiceCo
 		report.UpdatedAt = now
 	}
 
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportSubmit, nil, nil, nil, nil, nil)
+	reportSubmitDetail, _ := json.Marshal(map[string]interface{}{
+		"report_id":         strconv.FormatInt(report.ID, 10),
+		"has_file_attached": report.FileURL != nil,
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportSubmit, nil, nil, nil, nil, reportSubmitDetail)
 	return buildReportResp(report), nil
 }
 
@@ -635,7 +656,11 @@ func (s *instanceService) UpdateReport(ctx context.Context, sc *svcctx.ServiceCo
 	report.FileSize = req.FileSize
 	report.UpdatedAt = now
 
-	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportUpdate, nil, nil, nil, nil, nil)
+	reportUpdateDetail, _ := json.Marshal(map[string]interface{}{
+		"report_id":         strconv.FormatInt(report.ID, 10),
+		"has_file_attached": report.FileURL != nil,
+	})
+	s.recordOpLog(ctx, id, sc.UserID, enum.ActionReportUpdate, nil, nil, nil, nil, reportUpdateDetail)
 	return buildReportResp(report), nil
 }
 

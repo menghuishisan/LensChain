@@ -14,9 +14,7 @@
     "jsx": "preserve",
     "incremental": true,
     "paths": {
-      "@/*": ["./src/*"],
-      "@lenschain/sim-engine-renderers": ["../sim-engine/renderers/index.ts"],
-      "@lenschain/sim-engine-renderers/*": ["../sim-engine/renderers/*"]
+      "@/*": ["./src/*"]
     },
     "plugins": [
       {

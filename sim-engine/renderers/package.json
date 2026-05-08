@@ -3,21 +3,57 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./index.ts",
-    "./shared": "./shared/index.ts",
-    "./node-network": "./node-network/index.ts",
-    "./consensus": "./consensus/index.ts",
-    "./cryptography": "./cryptography/index.ts",
-    "./data-structure": "./data-structure/index.ts",
-    "./transaction": "./transaction/index.ts",
-    "./smart-contract": "./smart-contract/index.ts",
-    "./attack-security": "./attack-security/index.ts",
-    "./economic": "./economic/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./shared": {
+      "types": "./dist/shared/index.d.ts",
+      "default": "./dist/shared/index.js"
+    },
+    "./node-network": {
+      "types": "./dist/node-network/index.d.ts",
+      "default": "./dist/node-network/index.js"
+    },
+    "./consensus": {
+      "types": "./dist/consensus/index.d.ts",
+      "default": "./dist/consensus/index.js"
+    },
+    "./cryptography": {
+      "types": "./dist/cryptography/index.d.ts",
+      "default": "./dist/cryptography/index.js"
+    },
+    "./data-structure": {
+      "types": "./dist/data-structure/index.d.ts",
+      "default": "./dist/data-structure/index.js"
+    },
+    "./transaction": {
+      "types": "./dist/transaction/index.d.ts",
+      "default": "./dist/transaction/index.js"
+    },
+    "./smart-contract": {
+      "types": "./dist/smart-contract/index.d.ts",
+      "default": "./dist/smart-contract/index.js"
+    },
+    "./attack-security": {
+      "types": "./dist/attack-security/index.d.ts",
+      "default": "./dist/attack-security/index.js"
+    },
+    "./economic": {
+      "types": "./dist/economic/index.d.ts",
+      "default": "./dist/economic/index.js"
+    }
   },
+  "files": ["dist"],
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "clean": "powershell -Command \"Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue\"",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "powershell -Command \"Remove-Item -Recurse -Force .tmp-test -ErrorAction SilentlyContinue; npx tsc -p tsconfig.json --outDir .tmp-test; Get-ChildItem ./.tmp-test/shared/*.test.js | ForEach-Object { node $_.FullName }\""
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

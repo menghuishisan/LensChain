@@ -18,6 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useExperimentGroup, useExperimentGroupMessages, useExperimentGroupMutations, useExperimentGroupProgress } from "@/hooks/useExperimentGroups";
 import { useExperimentGroupChatRealtime, useGroupMemberTerminalStream } from "@/hooks/useExperimentRealtime";
 import { formatDateTime } from "@/lib/format";
+import { getInstanceStatusVariant } from "@/lib/experiment";
 import type { ID } from "@/types/api";
 
 /**
@@ -112,7 +113,7 @@ export function ExperimentGroupPanel({ groupID }: ExperimentGroupPanelProps) {
                       <p className="text-sm text-muted-foreground">{member.role_name}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={member.instance_status === 7 ? "success" : "outline"}>{member.instance_status_text ?? "未开始"}</Badge>
+                      <Badge variant={member.instance_status != null ? getInstanceStatusVariant(member.instance_status) : "outline"}>{member.instance_status_text ?? "未开始"}</Badge>
                       {member.instance_id ? (
                         <Button variant="ghost" size="sm" onClick={() => setViewingMemberID(member.student_id)}>
                           <Eye className="h-4 w-4" />

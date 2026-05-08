@@ -71,7 +71,7 @@ VALUES
         NOW() + INTERVAL '5 days',
         NOW() + INTERVAL '4 days',
         '{"scoring_mode":"dynamic","initial_score":1000,"min_score":100,"decay_factor":20}'::jsonb,
-        '1. 每队 1-3 人\n2. 不得使用自动化攻击工具\n3. Flag 提交频率限制 60 秒\n4. 最终排名以总分为准',
+        E'1. 每队 1-3 人\n2. 不得使用自动化攻击工具\n3. Flag 提交频率限制 60 秒\n4. 最终排名以总分为准',
         NOW(), NOW()
     ),
     (
@@ -89,7 +89,7 @@ VALUES
         NOW() + INTERVAL '10 days',
         NOW() + INTERVAL '9 days',
         '{"scoring_mode":"dynamic","initial_score":1000,"min_score":100,"decay_factor":15}'::jsonb,
-        '1. 每队 1-4 人\n2. 跨校组队允许\n3. 禁止共享 Flag\n4. 最终排名以总分为准',
+        E'1. 每队 1-4 人\n2. 跨校组队允许\n3. 禁止共享 Flag\n4. 最终排名以总分为准',
         NOW(), NOW()
     )
 ON CONFLICT (id) DO NOTHING;
@@ -131,7 +131,7 @@ VALUES
             "steal_ratio": 0.1,
             "loss_ratio": 0.05
         }'::jsonb,
-        '1. 每队 2-3 人\n2. 每回合分攻击与防守两阶段\n3. 攻击成功窃取目标队伍 Token\n4. 提交有效修复补丁可获得防守奖励\n5. 最终以 Token 余额排名',
+        E'1. 每队 2-3 人\n2. 每回合分攻击与防守两阶段\n3. 攻击成功窃取目标队伍 Token\n4. 提交有效修复补丁可获得防守奖励\n5. 最终以 Token 余额排名',
         NOW(), NOW()
     )
 ON CONFLICT (id) DO NOTHING;

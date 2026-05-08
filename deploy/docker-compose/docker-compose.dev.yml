@@ -81,19 +81,26 @@ services:
       retries: 5
 
   sim-engine:
-    image: registry.lianjing.com/lenschain/sim-engine-core:dev
+    image: registry.lianjing.com/lenschain/sim-engine-core:v1.0.0
     container_name: lenschain-sim-engine
     restart: unless-stopped
     profiles: ["full"]
     environment:
       TZ: UTC
+      # 通过 LENSCHAIN_SIM_* 覆盖 yaml；这里仅覆盖容器内访问 MinIO 的内网地址
+      LENSCHAIN_SIM_OBJECT_STORAGE_ENDPOINT: "lenschain-minio:9000"
     ports:
       - "50061:50051"
       - "50062:50052"
+    volumes:
+      # 挂载本地 config.yaml；如不存在请先 cp config.example.yaml config.yaml
+      - ../../sim-engine/core/configs/config.yaml:/app/configs/config.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
 networks:

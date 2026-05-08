@@ -2,16 +2,12 @@
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
-  transpilePackages: ['@lenschain/sim-engine-renderers'],
-  webpack: (config) => {
-    // sim-engine/renderers 使用 NodeNext 风格的 .js 扩展引用 TS 源文件，
-    // 需要让 Webpack 将 .js 解析回 .ts 才能在 Next.js 中编译。
-    config.resolve.extensionAlias = {
-      ...(config.resolve.extensionAlias ?? {}),
-      '.js': ['.ts', '.tsx', '.js'],
-    };
-    return config;
+  experimental: {
+    // 优化 barrel 导入：仅编译实际用到的图标，避免 lucide-react 把全部图标拉进 dev chunk。
+    optimizePackageImports: ['lucide-react'],
   },
+  // 注：@lenschain/sim-engine-renderers 已通过自身 tsc 预编译为 dist/*.js，
+  // 无需再让 Next.js 重复转译，去掉 transpilePackages 与 extensionAlias 后 dev 编译显著变快。
 };
 
 module.exports = nextConfig;

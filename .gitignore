@@ -33,6 +33,7 @@ backend/.gocache/
 config.env
 deploy/config.env
 backend/configs/config.yaml
+sim-engine/core/configs/config.yaml
 
 # Runtime data
 /tmp/

@@ -248,6 +248,9 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 		container := corev1.Container{
 			Name:  cs.Name,
 			Image: cs.Image,
+			// 本地构建/预拉取的镜像直接复用，避免 K8s 对 :latest 标签默认 Always 重拉
+			// 触发对占位 registry（如 registry.lianjing.com）的 DNS 查询失败导致 ImagePullBackOff。
+			ImagePullPolicy: corev1.PullIfNotPresent,
 			SecurityContext: &corev1.SecurityContext{
 				AllowPrivilegeEscalation: boolPtr(false),
 				Privileged:               boolPtr(false),
@@ -555,8 +558,9 @@ func (k *k8sClient) buildCollectorContainer(spec *CollectorSidecarSpec) corev1.C
 		imageTemplate = defaultCollectorImageTemplate
 	}
 	return corev1.Container{
-		Name:  "collector-agent",
-		Image: fmt.Sprintf(imageTemplate, spec.Ecosystem),
+		Name:            "collector-agent",
+		Image:           fmt.Sprintf(imageTemplate, spec.Ecosystem),
+		ImagePullPolicy: corev1.PullIfNotPresent,
 		Env: []corev1.EnvVar{
 			{Name: "COLLECTOR_TARGET_CONTAINER", Value: spec.TargetContainer},
 			{Name: "COLLECTOR_ECOSYSTEM", Value: spec.Ecosystem},

@@ -477,7 +477,7 @@ export function resumeExperimentInstance(instanceID: ID, payload: ResumeExperime
  * restartExperimentInstance 对应 POST /api/v1/experiment-instances/:id/restart，用于重启实例。
  */
 export function restartExperimentInstance(instanceID: ID) {
-  return apiClient.post<null>(`/experiment-instances/${instanceID}/restart`);
+  return apiClient.post<CreateExperimentInstanceResponse>(`/experiment-instances/${instanceID}/restart`);
 }
 
 /**
