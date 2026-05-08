@@ -48,9 +48,12 @@ RUN for i in 1 2 3; do \
       echo ">>> apk add attempt $i failed, waiting 10s..."; sleep 10; \
     done && \
     addgroup -S -g 1001 lenschain && \
-    adduser -S -u 1001 -G lenschain lenschain && \
-    mkdir -p /app && \
-    chown -R lenschain:lenschain /app
+    adduser -S -u 1001 -G lenschain -h /home/lenschain lenschain && \
+    mkdir -p /app /home/lenschain/.kube && \
+    chown -R lenschain:lenschain /app /home/lenschain
+
+# HOME 必须指向用户 home，确保 client-go homedir.HomeDir() 能找到 ~/.kube/config
+ENV HOME=/home/lenschain
 
 WORKDIR /app
 

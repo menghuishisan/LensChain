@@ -19,8 +19,9 @@ type Config struct {
 	Server ServerConfig `mapstructure:"server"`
 	// Auth WebSocket JWT 鉴权配置。
 	Auth AuthConfig `mapstructure:"auth"`
-	// Scene 场景算法容器端点映射。
-	Scene SceneConfig `mapstructure:"scene"`
+	// Orchestrator 场景算法容器 K8s 编排配置。
+	// SceneManager 据此按需启动场景 Pod、维护 gRPC 连接池、空闲回收。
+	Orchestrator OrchestratorConfig `mapstructure:"orchestrator"`
 	// ObjectStorage 快照对象存储配置。
 	ObjectStorage ObjectStorageConfig `mapstructure:"object_storage"`
 	// Snapshot 快照运行时参数。
@@ -53,11 +54,28 @@ type AuthConfig struct {
 	WSJWTAudience string `mapstructure:"ws_jwt_audience"`
 }
 
-// SceneConfig 场景算法容器端点映射。
-type SceneConfig struct {
-	// Endpoints 场景代码到 gRPC 地址的映射，例如 {"pow-mining": "scene-pow:50053"}。
-	// 若为空，引擎仍可启动，但实际仿真请求会因找不到场景端点而失败。
-	Endpoints map[string]string `mapstructure:"endpoints"`
+// OrchestratorConfig 场景算法容器 K8s 编排配置。
+// 实施由 internal/scene/k8s_orchestrator.go 完成，
+// 详见 docs/modules/04-实验环境/06.1-场景编排实施方案.md。
+type OrchestratorConfig struct {
+	// InCluster 为 true 时使用集群内 ServiceAccount；false 走 KubeconfigPath。
+	InCluster bool `mapstructure:"in_cluster"`
+	// KubeconfigPath 集群外 kubeconfig 文件路径；空走 ~/.kube/config。
+	KubeconfigPath string `mapstructure:"kubeconfig_path"`
+	// Namespace 场景 Pod / Service 所在命名空间（建议与 SimEngine 同 ns）。
+	Namespace string `mapstructure:"namespace"`
+	// ImagePullSecretName 镜像拉取凭据 Secret 名称。
+	ImagePullSecretName string `mapstructure:"image_pull_secret_name"`
+	// ReadyTimeout Pod 启动 + gRPC HealthCheck 通过的总超时（对齐文档 §6.4 = 10s）。
+	ReadyTimeout time.Duration `mapstructure:"ready_timeout"`
+	// IdleTTL 场景 Pod 空闲多久后被自动回收。
+	IdleTTL time.Duration `mapstructure:"idle_ttl"`
+	// DefaultCPU / DefaultMemory 资源请求默认值。
+	DefaultCPU    string `mapstructure:"default_cpu"`
+	DefaultMemory string `mapstructure:"default_memory"`
+	// LimitCPU / LimitMemory 资源上限。
+	LimitCPU    string `mapstructure:"limit_cpu"`
+	LimitMemory string `mapstructure:"limit_memory"`
 }
 
 // ObjectStorageConfig 快照对象存储配置。

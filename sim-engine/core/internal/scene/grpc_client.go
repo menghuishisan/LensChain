@@ -7,35 +7,11 @@ import (
 
 	simscenariov1 "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_scenario/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// NewGRPCClientFactory 根据场景编码与远程过程调用地址映射创建客户端工厂。
-func NewGRPCClientFactory(endpoints map[string]string) ClientFactory {
-	copied := make(map[string]string, len(endpoints))
-	for sceneCode, endpoint := range endpoints {
-		copied[strings.TrimSpace(sceneCode)] = strings.TrimSpace(endpoint)
-	}
-
-	return func(config Config) (ScenarioClient, error) {
-		endpoint := copied[strings.TrimSpace(config.SceneCode)]
-		if endpoint == "" {
-			return nil, fmt.Errorf("scene endpoint is not configured: %s", config.SceneCode)
-		}
-
-		conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			return nil, err
-		}
-
-		return &grpcScenarioClient{
-			conn:   conn,
-			client: simscenariov1.NewSimScenarioServiceClient(conn),
-		}, nil
-	}
-}
-
 // grpcScenarioClient 负责将 Core 的场景调用转发到远端场景容器。
+// 实例由 scene.K8sOrchestrator 在按需启动 Pod 后创建并注入连接，
+// 不再支持静态端点映射。
 type grpcScenarioClient struct {
 	conn   *grpc.ClientConn
 	client simscenariov1.SimScenarioServiceClient

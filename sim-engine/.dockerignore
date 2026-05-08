@@ -10,9 +10,6 @@
 *.md
 !README.md
 
-# Scenarios (not needed for core/collector builds)
-scenarios/
-
 # Test & temp files
 **/*_test.go
 **/.env*

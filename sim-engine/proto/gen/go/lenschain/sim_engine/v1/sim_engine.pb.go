@@ -310,8 +310,15 @@ type SceneConfig struct {
 	LayoutPositionJson   []byte                 `protobuf:"bytes,8,opt,name=layout_position_json,json=layoutPositionJson,proto3" json:"layout_position_json,omitempty"`
 	DataSourceMode       v1.DataSourceMode      `protobuf:"varint,9,opt,name=data_source_mode,json=dataSourceMode,proto3,enum=lenschain.sim_scenario.v1.DataSourceMode" json:"data_source_mode,omitempty"`
 	SharedStateJson      []byte                 `protobuf:"bytes,10,opt,name=shared_state_json,json=sharedStateJson,proto3" json:"shared_state_json,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// container_image_url 是场景算法容器镜像地址（来自 sim_scenarios.container_image_url）。
+	// SimEngine SceneManager 据此通过 K8s API 按需启动场景 Pod。
+	ContainerImageUrl string `protobuf:"bytes,11,opt,name=container_image_url,json=containerImageUrl,proto3" json:"container_image_url,omitempty"`
+	// resource_request_cpu 是场景容器的 CPU 资源请求（K8s 格式，例如 "100m"）。为空则使用 SimEngine 默认值。
+	ResourceRequestCpu string `protobuf:"bytes,12,opt,name=resource_request_cpu,json=resourceRequestCpu,proto3" json:"resource_request_cpu,omitempty"`
+	// resource_request_memory 是场景容器的内存资源请求（K8s 格式，例如 "128Mi"）。为空则使用 SimEngine 默认值。
+	ResourceRequestMemory string `protobuf:"bytes,13,opt,name=resource_request_memory,json=resourceRequestMemory,proto3" json:"resource_request_memory,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *SceneConfig) Reset() {
@@ -412,6 +419,27 @@ func (x *SceneConfig) GetSharedStateJson() []byte {
 		return x.SharedStateJson
 	}
 	return nil
+}
+
+func (x *SceneConfig) GetContainerImageUrl() string {
+	if x != nil {
+		return x.ContainerImageUrl
+	}
+	return ""
+}
+
+func (x *SceneConfig) GetResourceRequestCpu() string {
+	if x != nil {
+		return x.ResourceRequestCpu
+	}
+	return ""
+}
+
+func (x *SceneConfig) GetResourceRequestMemory() string {
+	if x != nil {
+		return x.ResourceRequestMemory
+	}
+	return ""
 }
 
 // Session 是会话创建结果。
@@ -1670,7 +1698,7 @@ const file_lenschain_sim_engine_v1_sim_engine_proto_rawDesc = "" +
 	"student_id\x18\x02 \x01(\tR\tstudentId\x12<\n" +
 	"\x06scenes\x18\x03 \x03(\v2$.lenschain.sim_engine.v1.SceneConfigR\x06scenes\x12'\n" +
 	"\x0flinkage_enabled\x18\x04 \x01(\bR\x0elinkageEnabled\x12.\n" +
-	"\x13session_config_json\x18\x05 \x01(\fR\x11sessionConfigJson\"\xd2\x03\n" +
+	"\x13session_config_json\x18\x05 \x01(\fR\x11sessionConfigJson\"\xec\x04\n" +
 	"\vSceneConfig\x12\x1d\n" +
 	"\n" +
 	"scene_code\x18\x01 \x01(\tR\tsceneCode\x12\x1f\n" +
@@ -1685,7 +1713,10 @@ const file_lenschain_sim_engine_v1_sim_engine_proto_rawDesc = "" +
 	"\x14layout_position_json\x18\b \x01(\fR\x12layoutPositionJson\x12S\n" +
 	"\x10data_source_mode\x18\t \x01(\x0e2).lenschain.sim_scenario.v1.DataSourceModeR\x0edataSourceMode\x12*\n" +
 	"\x11shared_state_json\x18\n" +
-	" \x01(\fR\x0fsharedStateJson\"\x8f\x02\n" +
+	" \x01(\fR\x0fsharedStateJson\x12.\n" +
+	"\x13container_image_url\x18\v \x01(\tR\x11containerImageUrl\x120\n" +
+	"\x14resource_request_cpu\x18\f \x01(\tR\x12resourceRequestCpu\x126\n" +
+	"\x17resource_request_memory\x18\r \x01(\tR\x15resourceRequestMemory\"\x8f\x02\n" +
 	"\x15CreateSessionResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1f\n" +

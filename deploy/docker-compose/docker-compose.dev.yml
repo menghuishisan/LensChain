@@ -95,6 +95,9 @@ services:
     volumes:
       # 挂载本地 config.yaml；如不存在请先 cp config.example.yaml config.yaml
       - ../../sim-engine/core/configs/config.yaml:/app/configs/config.yaml:ro
+      # 让容器内访问宿主 ~/.kube/config，可通过 docker-desktop K8s 编排场景 Pod
+      # （仅本地开发；生产用 in_cluster: true）
+      - ${USERPROFILE:-${HOME}}/.kube:/home/lenschain/.kube:ro
     depends_on:
       postgres:
         condition: service_healthy

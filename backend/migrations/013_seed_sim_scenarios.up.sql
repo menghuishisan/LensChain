@@ -425,6 +425,21 @@ VALUES
 )
 ON CONFLICT (code) WHERE deleted_at IS NULL DO NOTHING;
 
+-- ---------------------------------------------------------------------
+-- 内置场景算法容器镜像填充
+-- ---------------------------------------------------------------------
+-- 平台 43 个内置场景共享同一个运行时镜像 scenarios/runtime:v1.0.0，
+-- 由 deploy/docker/scenario.Dockerfile 单次构建。
+-- SimEngine SceneManager（K8sOrchestrator）创建场景 Pod 时注入
+-- SCENE_CODE 环境变量来分发不同场景，无需每个场景独立打包。
+-- 自定义场景在教师上传审核通过后单独写入自己的 container_image_url，
+-- 不在此处赋值。
+UPDATE sim_scenarios
+SET container_image_url = 'registry.lianjing.com/scenarios/runtime:v1.0.0',
+    updated_at = NOW()
+WHERE source_type = 1
+  AND (container_image_url IS NULL OR container_image_url = '');
+
 -- =====================================================================
 -- 02. 联动组 — 7 组
 -- =====================================================================

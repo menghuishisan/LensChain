@@ -14,6 +14,8 @@
 #     → 任何镜像构建失败则立即停止，清理悬挂镜像后退出
 #   - 阶段 2：构建平台服务镜像（deploy/docker/）
 #     → 同上，失败即停
+#   - 阶段 3：构建场景算法共享运行时镜像（sim-engine/scenarios/cmd/scenario）
+#     → 单次 docker build，43 个内置场景共享 scenarios/runtime:v1.0.0，启动时由 SCENE_CODE env 分发
 #   - 已构建成功的镜像自动跳过（通过 docker image inspect 检测）
 
 Set-StrictMode -Version Latest
@@ -102,8 +104,10 @@ foreach ($df in $allDockerfiles) {
     foreach ($line in $lines) {
         if ($line -match '^\s*FROM\s+(.+?)(\s+AS\s+.+)?$') {
             $img = $Matches[1].Trim()
-            # 跳过 ARG 引用的动态镜像（如 ${VERSION}）和构建阶段引用
-            if ($img -notmatch '\$\{' -and $img -notmatch '^(builder|deps|foundry-builder|node-builder)$') {
+            # 跳过：动态变量、命名阶段引用、项目自己的镜像（由本脚本后续阶段构建）
+            if ($img -notmatch '\$\{' `
+                -and $img -notmatch '^(builder|deps|foundry-builder|node-builder|scenario-base)$' `
+                -and $img -notmatch '^registry\.lianjing\.com/') {
                 $baseImages[$img] = $true
             }
         }
@@ -243,7 +247,9 @@ $serviceImages = @(
     @{ Dockerfile = "image-prepuller.Dockerfile";  Image = "lenschain/image-prepuller:v1.0.0";     Context = $repoRoot },
     @{ Dockerfile = "image-gc.Dockerfile";         Image = "lenschain/image-gc:v1.0.0";            Context = $repoRoot },
     @{ Dockerfile = "pv-cleanup.Dockerfile";       Image = "lenschain/pv-cleanup:v1.0.0";          Context = $repoRoot },
-    @{ Dockerfile = "scenario-base.Dockerfile";    Image = "lenschain/scenario-base:v1.0.0";       Context = (Join-Path (Join-Path $repoRoot "sim-engine") "scenarios") }
+    # scenario-base：场景算法容器基础镜像（文档 §4.4）
+    # 必须先于 scenario.Dockerfile 构建，因为后者 FROM 引用本镜像
+    @{ Dockerfile = "scenario-base.Dockerfile";    Image = "lenschain/scenario-base:v1.0.0";       Context = $repoRoot }
 )
 
 foreach ($svc in $serviceImages) {
@@ -263,7 +269,6 @@ foreach ($svc in $serviceImages) {
             $extraBuildArgs += $arg
         }
     }
-
     if ($DryRun) {
         Write-Host "  [DRY-RUN] docker build -t $fullImage $($extraBuildArgs -join ' ') -f $dockerfilePath $($svc.Context)"
         $succeeded++
@@ -286,6 +291,44 @@ foreach ($svc in $serviceImages) {
     }
     else {
         Exit-OnFailure -FailedImage $fullImage
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 阶段 3：场景算法共享运行时镜像
+# 平台 43 个内置场景共享同一个二进制（sim-engine/scenarios/cmd/scenario），
+# 启动时通过 SCENE_CODE 环境变量分发场景。
+# 目标镜像：$Registry/scenarios/runtime:v1.0.0
+# 与 sim_scenarios.container_image_url 对齐（013_seed_sim_scenarios.up.sql）。
+# ---------------------------------------------------------------------------
+
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host " 阶段 3：场景共享运行时镜像" -ForegroundColor Cyan
+Write-Host "========================================`n" -ForegroundColor Cyan
+
+$scenarioDockerfile = Join-Path (Join-Path $deployDir "docker") "scenario.Dockerfile"
+$scenarioContext = Join-Path $repoRoot "sim-engine"
+$scenariosRuntimeImage = "$Registry/scenarios/runtime:v1.0.0"
+
+if (-not (Test-Path $scenarioDockerfile)) {
+    Write-Host "  SKIP：$scenarioDockerfile 不存在" -ForegroundColor DarkGray
+} elseif ($DryRun) {
+    Write-Host "  [DRY-RUN] docker build -t $scenariosRuntimeImage -f $scenarioDockerfile $scenarioContext"
+    $succeeded++
+} else {
+    docker image inspect $scenariosRuntimeImage *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  [已构建] $scenariosRuntimeImage" -ForegroundColor DarkGray
+        $skipped++
+    } else {
+        Write-Host "  构建: $scenariosRuntimeImage" -ForegroundColor Yellow
+        $buildCmd = @("build", "-t", $scenariosRuntimeImage, "-f", $scenarioDockerfile, $scenarioContext)
+        if (Build-Image -ImageTag $scenariosRuntimeImage -BuildCmd $buildCmd) {
+            Write-Host "  成功: $scenariosRuntimeImage" -ForegroundColor Green
+            $succeeded++
+        } else {
+            Exit-OnFailure -FailedImage $scenariosRuntimeImage
+        }
     }
 }
 

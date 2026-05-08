@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/lenschain/sim-engine/core/internal/app"
 	"github.com/lenschain/sim-engine/core/internal/config"
@@ -46,7 +47,31 @@ func main() {
 		log.Fatalf("invalid object_storage config: %v", err)
 	}
 
-	engine := app.NewEngine(scene.NewGRPCClientFactory(cfg.Scene.Endpoints))
+	orchestrator, err := scene.NewK8sOrchestrator(scene.OrchestratorConfig{
+		InCluster:      cfg.Orchestrator.InCluster,
+		KubeconfigPath: cfg.Orchestrator.KubeconfigPath,
+		Namespace:      cfg.Orchestrator.Namespace,
+		PullSecretName: cfg.Orchestrator.ImagePullSecretName,
+		ReadyTimeout:   cfg.Orchestrator.ReadyTimeout,
+		IdleTTL:        cfg.Orchestrator.IdleTTL,
+		DefaultCPU:     cfg.Orchestrator.DefaultCPU,
+		DefaultMemory:  cfg.Orchestrator.DefaultMemory,
+		LimitCPU:       cfg.Orchestrator.LimitCPU,
+		LimitMemory:    cfg.Orchestrator.LimitMemory,
+	})
+	if err != nil {
+		log.Fatalf("init scene orchestrator: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = orchestrator.Shutdown(shutdownCtx)
+	}()
+
+	// 启动场景 Pod 空闲回收循环（IdleTTL 配置生效点）
+	orchestrator.StartIdleReaper(ctx)
+
+	engine := app.NewEngine(orchestrator)
 	storageCtx, cancel := context.WithTimeout(context.Background(), cfg.Snapshot.InitTimeout)
 	defer cancel()
 	store, err := app.NewMinIOSnapshotStore(storageCtx, storageCfg)
@@ -87,10 +112,7 @@ func main() {
 		grpcRuntime.Stop()
 	}()
 
-	if len(cfg.Scene.Endpoints) == 0 {
-		log.Printf("warning: scene.endpoints 为空，引擎已启动但任何场景请求都将返回 'scene endpoint is not configured'")
-	}
-	log.Printf("SimEngine Core HTTP listening on %s", cfg.Server.HTTPAddr)
+	log.Printf("SimEngine Core HTTP listening on %s (scene orchestration namespace=%s)", cfg.Server.HTTPAddr, cfg.Orchestrator.Namespace)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("SimEngine Core HTTP stopped: %v", err)
 	}

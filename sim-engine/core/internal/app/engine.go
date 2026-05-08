@@ -29,6 +29,11 @@ type SceneConfig struct {
 	DataSourceConfigJSON []byte
 	DataSourceMode       string
 	SharedStateJSON      []byte
+	// ContainerImageURL 场景算法容器镜像，按需启动 Pod 的依据。
+	ContainerImageURL string
+	// 资源请求覆盖（为空走 orchestrator 默认值）。
+	ResourceRequestCPU    string
+	ResourceRequestMemory string
 }
 
 // StartSessionRequest 是 Core 内部启动会话请求。
@@ -143,10 +148,11 @@ type Engine struct {
 }
 
 // NewEngine 创建 Core 编排器。
-func NewEngine(factory scene.ClientFactory) *Engine {
+// orch 是场景算法容器编排能力的唯一入口（生产为 K8sOrchestrator）。
+func NewEngine(orch scene.Orchestrator) *Engine {
 	return &Engine{
 		sessions: session.NewManager(),
-		scenes:   scene.NewManager(factory),
+		scenes:   scene.NewManager(orch),
 		linker:   link.NewEngine(),
 		collect:  collector.NewManager(),
 		hub:      ws.NewHub(),
@@ -190,11 +196,14 @@ func (e *Engine) StartSession(ctx context.Context, req StartSessionRequest) (Sta
 		item.ParamsJSON = mergeSceneParams(item.ParamsJSON, item.LinkGroupCode)
 		sceneIndex[item.SceneCode] = item
 		started, err := e.scenes.Start(ctx, scene.Config{
-			SessionID:        created.SessionID,
-			SceneCode:        item.SceneCode,
-			ParamsJSON:       item.ParamsJSON,
-			InitialStateJSON: item.InitialStateJSON,
-			SharedStateJSON:  item.SharedStateJSON,
+			SessionID:             created.SessionID,
+			SceneCode:             item.SceneCode,
+			ParamsJSON:            item.ParamsJSON,
+			InitialStateJSON:      item.InitialStateJSON,
+			SharedStateJSON:       item.SharedStateJSON,
+			ContainerImageURL:     item.ContainerImageURL,
+			ResourceRequestCPU:    item.ResourceRequestCPU,
+			ResourceRequestMemory: item.ResourceRequestMemory,
 		})
 		if err != nil {
 			sceneErrors[item.SceneCode] = err.Error()

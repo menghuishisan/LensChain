@@ -15,6 +15,12 @@ type Config struct {
 	ParamsJSON       []byte
 	InitialStateJSON []byte
 	SharedStateJSON  []byte
+	// ContainerImageURL 场景算法容器镜像地址（来自 backend 透传的 sim_scenarios.container_image_url）。
+	// Orchestrator 据此按需启动 Pod；为空时无法启动场景。
+	ContainerImageURL string
+	// ResourceRequestCPU / ResourceRequestMemory 场景容器资源请求；为空时使用 orchestrator 默认值。
+	ResourceRequestCPU    string
+	ResourceRequestMemory string
 }
 
 // Meta 是场景元信息，Core 用它匹配渲染器和时间模式。
@@ -173,8 +179,16 @@ type ScenarioClient interface {
 	Close() error
 }
 
-// ClientFactory 根据场景配置创建算法容器客户端。
-type ClientFactory func(config Config) (ScenarioClient, error)
+// Orchestrator 是 SceneManager 唯一依赖的场景算法容器编排能力契约。
+// 唯一生产实现：K8sOrchestrator（internal/scene/k8s_orchestrator.go）。
+type Orchestrator interface {
+	// StartScene 按需启动一个场景算法容器并返回可用的 gRPC 客户端。
+	StartScene(ctx context.Context, config Config) (ScenarioClient, error)
+	// EvictScene 在场景重启前驱逐旧 Pod / Service 与连接池条目。
+	EvictScene(ctx context.Context, sessionID, sceneCode string) error
+	// DestroySession 销毁会话对应的所有场景 Pod / Service。
+	DestroySession(ctx context.Context, sessionID string) error
+}
 
 // Runtime 表示一个已启动的场景运行时。
 type Runtime struct {
@@ -187,14 +201,18 @@ type Runtime struct {
 // Manager 管理场景运行时生命周期。
 type Manager struct {
 	mu       sync.RWMutex
-	factory  ClientFactory
+	orch     Orchestrator
 	runtimes map[string]Runtime
 }
 
 // NewManager 创建场景管理器。
-func NewManager(factory ClientFactory) *Manager {
+// orch 必填，封装了启动 / 重启 / 销毁场景算法容器的全部能力。
+func NewManager(orch Orchestrator) *Manager {
+	if orch == nil {
+		panic("scene.NewManager: orchestrator is required")
+	}
 	return &Manager{
-		factory:  factory,
+		orch:     orch,
 		runtimes: make(map[string]Runtime),
 	}
 }
@@ -204,11 +222,8 @@ func (m *Manager) Start(ctx context.Context, config Config) (Runtime, error) {
 	if config.SceneCode == "" {
 		return Runtime{}, errors.New("scene code is required")
 	}
-	if m.factory == nil {
-		return Runtime{}, errors.New("scene client factory is required")
-	}
 
-	client, err := m.factory(config)
+	client, err := m.orch.StartScene(ctx, config)
 	if err != nil {
 		return Runtime{}, err
 	}
@@ -399,7 +414,7 @@ func (m *Manager) HealthCheck(ctx context.Context, sessionID string, sceneCode s
 	return runtime.client.Health(ctx)
 }
 
-// Restart 重新创建场景客户端，并尽量用最近状态恢复该场景。
+// Restart 驱逐旧场景 Pod 与连接池条目，起新 Pod，用最近状态连续该场景。
 func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode string) (Runtime, error) {
 	m.mu.RLock()
 	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
@@ -407,11 +422,17 @@ func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode strin
 	if !ok {
 		return Runtime{}, errors.New("scene runtime not found")
 	}
-	if m.factory == nil {
-		return Runtime{}, errors.New("scene client factory is required")
+
+	// 关闭旧 client 连接，避免连接泄漏
+	if runtime.client != nil {
+		_ = runtime.client.Close()
+	}
+	// 让编排器删除旧 Pod / Service / 连接池条目
+	if err := m.orch.EvictScene(ctx, sessionID, sceneCode); err != nil {
+		return Runtime{}, err
 	}
 
-	client, err := m.factory(runtime.Config)
+	client, err := m.orch.StartScene(ctx, runtime.Config)
 	if err != nil {
 		return Runtime{}, err
 	}
@@ -471,11 +492,10 @@ func (m *Manager) RestoreState(sessionID string, sceneCode string, state State) 
 	m.runtimes[key] = runtime
 }
 
-// DestroySession 销毁指定会话下的全部场景运行时，并关闭关联客户端连接。
+// DestroySession 销毁指定会话下的全部场景运行时，并关闭关联客户端连接，
+// 最后回调 Orchestrator.DestroySession 删除对应场景 Pod / Service。
 func (m *Manager) DestroySession(sessionID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	var closeErr error
 	prefix := sessionID + "::"
 	for key, runtime := range m.runtimes {
@@ -488,6 +508,11 @@ func (m *Manager) DestroySession(sessionID string) error {
 			}
 		}
 		delete(m.runtimes, key)
+	}
+	m.mu.Unlock()
+
+	if err := m.orch.DestroySession(context.Background(), sessionID); err != nil && closeErr == nil {
+		closeErr = err
 	}
 	return closeErr
 }

@@ -37,6 +37,8 @@ spec:
         - name: sim-engine
           image: registry.lianjing.com/lenschain/sim-engine-core:v1.0.0
           imagePullPolicy: IfNotPresent
+          args:
+            - "-config=/app/configs/config.yaml"
           ports:
             - containerPort: 50051
               name: grpc
@@ -45,55 +47,32 @@ spec:
           env:
             - name: TZ
               value: UTC
-            # SimEngine 监听地址（与 containerPort 对应）
-            - name: SIM_ENGINE_HTTP_ADDR
-              value: ":50052"
-            - name: SIM_ENGINE_GRPC_ADDR
-              value: ":50051"
-            # 前端 WebSocket 连接的公开基地址（经 Ingress 暴露）
-            - name: SIM_ENGINE_PUBLIC_BASE
-              value: "wss://api.lianjing.com/ws/sim-engine"
-            # WebSocket JWT 验证（与后端 JWT 配置保持一致）
-            - name: SIM_ENGINE_WS_JWT_SECRET
+            # 敏感字段通过 LENSCHAIN_SIM_* 环境变量覆盖 ConfigMap 中的空值。
+            # viper 自动将 key 转为 "." -> "_" 并大写匹配。
+            - name: LENSCHAIN_SIM_AUTH_WS_JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: backend-secret
                   key: jwt-access-secret
-            - name: SIM_ENGINE_WS_JWT_ISSUER
-              value: "lenschain"
-            - name: SIM_ENGINE_WS_JWT_AUDIENCE
-              value: "sim-engine"
-            # 场景算法容器端点映射（格式: scene_code=host:port,scene_code2=host:port2）
-            # 根据实际部署的场景容器配置，overlay 按环境覆盖
-            - name: SIM_ENGINE_SCENE_ENDPOINTS
-              value: "blockchain-basic=scene-blockchain-basic:50053"
-            # MinIO 对象存储（快照持久化）
-            - name: SIM_ENGINE_OBJECT_STORAGE_ENDPOINT
-              value: "minio.lenschain.svc.cluster.local:9000"
-            - name: SIM_ENGINE_OBJECT_STORAGE_ACCESS_KEY
+            - name: LENSCHAIN_SIM_OBJECT_STORAGE_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: minio-secret
                   key: root-user
-            - name: SIM_ENGINE_OBJECT_STORAGE_SECRET_KEY
+            - name: LENSCHAIN_SIM_OBJECT_STORAGE_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: minio-secret
                   key: root-password
-            - name: SIM_ENGINE_OBJECT_STORAGE_USE_SSL
-              value: "false"
-            - name: SIM_ENGINE_OBJECT_STORAGE_BUCKET
-              value: "lenschain"
-            - name: SIM_ENGINE_OBJECT_STORAGE_REGION
-              value: "us-east-1"
-            - name: SIM_ENGINE_OBJECT_STORAGE_PREFIX
-              value: "snapshots/"
-            # 快照加密密钥（32 字节）；从 backend-secret 复用或单独管理
-            - name: SIM_ENGINE_SNAPSHOT_ENCRYPTION_KEY
+            - name: LENSCHAIN_SIM_OBJECT_STORAGE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: backend-secret
                   key: snapshot-encryption-key
+          volumeMounts:
+            - name: config
+              mountPath: /app/configs
+              readOnly: true
           resources:
             requests:
               cpu: 250m
@@ -113,5 +92,9 @@ spec:
               port: 50052
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: sim-engine-config
       imagePullSecrets:
         - name: registry-pull-secret

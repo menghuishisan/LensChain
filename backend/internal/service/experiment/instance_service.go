@@ -917,14 +917,21 @@ func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *
 
 		sceneCfg := decodeSimSceneConfig(json.RawMessage(ts.Config))
 
+		// 场景算法容器镜像必填：sim_scenarios.container_image_url 是 SimEngine
+		// SceneManager 启动场景 Pod 的依据。教师上传场景审核通过后会写入此字段。
+		if scenario.ContainerImageURL == nil || strings.TrimSpace(*scenario.ContainerImageURL) == "" {
+			return nil, fmt.Errorf("场景 %s 未配置算法容器镜像（container_image_url），无法启动仿真会话", scenario.Code)
+		}
+
 		sc := SimSceneConfig{
-			SceneCode:        scenario.Code,
-			ScenarioID:       strconv.FormatInt(ts.ScenarioID, 10),
-			Params:           sceneCfg.SceneParams,
-			InitialState:     sceneCfg.InitialState,
-			LayoutPosition:   json.RawMessage(ts.LayoutPosition),
-			DataSourceConfig: json.RawMessage(ts.DataSourceConfig),
-			DataSourceMode:   toSimSceneDataSourceMode(sceneCfg.DataSourceMode, scenario.DataSourceMode),
+			SceneCode:         scenario.Code,
+			ScenarioID:        strconv.FormatInt(ts.ScenarioID, 10),
+			Params:            sceneCfg.SceneParams,
+			InitialState:      sceneCfg.InitialState,
+			LayoutPosition:    json.RawMessage(ts.LayoutPosition),
+			DataSourceConfig:  json.RawMessage(ts.DataSourceConfig),
+			DataSourceMode:    toSimSceneDataSourceMode(sceneCfg.DataSourceMode, scenario.DataSourceMode),
+			ContainerImageURL: strings.TrimSpace(*scenario.ContainerImageURL),
 		}
 
 		// 联动组

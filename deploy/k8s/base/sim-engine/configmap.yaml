@@ -1,0 +1,57 @@
+# deploy/k8s/base/sim-engine/configmap.yaml
+# SimEngine Core 非敏感配置（对齐 sim-engine/core/configs/config.example.yaml）。
+# 敏感字段（JWT secret、MinIO 凭据、快照加密密钥）由 deployment.yaml 用
+# LENSCHAIN_SIM_* 环境变量从 Secret 注入覆盖。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sim-engine-config
+  namespace: lenschain
+  labels:
+    app.kubernetes.io/name: sim-engine
+    app.kubernetes.io/part-of: lenschain
+    app.kubernetes.io/managed-by: kustomize
+data:
+  config.yaml: |
+    server:
+      http_addr: ":50052"
+      grpc_addr: ":50051"
+      public_base: "wss://api.lianjing.com/ws/sim-engine"
+      read_header_timeout: 5s
+      shutdown_timeout: 5s
+
+    auth:
+      ws_jwt_secret: ""       # 由 LENSCHAIN_SIM_AUTH_WS_JWT_SECRET 覆盖
+      ws_jwt_issuer: "lenschain"
+      ws_jwt_audience: "sim-engine"
+
+    orchestrator:
+      in_cluster: true
+      kubeconfig_path: ""
+      namespace: "lenschain"
+      image_pull_secret_name: "registry-pull-secret"
+      ready_timeout: 10s      # 对齐文档 §6.4 场景算法容器启动超时 10 秒
+      idle_ttl: 10m
+      default_cpu: "100m"
+      default_memory: "128Mi"
+      limit_cpu: "500m"
+      limit_memory: "256Mi"
+
+    object_storage:
+      endpoint: "minio.lenschain.svc.cluster.local:9000"
+      access_key: ""          # 由 LENSCHAIN_SIM_OBJECT_STORAGE_ACCESS_KEY 覆盖
+      secret_key: ""          # 由 LENSCHAIN_SIM_OBJECT_STORAGE_SECRET_KEY 覆盖
+      use_ssl: false
+      bucket: "lenschain"
+      region: "us-east-1"
+      object_prefix: "snapshots/"
+      encryption_key: ""      # 由 LENSCHAIN_SIM_OBJECT_STORAGE_ENCRYPTION_KEY 覆盖
+      presign_duration: 1h
+
+    snapshot:
+      init_timeout: 10s
+
+    loop:
+      clock_interval: 100ms
+      teacher_summary_interval: 5s
+      auto_snapshot_interval: 5m

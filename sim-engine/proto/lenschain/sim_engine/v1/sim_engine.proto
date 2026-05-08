@@ -97,6 +97,13 @@ message SceneConfig {
   bytes layout_position_json = 8;
   lenschain.sim_scenario.v1.DataSourceMode data_source_mode = 9;
   bytes shared_state_json = 10;
+  // container_image_url 是场景算法容器镜像地址（来自 sim_scenarios.container_image_url）。
+  // SimEngine SceneManager 据此通过 K8s API 按需启动场景 Pod。
+  string container_image_url = 11;
+  // resource_request_cpu 是场景容器的 CPU 资源请求（K8s 格式，例如 "100m"）。为空则使用 SimEngine 默认值。
+  string resource_request_cpu = 12;
+  // resource_request_memory 是场景容器的内存资源请求（K8s 格式，例如 "128Mi"）。为空则使用 SimEngine 默认值。
+  string resource_request_memory = 13;
 }
 
 // Session 是会话创建结果。

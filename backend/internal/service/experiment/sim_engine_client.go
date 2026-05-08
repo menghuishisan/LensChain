@@ -77,16 +77,19 @@ func (c *simEngineClient) CreateSession(ctx context.Context, req *CreateSimSessi
 	scenes := make([]*simenginev1.SceneConfig, 0, len(req.Scenes))
 	for _, scene := range req.Scenes {
 		scenes = append(scenes, &simenginev1.SceneConfig{
-			SceneCode:            scene.SceneCode,
-			ScenarioId:           scene.ScenarioID,
-			LinkGroupId:          scene.LinkGroupID,
-			LinkGroupCode:        scene.LinkGroupCode,
-			ParamsJson:           scene.Params,
-			InitialStateJson:     scene.InitialState,
-			DataSourceConfigJson: scene.DataSourceConfig,
-			LayoutPositionJson:   scene.LayoutPosition,
-			DataSourceMode:       toProtoDataSourceMode(scene.DataSourceMode),
-			SharedStateJson:      scene.SharedState,
+			SceneCode:             scene.SceneCode,
+			ScenarioId:            scene.ScenarioID,
+			LinkGroupId:           scene.LinkGroupID,
+			LinkGroupCode:         scene.LinkGroupCode,
+			ParamsJson:            scene.Params,
+			InitialStateJson:      scene.InitialState,
+			DataSourceConfigJson:  scene.DataSourceConfig,
+			LayoutPositionJson:    scene.LayoutPosition,
+			DataSourceMode:        toProtoDataSourceMode(scene.DataSourceMode),
+			SharedStateJson:       scene.SharedState,
+			ContainerImageUrl:     scene.ContainerImageURL,
+			ResourceRequestCpu:    scene.ResourceRequestCPU,
+			ResourceRequestMemory: scene.ResourceRequestMemory,
 		})
 	}
 

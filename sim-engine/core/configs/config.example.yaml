@@ -21,15 +21,27 @@ auth:
   ws_jwt_issuer: "lenschain"
   ws_jwt_audience: "sim-engine"
 
-scene:
-  # endpoints: 场景算法容器端点映射，scene_code -> "host:port"。
-  # 本地开发未启动场景容器时，可保持为空映射；引擎正常启动，
-  # 但调用未配置场景的会话会返回 "scene endpoint is not configured"。
-  endpoints: {}
-  # 示例（生产/集成环境）：
-  # endpoints:
-  #   pow-mining: "scene-pow-mining:50053"
-  #   pbft-consensus: "scene-pbft-consensus:50053"
+orchestrator:
+  # in_cluster: 运行在 K8s Pod 内时 true（使用 ServiceAccount）；集群外开发置 false。
+  in_cluster: false
+  # kubeconfig_path: 集群外 kubeconfig 文件路径，空走 ~/.kube/config。
+  kubeconfig_path: ""
+  # namespace: 场景算法容器所在命名空间（建议与 SimEngine Core 同 ns）。
+  namespace: "lenschain"
+  # image_pull_secret_name: 镜像拉取凭据 Secret 名称；本地开发可留空。
+  image_pull_secret_name: "registry-pull-secret"
+  # ready_timeout: 场景 Pod 启动 + gRPC HealthCheck 通过总超时
+  # （对齐 docs/modules/04-实验环境/06-可视化仿真引擎设计.md §6.4 = 10s）。
+  ready_timeout: 10s
+  # idle_ttl: 场景 Pod 空闲多久后被自动回收。
+  idle_ttl: 10m
+  # default_cpu / default_memory: 当 sim_scenarios 未提供资源请求时的默认值。
+  # 对齐文档 §2.2 "场景算法容器 CPU 少量 + 内存少量"。
+  default_cpu: "100m"
+  default_memory: "128Mi"
+  # limit_cpu / limit_memory: 资源上限。
+  limit_cpu: "500m"
+  limit_memory: "256Mi"
 
 object_storage:
   # endpoint: MinIO/S3 地址（dev 环境可指向本地 lenschain-minio）。

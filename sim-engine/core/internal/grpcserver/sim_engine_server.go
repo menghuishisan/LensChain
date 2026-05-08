@@ -31,13 +31,16 @@ func (s *SimEngineServer) CreateSession(ctx context.Context, req *simenginev1.Cr
 	scenes := make([]app.SceneConfig, 0, len(req.GetScenes()))
 	for _, item := range req.GetScenes() {
 		scenes = append(scenes, app.SceneConfig{
-			SceneCode:            item.GetSceneCode(),
-			LinkGroupCode:        item.GetLinkGroupCode(),
-			ParamsJSON:           item.GetParamsJson(),
-			InitialStateJSON:     item.GetInitialStateJson(),
-			DataSourceConfigJSON: item.GetDataSourceConfigJson(),
-			DataSourceMode:       dataSourceModeString(item.GetDataSourceMode()),
-			SharedStateJSON:      item.GetSharedStateJson(),
+			SceneCode:             item.GetSceneCode(),
+			LinkGroupCode:         item.GetLinkGroupCode(),
+			ParamsJSON:            item.GetParamsJson(),
+			InitialStateJSON:      item.GetInitialStateJson(),
+			DataSourceConfigJSON:  item.GetDataSourceConfigJson(),
+			DataSourceMode:        dataSourceModeString(item.GetDataSourceMode()),
+			SharedStateJSON:       item.GetSharedStateJson(),
+			ContainerImageURL:     item.GetContainerImageUrl(),
+			ResourceRequestCPU:    item.GetResourceRequestCpu(),
+			ResourceRequestMemory: item.GetResourceRequestMemory(),
 		})
 	}
 

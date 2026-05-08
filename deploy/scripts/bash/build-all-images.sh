@@ -97,9 +97,10 @@ echo ""
 base_images=()
 while IFS= read -r line; do
     img=$(echo "$line" | sed -E 's/^\s*FROM\s+//; s/\s+AS\s+.*$//i' | tr -d ' ')
-    # 跳过包含 ${...} 的动态镜像和构建阶段引用
+    # 跳过：动态变量、命名阶段引用、项目自己的镜像（由本脚本后续阶段构建）
     case "$img" in
         *'${'*|builder|deps|foundry-builder|node-builder) continue ;;
+        registry.lianjing.com/*|scenario-base) continue ;;
     esac
     base_images+=("$img")
 done < <(grep -rihE '^\s*FROM\s+' "$DEPLOY_DIR/images" "$DEPLOY_DIR/docker" --include="Dockerfile" --include="*.Dockerfile" 2>/dev/null)
@@ -232,7 +233,9 @@ SERVICE_IMAGES=(
     "image-prepuller.Dockerfile|lenschain/image-prepuller:v1.0.0|$REPO_ROOT|"
     "image-gc.Dockerfile|lenschain/image-gc:v1.0.0|$REPO_ROOT|"
     "pv-cleanup.Dockerfile|lenschain/pv-cleanup:v1.0.0|$REPO_ROOT|"
-    "scenario-base.Dockerfile|lenschain/scenario-base:v1.0.0|$REPO_ROOT/sim-engine/scenarios|"
+    # scenario-base：场景算法容器基础镜像（文档 §4.4）
+    # 必须先于 scenario.Dockerfile 构建，因为后者 FROM 引用本镜像
+    "scenario-base.Dockerfile|lenschain/scenario-base:v1.0.0|$REPO_ROOT|"
 )
 
 for entry in "${SERVICE_IMAGES[@]}"; do
@@ -268,6 +271,44 @@ for entry in "${SERVICE_IMAGES[@]}"; do
         exit_on_failure "$full_image"
     fi
 done
+
+# ---------------------------------------------------------------------------
+# 阶段 3：场景算法共享运行时镜像
+# 平台 43 个内置场景共享同一个二进制（sim-engine/scenarios/cmd/scenario），
+# 启动时通过 SCENE_CODE 环境变量分发场景。
+# 目标镜像：$REGISTRY/scenarios/runtime:v1.0.0
+# 与 sim_scenarios.container_image_url 对齐（013_seed_sim_scenarios.up.sql）。
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "========================================"
+echo " 阶段 3：场景共享运行时镜像"
+echo "========================================"
+echo ""
+
+scenario_dockerfile="$DEPLOY_DIR/docker/scenario.Dockerfile"
+scenario_context="$REPO_ROOT/sim-engine"
+scenarios_runtime_image="$REGISTRY/scenarios/runtime:v1.0.0"
+
+if [ ! -f "$scenario_dockerfile" ]; then
+    echo "  SKIP：$scenario_dockerfile 不存在"
+elif [ -n "$DRY_RUN" ]; then
+    echo "  [DRY-RUN] docker build -t $scenarios_runtime_image -f $scenario_dockerfile $scenario_context"
+    succeeded=$((succeeded + 1))
+elif docker image inspect "$scenarios_runtime_image" > /dev/null 2>&1; then
+    echo "  [已构建] $scenarios_runtime_image"
+    skipped=$((skipped + 1))
+else
+    echo "  构建: $scenarios_runtime_image"
+    if build_image "$scenarios_runtime_image" -t "$scenarios_runtime_image" \
+        -f "$scenario_dockerfile" \
+        "$scenario_context"; then
+        echo "  成功: $scenarios_runtime_image"
+        succeeded=$((succeeded + 1))
+    else
+        exit_on_failure "$scenarios_runtime_image"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # 全部成功 - 汇总

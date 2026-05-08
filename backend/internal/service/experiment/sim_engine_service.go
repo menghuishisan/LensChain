@@ -55,6 +55,13 @@ type SimSceneConfig struct {
 	LayoutPosition   json.RawMessage
 	DataSourceMode   string
 	SharedState      json.RawMessage
+	// ContainerImageURL 场景算法容器镜像地址（来自 sim_scenarios.container_image_url，必填）。
+	// SimEngine SceneManager 据此通过 K8s 按需启动场景 Pod。
+	ContainerImageURL string
+	// ResourceRequestCPU 场景容器的 CPU 资源请求（K8s 格式，例如 "100m"）。为空则使用 SimEngine 默认值。
+	ResourceRequestCPU string
+	// ResourceRequestMemory 场景容器的内存资源请求（K8s 格式，例如 "128Mi"）。为空则使用 SimEngine 默认值。
+	ResourceRequestMemory string
 }
 
 // SimSession SimEngine 会话信息
