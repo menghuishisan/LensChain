@@ -1,4 +1,6 @@
 name: grafana
+display_name: Grafana
+tool_kind: monitor
 category: tools
 ecosystem: general
 description: Grafana 可视化监控仪表盘

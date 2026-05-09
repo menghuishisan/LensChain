@@ -1,4 +1,5 @@
 name: webase-front
+display_name: WeBase Front
 category: tools
 ecosystem: fisco
 description: WeBase 前端节点管理

@@ -429,7 +429,7 @@ export function forceDestroyCtfChallengeEnvironment(environmentID: ID, reason?: 
  * listMyCtfEnvironments 对应 GET /api/v1/ctf/competitions/:id/my-environments，用于我的题目环境列表。
  */
 export function listMyCtfEnvironments(competitionID: ID) {
-  return apiClient.get<{ list: Array<{ id: ID; challenge_id: ID; challenge_title: string; namespace: string; status: number; status_text: string; chain_rpc_url: string | null; created_at: string }> }>(`/ctf/competitions/${competitionID}/my-environments`);
+  return apiClient.get<{ list: Array<{ id: ID; challenge_id: ID; challenge_title: string; namespace: string; status: number; status_text: string; created_at: string }> }>(`/ctf/competitions/${competitionID}/my-environments`);
 }
 
 /**

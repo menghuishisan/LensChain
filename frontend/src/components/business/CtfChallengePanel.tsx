@@ -3,7 +3,7 @@
 // CtfChallengePanel.tsx
 // 模块05解题赛题目面板，覆盖环境启动、Flag/攻击交易提交和明确成功失败反馈。
 
-import { Check, Copy, Play, RotateCcw, Send, Server, Trash2 } from "lucide-react";
+import { Play, RotateCcw, Send, Server, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -43,7 +43,6 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
   const submitMutation = useSubmitCtfChallengeMutation(competitionID);
   const submissionsQuery = useCtfSubmissions(competitionID, { page: 1, page_size: 10 });
   const [content, setContent] = useState("");
-  const [copied, setCopied] = useState(false);
 
   if (!selected) {
     return <EmptyState title="暂无题目" description="竞赛开始后题目会在这里全量展示。" />;
@@ -110,23 +109,14 @@ export function CtfChallengePanel({ competitionID, challengeID }: CtfChallengePa
                     {environmentQuery.data?.status_text ?? "读取环境状态中"}
                   </Badge>
                 </div>
-                {environmentQuery.data?.chain_rpc_url ? (
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">RPC地址</p>
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-2 rounded-lg bg-muted p-2 font-mono text-xs hover:bg-muted/70 transition-colors cursor-pointer"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(environmentQuery.data!.chain_rpc_url!);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 2000);
-                      }}
-                    >
-                      <span className="flex-1 text-left truncate">{environmentQuery.data.chain_rpc_url}</span>
-                      {copied ? <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" /> : <Copy className="h-3.5 w-3.5 shrink-0" />}
-                    </button>
-                  </div>
-                ) : null}
+                {/*
+                  按 docs/modules/05-CTF竞赛/05-验收标准.md §663 与 03-API 接口设计.md 2.36，
+                  CTF 题目环境不向选手暴露链 RPC 地址。攻击 / 校验 全部通过 backend 业务接口
+                  （提交 attack / flag / patch）由 judge-service 在集群内完成。
+                */}
+                <p className="text-xs text-muted-foreground">
+                  攻击与校验由平台代理执行，无需直接连接链节点。
+                </p>
                 {environmentQuery.data?.container_status ? (
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">容器状态</p>

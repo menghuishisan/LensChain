@@ -1,4 +1,5 @@
 name: prometheus
+display_name: Prometheus
 category: tools
 ecosystem: general
 description: Prometheus 指标采集服务

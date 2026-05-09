@@ -1,4 +1,6 @@
 name: remix-ide
+display_name: Remix IDE
+tool_kind: ide
 category: tools
 ecosystem: ethereum
 description: Remix IDE Solidity 在线开发环境

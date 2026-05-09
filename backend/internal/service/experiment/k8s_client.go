@@ -410,12 +410,63 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 		_ = k.applyNetworkPolicy(ctx, req)
 	}
 
+	// 等待 Pod 进入 Running 阶段并被 kubelet 分配 PodIP 后再返回。
+	// Pods().Create() 返回时 Pod 尚未被调度到节点，Status.PodIP 必为空字符串；
+	// 若不等待就把空 IP 写入 instance_containers.internal_ip，将导致后续
+	// 终端 PTY 代理 / 检查点脚本 / 服务发现等所有需要容器 IP 的链路全部失败。
+	readyPod, waitErr := k.waitForPodRunning(ctx, req.Namespace, createdPod.Name)
+	if waitErr != nil {
+		return nil, fmt.Errorf("%w: 等待 Pod %s 就绪失败: %v", errcode.ErrK8sDeployFailed, createdPod.Name, waitErr)
+	}
+
 	return &DeployPodResponse{
-		PodName:    createdPod.Name,
-		Namespace:  createdPod.Namespace,
-		InternalIP: createdPod.Status.PodIP,
-		Status:     string(createdPod.Status.Phase),
+		PodName:    readyPod.Name,
+		Namespace:  readyPod.Namespace,
+		InternalIP: readyPod.Status.PodIP,
+		Status:     string(readyPod.Status.Phase),
 	}, nil
+}
+
+// waitForPodRunning 轮询等待 Pod 进入 Running 阶段且 PodIP 已被分配。
+// 超时上限 120 秒（覆盖镜像拉取 + 容器启动），轮询间隔 1 秒。
+// 容器进入 Failed/Succeeded 阶段或镜像拉取明确失败时立即返回错误，避免长时间空等。
+func (k *k8sClient) waitForPodRunning(ctx context.Context, namespace, podName string) (*corev1.Pod, error) {
+	const (
+		pollInterval = 1 * time.Second
+		pollTimeout  = 120 * time.Second
+	)
+	deadline := time.Now().Add(pollTimeout)
+	for {
+		pod, err := k.clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		switch pod.Status.Phase {
+		case corev1.PodRunning:
+			if pod.Status.PodIP != "" {
+				return pod, nil
+			}
+		case corev1.PodFailed, corev1.PodSucceeded:
+			return nil, fmt.Errorf("Pod 进入终止状态 phase=%s reason=%s message=%s", pod.Status.Phase, pod.Status.Reason, pod.Status.Message)
+		}
+		// 检测明确的镜像拉取失败，避免等到超时
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.State.Waiting != nil {
+				reason := cs.State.Waiting.Reason
+				if reason == "ImagePullBackOff" || reason == "ErrImagePull" || reason == "InvalidImageName" {
+					return nil, fmt.Errorf("容器 %s 镜像拉取失败: %s - %s", cs.Name, reason, cs.State.Waiting.Message)
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("等待 Pod 就绪超时 %s（当前 phase=%s）", pollTimeout, pod.Status.Phase)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 // applyNetworkPolicy 应用网络策略

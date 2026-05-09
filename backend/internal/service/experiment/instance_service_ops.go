@@ -21,8 +21,10 @@ import (
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/pkg/ws"
+	"go.uber.org/zap"
 )
 
 // ---------------------------------------------------------------------------
@@ -161,7 +163,19 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 			instance.TemplateID,
 		)
 		if templateAggregate == nil {
+			logger.L.Error("恢复实验环境失败：加载模板聚合数据为空",
+				zap.Int64("instance_id", instance.ID),
+				zap.Int64("template_id", instance.TemplateID),
+			)
+			_ = s.instanceRepo.UpdateFields(asyncCtx, instance.ID, map[string]interface{}{
+				"status":        enum.InstanceStatusError,
+				"error_message": "恢复失败：实验模板数据加载异常",
+				"updated_at":    time.Now(),
+			})
 			_ = s.quotaRepo.DecrUsedConcurrency(asyncCtx, instance.SchoolID, 1)
+			if instance.CourseID != nil {
+				s.activateNextQueuedInstance(asyncCtx, *instance.CourseID)
+			}
 			return
 		}
 		s.provisionEnvironment(asyncCtx, instance, templateAggregate, stringifySnapshotID(snapshot), true)
@@ -183,13 +197,19 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 }
 
 // teardownRuntimeEnvironment 停止实例当前运行时环境，但不写入终态状态。
+// SimEngine 会话销毁失败只记日志（会话有 TTL 自动过期），不阻塞 K8s 资源释放。
+// K8s 命名空间删除是真正释放容器资源的关键步骤，失败时必须返回错误。
 func (s *instanceService) teardownRuntimeEnvironment(ctx context.Context, instance *entity.ExperimentInstance) error {
 	if instance == nil {
 		return nil
 	}
 	if instance.SimSessionID != nil && *instance.SimSessionID != "" {
 		if err := s.simEngineSvc.DestroySession(ctx, *instance.SimSessionID); err != nil {
-			return err
+			logger.L.Warn("销毁 SimEngine 会话失败，会话将由 TTL 自动过期回收",
+				zap.Int64("instance_id", instance.ID),
+				zap.String("session_id", *instance.SimSessionID),
+				zap.Error(err),
+			)
 		}
 	}
 	if instance.Namespace != nil && *instance.Namespace != "" {

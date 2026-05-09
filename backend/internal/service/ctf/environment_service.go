@@ -343,7 +343,6 @@ func (s *environmentService) ListMyEnvironments(ctx context.Context, sc *svcctx.
 			Namespace:      environment.Namespace,
 			Status:         environment.Status,
 			StatusText:     enum.GetChallengeEnvStatusText(environment.Status),
-			ChainRPCURL:    environment.ChainRPCURL,
 			CreatedAt:      timeString(environment.CreatedAt),
 		})
 	}
@@ -411,7 +410,6 @@ func (s *environmentService) ListCompetitionEnvironments(ctx context.Context, sc
 			Namespace:      environment.Namespace,
 			Status:         environment.Status,
 			StatusText:     enum.GetChallengeEnvStatusText(environment.Status),
-			ChainRPCURL:    environment.ChainRPCURL,
 			StartedAt:      optionalTimeString(environment.StartedAt),
 			CreatedAt:      timeString(environment.CreatedAt),
 		})
@@ -660,7 +658,6 @@ func buildChallengeEnvironmentResp(environment *entity.ChallengeEnvironment) *dt
 		Namespace:       environment.Namespace,
 		Status:          environment.Status,
 		StatusText:      enum.GetChallengeEnvStatusText(environment.Status),
-		ChainRPCURL:     environment.ChainRPCURL,
 		ContainerStatus: runtimeState.Containers,
 		StartedAt:       optionalTimeString(environment.StartedAt),
 		CreatedAt:       timeString(environment.CreatedAt),
@@ -680,7 +677,6 @@ func buildStartChallengeEnvironmentResp(environment *entity.ChallengeEnvironment
 		Namespace:     environment.Namespace,
 		Status:        environment.Status,
 		StatusText:    enum.GetChallengeEnvStatusText(environment.Status),
-		ChainRPCURL:   environment.ChainRPCURL,
 		CreatedAt:     timeString(environment.CreatedAt),
 	}
 }

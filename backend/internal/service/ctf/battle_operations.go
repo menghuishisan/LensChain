@@ -674,8 +674,8 @@ func (s *battleService) loadADConfig(competition *entity.Competition) (*dto.ADCo
 		FirstBloodBonusRatio:     0.10,
 		VulnerabilityDecayFactor: 0.8,
 		MaxTeamsPerGroup:         4,
-		JudgeChainImage:          "geth-dev:latest",
-		TeamChainImage:           "ganache:latest",
+		JudgeChainImage:          ctfDefaultJudgeImage,
+		TeamChainImage:           ctfDefaultTeamChainImage,
 	}
 	if len(competition.AdConfig) == 0 {
 		return cfg, nil
@@ -714,10 +714,10 @@ func (s *battleService) loadADConfig(competition *entity.Competition) (*dto.ADCo
 		cfg.MaxTeamsPerGroup = 4
 	}
 	if strings.TrimSpace(cfg.JudgeChainImage) == "" {
-		cfg.JudgeChainImage = "geth-dev:latest"
+		cfg.JudgeChainImage = ctfDefaultJudgeImage
 	}
 	if strings.TrimSpace(cfg.TeamChainImage) == "" {
-		cfg.TeamChainImage = "ganache:latest"
+		cfg.TeamChainImage = ctfDefaultTeamChainImage
 	}
 	return cfg, nil
 }

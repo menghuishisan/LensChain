@@ -20,17 +20,26 @@ import (
 )
 
 // JWTAuth JWT 鉴权中间件
+//
+// 仅接受 Access Token。SimWS Token（jwtpkg.SimWSClaims）由 backend 自己签发并仅
+// 用于 backend 代理 → SimEngine Core 一跳，永远不会从外部回到 backend，故不在此
+// 中间件解析。这样既消除了"低权限 SimWS token 被误用为通用 HTTP 鉴权"的攻击面，
+// 也避免了维护两套 token 解析路径的复杂度。
 func JWTAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 优先从 Authorization 头提取 Token，WebSocket 场景允许退化为 query token。
-		tokenString, hasToken := extractBearerToken(c)
-		if !hasToken {
+		// extractBearerToken 内部已经处理：
+		//   1) Authorization: Bearer xxx 头部（默认路径）
+		//   2) WebSocket 握手退化为 ?token=xxx query 参数（浏览器 WebSocket API 不能发送
+		//      Authorization 头，必须用 query token；由 allowQueryToken 守卫，仅 WS 路径或带
+		//      Connection: upgrade + Upgrade: websocket 的 GET 才被允许，避免泛化为通用入口）
+		// 失败统一 401，不做二次重复读取。
+		tokenString, ok := extractBearerToken(c)
+		if !ok {
 			response.Abort(c, errcode.ErrUnauthorized)
 			return
 		}
 
-		// 解析 Access Token；SimEngine WebSocket 场景允许使用会话级 sim_ws token。
-		claims, simClaims, err := parseJWTClaims(tokenString)
+		claims, err := jwtpkg.ParseAccessToken(tokenString)
 		if err != nil {
 			if strings.Contains(err.Error(), "expired") {
 				response.Abort(c, errcode.ErrTokenExpired)
@@ -40,50 +49,31 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
-		userID := claims.UserID
-		schoolID := claims.SchoolID
-		roles := claims.Roles
-		jti := claims.ID
-		if simClaims != nil {
-			userID = simClaims.UserID
-			schoolID = simClaims.SchoolID
-			roles = simClaims.Roles
-			jti = simClaims.ID
-		}
-
 		// 检查 Token 是否在黑名单中（被踢下线的 Token）
-		blacklisted, err := tokenstate.IsTokenBlacklisted(c.Request.Context(), jti)
-		if err == nil && blacklisted {
+		blacklisted, blackErr := tokenstate.IsTokenBlacklisted(c.Request.Context(), claims.ID)
+		if blackErr == nil && blacklisted {
 			response.Abort(c, errcode.ErrTokenBlacklist)
 			return
 		}
 
 		var issuedAt time.Time
-		var hasIssuedAt bool
-		if claims != nil {
-			if claims.IssuedAt != nil {
-				issuedAt = claims.IssuedAt.Time
-				hasIssuedAt = true
-			}
+		hasIssuedAt := false
+		if claims.IssuedAt != nil {
+			issuedAt = claims.IssuedAt.Time
+			hasIssuedAt = true
 		}
-		if simClaims != nil {
-			if simClaims.IssuedAt != nil {
-				issuedAt = simClaims.IssuedAt.Time
-				hasIssuedAt = true
-			}
-		}
-		validAfter, err := tokenstate.ResolveTokenValidAfter(c.Request.Context(), userID)
-		if err == nil && validAfter != nil && hasIssuedAt && issuedAt.Before(*validAfter) {
+		validAfter, vaErr := tokenstate.ResolveTokenValidAfter(c.Request.Context(), claims.UserID)
+		if vaErr == nil && validAfter != nil && hasIssuedAt && issuedAt.Before(*validAfter) {
 			response.Abort(c, errcode.ErrRefreshTokenInvalid.WithMessage("账号已在其他设备登录或会话已失效"))
 			return
 		}
 
 		// 将用户信息注入到 Context
 		requestctx.SetAuth(c, requestctx.AuthContext{
-			UserID:   userID,
-			SchoolID: schoolID,
-			Roles:    roles,
-			JTI:      jti,
+			UserID:   claims.UserID,
+			SchoolID: claims.SchoolID,
+			Roles:    claims.Roles,
+			JTI:      claims.ID,
 		})
 
 		c.Next()
@@ -123,21 +113,6 @@ func allowQueryToken(c *gin.Context) bool {
 	connectionHeader := strings.ToLower(c.GetHeader("Connection"))
 	upgradeHeader := strings.ToLower(c.GetHeader("Upgrade"))
 	return strings.Contains(connectionHeader, "upgrade") && upgradeHeader == "websocket" && c.Request.Method == http.MethodGet
-}
-
-// parseJWTClaims 解析访问令牌或 SimEngine WebSocket 会话令牌。
-func parseJWTClaims(tokenString string) (*jwtpkg.Claims, *jwtpkg.SimWSClaims, error) {
-	claims, err := jwtpkg.ParseAccessToken(tokenString)
-	if err == nil {
-		return claims, nil, nil
-	}
-
-	simClaims, simErr := jwtpkg.ParseSimWSToken(tokenString)
-	if simErr == nil {
-		return nil, simClaims, nil
-	}
-
-	return nil, nil, err
 }
 
 // TempTokenAuth 临时Token鉴权中间件（首次登录改密专用）

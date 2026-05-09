@@ -104,7 +104,7 @@ func (s *instanceService) VerifyCheckpoints(ctx context.Context, sc *svcctx.Serv
 			CheckedAt:    result.CheckedAt.UTC().Format(time.RFC3339),
 		})
 		for _, target := range s.resolveCheckpointTargetInstances(ctx, instance, &cp) {
-			s.pushCourseMonitorCheckpoint(target, cp.Title, result.IsPassed != nil && *result.IsPassed)
+			s.pushCourseMonitorCheckpoint(target, cp.ID, cp.Title, result.IsPassed != nil && *result.IsPassed, score)
 		}
 		detailPayload, _ := json.Marshal(map[string]interface{}{
 			"checkpoint_id":    strconv.FormatInt(cp.ID, 10),

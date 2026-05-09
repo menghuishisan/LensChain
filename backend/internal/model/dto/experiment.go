@@ -1068,3 +1068,14 @@ type TriggerImagePullResp struct {
 	Status      string   `json:"status"`
 	CreatedAt   string   `json:"created_at"`
 }
+
+// ImageManifestSyncResp 镜像 manifest 同步结果。
+// POST /api/v1/admin/images/sync 与 cmd/seed-manifests CLI 共用。
+type ImageManifestSyncResp struct {
+	Name            string `json:"name"`
+	ImageCreated    bool   `json:"image_created"`
+	ImageUpdated    bool   `json:"image_updated"`
+	VersionsCreated int    `json:"versions_created"`
+	VersionsUpdated int    `json:"versions_updated"`
+	VersionsSkipped int    `json:"versions_skipped"`
+}

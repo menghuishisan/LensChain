@@ -12,12 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/model/dto"
@@ -27,6 +29,7 @@ import (
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	cronpkg "github.com/lenschain/backend/internal/pkg/cron"
 	"github.com/lenschain/backend/internal/pkg/errcode"
+	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 	"github.com/lenschain/backend/internal/pkg/storage"
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
@@ -38,6 +41,15 @@ type InstanceService interface {
 	Create(ctx context.Context, sc *svcctx.ServiceContext, req *dto.CreateInstanceReq) (*dto.CreateInstanceResp, error)
 	GetByID(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.InstanceDetailResp, error)
 	ResolveTerminalProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string) (*TerminalProxyTarget, error)
+	// ResolveToolProxyTarget 按 tool_kind 解析工具反代目标（code-server / blockscout / VNC / monitor 等）。
+	// 仅实例所有者本人可调用；返回 errcode.ErrInvalidParams 表示实例未挂载该 toolKind 容器。
+	ResolveToolProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, id int64, toolKind string) (*ToolProxyTarget, error)
+	// IssueToolProxyAccess 完成业务校验后签发工具反代凭证（JWT），handler 直接拿来写 cookie。
+	// 该方法封装"签什么 token / cookie path 怎么算 / TTL 多少"等业务决策，避免 handler 触碰 jwt pkg。
+	IssueToolProxyAccess(ctx context.Context, sc *svcctx.ServiceContext, id int64, toolKind string) (*ToolProxyAccess, error)
+	// DialPodPort 通过 SPDY portforward 隧道建立到 Pod 端口的 net.Conn，用于 handler 在该 conn 上
+	// 跑 WebSocket 握手或 HTTP 反代。业务边界已由 Resolve***ProxyTarget 校验，本方法不重复校验。
+	DialPodPort(ctx context.Context, namespace, podName string, port int) (net.Conn, error)
 	GetTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, tailLines int) (*TerminalOutput, error)
 	GetGroupMemberTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, groupID, studentID int64, tailLines int) (*TerminalOutput, error)
 	GetSimEngineProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, sessionID string) (*SimEngineProxyTarget, error)
@@ -105,6 +117,7 @@ type instanceService struct {
 	courseGradeSyncer     CourseGradeSyncer
 	enrollmentChecker     EnrollmentChecker
 	eventDispatcher       NotificationEventDispatcher
+	toolProxyBaseURL      string
 }
 
 const (
@@ -220,6 +233,7 @@ func NewInstanceService(
 	courseGradeSyncer CourseGradeSyncer,
 	enrollmentChecker EnrollmentChecker,
 	eventDispatcher NotificationEventDispatcher,
+	toolProxyBaseURL string,
 ) InstanceService {
 	return &instanceService{
 		db:                    db,
@@ -251,6 +265,7 @@ func NewInstanceService(
 		courseGradeSyncer:     courseGradeSyncer,
 		enrollmentChecker:     enrollmentChecker,
 		eventDispatcher:       eventDispatcher,
+		toolProxyBaseURL:      toolProxyBaseURL,
 	}
 }
 
@@ -569,7 +584,6 @@ func (s *instanceService) normalizeSnapshotCreateRequest(ctx context.Context, sc
 
 // provisionEnvironment 异步创建实验环境（K8s 容器 + SimEngine 会话）
 func (s *instanceService) provisionEnvironment(ctx context.Context, instance *entity.ExperimentInstance, template *TemplateAggregate, snapshotID string, releaseConcurrencyOnError bool) {
-	var accessURL string
 	var errMsg string
 	oldStatus := instance.Status
 	var restoreSnapshot *entity.InstanceSnapshot
@@ -583,11 +597,16 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 			fields["error_message"] = errMsg
 		} else {
 			fields["status"] = enum.InstanceStatusRunning
-			if accessURL != "" {
-				fields["access_url"] = accessURL
-			}
 		}
-		_ = s.instanceRepo.UpdateFields(ctx, instance.ID, fields)
+		// 必须捕获 UpdateFields 错误：之前丢弃错误导致 DB schema 不匹配（如残留的 access_url 列写入）
+		// 整条 UPDATE 失败被静默忽略，状态永远停在 1（创建中），是终端 409 / 检查点 409 的真正根因。
+		if updateErr := s.instanceRepo.UpdateFields(ctx, instance.ID, fields); updateErr != nil {
+			logger.L.Error("更新实验实例最终状态失败",
+				zap.Int64("instance_id", instance.ID),
+				zap.Any("fields", fields),
+				zap.Error(updateErr),
+			)
+		}
 		// 缓存实例状态到 Redis
 		_ = cache.Set(ctx, fmt.Sprintf("%s:%d", cache.KeyExpInstanceStatus, instance.ID),
 			fmt.Sprintf("%d", fields["status"]), 24*time.Hour)
@@ -763,6 +782,9 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 				return
 			}
 
+			// 派生 tool_kind 与 proxy_url（仅工具镜像非空，对齐 docs/modules/04-实验环境/02-数据库设计.md §2.16）
+			toolKind, proxyURL := s.deriveContainerToolMeta(ctx, tc.ImageVersionID, instance.ID)
+
 			// 记录实例容器
 			ic := &entity.InstanceContainer{
 				ID:                  snowflake.Generate(),
@@ -772,12 +794,10 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 				PodName:             &deployResp.PodName,
 				InternalIP:          &deployResp.InternalIP,
 				Status:              enum.ContainerStatusRunning,
+				ToolKind:            toolKind,
+				ProxyURL:            proxyURL,
 			}
 			_ = s.containerRepo.Create(ctx, ic)
-
-			if tc.IsPrimary && deployResp.InternalIP != "" {
-				accessURL = fmt.Sprintf("http://%s", deployResp.InternalIP)
-			}
 		}
 
 		// 新建环境执行初始化脚本；从快照恢复时跳过，避免覆盖恢复态数据。
@@ -1104,12 +1124,17 @@ func (s *instanceService) GetByID(ctx context.Context, sc *svcctx.ServiceContext
 		instance.TemplateID,
 	)
 
+	// 切片字段全部预初始化为空切片，避免在 templateAggregate 缺失或集合为空时
+	// 出现 nil → JSON null 与前端 ".length / .map" 契约（TS 类型为非空数组）冲突。
 	resp := &dto.InstanceDetailResp{
 		ID:           strconv.FormatInt(instance.ID, 10),
 		Status:       instance.Status,
 		StatusText:   enum.GetInstanceStatusText(instance.Status),
 		AttemptNo:    instance.AttemptNo,
 		SimSessionID: instance.SimSessionID,
+		Tools:        make([]dto.InstanceToolItem, 0),
+		Containers:   make([]dto.InstanceContainerItem, 0),
+		Checkpoints:  make([]dto.InstanceCheckpointItem, 0),
 		CreatedAt:    instance.CreatedAt.Format(time.RFC3339),
 	}
 

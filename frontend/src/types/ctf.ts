@@ -660,7 +660,6 @@ export interface CtfChallengeEnvironment {
   namespace: string;
   status: number;
   status_text: string;
-  chain_rpc_url: string | null;
   container_status?: Record<string, { status: string; image: string }>;
   started_at?: string | null;
   created_at: string;
@@ -691,7 +690,6 @@ export interface StartCtfEnvironmentResponse {
   namespace: string;
   status: number;
   status_text: string;
-  chain_rpc_url: string | null;
   created_at: string;
 }
 
@@ -743,8 +741,6 @@ export interface CtfTeamChain {
   competition_id: ID;
   group_id: ID;
   team_id: ID;
-  chain_rpc_url: string;
-  chain_ws_url: string;
   deployed_contracts: Array<{ challenge_id: ID; contract_name: string; address: string; patch_version: number; is_patched: boolean }>;
   current_patch_version: number;
   status: number;

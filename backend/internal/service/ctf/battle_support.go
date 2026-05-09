@@ -267,8 +267,6 @@ func buildTeamChainResp(chain *entity.AdTeamChain) (*dto.TeamChainResp, error) {
 		CompetitionID:       int64String(chain.CompetitionID),
 		GroupID:             int64String(chain.GroupID),
 		TeamID:              int64String(chain.TeamID),
-		ChainRPCURL:         chain.ChainRPCURL,
-		ChainWSURL:          chain.ChainWSURL,
 		DeployedContracts:   contracts,
 		CurrentPatchVersion: chain.CurrentPatchVersion,
 		Status:              chain.Status,

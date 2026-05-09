@@ -72,7 +72,24 @@ export function ExperimentTerminal({
           setReady(true);
         }
         if (mode === 'error') {
-          termRef.current?.write(`\r\n\x1b[31m${(msg.data?.message as string) ?? '终端连接失败'}\x1b[0m\r\n`);
+          // 把后端透传的上游真实错误（xterm-server 拨号失败原因 / HTTP 状态 / URL）
+          // 一并展示在 xterm 里，便于运维定位是容器未起、端口未暴露还是 path 不对，
+          // 而不是只看到一行模糊的 "连接终端服务失败"。
+          const message = (msg.data?.message as string) ?? '终端连接失败';
+          const upstreamURL = (msg.data?.upstream_url as string) ?? '';
+          const upstreamStatus = (msg.data?.upstream_status as number) ?? 0;
+          const upstreamReason = (msg.data?.upstream_reason as string) ?? '';
+          let detail = `\r\n\x1b[31m✗ ${message}\x1b[0m\r\n`;
+          if (upstreamURL) {
+            detail += `\x1b[90m  上游: ${upstreamURL}\x1b[0m\r\n`;
+          }
+          if (upstreamStatus > 0) {
+            detail += `\x1b[90m  HTTP 状态: ${upstreamStatus}\x1b[0m\r\n`;
+          }
+          if (upstreamReason) {
+            detail += `\x1b[90m  原因: ${upstreamReason}\x1b[0m\r\n`;
+          }
+          termRef.current?.write(detail);
         }
         continue;
       }

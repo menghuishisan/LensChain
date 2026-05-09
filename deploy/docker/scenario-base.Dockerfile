@@ -32,7 +32,9 @@ RUN for i in 1 2 3; do \
     chown -R scenario:scenario /scenario
 
 WORKDIR /scenario
-USER scenario
+# 必须为数字 UID:GID，否则当 Pod 设置 runAsNonRoot=true 时 K8s admission 无法验证非 root，
+# 报错: "container has runAsNonRoot and image has non-numeric user (scenario)"
+USER 1001:1001
 EXPOSE 50100
 
 CMD ["/scenario/run"]

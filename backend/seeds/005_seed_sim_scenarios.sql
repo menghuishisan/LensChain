@@ -716,7 +716,7 @@ INSERT INTO template_containers (
 VALUES
 -- 混合实验 8005: geth + remix-ide
 (
-    920000000000009101, 920000000000008005, 910000000000006001,
+    920000000000009101, 920000000000008005, (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'solidity-dev' AND iv.version = '1.0'),
     'geth', 1,
     '[]'::jsonb,
     '[{"port":8545,"protocol":"tcp","name":"HTTP-RPC"},{"port":30303,"protocol":"tcp","name":"P2P"}]'::jsonb,
@@ -724,7 +724,7 @@ VALUES
     '500m', '1Gi', '[]'::jsonb, 1, FALSE, NOW(), NOW()
 ),
 (
-    920000000000009102, 920000000000008005, 910000000000006012,
+    920000000000009102, 920000000000008005, (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'remix-ide' AND iv.version = 'latest'),
     'remix-ide', 1,
     '[{"key":"REMIX_URL","value":"http://geth:8545","desc":"RPC 地址"}]'::jsonb,
     '[{"port":8080,"protocol":"tcp","name":"Web UI"}]'::jsonb,
@@ -733,7 +733,7 @@ VALUES
 ),
 -- 混合实验 8006: geth + blockscout
 (
-    920000000000009103, 920000000000008006, 910000000000006001,
+    920000000000009103, 920000000000008006, (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'solidity-dev' AND iv.version = '1.0'),
     'geth', 1,
     '[]'::jsonb,
     '[{"port":8545,"protocol":"tcp","name":"HTTP-RPC"},{"port":30303,"protocol":"tcp","name":"P2P"}]'::jsonb,
@@ -741,7 +741,7 @@ VALUES
     '500m', '1Gi', '[]'::jsonb, 1, FALSE, NOW(), NOW()
 ),
 (
-    920000000000009104, 920000000000008006, 910000000000006003,
+    920000000000009104, 920000000000008006, (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'blockscout' AND iv.version = '6.3'),
     'blockscout', 1,
     '[{"key":"ETHEREUM_JSONRPC_HTTP_URL","value":"http://geth:8545","desc":"EVM 节点 RPC 地址"}]'::jsonb,
     '[{"port":4000,"protocol":"tcp","name":"Web UI"}]'::jsonb,

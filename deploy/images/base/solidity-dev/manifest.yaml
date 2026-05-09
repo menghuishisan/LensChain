@@ -1,4 +1,5 @@
 name: solidity-dev
+display_name: Solidity Development Workspace
 category: base
 ecosystem: ethereum
 description: Solidity 开发环境镜像

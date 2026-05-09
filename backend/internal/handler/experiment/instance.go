@@ -6,6 +6,7 @@
 package experiment
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -935,6 +936,35 @@ func (h *InstanceHandler) TriggerImagePull(c *gin.Context) {
 		return
 	}
 	response.SuccessWithMsg(c, "预拉取任务已创建", respData)
+}
+
+// SyncImageManifest 同步单份 manifest yaml 到 images / image_versions 表。
+// POST /api/v1/admin/images/sync
+//
+// 请求体：deploy/images/<category>/<name>/manifest.yaml 文件原始内容（Content-Type: application/yaml 或 text/yaml）。
+// 调用方：deploy/scripts/bash/seed-images.sh —— 部署期或 manifest 变更后批量上传。
+//
+// 职责边界：handler 只负责读 body 并校验调用者身份；解析 yaml、按业务键 upsert
+// 全部交由 imageService.SyncImageFromManifest 完成（同时被 cmd/seed-manifests CLI 共享）。
+//
+// 鉴权：路由层已绑定 RequireSuperAdmin()。
+func (h *InstanceHandler) SyncImageManifest(c *gin.Context) {
+	raw, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("读取 manifest 内容失败"))
+		return
+	}
+	if len(raw) == 0 {
+		handlerctx.HandleError(c, errcode.ErrInvalidParams.WithMessage("manifest 内容不能为空"))
+		return
+	}
+
+	result, syncErr := h.imageService.SyncImageFromManifest(c.Request.Context(), raw)
+	if syncErr != nil {
+		handlerctx.HandleError(c, syncErr)
+		return
+	}
+	response.Success(c, result)
 }
 
 // GetSchoolMonitor 获取学校管理员视角的实验监控。

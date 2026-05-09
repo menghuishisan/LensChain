@@ -61,6 +61,11 @@ type ImageService interface {
 	GetDocumentation(ctx context.Context, sc *svcctx.ServiceContext, id int64) (*dto.ImageDocumentationResp, error)
 	GetImagePullStatus(ctx context.Context, sc *svcctx.ServiceContext, req *dto.ImagePullStatusListReq) (*dto.ImagePullStatusListResp, int64, error)
 	TriggerImagePull(ctx context.Context, sc *svcctx.ServiceContext, req *dto.TriggerImagePullReq) (*dto.TriggerImagePullResp, error)
+
+	// SyncImageFromManifest 解析单份 manifest yaml 并按 (name)/(image_id, version)
+	// 业务键幂等 upsert images 与 image_versions。被 cmd/seed-manifests CLI 与
+	// admin handler 共享调用。详见 image_manifest_sync.go。
+	SyncImageFromManifest(ctx context.Context, raw []byte) (*dto.ImageManifestSyncResp, error)
 }
 
 // imageService 镜像管理服务实现

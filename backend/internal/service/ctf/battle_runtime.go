@@ -65,7 +65,7 @@ func buildADRuntimeGroupSpec(
 		Namespace:        groupNamespace,
 		JudgeChainImage:  cfg.JudgeChainImage,
 		TeamChainImage:   cfg.TeamChainImage,
-		RuntimeToolImage: "ctf-blockchain:latest",
+		RuntimeToolImage: ctfDefaultRuntimeImage,
 		Teams:            make([]ADRuntimeTeamSpec, 0, len(teams)),
 	}
 	for _, team := range teams {

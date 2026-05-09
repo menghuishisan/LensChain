@@ -1470,6 +1470,9 @@ type UpdateResourceQuotaReq struct {
 }
 
 // StartChallengeEnvironmentResp 启动题目环境响应。
+// 不暴露 chain_rpc_url：学生不能直接连题目链，攻击 / 校验 全走 backend 业务接口
+// 由 judge-service 在集群内完成。详见 docs/modules/05-CTF竞赛/05-验收标准.md §663
+// "攻击通过平台代理执行，不直接暴露链地址"。
 type StartChallengeEnvironmentResp struct {
 	EnvironmentID string  `json:"environment_id"`
 	CompetitionID string  `json:"competition_id"`
@@ -1478,7 +1481,6 @@ type StartChallengeEnvironmentResp struct {
 	Namespace     string  `json:"namespace"`
 	Status        int16   `json:"status"`
 	StatusText    string  `json:"status_text"`
-	ChainRPCURL   *string `json:"chain_rpc_url"`
 	CreatedAt     string  `json:"created_at"`
 }
 
@@ -1491,7 +1493,6 @@ type ChallengeEnvironmentResp struct {
 	Namespace       string                                        `json:"namespace"`
 	Status          int16                                         `json:"status"`
 	StatusText      string                                        `json:"status_text"`
-	ChainRPCURL     *string                                       `json:"chain_rpc_url"`
 	ContainerStatus map[string]ChallengeEnvironmentContainerState `json:"container_status"`
 	StartedAt       *string                                       `json:"started_at"`
 	CreatedAt       string                                        `json:"created_at"`
@@ -1524,7 +1525,6 @@ type CompetitionEnvironmentListItem struct {
 	Namespace      string  `json:"namespace"`
 	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
-	ChainRPCURL    *string `json:"chain_rpc_url"`
 	StartedAt      *string `json:"started_at"`
 	CreatedAt      string  `json:"created_at"`
 }
@@ -1555,7 +1555,6 @@ type MyChallengeEnvironmentItem struct {
 	Namespace      string  `json:"namespace"`
 	Status         int16   `json:"status"`
 	StatusText     string  `json:"status_text"`
-	ChainRPCURL    *string `json:"chain_rpc_url"`
 	CreatedAt      string  `json:"created_at"`
 }
 
@@ -1567,8 +1566,6 @@ type TeamChainResp struct {
 	CompetitionID       string                  `json:"competition_id"`
 	GroupID             string                  `json:"group_id"`
 	TeamID              string                  `json:"team_id"`
-	ChainRPCURL         *string                 `json:"chain_rpc_url"`
-	ChainWSURL          *string                 `json:"chain_ws_url"`
 	DeployedContracts   []TeamChainContractItem `json:"deployed_contracts"`
 	CurrentPatchVersion int                     `json:"current_patch_version"`
 	Status              int16                   `json:"status"`

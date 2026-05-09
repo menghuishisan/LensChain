@@ -1,4 +1,5 @@
 name: fabric-tools
+display_name: Fabric CLI Tools
 category: tools
 ecosystem: fabric
 description: Hyperledger Fabric CLI 工具集

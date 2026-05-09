@@ -1,4 +1,5 @@
 name: couchdb
+display_name: CouchDB
 category: middleware
 ecosystem: fabric
 description: CouchDB 文档数据库（Fabric 状态数据库）

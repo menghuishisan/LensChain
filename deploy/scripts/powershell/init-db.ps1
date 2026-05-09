@@ -104,12 +104,23 @@ if ($LASTEXITCODE -ne 0) {
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $backendDir = Join-Path $repoRoot "backend"
-$seedFile = Join-Path $backendDir "migrations/010_seed_demo_data.up.sql"
-$seedSupplementFile = Join-Path $backendDir "migrations/011_seed_demo_supplement.up.sql"
-$seedImagesFile = Join-Path $backendDir "migrations/012_seed_images_experiments.up.sql"
-$seedSimScenariosFile = Join-Path $backendDir "migrations/013_seed_sim_scenarios.up.sql"
-$seedCtfFile = Join-Path $backendDir "migrations/014_seed_ctf.up.sql"
+$deployImagesDir = Join-Path $repoRoot "deploy\images"
 $goCacheDir = Join-Path $backendDir ".gocache"
+
+# 种子数据加载顺序（详见 backend/seeds/）：
+#   schema 迁移 → image_categories（sync 前置依赖）
+#   → seed-manifests CLI（从 manifest.yaml 灌入 images / image_versions）
+#   → 其它 seed（CTF 题目模板 / 演示数据 / 实验模板 / sim 场景 / CTF 竞赛），
+#     这些 seed 通过 (image_name, version) 子查询关联 image_version_id，
+#     必须排在 sync 之后才能解析。
+$seedDir = Join-Path $backendDir "seeds"
+$imageCategoriesSeed   = Join-Path $seedDir "000_seed_image_categories.sql"
+$ctfTemplatesSeed      = Join-Path $seedDir "001_seed_ctf_challenge_templates.sql"
+$demoSeed              = Join-Path $seedDir "002_seed_demo_data.sql"
+$demoSupplementSeed    = Join-Path $seedDir "003_seed_demo_supplement.sql"
+$imagesExperimentsSeed = Join-Path $seedDir "004_seed_images_experiments.sql"
+$simScenariosSeed      = Join-Path $seedDir "005_seed_sim_scenarios.sql"
+$ctfSeed               = Join-Path $seedDir "006_seed_ctf.sql"
 
 if (-not $env:GOCACHE) {
     if (-not (Test-Path $goCacheDir)) {
@@ -118,7 +129,7 @@ if (-not $env:GOCACHE) {
     $env:GOCACHE = $goCacheDir
 }
 
-Write-Host "==> Running migrations"
+Write-Host "==> Running schema migrations (backend/migrations)"
 Push-Location $backendDir
 try {
     & go run cmd/migrate/main.go up
@@ -130,59 +141,39 @@ finally {
     Pop-Location
 }
 
-if (Test-Path $seedFile) {
-    Write-Host "==> Seeding demo data from migrations/010_seed_demo_data.up.sql"
-    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedFile
-    if ($LASTEXITCODE -ne 0) {
-        throw "导入 demo 数据失败"
+function Invoke-Seed {
+    param([string]$Label, [string]$FilePath)
+    if (Test-Path $FilePath) {
+        Write-Host "==> Seeding $Label from $FilePath"
+        & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -v ON_ERROR_STOP=1 -f $FilePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "导入 $Label 失败"
+        }
     }
-}
-else {
-    Write-Host "==> Demo seed file not found, skipping"
+    else {
+        Write-Host "==> $Label seed file not found ($FilePath), skipping"
+    }
 }
 
-if (Test-Path $seedSupplementFile) {
-    Write-Host "==> Seeding supplement data from migrations/011_seed_demo_supplement.up.sql"
-    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedSupplementFile
+Invoke-Seed "image categories" $imageCategoriesSeed
+
+Write-Host "==> Syncing image manifests (deploy/images/**/manifest.yaml → images / image_versions)"
+Push-Location $backendDir
+try {
+    & go run cmd/seed-manifests/main.go -images-dir $deployImagesDir
     if ($LASTEXITCODE -ne 0) {
-        throw "导入补充 demo 数据失败"
+        throw "镜像 manifest 同步失败"
     }
 }
-else {
-    Write-Host "==> Supplement seed file not found, skipping"
+finally {
+    Pop-Location
 }
 
-if (Test-Path $seedImagesFile) {
-    Write-Host "==> Seeding images & experiments data from migrations/012_seed_images_experiments.up.sql"
-    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedImagesFile
-    if ($LASTEXITCODE -ne 0) {
-        throw "导入镜像与实验模板数据失败"
-    }
-}
-else {
-    Write-Host "==> Images & experiments seed file not found, skipping"
-}
-
-if (Test-Path $seedSimScenariosFile) {
-    Write-Host "==> Seeding sim scenarios data from migrations/013_seed_sim_scenarios.up.sql"
-    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedSimScenariosFile
-    if ($LASTEXITCODE -ne 0) {
-        throw "导入仿真场景数据失败"
-    }
-}
-else {
-    Write-Host "==> Sim scenarios seed file not found, skipping"
-}
-
-if (Test-Path $seedCtfFile) {
-    Write-Host "==> Seeding CTF data from migrations/014_seed_ctf.up.sql"
-    & psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f $seedCtfFile
-    if ($LASTEXITCODE -ne 0) {
-        throw "导入 CTF 竞赛数据失败"
-    }
-}
-else {
-    Write-Host "==> CTF seed file not found, skipping"
-}
+Invoke-Seed "CTF challenge templates"        $ctfTemplatesSeed
+Invoke-Seed "demo data"                      $demoSeed
+Invoke-Seed "demo supplement"                $demoSupplementSeed
+Invoke-Seed "images & experiments templates" $imagesExperimentsSeed
+Invoke-Seed "sim scenarios"                  $simScenariosSeed
+Invoke-Seed "CTF competitions"               $ctfSeed
 
 Write-Host "==> Database initialization complete"

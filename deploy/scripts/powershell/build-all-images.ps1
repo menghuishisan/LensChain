@@ -299,7 +299,7 @@ foreach ($svc in $serviceImages) {
 # 平台 43 个内置场景共享同一个二进制（sim-engine/scenarios/cmd/scenario），
 # 启动时通过 SCENE_CODE 环境变量分发场景。
 # 目标镜像：$Registry/scenarios/runtime:v1.0.0
-# 与 sim_scenarios.container_image_url 对齐（013_seed_sim_scenarios.up.sql）。
+# 与 sim_scenarios.container_image_url 对齐（backend/seeds/005_seed_sim_scenarios.sql）。
 # ---------------------------------------------------------------------------
 
 Write-Host "`n========================================" -ForegroundColor Cyan

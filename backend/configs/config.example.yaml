@@ -165,6 +165,10 @@ k8s:
   default_cpu: "250m"
   default_memory: "512Mi"
   collector_image_template: "registry.lianjing.com/lenschain/collector-agent-%s:v1.0.0"
+  # tool_proxy_base_url: 工具容器反向代理基地址（用于签发 instance_containers.proxy_url）
+  # 格式：{base_url}/instance/{instance_id}/{tool_kind}?token={jwt}
+  # 本地开发：http://127.0.0.1:8080；生产：https://lab.lianjing.com
+  tool_proxy_base_url: "http://127.0.0.1:8080"
   timeout: "15s"
 
   # in_cluster: 是否使用集群内配置；true 表示运行在 K8s 集群内

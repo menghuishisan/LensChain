@@ -319,129 +319,14 @@ SET provider = EXCLUDED.provider,
     tested_at = EXCLUDED.tested_at,
     updated_at = NOW(),
     updated_by = EXCLUDED.updated_by;
--- 04. 镜像分类 / 镜像 / 镜像版本
+-- 04. 镜像数据来源
 -- ---------------------------------------------------------------------------
-
-INSERT INTO image_categories (id, name, code, description, sort_order, created_at, updated_at)
-VALUES
-    (910000000000004001, '基础开发环境', 'base', '开发环境与工具基础镜像', 1, NOW(), NOW()),
-    (910000000000004002, '链节点', 'chain-nodes', '链节点与协议运行镜像', 2, NOW(), NOW()),
-    (910000000000004003, '区块链中间件', 'middleware', '部署、索引与链上调试中间件镜像', 3, NOW(), NOW()),
-    (910000000000004004, '工具镜像', 'tools', '浏览器、IDE、CLI 与调试分析工具镜像', 4, NOW(), NOW())
-ON CONFLICT (code) DO NOTHING;
-
-INSERT INTO images (
-    id, category_id, name, display_name, description, ecosystem, source_type, status,
-    default_ports, default_env_vars, default_volumes, typical_companions, required_dependencies,
-    resource_recommendation, documentation_url, usage_count, created_at, updated_at
-)
-VALUES
-    (
-        910000000000005001,
-        910000000000004001,
-        'solidity-dev',
-        'Solidity Development Workspace',
-        '用于智能合约编写、编译与调试的开发工作空间。',
-        'ethereum',
-        1,
-        1,
-        '[]'::jsonb,
-        '[{"key":"SOLC_VERSION","value":"0.8.25","desc":"Solidity 编译器版本","conditions":[]}]'::jsonb,
-        '[{"path":"/home/developer/project","desc":"项目工作目录"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"geth","reason":"连接本地开发链进行部署与调试"}],"optional":[{"image":"blockscout","reason":"查看区块和交易"}]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"1Gi","disk":"5Gi"}'::jsonb,
-        '/docs/images/solidity-dev',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005002,
-        910000000000004002,
-        'geth',
-        'Go-Ethereum Node',
-        '用于教学演示和 DApp 联调的本地以太坊节点。',
-        'ethereum',
-        1,
-        1,
-        '[{"port":8545,"protocol":"tcp","name":"HTTP-RPC"},{"port":8546,"protocol":"tcp","name":"WebSocket-RPC"},{"port":30303,"protocol":"tcp","name":"P2P"}]'::jsonb,
-        '[{"key":"GETH_NETWORK","value":"dev","desc":"运行网络","conditions":[]}]'::jsonb,
-        '[{"path":"/root/.ethereum","desc":"链数据目录"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"solidity-dev","reason":"与开发工作空间配合完成合约部署"}],"optional":[{"image":"blockscout","reason":"区块浏览器"}]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"1Gi","disk":"10Gi"}'::jsonb,
-        '/docs/images/geth',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005003,
-        910000000000004004,
-        'blockscout',
-        'Blockscout Explorer',
-        '用于教学环境的区块浏览器，便于学生观察交易与区块状态。',
-        'ethereum',
-        1,
-        1,
-        '[{"port":4000,"protocol":"tcp","name":"Web UI"}]'::jsonb,
-        '[{"key":"ETHEREUM_JSONRPC_HTTP_URL","value":"http://geth:8545","desc":"EVM 节点 RPC 地址","conditions":[]}]'::jsonb,
-        '[]'::jsonb,
-        '{"required":[{"image":"geth","reason":"依赖链节点提供区块与交易数据"},{"image":"postgres","reason":"数据存储后端"}],"recommended":[],"optional":[]}'::jsonb,
-        '["geth","postgres"]'::jsonb,
-        '{"cpu":"0.5","memory":"1Gi","disk":"8Gi"}'::jsonb,
-        '/docs/images/blockscout',
-        0,
-        NOW(),
-        NOW()
-    )
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO image_versions (
-    id, image_id, version, registry_url, min_cpu, min_memory, min_disk, is_default, status, created_at, updated_at
-)
-VALUES
-    (
-        910000000000006001,
-        910000000000005001,
-        '1.0',
-        'registry.lianjing.com/base/solidity-dev:v1.0.0',
-        '250m',
-        '512Mi',
-        '5Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000006002,
-        910000000000005002,
-        '1.14',
-        'registry.lianjing.com/chain-nodes/geth:v1.14.0',
-        '250m',
-        '512Mi',
-        '10Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000006003,
-        910000000000005003,
-        '6.3',
-        'registry.lianjing.com/tools/blockscout:v6.3.0',
-        '500m',
-        '1Gi',
-        '8Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    )
-ON CONFLICT (id) DO NOTHING;
+-- image_categories 由 seeds/000_seed_image_categories.sql 提供（必须早于 sync）。
+-- images / image_versions 由 cmd/seed-manifests CLI（或 admin API POST
+-- /api/v1/admin/images/sync）扫描 deploy/images/**/manifest.yaml 灌入。
+-- 本文件下方的 template_containers 通过 (image_name, version) 子查询关联
+-- image_version，不再硬编码 image_version_id，符合"manifest 是镜像元数据
+-- 唯一真相源"的架构原则。
 
 -- ---------------------------------------------------------------------------
 -- 05. 课程、章节、课时与选课
@@ -654,7 +539,7 @@ VALUES
     (
         910000000000009001,
         910000000000008001,
-        910000000000006001,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'solidity-dev' AND iv.version = '1.0'),
         'solidity-workspace',
         1,
         '[]'::jsonb,
@@ -672,7 +557,7 @@ VALUES
     (
         910000000000009002,
         910000000000008002,
-        910000000000006002,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
         'shared-geth',
         2,
         '[]'::jsonb,
@@ -690,7 +575,7 @@ VALUES
     (
         910000000000009003,
         910000000000008002,
-        910000000000006001,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'solidity-dev' AND iv.version = '1.0'),
         'student-dev',
         1,
         '[]'::jsonb,
@@ -708,7 +593,7 @@ VALUES
     (
         910000000000009004,
         910000000000008003,
-        910000000000006001,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'solidity-dev' AND iv.version = '1.0'),
         'security-lab',
         1,
         '[]'::jsonb,
@@ -726,7 +611,7 @@ VALUES
     (
         910000000000009005,
         910000000000008004,
-        910000000000006002,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
         'data-shared-geth',
         2,
         '[]'::jsonb,
@@ -744,7 +629,7 @@ VALUES
     (
         910000000000009006,
         910000000000008004,
-        910000000000006003,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'blockscout' AND iv.version = '6.3'),
         'data-blockscout',
         2,
         '[]'::jsonb,
@@ -762,7 +647,7 @@ VALUES
     (
         910000000000009007,
         910000000000008004,
-        910000000000006001,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'solidity-dev' AND iv.version = '1.0'),
         'data-student-dev',
         1,
         '[]'::jsonb,

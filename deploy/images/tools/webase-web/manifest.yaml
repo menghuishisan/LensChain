@@ -1,4 +1,6 @@
 name: webase-web
+display_name: WeBase Web
+tool_kind: explorer
 category: tools
 ecosystem: fisco
 description: WeBase Web 管理平台

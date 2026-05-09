@@ -275,6 +275,13 @@ func buildTemplateListItemsWithMetadata(
 			maxDuration = *template.MaxDuration
 		}
 
+		// templateTagMap[template.ID] 在该模板没有标签时为 nil（map 缺 key 的零值）。
+		// dto.TemplateListItem.Tags 契约为非空数组（json:"tags"，TS 类型 ExperimentTag[]），
+		// 必须显式回退到空切片，否则 JSON 输出 "tags": null，前端 .length / .map 直接崩。
+		itemTags := templateTagMap[template.ID]
+		if itemTags == nil {
+			itemTags = make([]dto.TagResp, 0)
+		}
 		items = append(items, &dto.TemplateListItem{
 			ID:                 strconv.FormatInt(template.ID, 10),
 			Title:              template.Title,
@@ -291,7 +298,7 @@ func buildTemplateListItemsWithMetadata(
 			StatusText:         enum.GetTemplateStatusText(template.Status),
 			ContainerCount:     containerCounts[template.ID],
 			CheckpointCount:    checkpointCounts[template.ID],
-			Tags:               templateTagMap[template.ID],
+			Tags:               itemTags,
 			CreatedAt:          template.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:          template.UpdatedAt.Format(time.RFC3339),
 		})

@@ -2,6 +2,14 @@ import type { SimAction, TimeControlCommand, WebSocketMessage } from "./types.js
 
 /**
  * WSClient 封装 SimEngine 数据通道的连接与消息收发。
+ *
+ * 设计要点（与 frontend/src/hooks/useExperimentRealtime.ts 同构）：
+ * 每个 socket 的事件监听器通过闭包捕获自身引用（localSocket），所有回调首行做
+ * `this.socket !== localSocket` 的身份校验。`this.socket` 即活跃 socket，其余皆死。
+ * 不再使用 closedManually 共享标志位，从根上消除 React StrictMode 双调用 / 任意
+ * connect() 重连路径下的状态竞态：旧 socket 的异步 close 事件无法误触发重连去杀掉
+ * 已经成功建立的新 socket（之前症状："WebSocket is closed before the connection is
+ * established"无限循环，DevTools WS 列表看似为空）。
  */
 export class WSClient {
   private socket: WebSocket | undefined;
@@ -9,7 +17,6 @@ export class WSClient {
   private readonly statusListeners = new Set<(connected: boolean) => void>();
   private reconnectTimer: number | undefined;
   private reconnectAttempts = 0;
-  private closedManually = false;
 
   /**
    * constructor 初始化数据通道客户端。
@@ -20,37 +27,44 @@ export class WSClient {
    * connect 建立数据通道连接，并在断开后自动重连。
    */
   public connect(): void {
-    this.closedManually = false;
     this.cancelReconnect();
-    this.socket?.close();
-    this.socket = new WebSocket(this.url);
-    this.socket.addEventListener("message", (event) => {
+    const previous = this.socket;
+    this.socket = undefined;
+    previous?.close();
+
+    const localSocket = new WebSocket(this.url);
+    this.socket = localSocket;
+
+    localSocket.addEventListener("message", (event) => {
+      if (this.socket !== localSocket) return;
       const message = JSON.parse(String(event.data)) as WebSocketMessage;
       for (const listener of this.listeners) {
         listener(message);
       }
     });
-    this.socket.addEventListener("open", () => {
+    localSocket.addEventListener("open", () => {
+      if (this.socket !== localSocket) return;
       this.reconnectAttempts = 0;
       this.notifyStatus(true);
     });
-    this.socket.addEventListener("close", () => {
+    localSocket.addEventListener("close", () => {
+      if (this.socket !== localSocket) return;
       this.socket = undefined;
       this.notifyStatus(false);
-      if (!this.closedManually) {
-        this.scheduleReconnect();
-      }
+      this.scheduleReconnect();
     });
   }
 
   /**
    * disconnect 主动关闭数据通道连接。
+   * 通过先清空 this.socket 再关闭，使被弃 socket 的异步 close 事件因身份校验失败而失效，
+   * 不会触发自动重连。
    */
   public disconnect(): void {
-    this.closedManually = true;
     this.cancelReconnect();
-    this.socket?.close();
+    const previous = this.socket;
     this.socket = undefined;
+    previous?.close();
   }
 
   /**

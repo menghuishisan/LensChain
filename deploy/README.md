@@ -105,17 +105,26 @@ $env:DB_HOST="localhost"; $env:DB_PORT="5442"; $env:DB_USER="lenschain"; $env:DB
 
 演示 / 联调用的数据库种子数据放在：
 
-- [backend/migrations/010_seed_demo_data.up.sql](/abs/path/E:/code/LensChain/backend/migrations/010_seed_demo_data.up.sql)
+- [backend/seeds/002_seed_demo_data.sql](/abs/path/E:/code/LensChain/backend/seeds/002_seed_demo_data.sql)
+
+种子数据加载顺序由 `deploy/scripts/{bash,powershell}/init-db.{sh,ps1}` 编排：
+
+1. `migrate up` 执行 `backend/migrations/` 全部 schema 迁移（含 009 UNIQUE 约束）；
+2. 依次 `psql -f` 加载 `backend/seeds/001..003`（CTF 题目模板、演示数据、补充数据，**不含 image 数据**）；
+3. 调用 `cmd/seed-manifests` CLI 扫描 `deploy/images/**/manifest.yaml`，按业务键幂等 upsert `images` / `image_versions`；
+4. 依次 `psql -f` 加载 `seeds/004..006`（实验模板、sim 场景、CTF 竞赛）—— 这些 seed 通过 `(image_name, version)` 子查询绑定 `image_version_id`，因此必须排在 manifest 同步之后
 
 这份数据会初始化：
 
 - 学校
 - 教师 / 学生 / 学校管理员账号
-- 镜像分类 / 镜像 / 镜像版本
+- 镜像分类（`image_categories`）
 - 课程、章节、课时
 - 单人实验模板
 - 共享基础设施实验模板
 - 课程与实验关联
+
+> 镜像主表（`images`）与版本表（`image_versions`）由 `cmd/seed-manifests` 从 `deploy/images/**/manifest.yaml` 灌入，不再硬编码在 seed SQL 里。
 - 选课数据
 
 它的目标是让前后端、实验环境和部署联调后直接有可用内容，而不是空库。

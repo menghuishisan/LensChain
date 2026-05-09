@@ -60,6 +60,7 @@ type Image struct {
 	RequiredDependencies   datatypes.JSON `gorm:"column:required_dependencies;type:jsonb" json:"required_dependencies,omitempty"`
 	ResourceRecommendation datatypes.JSON `gorm:"column:resource_recommendation;type:jsonb" json:"resource_recommendation,omitempty"`
 	DocumentationURL       *string        `gorm:"column:documentation_url;type:varchar(500)" json:"documentation_url,omitempty"`
+	ToolKind               *string        `gorm:"column:tool_kind;type:varchar(50);index:idx_images_tool_kind,where:tool_kind IS NOT NULL" json:"tool_kind,omitempty"`
 	UsageCount             int            `gorm:"column:usage_count;not null;default:0" json:"usage_count"`
 	CreatedAt              time.Time      `gorm:"column:created_at;not null;default:now()" json:"created_at"`
 	UpdatedAt              time.Time      `gorm:"column:updated_at;not null;default:now()" json:"updated_at"`

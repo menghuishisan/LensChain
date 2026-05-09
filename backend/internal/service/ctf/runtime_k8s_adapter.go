@@ -25,12 +25,17 @@ const (
 	ctfTeamChainRPCPort         = 8545
 	ctfRuntimeReadyPoll         = 2 * time.Second
 	ctfRuntimeReadyTimeout      = 90 * time.Second
-	ctfDefaultRuntimeImage      = "ctf-blockchain:latest"
-	ctfDefaultJudgeImage        = "geth-dev:latest"
-	ctfDefaultTeamChainImage    = "ganache:latest"
-	ctfDefaultForkChainImage    = "hardhat-node:latest"
-	ctfDefaultJudgeSvcImage     = "judge-service:latest"
-	ctfDefaultPatchVerifierImage = "patch-verifier:latest"
+	// 默认镜像引用 —— 与 deploy/images/<category>/<name>/manifest.yaml 中
+	// versions[is_default=true].tag + registry_project 严格对齐。生产环境
+	// 不允许使用 :latest（无法回滚 / 无法审计 / Pod 重启可能拉到不一致镜像），
+	// 因此此处全部使用具名版本。题目维度若要覆盖镜像，仍可通过
+	// challenge.environment / competition.ad_config 显式指定。
+	ctfDefaultRuntimeImage       = "registry.lianjing.com/base/ctf-blockchain:v1.0.0"
+	ctfDefaultJudgeImage         = "registry.lianjing.com/chain-nodes/geth:v1.14.0"
+	ctfDefaultTeamChainImage     = "registry.lianjing.com/chain-nodes/ganache:v7.9.2"
+	ctfDefaultForkChainImage     = "registry.lianjing.com/chain-nodes/hardhat-node:v2.22.0"
+	ctfDefaultJudgeSvcImage      = "registry.lianjing.com/tools/judge-service:v1.0.0"
+	ctfDefaultPatchVerifierImage = "registry.lianjing.com/tools/patch-verifier:v1.0.0"
 )
 
 // RuntimeProvisionerAdapter 复用模块04 K8sService 提供模块05运行时能力。

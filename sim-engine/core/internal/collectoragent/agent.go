@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 )
 
 // Event 表示发送给 SimEngine Core 的标准化采集事件。
@@ -77,7 +77,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("collector agent is not initialized")
 	}
 
-	conn, err := websocket.Dial(a.cfg.CoreWebSocketURL, "", "http://localhost/")
+	dialer := websocket.DefaultDialer
+	conn, _, err := dialer.Dial(a.cfg.CoreWebSocketURL, nil)
 	if err != nil {
 		return fmt.Errorf("connect collector websocket: %w", err)
 	}
@@ -92,7 +93,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return err
 		}
 		for _, event := range events {
-			if err := websocket.JSON.Send(conn, event); err != nil {
+			if err := conn.WriteJSON(event); err != nil {
 				return fmt.Errorf("send collector event: %w", err)
 			}
 		}

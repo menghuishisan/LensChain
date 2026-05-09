@@ -1,4 +1,6 @@
 name: fabric-explorer
+display_name: Hyperledger Explorer
+tool_kind: explorer
 category: tools
 ecosystem: fabric
 description: Hyperledger Explorer Fabric 区块链浏览器

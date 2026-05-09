@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -192,32 +194,57 @@ func (e *Engine) StartSession(ctx context.Context, req StartSessionRequest) (Sta
 	sceneReady := make(map[string]bool, len(req.Scenes))
 	sceneErrors := make(map[string]string)
 	sceneModes := make([]simcore.TimeControlMode, 0, len(req.Scenes))
-	for _, item := range req.Scenes {
+
+	// 各场景无依赖关系，并行启动：每个场景独立创建 Pod/Service + gRPC 就绪检查，
+	// 总耗时从 N×单场景 降为 max(单场景)，避免多场景串行超过 ReadyTimeout。
+	var scenesMu sync.Mutex
+	var wg sync.WaitGroup
+	for i := range req.Scenes {
+		item := req.Scenes[i]
 		item.ParamsJSON = mergeSceneParams(item.ParamsJSON, item.LinkGroupCode)
+
+		scenesMu.Lock()
 		sceneIndex[item.SceneCode] = item
-		started, err := e.scenes.Start(ctx, scene.Config{
-			SessionID:             created.SessionID,
-			SceneCode:             item.SceneCode,
-			ParamsJSON:            item.ParamsJSON,
-			InitialStateJSON:      item.InitialStateJSON,
-			SharedStateJSON:       item.SharedStateJSON,
-			ContainerImageURL:     item.ContainerImageURL,
-			ResourceRequestCPU:    item.ResourceRequestCPU,
-			ResourceRequestMemory: item.ResourceRequestMemory,
-		})
-		if err != nil {
-			sceneErrors[item.SceneCode] = err.Error()
-			continue
-		}
-		if started.Meta.TimeControlMode != "" {
-			sceneModes = append(sceneModes, simcore.TimeControlMode(started.Meta.TimeControlMode))
-		}
-		activeSceneCodes = append(activeSceneCodes, item.SceneCode)
-		sceneReady[item.SceneCode] = true
+		scenesMu.Unlock()
+
+		wg.Add(1)
+		go func(item SceneConfig) {
+			defer wg.Done()
+			started, startErr := e.scenes.Start(ctx, scene.Config{
+				SessionID:             created.SessionID,
+				SceneCode:             item.SceneCode,
+				ParamsJSON:            item.ParamsJSON,
+				InitialStateJSON:      item.InitialStateJSON,
+				SharedStateJSON:       item.SharedStateJSON,
+				ContainerImageURL:     item.ContainerImageURL,
+				ResourceRequestCPU:    item.ResourceRequestCPU,
+				ResourceRequestMemory: item.ResourceRequestMemory,
+			})
+
+			scenesMu.Lock()
+			defer scenesMu.Unlock()
+			if startErr != nil {
+				sceneErrors[item.SceneCode] = startErr.Error()
+				log.Printf("[StartSession] session=%s scene=%s start failed: %v", created.SessionID, item.SceneCode, startErr)
+				return
+			}
+			if started.Meta.TimeControlMode != "" {
+				sceneModes = append(sceneModes, simcore.TimeControlMode(started.Meta.TimeControlMode))
+			}
+			activeSceneCodes = append(activeSceneCodes, item.SceneCode)
+			sceneReady[item.SceneCode] = true
+		}(item)
 	}
+	wg.Wait()
 	if len(activeSceneCodes) == 0 {
 		_ = e.sessions.Destroy(created.SessionID)
-		return StartSessionResult{}, errors.New("all scenes failed to start")
+		// 对外仅暴露失败的场景 code 列表，不泄露 K8s 命名空间、Pod 名、镜像 URL 等内部细节
+		failedCodes := make([]string, 0, len(sceneErrors))
+		for code := range sceneErrors {
+			failedCodes = append(failedCodes, code)
+		}
+		sort.Strings(failedCodes)
+		return StartSessionResult{}, fmt.Errorf("所有场景启动失败 (%s)，请联系运维查看 sim-engine 日志", strings.Join(failedCodes, ", "))
 	}
 
 	linkGroupCodes, err := e.registerLinkGroups(created.SessionID, req)

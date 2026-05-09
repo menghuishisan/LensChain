@@ -7,8 +7,15 @@
 set -euo pipefail
 shopt -s globstar nullglob
 
-BACKEND_URL=${BACKEND_URL:-http://localhost:8080/api/v1}
+BACKEND_URL=${BACKEND_URL:-http://localhost:8080}
 ADMIN_TOKEN=${ADMIN_TOKEN:?"ADMIN_TOKEN is required"}
+
+# 与 backend/internal/router/experiment.go 中 RegisterAdminImageSync 一致：
+# 路由组 /api/v1 + /admin/images/sync。如果 BACKEND_URL 已经带 /api/v1
+# 后缀，本脚本会自动剥掉以避免重复拼接。
+SYNC_PATH=${SYNC_PATH:-/api/v1/admin/images/sync}
+BACKEND_URL=${BACKEND_URL%/api/v1}
+BACKEND_URL=${BACKEND_URL%/}
 
 DEPLOY_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 COUNT=0
@@ -29,7 +36,7 @@ for MANIFEST in "${MANIFESTS[@]}"; do
   echo "    Syncing: $NAME"
 
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST "${BACKEND_URL}/admin/images/sync" \
+    -X POST "${BACKEND_URL}${SYNC_PATH}" \
     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
     -H "Content-Type: application/yaml" \
     --data-binary @"$MANIFEST")

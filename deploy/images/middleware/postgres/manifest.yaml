@@ -1,4 +1,5 @@
 name: postgres
+display_name: PostgreSQL
 category: middleware
 ecosystem: general
 description: PostgreSQL 关系型数据库

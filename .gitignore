@@ -57,3 +57,6 @@ docs/*
 !docs/API接口总览.md
 !docs/数据库表总览.md
 !docs/项目功能总览.md
+
+# 本地测试笔记：仅本地维护，提交时手动跳过（不放进 .gitignore，
+# 否则 IDE / Cascade 工具链无法读写。请勿 git add TESTING_NOTES.md。）

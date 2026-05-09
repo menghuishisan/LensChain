@@ -6,12 +6,47 @@ package experiment
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 )
+
+// deriveContainerToolMeta 按 docs/modules/04-实验环境/02-数据库设计.md §2.16 派生
+// instance_containers.tool_kind 与 proxy_url：
+//   - tool_kind：沿 template_container.image_version_id → image_versions.image_id → images.tool_kind
+//     直接读取，service 层不做任何镜像名→kind 的硬编码映射；
+//   - proxy_url：仅工具镜像（tool_kind 非空）签发，格式 {ToolProxyBaseURL}/instance/{id}/{tool_kind}/
+//     （末尾斜杠保证 router 路由 *proxy_path 在裸路径下也能命中根 "/"；token 不放 URL，前端
+//     必须先调 POST /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie 拿 cookie，
+//     由 ToolProxyAuth 中间件鉴权，详见 handler/experiment/tool_proxy.go）。
+//   - ToolProxyBaseURL 为空时返回相对路径 /instance/{id}/{kind}/，由前端拼当前主机或 Ingress 处理；
+//     生产部署需在 config.toolProxyBaseURL 显式填外部访问域名。
+//
+// 任一环节失败或非工具镜像，返回 (nil, nil)。
+func (s *instanceService) deriveContainerToolMeta(ctx context.Context, imageVersionID int64, instanceID int64) (*string, *string) {
+	if imageVersionID == 0 || s.imageVersionRepo == nil || s.imageRepo == nil {
+		return nil, nil
+	}
+	version, err := s.imageVersionRepo.GetByID(ctx, imageVersionID)
+	if err != nil || version == nil {
+		return nil, nil
+	}
+	image, err := s.imageRepo.GetByID(ctx, version.ImageID)
+	if err != nil || image == nil {
+		return nil, nil
+	}
+	if image.ToolKind == nil || strings.TrimSpace(*image.ToolKind) == "" {
+		return nil, nil
+	}
+	kind := strings.TrimSpace(*image.ToolKind)
+	base := strings.TrimRight(strings.TrimSpace(s.toolProxyBaseURL), "/")
+	url := fmt.Sprintf("%s/instance/%d/%s/", base, instanceID, kind)
+	return &kind, &url
+}
 
 // getInstanceUserSummary 获取实例详情所需的学生摘要。
 // 实例详情必须通过模块01注入的摘要接口拿到姓名和学号，避免同时保留多条用户信息来源。

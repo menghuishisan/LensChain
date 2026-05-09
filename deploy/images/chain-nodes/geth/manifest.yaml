@@ -1,4 +1,5 @@
 name: geth
+display_name: Go-Ethereum Node
 category: chain-nodes
 ecosystem: ethereum
 description: Go-Ethereum 全功能客户端

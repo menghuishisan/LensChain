@@ -46,7 +46,6 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
   const pingTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectCountRef = useRef(0);
-  const isManualCloseRef = useRef(false);
   const stableCompetitionID = useMemo(() => competitionID, [competitionID]);
 
   const clearTimers = useCallback(() => {
@@ -60,11 +59,12 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
     }
   }, []);
 
+  // 设计参见 useExperimentRealtime：身份校验取代 manual-close 标志位，避免 StrictMode 下竞态。
   const closeSocket = useCallback(() => {
-    isManualCloseRef.current = true;
     clearTimers();
-    socketRef.current?.close();
+    const socket = socketRef.current;
     socketRef.current = null;
+    socket?.close();
   }, [clearTimers]);
 
   const connect = useCallback(() => {
@@ -73,7 +73,6 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
       return;
     }
     closeSocket();
-    isManualCloseRef.current = false;
     setStatus(reconnectCountRef.current > 0 ? "reconnecting" : "connecting");
     setError(null);
 
@@ -81,6 +80,7 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
     socketRef.current = socket;
 
     socket.onopen = () => {
+      if (socketRef.current !== socket) return;
       reconnectCountRef.current = 0;
       setStatus("open");
       setHasSnapshotSynced(false);
@@ -90,6 +90,7 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
     };
 
     socket.onmessage = (event) => {
+      if (socketRef.current !== socket) return;
       const message = parseMessage(String(event.data));
       if (message.type === "snapshot" || message.channel === "leaderboard") {
         setHasSnapshotSynced(true);
@@ -98,16 +99,17 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
     };
 
     socket.onerror = () => {
+      if (socketRef.current !== socket) return;
       setStatus("error");
       setError("CTF 实时连接发生错误");
     };
 
     socket.onclose = () => {
+      if (socketRef.current !== socket) return;
       clearTimers();
       socketRef.current = null;
-      if (isManualCloseRef.current || !enabled) {
+      if (!enabled) {
         setStatus("closed");
-        isManualCloseRef.current = false;
         return;
       }
       reconnectCountRef.current += 1;

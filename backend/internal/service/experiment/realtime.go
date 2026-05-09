@@ -49,3 +49,10 @@ func CourseMonitorRoom(courseID int64, templateID string) string {
 	}
 	return room
 }
+
+// ExperimentInstanceRoom 返回学生端实验实例状态推送房间名。
+// 学生连 `/ws/experiment-instances/:id` 时加入该房间，service 层在状态变更 / 检查点完成 / 实例异常时
+// 向该房间广播，前端 useExperimentInstanceRealtime 据此触发查询失效，无需任何轮询兜底。
+func ExperimentInstanceRoom(instanceID int64) string {
+	return "experiment-instance:" + strconv.FormatInt(instanceID, 10)
+}

@@ -7,6 +7,7 @@ package experiment
 
 import (
 	"context"
+	"net"
 	"time"
 )
 
@@ -28,6 +29,12 @@ type K8sService interface {
 	GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines int) (string, error)
 	CaptureContainerRuntimeState(ctx context.Context, namespace, podName, container string, mountPaths []string) (*RuntimeContainerState, error)
 	RestoreContainerRuntimeState(ctx context.Context, namespace, podName, container string, state *RuntimeContainerState) error
+
+	// DialPodPort 通过 K8s API 的 SPDY portforward 隧道连接到指定 Pod 端口，返回 net.Conn。
+	// 用于 backend 代理学生 WS / HTTP 流量到实验容器（终端 PTY、IDE、可视化工具等）；
+	// 设计依据见 docs/modules/09-部署与运维/02-基础设施设计.md §2.4，本仓库不允许直拨 Pod IP /
+	// Service ClusterIP 或暴露 NodePort 替代该路径。
+	DialPodPort(ctx context.Context, namespace, podName string, port int) (net.Conn, error)
 
 	// 资源监控
 	GetResourceUsage(ctx context.Context, namespace string) (*ResourceUsage, error)

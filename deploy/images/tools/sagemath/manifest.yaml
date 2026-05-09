@@ -1,4 +1,6 @@
 name: sagemath
+display_name: SageMath
+tool_kind: ide
 category: tools
 ecosystem: general
 description: SageMath 数学计算环境

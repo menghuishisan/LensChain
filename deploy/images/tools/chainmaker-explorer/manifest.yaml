@@ -1,4 +1,6 @@
 name: chainmaker-explorer
+display_name: ChainMaker Explorer
+tool_kind: explorer
 category: tools
 ecosystem: chainmaker
 description: 长安链浏览器

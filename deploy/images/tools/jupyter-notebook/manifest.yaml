@@ -1,4 +1,6 @@
 name: jupyter-notebook
+display_name: Jupyter Notebook
+tool_kind: ide
 category: tools
 ecosystem: general
 description: Jupyter Notebook 交互式编程环境

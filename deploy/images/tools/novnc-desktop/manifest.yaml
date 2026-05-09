@@ -1,4 +1,6 @@
 name: novnc-desktop
+display_name: noVNC Desktop
+tool_kind: desktop
 category: tools
 ecosystem: general
 description: noVNC 图形化桌面

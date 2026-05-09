@@ -7,6 +7,8 @@ package experiment
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +59,9 @@ func (h *InstanceHandler) ServeInstanceWS(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// 必须 JoinRoom 才能接收 service 层 BroadcastToRoom 的状态变更 / 检查点完成 / 实例异常 / 容器状态推送。
+	// 之前缺这一步导致前端订阅了 WS 但永远收不到任何业务消息，UI 状态永远停留在初始值。
+	manager.JoinRoom(client, svc.ExperimentInstanceRoom(instanceID))
 	go client.WritePump()
 	client.ReadPump(manager)
 }
@@ -157,18 +162,74 @@ func (h *InstanceHandler) ServeStudentTerminalWS(c *gin.Context) {
 }
 
 // serveTerminalPTYProxy 建立到 xterm-server 的 WebSocket 双向代理，提供真 PTY 终端体验。
-// 协议：客户端发送原始文本（键击）或 JSON resize 消息，xterm-server 返回原始 PTY 输出。
+//
+// 上游 xterm-server 跑在实验 Pod 内（端口 3000），其网络可达性必须经由 K8s API 的 SPDY
+// portforward 隧道，而不是直拨 Pod IP / Service ClusterIP / NodePort。设计依据见
+// docs/modules/09-部署与运维/02-基础设施设计.md §2.4。
+//
+// 实现路径：通过 K8sService.DialPodPort 拿到等价于 Pod 内 localhost:3000 的 net.Conn，
+// 把它注入 gorilla/websocket Dialer 的 NetDialContext，让 WebSocket 握手在 SPDY 隧道
+// 之上进行。隧道生命周期与 WS 一致：上下游任一关闭，net.Conn.Close → SPDY stream 释放。
 func (h *InstanceHandler) serveTerminalPTYProxy(c *gin.Context, sc *svcctx.ServiceContext, target *svc.TerminalProxyTarget) {
 	clientConn, err := wsmanager.Upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
 
-	upstreamConn, _, err := websocket.DefaultDialer.DialContext(c.Request.Context(), target.WebSocketURL, nil)
-	if err != nil {
+	// 拨号必须有超时——SPDY 上游或 K8s API 异常时不能让 net.Conn 阻塞；同时必须启用 ctx，
+	// 由 ServeSimEngineWS 模块同步引入的 8 秒上限对终端代理同样适用。
+	dialCtx, dialCancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer dialCancel()
+
+	// 通过 service 层 SPDY 隧道拨号上游 xterm-server。handler 不直接依赖 K8sService，
+	// 所有 (ns, pod, port) 解析与隧道建立逻辑封装在 instanceService.DialPodPort 内。
+	// 业务边界（本人 / Running / 该实例容器）已在 ResolveTerminalProxyTarget 完成校验。
+	tunnelConn, dialErr := h.instanceService.DialPodPort(dialCtx, target.Namespace, target.PodName, target.Port)
+	if dialErr != nil {
+		c.Error(dialErr)
 		_ = clientConn.WriteJSON(map[string]interface{}{
 			"type": "terminal_init",
-			"data": map[string]interface{}{"mode": "error", "message": "连接终端服务失败"},
+			"data": map[string]interface{}{
+				"mode":            "error",
+				"message":         "连接终端服务失败",
+				"upstream_target": target.Namespace + "/" + target.PodName,
+				"upstream_reason": dialErr.Error(),
+			},
+		})
+		_ = clientConn.Close()
+		return
+	}
+
+	// 把 SPDY 隧道当作 net.Conn，让 gorilla 在它上面跑标准 WebSocket 握手。
+	// NetDialContext 会被 gorilla 调用一次，返回我们的 SPDY net.Conn；之后 gorilla 在该
+	// conn 上写 HTTP/1.1 Upgrade 请求，xterm-server 回 101，gorilla 把 conn 升级为
+	// websocket.Conn。所有权随之转移给 upstreamWS，关闭路径只有一处（upstreamWS.Close）。
+	tunnelDialer := websocket.Dialer{
+		NetDialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+			return tunnelConn, nil
+		},
+		HandshakeTimeout: 8 * time.Second,
+	}
+	upstreamWSURL := "ws://" + target.PodName + ":" + strconv.Itoa(target.Port) + target.WebSocketPath
+	upstreamConn, upstreamResp, wsErr := tunnelDialer.DialContext(dialCtx, upstreamWSURL, nil)
+	if wsErr != nil {
+		upstreamStatus := 0
+		upstreamReason := wsErr.Error()
+		if upstreamResp != nil {
+			upstreamStatus = upstreamResp.StatusCode
+			_ = upstreamResp.Body.Close()
+		}
+		_ = tunnelConn.Close()
+		c.Error(wsErr)
+		_ = clientConn.WriteJSON(map[string]interface{}{
+			"type": "terminal_init",
+			"data": map[string]interface{}{
+				"mode":            "error",
+				"message":         "连接终端服务失败",
+				"upstream_target": target.Namespace + "/" + target.PodName,
+				"upstream_status": upstreamStatus,
+				"upstream_reason": upstreamReason,
+			},
 		})
 		_ = clientConn.Close()
 		return
@@ -237,19 +298,44 @@ func (h *InstanceHandler) ServeSimEngineWS(c *gin.Context) {
 		return
 	}
 
-	upstreamURL := normalizeWebSocketURL(target.TargetURL)
+	// SimEngine Core 通过 ?token= 校验 JWT（sim-engine/core/internal/server/server.go::handleSimEngineWebSocket）。
+	// 必须使用 service 层为本次代理现签的 SimWS token：它绑定 (UserID, SessionID, InstanceID,
+	// Audience=sim-engine)，与学生的 access token 互不影响。
+	// 不能透传学生 access token——其 claims 不带 session_id/instance_id/aud，过不了 Core 的
+	// validateJWTClaims（详见 sim-engine/core/internal/server/jwt_validator.go）。
+	// 共享密钥见 sim-engine/core/configs/config.yaml::auth.ws_jwt_secret，与 backend.jwt.access_secret 一致。
+	upstreamURL := appendTokenQueryParam(normalizeWebSocketURL(target.TargetURL), target.UpstreamToken)
 	clientConn, err := wsmanager.Upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		c.Error(err)
 		return
 	}
 
-	upstreamConn, _, err := websocket.DefaultDialer.DialContext(c.Request.Context(), upstreamURL, nil)
+	// 同终端代理一样，拨号 SimEngine Core 必须有超时，否则上游不可达时连接挂死。
+	simDialCtx, simDialCancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+	defer simDialCancel()
+	upstreamConn, upstreamResp, err := websocket.DefaultDialer.DialContext(simDialCtx, upstreamURL, nil)
 	if err != nil {
+		// 把上游 SimEngine Core 返回的 HTTP 状态与错误描述透传给客户端，便于排错：
+		// - 401: token 校验失败（ws_jwt_secret 不一致 / token 过期 / session 归属不符）
+		// - 404: Core 重启导致 session 丢失
+		// - 503: Core 未初始化
+		// - 拨号超时: Core 网络不可达
+		// 之前统一吞成"连接 SimEngine Core 失败"导致前端只能看见模糊错误。
+		upstreamStatus := 0
+		upstreamReason := err.Error()
+		if upstreamResp != nil {
+			upstreamStatus = upstreamResp.StatusCode
+			_ = upstreamResp.Body.Close()
+		}
+		c.Error(err)
 		_ = clientConn.WriteJSON(gin.H{
 			"type": "control_ack",
 			"data": gin.H{
-				"success": false,
-				"message": "连接 SimEngine Core 失败",
+				"success":         false,
+				"message":         "连接 SimEngine Core 失败",
+				"upstream_status": upstreamStatus,
+				"upstream_reason": upstreamReason,
 			},
 		})
 		_ = clientConn.Close()
@@ -448,6 +534,20 @@ func normalizeWebSocketURL(raw string) string {
 		return "wss://" + strings.TrimPrefix(raw, "https://")
 	}
 	return raw
+}
+
+// appendTokenQueryParam 把鉴权 token 透传到上游 WebSocket URL。
+// SimEngine Core 通过 ?token= 校验 JWT 归属，后端代理必须保留同一 token。
+func appendTokenQueryParam(rawURL, token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return rawURL
+	}
+	separator := "?"
+	if strings.Contains(rawURL, "?") {
+		separator = "&"
+	}
+	return rawURL + separator + "token=" + token
 }
 
 // proxyWebSocket 负责单向转发 WebSocket 消息。

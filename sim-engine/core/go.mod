@@ -3,6 +3,7 @@ module github.com/lenschain/sim-engine/core
 go 1.25.0
 
 require (
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/lenschain/sim-engine/proto/gen/go v0.0.0
 	k8s.io/api v0.35.3
 	k8s.io/apimachinery v0.35.3
@@ -73,7 +74,7 @@ require (
 
 require (
 	github.com/minio/minio-go/v7 v7.0.80
-	golang.org/x/net v0.49.0
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect

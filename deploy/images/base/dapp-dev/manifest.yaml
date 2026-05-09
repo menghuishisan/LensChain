@@ -1,4 +1,5 @@
 name: dapp-dev
+display_name: DApp Development Workspace
 category: base
 ecosystem: ethereum
 description: DApp 前端开发环境镜像

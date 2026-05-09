@@ -71,19 +71,23 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectCounterRef = useRef(0);
-  const isManualCloseRef = useRef(false);
   // WebSocket 连接不应因调用方传入的新对象字面量而反复重连，这里按 query 内容稳定依赖。
   const queryKey = JSON.stringify(query);
   const stableQuery = useMemo(() => JSON.parse(queryKey) as QueryParams, [queryKey]);
 
+  // closeSocket 关闭当前 socket 并清理重连定时器。
+  // 设计要点：每个 socket 的事件处理器通过闭包捕获自身引用，在 onclose 等回调里用
+  // `socketRef.current !== capturedSocket` 判断"我是否已被替换"——单一数据源（socketRef）
+  // 即活跃 socket，其余皆死。无需任何"manual-close"标志位，从根上消除 React 18 StrictMode
+  // 双调用 / connect() 重连路径下共享标志位的竞态。
   const closeSocket = useCallback(() => {
-    isManualCloseRef.current = true;
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
-    socketRef.current?.close();
+    const socket = socketRef.current;
     socketRef.current = null;
+    socket?.close();
   }, []);
 
   const connect = useCallback(() => {
@@ -96,41 +100,36 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
     setError(null);
     setStatus(reconnectCounterRef.current > 0 ? "reconnecting" : "connecting");
 
-    isManualCloseRef.current = false;
     const socket = new WebSocket(buildWebSocketURL(path, stableQuery));
     socketRef.current = socket;
 
+    // 所有事件回调先做身份校验：若 socketRef 已被 closeSocket / 新一轮 connect 覆盖，
+    // 说明本 socket 已被弃用，不应再触达任何状态变更或自动重连，直接 return。
     socket.onopen = () => {
+      if (socketRef.current !== socket) return;
       reconnectCounterRef.current = 0;
       setStatus("open");
     };
 
     socket.onmessage = (event) => {
+      if (socketRef.current !== socket) return;
       const message = parseRealtimeMessage<TMessage>(event.data);
       setMessages((current) => [...current.slice(-(MAX_REALTIME_MESSAGES - 1)), message]);
     };
 
     socket.onerror = () => {
+      if (socketRef.current !== socket) return;
       setError("实时连接发生错误");
       setStatus("error");
     };
 
     socket.onclose = () => {
+      if (socketRef.current !== socket) return;
       socketRef.current = null;
-      if (isManualCloseRef.current) {
-        isManualCloseRef.current = false;
+      if (!enabled || !reconnect) {
         setStatus("closed");
         return;
       }
-      if (!enabled) {
-        setStatus("closed");
-        return;
-      }
-      if (!reconnect) {
-        setStatus("closed");
-        return;
-      }
-
       reconnectCounterRef.current += 1;
       setStatus("reconnecting");
       reconnectTimerRef.current = window.setTimeout(connect, RECONNECT_DELAY_MS);

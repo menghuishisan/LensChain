@@ -1,4 +1,6 @@
 name: zaproxy
+display_name: OWASP ZAP
+tool_kind: ide
 category: tools
 ecosystem: general
 description: OWASP ZAP Web 安全测试代理

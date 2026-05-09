@@ -1,4 +1,5 @@
 name: go-dev
+display_name: Go Development Workspace
 category: base
 ecosystem: fabric
 description: Go 区块链开发环境镜像

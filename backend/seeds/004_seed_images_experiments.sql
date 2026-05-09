@@ -9,488 +9,12 @@
 --
 -- 使用方式：在 010、011 之后执行。
 -- 约定：所有 ID 使用固定值，与 010 系列延续编号。
+-- 注：images / image_versions 数据来自 deploy/images/<category>/<name>/manifest.yaml，
+-- 通过 cmd/seed-manifests CLI（或 admin API POST /api/v1/admin/images/sync）灌入。
+-- init-db 脚本会在本 seed 执行前调用 CLI 完成同步。
+-- 本文件下方的 template_containers 通过 (image_name, version) 子查询关联 image_version，
+-- 不再硬编码 image_version_id。
 
--- =====================================================================
--- 01. 添加镜像 — 链节点 / 中间件 / 工具 / 基础开发环境
--- =====================================================================
-
-INSERT INTO images (
-    id, category_id, name, display_name, description, ecosystem, source_type, status,
-    default_ports, default_env_vars, default_volumes, typical_companions, required_dependencies,
-    resource_recommendation, documentation_url, usage_count, created_at, updated_at
-)
-VALUES
-    -- ---------- 链节点 ----------
-    (
-        910000000000005004,
-        910000000000004002,
-        'fabric-peer',
-        'Hyperledger Fabric Peer',
-        'Fabric 网络中的 Peer 节点，负责背书、提交与状态管理。',
-        'fabric',
-        1,
-        1,
-        '[{"port":7051,"protocol":"tcp","name":"gRPC"},{"port":7053,"protocol":"tcp","name":"Event"}]'::jsonb,
-        '[{"key":"CORE_PEER_ID","value":"peer0.org1.example.com","desc":"Peer 节点 ID","conditions":[]}]'::jsonb,
-        '[{"path":"/var/hyperledger/production","desc":"Peer 数据持久化"}]'::jsonb,
-        '{"required":[{"image":"fabric-orderer","reason":"排序服务"}],"recommended":[{"image":"couchdb","reason":"状态数据库（替代 LevelDB）"},{"image":"fabric-ca","reason":"证书颁发"}],"optional":[{"image":"fabric-explorer","reason":"Fabric 区块链浏览器"},{"image":"fabric-tools","reason":"Fabric CLI 工具"}]}'::jsonb,
-        '["fabric-orderer"]'::jsonb,
-        '{"cpu":"0.5","memory":"512Mi","disk":"10Gi"}'::jsonb,
-        '/docs/images/fabric-peer',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005005,
-        910000000000004002,
-        'fabric-orderer',
-        'Hyperledger Fabric Orderer',
-        'Fabric 排序节点，负责交易排序与出块。',
-        'fabric',
-        1,
-        1,
-        '[{"port":7050,"protocol":"tcp","name":"gRPC"}]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/var/hyperledger/production/orderer","desc":"Orderer 数据持久化"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"fabric-peer","reason":"Peer 节点"}],"optional":[{"image":"fabric-explorer","reason":"Fabric 浏览器"}]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"512Mi","disk":"10Gi"}'::jsonb,
-        '/docs/images/fabric-orderer',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005006,
-        910000000000004002,
-        'fabric-ca',
-        'Hyperledger Fabric CA',
-        'Fabric 证书颁发服务，管理组织身份与加密材料。',
-        'fabric',
-        1,
-        1,
-        '[{"port":7054,"protocol":"tcp","name":"HTTP"}]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/etc/hyperledger/fabric-ca-server","desc":"CA 配置和证书数据"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"fabric-peer","reason":"Peer 节点需要 CA 颁发证书"}],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.25","memory":"256Mi","disk":"1Gi"}'::jsonb,
-        '/docs/images/fabric-ca',
-        0,
-        NOW(),
-        NOW()
-    ),
-    -- ---------- 中间件 ----------
-    (
-        910000000000005007,
-        910000000000004003,
-        'couchdb',
-        'CouchDB',
-        '文档数据库，Fabric Peer 可用 CouchDB 替代 LevelDB 作为状态存储。',
-        'fabric',
-        1,
-        1,
-        '[{"port":5984,"protocol":"tcp","name":"HTTP"}]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/opt/couchdb/data","desc":"数据持久化"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"fabric-peer","reason":"Fabric Peer 使用 CouchDB 作为状态数据库"}],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.25","memory":"256Mi","disk":"5Gi"}'::jsonb,
-        '/docs/images/couchdb',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005008,
-        910000000000004003,
-        'postgres',
-        'PostgreSQL',
-        '关系型数据库，用于 Blockscout、Fabric Explorer 等工具的数据存储。',
-        'general',
-        1,
-        1,
-        '[{"port":5432,"protocol":"tcp","name":"PostgreSQL"}]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/var/lib/postgresql/data","desc":"数据持久化"}]'::jsonb,
-        '{"required":[],"recommended":[],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"512Mi","disk":"10Gi"}'::jsonb,
-        '/docs/images/postgres',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005009,
-        910000000000004003,
-        'redis',
-        'Redis',
-        '内存缓存数据库，用于会话缓存与消息中间件场景教学。',
-        'general',
-        1,
-        1,
-        '[{"port":6379,"protocol":"tcp","name":"Redis"}]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/data","desc":"数据持久化"}]'::jsonb,
-        '{"required":[],"recommended":[],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.25","memory":"256Mi","disk":"2Gi"}'::jsonb,
-        '/docs/images/redis',
-        0,
-        NOW(),
-        NOW()
-    ),
-    -- ---------- 工具 ----------
-    (
-        910000000000005010,
-        910000000000004004,
-        'code-server',
-        'VS Code Web IDE',
-        '基于浏览器的 VS Code 在线编辑器，可嵌入实验环境直接编码。',
-        'general',
-        1,
-        1,
-        '[{"port":8080,"protocol":"tcp","name":"HTTP"}]'::jsonb,
-        '[{"key":"PASSWORD","value":"","desc":"访问密码（空则免密）","conditions":[]}]'::jsonb,
-        '[{"path":"/home/coder/project","desc":"项目工作目录"}]'::jsonb,
-        '{"required":[],"recommended":[],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"512Mi","disk":"5Gi"}'::jsonb,
-        '/docs/images/code-server',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005011,
-        910000000000004004,
-        'remix-ide',
-        'Remix IDE',
-        'Solidity 在线开发环境，可直接连接链节点进行合约部署调试。',
-        'ethereum',
-        1,
-        1,
-        '[{"port":8080,"protocol":"tcp","name":"HTTP"}]'::jsonb,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '{"required":[],"recommended":[{"image":"geth","reason":"本地以太坊节点"},{"image":"ganache","reason":"轻量级 EVM 模拟器"}],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"512Mi","disk":"2Gi"}'::jsonb,
-        '/docs/images/remix-ide',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005012,
-        910000000000004004,
-        'fabric-tools',
-        'Fabric CLI Tools',
-        'Hyperledger Fabric CLI 工具集，包含 peer、configtxgen 等命令行工具。',
-        'fabric',
-        1,
-        1,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '{"required":[],"recommended":[{"image":"fabric-peer","reason":"操作 Fabric 网络"}],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.25","memory":"256Mi","disk":"2Gi"}'::jsonb,
-        '/docs/images/fabric-tools',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005013,
-        910000000000004004,
-        'fabric-explorer',
-        'Hyperledger Explorer',
-        'Fabric 区块链浏览器，可视化展示通道、区块与交易。',
-        'fabric',
-        1,
-        1,
-        '[{"port":8080,"protocol":"tcp","name":"HTTP"}]'::jsonb,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '{"required":[{"image":"fabric-peer","reason":"需要连接 Fabric Peer 节点"},{"image":"postgres","reason":"数据存储"}],"recommended":[],"optional":[]}'::jsonb,
-        '["fabric-peer","postgres"]'::jsonb,
-        '{"cpu":"0.5","memory":"512Mi","disk":"5Gi"}'::jsonb,
-        '/docs/images/fabric-explorer',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005014,
-        910000000000004004,
-        'xterm-server',
-        'Web Terminal',
-        'Web 终端服务，为实验容器提供浏览器内嵌终端访问。',
-        'general',
-        1,
-        1,
-        '[{"port":3000,"protocol":"tcp","name":"HTTP"}]'::jsonb,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '{"required":[],"recommended":[],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.25","memory":"256Mi","disk":"1Gi"}'::jsonb,
-        '/docs/images/xterm-server',
-        0,
-        NOW(),
-        NOW()
-    ),
-    -- ---------- 基础开发环境 ----------
-    (
-        910000000000005015,
-        910000000000004001,
-        'go-dev',
-        'Go Development Workspace',
-        '面向 Fabric 链码与 Go 区块链应用的开发工作空间。',
-        'fabric',
-        1,
-        1,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/home/developer/project","desc":"项目工作目录"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"fabric-peer","reason":"Fabric 网络"}],"optional":[{"image":"fabric-tools","reason":"Fabric CLI"}]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"1Gi","disk":"5Gi"}'::jsonb,
-        '/docs/images/go-dev',
-        0,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000005016,
-        910000000000004001,
-        'dapp-dev',
-        'DApp Development Workspace',
-        '面向去中心化应用前端开发的工作空间，含 ethers.js、web3.js 等前端库。',
-        'ethereum',
-        1,
-        1,
-        '[]'::jsonb,
-        '[]'::jsonb,
-        '[{"path":"/home/developer/project","desc":"项目工作目录"}]'::jsonb,
-        '{"required":[],"recommended":[{"image":"geth","reason":"本地以太坊节点"},{"image":"ganache","reason":"轻量级 EVM 模拟器"}],"optional":[]}'::jsonb,
-        '[]'::jsonb,
-        '{"cpu":"0.5","memory":"1Gi","disk":"5Gi"}'::jsonb,
-        '/docs/images/dapp-dev',
-        0,
-        NOW(),
-        NOW()
-    )
-ON CONFLICT (id) DO NOTHING;
-
--- =====================================================================
--- 04. 添加镜像版本
--- =====================================================================
-
-INSERT INTO image_versions (
-    id, image_id, version, registry_url, min_cpu, min_memory, min_disk, is_default, status, created_at, updated_at
-)
-VALUES
-    -- geth v1.13（教学兼容旧版）
-    (
-        910000000000006004,
-        910000000000005002,
-        '1.13',
-        'registry.lianjing.com/chain-nodes/geth:v1.13.15',
-        '250m',
-        '512Mi',
-        '10Gi',
-        FALSE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- fabric-peer v2.5
-    (
-        910000000000006005,
-        910000000000005004,
-        '2.5',
-        'registry.lianjing.com/chain-nodes/fabric-peer:v2.5',
-        '250m',
-        '256Mi',
-        '10Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- fabric-orderer v2.5
-    (
-        910000000000006006,
-        910000000000005005,
-        '2.5',
-        'registry.lianjing.com/chain-nodes/fabric-orderer:v2.5',
-        '250m',
-        '256Mi',
-        '10Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- fabric-ca v1.5
-    (
-        910000000000006007,
-        910000000000005006,
-        '1.5',
-        'registry.lianjing.com/chain-nodes/fabric-ca:v1.5',
-        '100m',
-        '128Mi',
-        '1Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- couchdb v3.3
-    (
-        910000000000006008,
-        910000000000005007,
-        '3.3',
-        'registry.lianjing.com/middleware/couchdb:v3.3',
-        '100m',
-        '128Mi',
-        '5Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- postgres v15
-    (
-        910000000000006009,
-        910000000000005008,
-        '15',
-        'registry.lianjing.com/middleware/postgres:v15',
-        '250m',
-        '256Mi',
-        '10Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- redis v7
-    (
-        910000000000006010,
-        910000000000005009,
-        '7',
-        'registry.lianjing.com/middleware/redis:v7-alpine',
-        '100m',
-        '128Mi',
-        '2Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- code-server v4.89
-    (
-        910000000000006011,
-        910000000000005010,
-        '4.89',
-        'registry.lianjing.com/tools/code-server:v4.89.1',
-        '250m',
-        '256Mi',
-        '5Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- remix-ide latest
-    (
-        910000000000006012,
-        910000000000005011,
-        'latest',
-        'registry.lianjing.com/tools/remix-ide:latest',
-        '250m',
-        '256Mi',
-        '2Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- fabric-tools v2.5
-    (
-        910000000000006013,
-        910000000000005012,
-        '2.5',
-        'registry.lianjing.com/tools/fabric-tools:v2.5',
-        '100m',
-        '128Mi',
-        '2Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- fabric-explorer v1.1
-    (
-        910000000000006014,
-        910000000000005013,
-        '1.1',
-        'registry.lianjing.com/tools/fabric-explorer:v1.1.8',
-        '250m',
-        '256Mi',
-        '5Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- xterm-server v1.0
-    (
-        910000000000006015,
-        910000000000005014,
-        '1.0',
-        'registry.lianjing.com/tools/xterm-server:v1.0.0',
-        '100m',
-        '128Mi',
-        '1Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- go-dev v1.0
-    (
-        910000000000006016,
-        910000000000005015,
-        '1.0',
-        'registry.lianjing.com/base/go-dev:v1.0.0',
-        '250m',
-        '512Mi',
-        '5Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    -- dapp-dev v1.0
-    (
-        910000000000006017,
-        910000000000005016,
-        '1.0',
-        'registry.lianjing.com/base/dapp-dev:v1.0.0',
-        '250m',
-        '512Mi',
-        '5Gi',
-        TRUE,
-        1,
-        NOW(),
-        NOW()
-    )
-ON CONFLICT (id) DO NOTHING;
 
 -- =====================================================================
 -- 05. 添加实验模板（覆盖 topology_mode 2 / 1-多容器 / 3）
@@ -600,7 +124,7 @@ VALUES
     (
         910000000000009008,
         910000000000008005,
-        910000000000006007,  -- fabric-ca v1.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-ca' AND iv.version = '1.5'),  -- fabric-ca v1.5
         'fabric-ca',
         1,
         NULL,
@@ -619,7 +143,7 @@ VALUES
     (
         910000000000009009,
         910000000000008005,
-        910000000000006006,  -- fabric-orderer v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-orderer' AND iv.version = '2.5'),  -- fabric-orderer v2.5
         'fabric-orderer',
         1,
         NULL,
@@ -638,7 +162,7 @@ VALUES
     (
         910000000000009010,
         910000000000008005,
-        910000000000006008,  -- couchdb v3.3
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'couchdb' AND iv.version = '3.3'),  -- couchdb v3.3
         'couchdb',
         1,
         NULL,
@@ -657,7 +181,7 @@ VALUES
     (
         910000000000009011,
         910000000000008005,
-        910000000000006005,  -- fabric-peer v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-peer' AND iv.version = '2.5'),  -- fabric-peer v2.5
         'fabric-peer',
         1,
         NULL,
@@ -676,7 +200,7 @@ VALUES
     (
         910000000000009012,
         910000000000008005,
-        910000000000006013,  -- fabric-tools v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-tools' AND iv.version = '2.5'),  -- fabric-tools v2.5
         'fabric-tools',
         1,
         NULL,
@@ -695,7 +219,7 @@ VALUES
     (
         910000000000009013,
         910000000000008005,
-        910000000000006016,  -- go-dev v1.0
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'go-dev' AND iv.version = '1.0'),  -- go-dev v1.0
         'go-dev',
         1,
         NULL,
@@ -717,7 +241,7 @@ VALUES
     (
         910000000000009014,
         910000000000008006,
-        910000000000006002,  -- geth v1.14
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),  -- geth v1.14
         'geth',
         1,
         NULL,
@@ -736,7 +260,7 @@ VALUES
     (
         910000000000009015,
         910000000000008006,
-        910000000000006003,  -- blockscout v6.3
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'blockscout' AND iv.version = '6.3'),  -- blockscout v6.3
         'blockscout',
         1,
         NULL,
@@ -755,7 +279,7 @@ VALUES
     (
         910000000000009016,
         910000000000008006,
-        910000000000006012,  -- remix-ide latest
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'remix-ide' AND iv.version = 'latest'),  -- remix-ide latest
         'remix-ide',
         1,
         NULL,
@@ -774,7 +298,7 @@ VALUES
     (
         910000000000009017,
         910000000000008006,
-        910000000000006017,  -- dapp-dev v1.0
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'dapp-dev' AND iv.version = '1.0'),  -- dapp-dev v1.0
         'dapp-dev',
         1,
         NULL,
@@ -803,7 +327,7 @@ VALUES
     (
         910000000000009018,
         910000000000008007,
-        910000000000006007,  -- fabric-ca v1.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-ca' AND iv.version = '1.5'),  -- fabric-ca v1.5
         'shared-ca',
         2,
         NULL,
@@ -823,7 +347,7 @@ VALUES
     (
         910000000000009019,
         910000000000008007,
-        910000000000006006,  -- fabric-orderer v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-orderer' AND iv.version = '2.5'),  -- fabric-orderer v2.5
         'orderer',
         1,
         910000000000020003,  -- role: Orderer 运维
@@ -843,7 +367,7 @@ VALUES
     (
         910000000000009020,
         910000000000008007,
-        910000000000006008,  -- couchdb v3.3
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'couchdb' AND iv.version = '3.3'),  -- couchdb v3.3
         'couchdb-org1',
         1,
         910000000000020001,  -- role: Org1 管理员
@@ -863,7 +387,7 @@ VALUES
     (
         910000000000009021,
         910000000000008007,
-        910000000000006005,  -- fabric-peer v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-peer' AND iv.version = '2.5'),  -- fabric-peer v2.5
         'peer-org1',
         1,
         910000000000020001,  -- role: Org1 管理员
@@ -883,7 +407,7 @@ VALUES
     (
         910000000000009022,
         910000000000008007,
-        910000000000006008,  -- couchdb v3.3
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'couchdb' AND iv.version = '3.3'),  -- couchdb v3.3
         'couchdb-org2',
         1,
         910000000000020002,  -- role: Org2 管理员
@@ -903,7 +427,7 @@ VALUES
     (
         910000000000009023,
         910000000000008007,
-        910000000000006005,  -- fabric-peer v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-peer' AND iv.version = '2.5'),  -- fabric-peer v2.5
         'peer-org2',
         1,
         910000000000020002,  -- role: Org2 管理员
@@ -923,7 +447,7 @@ VALUES
     (
         910000000000009024,
         910000000000008007,
-        910000000000006013,  -- fabric-tools v2.5
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-tools' AND iv.version = '2.5'),  -- fabric-tools v2.5
         'shared-tools',
         2,
         NULL,
@@ -943,7 +467,7 @@ VALUES
     (
         910000000000009025,
         910000000000008007,
-        910000000000006016,  -- go-dev v1.0
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'go-dev' AND iv.version = '1.0'),  -- go-dev v1.0
         'go-dev',
         2,
         NULL,
@@ -958,6 +482,120 @@ VALUES
         8,
         NOW(),
         NOW()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------
+-- 07b. 终端工具容器：为所有真实环境/混合实验模板（experiment_type ∈ {2,3}）
+--      统一注入一个 xterm-server 容器，对齐文档 §2.16 终端约束。
+--      deployment_scope=1（实例独享，每位学生独立终端，即便其他容器走共享基础设施）
+--      role_id=NULL（多人协作模板下所有角色共享）
+--      startup_order=99（始终最后启动，等待主容器就绪）
+-- ---------------------------------------------------------------------
+
+INSERT INTO template_containers (
+    id, template_id, image_version_id, container_name, deployment_scope, role_id,
+    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on, startup_order,
+    is_primary, sort_order, created_at, updated_at
+)
+VALUES
+    -- 模板 1（以太坊本地开发与部署实践）
+    (
+        910000000000009026,
+        910000000000008001,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),  -- xterm-server v1.0
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
+    ),
+    -- 模板 2（共享链基础设施上的 DApp 部署）
+    (
+        910000000000009027,
+        910000000000008002,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
+    ),
+    -- 模板 3（智能合约漏洞分析）
+    (
+        910000000000009028,
+        910000000000008003,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
+    ),
+    -- 模板 4（链上数据索引与浏览）
+    (
+        910000000000009029,
+        910000000000008004,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
+    ),
+    -- 模板 5（Fabric 单人多节点）
+    (
+        910000000000009030,
+        910000000000008005,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
+    ),
+    -- 模板 6（EVM 全栈 DApp）
+    (
+        910000000000009031,
+        910000000000008006,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
+    ),
+    -- 模板 7（Fabric 多人协作）
+    (
+        910000000000009032,
+        910000000000008007,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1, NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m', '128Mi',
+        '[]'::jsonb,
+        99, FALSE, 99, NOW(), NOW()
     )
 ON CONFLICT (id) DO NOTHING;
 

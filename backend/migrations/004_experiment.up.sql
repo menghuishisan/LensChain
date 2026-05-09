@@ -44,6 +44,7 @@ CREATE TABLE images (
     required_dependencies JSONB NULL,
     resource_recommendation JSONB NULL,
     documentation_url VARCHAR(500) NULL,
+    tool_kind VARCHAR(50) NULL,
     usage_count INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -59,6 +60,7 @@ CREATE INDEX idx_images_source_type ON images(source_type);
 CREATE INDEX idx_images_status ON images(status);
 CREATE INDEX idx_images_school_id ON images(school_id);
 CREATE INDEX idx_images_uploaded_by ON images(uploaded_by);
+CREATE INDEX idx_images_tool_kind ON images(tool_kind) WHERE tool_kind IS NOT NULL;
 
 -- image_versions：镜像版本表。
 CREATE TABLE image_versions (

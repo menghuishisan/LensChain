@@ -2185,13 +2185,12 @@
     "namespace": "ctf-1780000000500001-1780000000540001-1780000000510001",
     "status": 1,
     "status_text": "创建中",
-    "chain_rpc_url": null,
     "created_at": "2026-04-20T10:00:00Z"
   }
 }
 ```
 
-> 环境创建为异步操作，选手通过轮询 GET /api/v1/ctf/challenge-environments/:id 获取状态更新。环境就绪后 `chain_rpc_url` 会填充链节点RPC地址。
+> 环境创建为异步操作，选手通过轮询 GET /api/v1/ctf/challenge-environments/:id 获取状态更新。
 
 **错误响应：**
 
@@ -2221,7 +2220,6 @@
     "challenge_id": "1780000000510001",
     "team_id": "1780000000540001",
     "namespace": "ctf-1780000000500001-1780000000540001-1780000000510001",
-    "chain_rpc_url": "http://10.0.5.12:8545",
     "container_status": {
       "chain_node": {"status": "running", "image": "ganache:latest"},
       "tools": {"status": "running", "image": "ctf-blockchain:latest"}
@@ -2428,8 +2426,6 @@
     "competition_id": "1780000000500002",
     "group_id": "1780000000570001",
     "team_id": "1780000000540001",
-    "chain_rpc_url": "http://10.0.6.10:8545",
-    "chain_ws_url": "ws://10.0.6.10:8546",
     "deployed_contracts": [
       {
         "challenge_id": "1780000000510001",
@@ -2591,7 +2587,6 @@
         "namespace": "ctf-1780000000500001-1780000000540001-1780000000510001",
         "status": 2,
         "status_text": "运行中",
-        "chain_rpc_url": "http://10.0.5.12:8545",
         "started_at": "2026-04-20T10:00:30Z",
         "created_at": "2026-04-20T10:00:00Z"
       }

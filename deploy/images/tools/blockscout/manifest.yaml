@@ -1,4 +1,6 @@
 name: blockscout
+display_name: Blockscout Explorer
+tool_kind: explorer
 category: tools
 ecosystem: ethereum
 description: Blockscout EVM 区块链浏览器

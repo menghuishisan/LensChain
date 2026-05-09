@@ -172,6 +172,9 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 		instances.POST("/:id/submit", eh.InstanceHandler.SubmitInstance)
 		instances.POST("/:id/destroy", eh.InstanceHandler.DestroyInstance)
 		instances.GET("/:id/terminal", middleware.RequireStudent(), eh.InstanceHandler.ServeStudentTerminalWS)
+		// 工具反代 cookie 签发：iframe 加载工具页面前先调本端点拿 cookie，详见
+		// handler/experiment/tool_proxy.go::IssueToolProxyCookie 与 middleware/tool_proxy_auth.go。
+		instances.POST("/:id/tools/:kind/proxy-cookie", middleware.RequireStudent(), eh.InstanceHandler.IssueToolProxyCookie)
 		instances.POST("/:id/heartbeat", eh.InstanceHandler.Heartbeat)
 		instances.POST("/:id/checkpoints/verify", eh.InstanceHandler.VerifyCheckpoints)
 		instances.GET("/:id/checkpoints", eh.InstanceHandler.ListCheckpointResults)
@@ -257,5 +260,8 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 		adminExperiment.POST("/experiment-instances/:id/force-destroy", eh.InstanceHandler.ForceDestroyAdminInstance)
 		adminExperiment.GET("/image-pull-status", eh.InstanceHandler.GetImagePullStatus)
 		adminExperiment.POST("/image-pull", eh.InstanceHandler.TriggerImagePull)
+		// 镜像 manifest 同步：seed-images.sh 与教师后台批量上传共享入口，
+		// 单份 yaml 一次请求，按 (name) / (image_id, version) 业务键幂等 upsert。
+		adminExperiment.POST("/images/sync", eh.InstanceHandler.SyncImageManifest)
 	}
 }

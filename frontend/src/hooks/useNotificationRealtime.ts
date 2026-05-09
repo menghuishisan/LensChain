@@ -41,7 +41,6 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
   const socketRef = useRef<WebSocket | null>(null);
   const pingTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
-  const manualCloseRef = useRef(false);
 
   const clearTimers = useCallback(() => {
     if (pingTimerRef.current !== null) {
@@ -54,11 +53,12 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
     }
   }, []);
 
+  // 设计参见 useExperimentRealtime：身份校验取代 manual-close 标志位，避免 StrictMode 下竞态。
   const closeSocket = useCallback(() => {
-    manualCloseRef.current = true;
     clearTimers();
-    socketRef.current?.close();
+    const socket = socketRef.current;
     socketRef.current = null;
+    socket?.close();
   }, [clearTimers]);
 
   const connect = useCallback(() => {
@@ -67,18 +67,19 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
       return;
     }
     closeSocket();
-    manualCloseRef.current = false;
     setStatus("connecting");
     setError(null);
     const socket = new WebSocket(buildWebSocketURL("/ws/notifications"));
     socketRef.current = socket;
 
     socket.onopen = () => {
+      if (socketRef.current !== socket) return;
       setStatus("open");
       pingTimerRef.current = window.setInterval(() => socket.send(JSON.stringify({ type: "ping" })), PING_INTERVAL_MS);
     };
 
     socket.onmessage = (event) => {
+      if (socketRef.current !== socket) return;
       const message = parseNotificationMessage(String(event.data));
       setMessages((current) => [...current.slice(-49), message]);
       if (message.type === "unread_count_update" || message.type === "new_notification") {
@@ -91,15 +92,16 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
     };
 
     socket.onerror = () => {
+      if (socketRef.current !== socket) return;
       setStatus("error");
       setError("通知实时连接发生错误");
     };
 
     socket.onclose = () => {
+      if (socketRef.current !== socket) return;
       clearTimers();
       socketRef.current = null;
-      if (manualCloseRef.current || !enabled) {
-        manualCloseRef.current = false;
+      if (!enabled) {
         setStatus("closed");
         return;
       }

@@ -63,7 +63,10 @@ func (s *templateService) StudentGetSummary(ctx context.Context, sc *svcctx.Serv
 
 	// 加载标签
 	templateTags, _ := s.templateTagRepo.ListByTemplateID(ctx, id)
-	var tags []dto.TagResp
+	// 显式初始化为空切片，确保 json 输出为 [] 而不是 null。
+	// 前端在 ExperimentLaunchPanel 等地直接读 .length，纯仿真模板（无容器/无标签）
+	// 时若返回 null 会导致 TypeError。
+	tags := make([]dto.TagResp, 0)
 	for _, tt := range templateTags {
 		tag, tagErr := s.tagRepo.GetByID(ctx, tt.TagID)
 		if tagErr == nil {
@@ -77,7 +80,7 @@ func (s *templateService) StudentGetSummary(ctx context.Context, sc *svcctx.Serv
 
 	// 加载仿真场景（仅 ID 和 time_control_mode）
 	simScenes, _ := s.simSceneRepo.ListByTemplateID(ctx, id)
-	var simSceneSummaries []dto.StudentSimSceneSummary
+	simSceneSummaries := make([]dto.StudentSimSceneSummary, 0)
 	for _, scene := range simScenes {
 		ss := dto.StudentSimSceneSummary{
 			ID: strconv.FormatInt(scene.ID, 10),
@@ -97,7 +100,7 @@ func (s *templateService) StudentGetSummary(ctx context.Context, sc *svcctx.Serv
 	}
 
 	// 构建容器摘要（仅名称和镜像信息）
-	var containerSummaries []dto.StudentContainerSummary
+	containerSummaries := make([]dto.StudentContainerSummary, 0)
 	for _, c := range containers {
 		summary := dto.StudentContainerSummary{
 			ContainerName: c.ContainerName,

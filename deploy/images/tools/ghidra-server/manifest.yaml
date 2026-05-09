@@ -1,4 +1,6 @@
 name: ghidra-server
+display_name: Ghidra Server
+tool_kind: ide
 category: tools
 ecosystem: general
 description: Ghidra 逆向工程 Web 服务

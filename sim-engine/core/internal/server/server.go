@@ -3,11 +3,12 @@ package server
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	"golang.org/x/net/websocket"
+	"github.com/gorilla/websocket"
 
 	"github.com/lenschain/sim-engine/core/internal/app"
 	"github.com/lenschain/sim-engine/core/internal/collector"
@@ -33,12 +34,12 @@ func NewHandler(engine *app.Engine) http.Handler {
 func NewHandlerWithValidator(engine *app.Engine, validator TokenValidator) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", handleHealth)
-	mux.Handle("/api/v1/ws/sim-engine/", websocket.Handler(func(conn *websocket.Conn) {
-		handleSimEngineWebSocket(engine, validator, conn)
-	}))
-	mux.Handle("/api/v1/ws/collector/", websocket.Handler(func(conn *websocket.Conn) {
-		handleCollectorWebSocket(engine, conn)
-	}))
+	mux.HandleFunc("/api/v1/ws/sim-engine/", func(w http.ResponseWriter, r *http.Request) {
+		handleSimEngineWS(engine, validator, w, r)
+	})
+	mux.HandleFunc("/api/v1/ws/collector/", func(w http.ResponseWriter, r *http.Request) {
+		handleCollectorWS(engine, w, r)
+	})
 	return mux
 }
 
@@ -49,34 +50,65 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-// handleSimEngineWebSocket 处理 SimEngine 会话的数据通道连接。
-func handleSimEngineWebSocket(engine *app.Engine, validator TokenValidator, conn *websocket.Conn) {
+// upgrader WebSocket 升级器
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // 允许所有来源，由后端CORS中间件控制
+	},
+}
+
+// handleSimEngineWS 处理 SimEngine 会话的数据通道连接。
+//
+// 重要：所有错误路径必须写入 HTTP 状态码并 return，禁止裸 return。
+// 裸 return 在 net/http 下会被默认填充为 200 OK 空响应，上游后端代理（gorilla
+// DialContext）只会接受 101 Switching Protocols，非 101 一律报 "websocket: bad
+// handshake"。让 Core 的鉴权 / 路径错误以正确状态码可观测，是排错的前提。
+func handleSimEngineWS(engine *app.Engine, validator TokenValidator, w http.ResponseWriter, r *http.Request) {
 	if engine == nil {
-		_ = conn.Close()
+		http.Error(w, "sim-engine not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
-	sessionID := strings.TrimPrefix(conn.Request().URL.Path, "/api/v1/ws/sim-engine/")
-	if strings.TrimSpace(sessionID) == "" || !engine.SessionExists(sessionID) {
-		_ = conn.Close()
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/ws/sim-engine/")
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		http.Error(w, "session_id is required", http.StatusBadRequest)
 		return
 	}
+	if !engine.SessionExists(sessionID) {
+		// 业务侧最常见的原因：Core 重启导致内存中的会话丢失，前端仍持有旧 sessionID。
+		// 必须以 404 暴露给上游，方便代理日志与运维定位，而不是吞成 200。
+		slog.Warn("sim-engine ws: session not found", "session_id", sessionID, "remote", r.RemoteAddr)
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
 	if validator == nil {
 		validator = NewDefaultTokenValidator(engine, "", "", "")
 	}
-	grant, err := validator.Validate(sessionID, conn.Request().URL.Query().Get("token"))
+	grant, err := validator.Validate(sessionID, r.URL.Query().Get("token"))
 	if err != nil {
-		_ = conn.Close()
+		slog.Warn("sim-engine ws: token validation failed", "session_id", sessionID, "err", err.Error())
+		http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		// gorilla 已经在 Upgrade 内部写入了 4xx 响应。
+		slog.Warn("sim-engine ws: upgrade failed", "session_id", sessionID, "err", err.Error())
+		return
+	}
+	defer conn.Close()
+
 	subscription := engine.SubscribeMessages(sessionID)
 	defer subscription.Close()
-	defer conn.Close()
 
 	_ = engine.RecoverLatestTickSnapshot(sessionID)
 	for _, msg := range engine.CurrentMessages(sessionID) {
-		if err := websocket.JSON.Send(conn, msg); err != nil {
+		if err := conn.WriteJSON(msg); err != nil {
 			return
 		}
 	}
@@ -85,7 +117,7 @@ func handleSimEngineWebSocket(engine *app.Engine, validator TokenValidator, conn
 	go func() {
 		defer close(done)
 		for message := range subscription.C {
-			if err := websocket.JSON.Send(conn, message); err != nil {
+			if err := conn.WriteJSON(message); err != nil {
 				return
 			}
 		}
@@ -93,7 +125,7 @@ func handleSimEngineWebSocket(engine *app.Engine, validator TokenValidator, conn
 
 	for {
 		var message simws.Message
-		if err := websocket.JSON.Receive(conn, &message); err != nil {
+		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
 		switch message.Type {
@@ -109,7 +141,7 @@ func handleSimEngineWebSocket(engine *app.Engine, validator TokenValidator, conn
 			}
 			actionCode, actorID, roleKey, params := decodeActionPayload(message.PayloadJSON)
 			_, _ = engine.SendInteraction(
-				conn.Request().Context(),
+				r.Context(),
 				sessionID,
 				message.SceneCode,
 				actionCode,
@@ -134,16 +166,29 @@ func handleSimEngineWebSocket(engine *app.Engine, validator TokenValidator, conn
 	}
 }
 
-// handleCollectorWebSocket 处理 Collector sidecar 的事件注入连接。
-func handleCollectorWebSocket(engine *app.Engine, conn *websocket.Conn) {
+// handleCollectorWS 处理 Collector sidecar 的事件注入连接。
+// 错误路径同样必须写入状态码（详见 handleSimEngineWS 注释）。
+func handleCollectorWS(engine *app.Engine, w http.ResponseWriter, r *http.Request) {
 	if engine == nil {
-		_ = conn.Close()
+		http.Error(w, "sim-engine not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
-	sessionID := strings.TrimPrefix(conn.Request().URL.Path, "/api/v1/ws/collector/")
-	if strings.TrimSpace(sessionID) == "" || !engine.SessionExists(sessionID) {
-		_ = conn.Close()
+	sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/ws/collector/")
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		http.Error(w, "session_id is required", http.StatusBadRequest)
+		return
+	}
+	if !engine.SessionExists(sessionID) {
+		slog.Warn("sim-engine collector: session not found", "session_id", sessionID, "remote", r.RemoteAddr)
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Warn("sim-engine collector: upgrade failed", "session_id", sessionID, "err", err.Error())
 		return
 	}
 	defer conn.Close()
@@ -155,7 +200,7 @@ func handleCollectorWebSocket(engine *app.Engine, conn *websocket.Conn) {
 			DataType    string          `json:"data_type"`
 			Payload     json.RawMessage `json:"payload"`
 		}
-		if err := websocket.JSON.Receive(conn, &message); err != nil {
+		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
 		timestampMS := message.TimestampMS

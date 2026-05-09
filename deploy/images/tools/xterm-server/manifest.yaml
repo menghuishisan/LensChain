@@ -1,4 +1,6 @@
 name: xterm-server
+display_name: Web Terminal
+tool_kind: terminal
 category: tools
 ecosystem: general
 description: Web 终端服务

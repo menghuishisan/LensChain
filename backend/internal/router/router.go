@@ -132,6 +132,10 @@ func Setup(mode string, h *Handlers) *gin.Engine {
 	// WebSocket 路由
 	RegisterWebSocketRoutes(r, h)
 
+	// 工具反代路由（HTTP + WS 双协议透传，cookie 鉴权，路径在根下）
+	// 详见 handler/experiment/tool_proxy.go
+	RegisterToolProxyRoutes(r, h)
+
 	// 健康检查（不经过鉴权）
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -161,6 +165,24 @@ func RegisterInternalRoutes(rg *gin.RouterGroup, h *Handlers) {
 	if h != nil && h.Notification != nil && h.Notification.NotificationHandler != nil {
 		rg.POST("/send-event", h.Notification.NotificationHandler.SendInternalEvent) // 内部通知事件接口
 	}
+}
+
+// RegisterToolProxyRoutes 注册工具容器反向代理路由。
+//
+// 路径不在 /api/v1 下而是根路径 /instance/:instance_id/:tool_kind/*proxy_path，原因：
+// 工具镜像（code-server / blockscout / VNC 等）内部生成的相对链接通常以根 / 开头，
+// 把反代路径前缀设在 /api/v1 下会让上游应用认为自己被部署在 /api/v1/instance/.../
+// 子路径下，要么链接 404 要么需要在每个工具镜像里手工设 base href，违背"平台无侵入"原则。
+//
+// 鉴权：使用专用 ToolProxyAuth（cookie），不走 JWTAuth；token 通过 IssueToolProxyCookie
+// 端点签发，详见 middleware/tool_proxy_auth.go 与 handler/experiment/tool_proxy.go。
+func RegisterToolProxyRoutes(r *gin.Engine, h *Handlers) {
+	if h == nil || h.Experiment == nil || h.Experiment.InstanceHandler == nil {
+		return
+	}
+	toolProxy := r.Group("/instance/:instance_id/:tool_kind")
+	toolProxy.Use(middleware.ToolProxyAuth())
+	toolProxy.Any("/*proxy_path", h.Experiment.InstanceHandler.ServeToolProxy)
 }
 
 // RegisterWebSocketRoutes 注册 WebSocket 路由

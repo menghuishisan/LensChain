@@ -75,8 +75,18 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
   useEffect(() => {
     if (!sessionId) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const endpoint = `${protocol}//${window.location.host}/api/v1/ws/sim-engine/${sessionId}`;
+    // 项目规约：所有实时连接必须基于 NEXT_PUBLIC_WS_BASE_URL（指向后端 :8080），见 src/lib/ws-url.ts。
+    // 之前用 window.location.host 会拿到 Next.js dev 服务器（:3000），无 WS 路由，浏览器握手立即失败
+    // 且不会在 DevTools WS 面板出现，是 SimEngine 显示"未连接"的真正根因。
+    // SimPanel 内部会自动拼接 `/${sessionId}?token=${token}`（renderers/shared/simPanel.ts），
+    // 因此 endpoint 必须只传到 `/ws/sim-engine`（不含 sessionId、不含 token）。
+    const rawBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? '';
+    if (rawBase.length === 0) {
+      // 环境变量缺失时直接放弃连接，避免回退到错误 host 静默失败
+      return;
+    }
+    const wsBase = rawBase.replace(/^https?:/, (proto) => (proto === 'https:' ? 'wss:' : 'ws:')).replace(/\/$/, '');
+    const endpoint = `${wsBase}/ws/sim-engine`;
 
     const panel = createDefaultSimPanel({
       sessionId,

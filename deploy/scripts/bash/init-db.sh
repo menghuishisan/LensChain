@@ -72,7 +72,7 @@ REDIS_CONTAINER=${REDIS_CONTAINER:-lenschain-redis}
 echo "==> Flushing Redis cache (container=$REDIS_CONTAINER, db=$REDIS_DB)"
 docker exec "$REDIS_CONTAINER" redis-cli -n "$REDIS_DB" FLUSHDB || { echo "Redis 缓存清理失败，请确认容器 $REDIS_CONTAINER 正在运行"; exit 1; }
 
-echo "==> Running migrations"
+echo "==> Running schema migrations (backend/migrations)"
 cd "$(dirname "$0")/../../../backend"
 if [ -z "${GOCACHE:-}" ]; then
   export GOCACHE="$PWD/.gocache"
@@ -80,45 +80,42 @@ if [ -z "${GOCACHE:-}" ]; then
 fi
 go run cmd/migrate/main.go up
 
-DEMO_SEED_FILE="migrations/010_seed_demo_data.up.sql"
-DEMO_SUPPLEMENT_FILE="migrations/011_seed_demo_supplement.up.sql"
-IMAGES_SEED_FILE="migrations/012_seed_images_experiments.up.sql"
-SIM_SCENARIOS_SEED_FILE="migrations/013_seed_sim_scenarios.up.sql"
-CTF_SEED_FILE="migrations/014_seed_ctf.up.sql"
+# 种子数据加载顺序：
+#   schema 迁移 → image_categories（sync 前置依赖）
+#   → seed-manifests CLI（从 manifest.yaml 灌入 images / image_versions）
+#   → 其它 seed（CTF 题目模板 / 演示数据 / 实验模板 / sim 场景 / CTF 竞赛），
+#     这些 seed 通过 (image_name, version) 子查询关联 image_version_id，
+#     必须排在 sync 之后才能解析。
+IMAGE_CATEGORIES_SEED="seeds/000_seed_image_categories.sql"
+CTF_TEMPLATES_SEED="seeds/001_seed_ctf_challenge_templates.sql"
+DEMO_SEED="seeds/002_seed_demo_data.sql"
+DEMO_SUPPLEMENT_SEED="seeds/003_seed_demo_supplement.sql"
+IMAGES_EXPERIMENTS_SEED="seeds/004_seed_images_experiments.sql"
+SIM_SCENARIOS_SEED="seeds/005_seed_sim_scenarios.sql"
+CTF_SEED="seeds/006_seed_ctf.sql"
 
-if [ -f "$DEMO_SEED_FILE" ]; then
-  echo "==> Seeding demo data from $DEMO_SEED_FILE"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$DEMO_SEED_FILE"
-else
-  echo "==> Demo seed file not found, skipping"
-fi
+run_seed() {
+  local label="$1"
+  local file="$2"
+  if [ -f "$file" ]; then
+    echo "==> Seeding $label from $file"
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$file"
+  else
+    echo "==> $label seed file not found ($file), skipping"
+  fi
+}
 
-if [ -f "$DEMO_SUPPLEMENT_FILE" ]; then
-  echo "==> Seeding supplement data from $DEMO_SUPPLEMENT_FILE"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$DEMO_SUPPLEMENT_FILE"
-else
-  echo "==> Supplement seed file not found, skipping"
-fi
+run_seed "image categories" "$IMAGE_CATEGORIES_SEED"
 
-if [ -f "$IMAGES_SEED_FILE" ]; then
-  echo "==> Seeding images & experiments data from $IMAGES_SEED_FILE"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$IMAGES_SEED_FILE"
-else
-  echo "==> Images & experiments seed file not found, skipping"
-fi
+echo "==> Syncing image manifests (deploy/images/**/manifest.yaml → images / image_versions)"
+DEPLOY_IMAGES_DIR="$(cd "$(dirname "$0")/../.." && pwd)/images"
+go run cmd/seed-manifests/main.go -images-dir "$DEPLOY_IMAGES_DIR"
 
-if [ -f "$SIM_SCENARIOS_SEED_FILE" ]; then
-  echo "==> Seeding sim scenarios data from $SIM_SCENARIOS_SEED_FILE"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$SIM_SCENARIOS_SEED_FILE"
-else
-  echo "==> Sim scenarios seed file not found, skipping"
-fi
-
-if [ -f "$CTF_SEED_FILE" ]; then
-  echo "==> Seeding CTF data from $CTF_SEED_FILE"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$CTF_SEED_FILE"
-else
-  echo "==> CTF seed file not found, skipping"
-fi
+run_seed "CTF challenge templates"        "$CTF_TEMPLATES_SEED"
+run_seed "demo data"                      "$DEMO_SEED"
+run_seed "demo supplement"                "$DEMO_SUPPLEMENT_SEED"
+run_seed "images & experiments templates" "$IMAGES_EXPERIMENTS_SEED"
+run_seed "sim scenarios"                  "$SIM_SCENARIOS_SEED"
+run_seed "CTF competitions"               "$CTF_SEED"
 
 echo "==> Database initialization complete"

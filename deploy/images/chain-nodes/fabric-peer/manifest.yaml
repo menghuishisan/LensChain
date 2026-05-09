@@ -1,4 +1,5 @@
 name: fabric-peer
+display_name: Hyperledger Fabric Peer
 category: chain-nodes
 ecosystem: fabric
 description: Hyperledger Fabric Peer 节点

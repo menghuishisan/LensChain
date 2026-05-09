@@ -1,4 +1,6 @@
 name: code-server
+display_name: VS Code Web IDE
+tool_kind: ide
 category: tools
 ecosystem: general
 description: VS Code Web 在线编辑器

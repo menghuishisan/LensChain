@@ -128,6 +128,7 @@
 | POST | /api/v1/experiment-instances/:id/submit | 提交实验 | 实例所属学生 |
 | POST | /api/v1/experiment-instances/:id/destroy | 销毁实验环境 | 实例所属学生/课程教师/管理员 |
 | GET | /api/v1/experiment-instances/:id/terminal | 学生 Web 终端（WebSocket升级） | 实例所属学生 |
+| POST | /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie | 签发工具反代 cookie（IDE / 桌面 / 浏览器 / 监控 iframe 访问前调用） | 实例所属学生 |
 | POST | /api/v1/experiment-instances/:id/heartbeat | 心跳上报 | 实例所属学生 |
 
 ### 1.12 检查点验证
@@ -762,7 +763,7 @@
         "kind": "terminal",
         "container_id": "1780000000600103",
         "container_name": "xterm-server",
-        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/terminal?token=eyJhbGc...",
+        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/terminal/",
         "status": 2,
         "status_text": "运行中"
       },
@@ -770,7 +771,7 @@
         "kind": "ide",
         "container_id": "1780000000600102",
         "container_name": "remix-ide",
-        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/ide?token=eyJhbGc...",
+        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/ide/",
         "status": 2,
         "status_text": "运行中"
       },
@@ -778,7 +779,7 @@
         "kind": "explorer",
         "container_id": "1780000000600104",
         "container_name": "blockscout",
-        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/explorer?token=eyJhbGc...",
+        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/explorer/",
         "status": 2,
         "status_text": "运行中"
       }
@@ -873,7 +874,7 @@
   - `kind`：工具类型（terminal / ide / desktop / explorer / monitor），前端根据此字段决定渲染哪个面板组件
   - `container_id`：对应的容器 ID（与 `containers[]` 中的 `id` 关联）
   - `container_name`：容器名称（如 xterm-server、remix-ide、novnc-desktop）
-  - `proxy_url`：反向代理访问 URL，带短期 token（有效期 2 小时），前端直接用此 URL 加载 iframe
+  - `proxy_url`：反向代理访问 URL，末尾斜杠不可去掉。**不携 token**：前端加载 iframe 前必须先调 `POST /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie` 签发 HttpOnly cookie（TTL 30分钟，path 作用域=`/instance/<id>/<kind>/`，跨子路径不泄漏），随后 iframe 各子资源请求自动携 cookie，避免 token 进 referer / 浏览器历史 / access log。
   - `status`：容器状态（1等待 2运行中 3已停止 4异常）
   - `status_text`：状态文本
 - `containers[]`：所有容器列表（包含链节点、工具、中间件等）
@@ -883,7 +884,7 @@
 **前端使用规范：**
 
 1. 使用 `tools[]` 渲染工具 Tab（终端/IDE/桌面/浏览器/监控）
-2. 每个 Tab 的 iframe `src` 直接使用 `tools[].proxy_url`，不做任何拼接或改写
+2. **iframe 加载顺序**：先 `POST .../tools/:kind/proxy-cookie`（带 Bearer access token，fetch 必须 `credentials:"include"` 才能接收 Set-Cookie）；cookie 签发成功后再渲染 iframe，`src=tools[].proxy_url`。同一 iframe 生命期内建议每 25 分钟重签一次（TTL 30 分钟，预留 5 分钟缓冲）
 3. 如果 `tools[]` 为空数组，说明此实验为纯仿真或未配置工具容器，不渲染工具 Tab
 4. `containers[]` 用于展示容器列表、资源监控、终端容器选择下拉框等场景
 

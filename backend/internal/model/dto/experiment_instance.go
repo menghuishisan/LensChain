@@ -80,6 +80,16 @@ type InstanceToolItem struct {
 	StatusText    string  `json:"status_text"`
 }
 
+// IssueToolProxyCookieResp 工具反代 cookie 签发端点响应。
+// POST /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie
+//
+// Set-Cookie 头由 backend 写入；响应体只携带前端用于决策的元数据：proxy_path 用作
+// iframe src，expires_in 让前端按 25 分钟节奏自动重签（cookie TTL 30 分钟，预留 5 分钟）。
+type IssueToolProxyCookieResp struct {
+	ProxyPath string `json:"proxy_path"`
+	ExpiresIn int64  `json:"expires_in"`
+}
+
 // InstanceContainerItem 实例详情中的容器条目
 type InstanceContainerItem struct {
 	ID            string  `json:"id"`
