@@ -3,12 +3,19 @@ package simcore
 import "encoding/json"
 
 // SceneStateSnapshot 表示某个场景当前的完整状态快照。
+//
+// 三个 *_JSON 字段使用 json.RawMessage（而不是裸 []byte）作为对外 JSON 编码格式：
+// 裸 []byte 在 encoding/json 下会被 base64 编码，导致下游消费者（如检查点断言、前端
+// 渲染层）拿到的是 base64 字符串而不是嵌套 JSON 对象，必须再 base64 解码一次才能解析。
+// 用 RawMessage 后这些字段在 JSON 输出中直接展开为原始 JSON 对象，与上游写入字节
+// 完全等价但消费侧零额外解码。RawMessage 底层就是 []byte，所有 cloneBytes 等现有
+// 逻辑无需调整（编辑工具不要把 cloneBytes 改成 cloneRawMessage）。
 type SceneStateSnapshot struct {
-	SceneCode       string `json:"scene_code"`
-	Tick            int64  `json:"tick"`
-	StateJSON       []byte `json:"state_json"`
-	RenderStateJSON []byte `json:"render_state_json"`
-	SharedStateJSON []byte `json:"shared_state_json"`
+	SceneCode       string          `json:"scene_code"`
+	Tick            int64           `json:"tick"`
+	StateJSON       json.RawMessage `json:"state_json"`
+	RenderStateJSON json.RawMessage `json:"render_state_json"`
+	SharedStateJSON json.RawMessage `json:"shared_state_json"`
 }
 
 // StateManager 负责状态摘要、完整快照和增量 diff 的统一构造。
@@ -20,27 +27,28 @@ func NewStateManager() *StateManager {
 }
 
 // BuildSceneSummary 构造会话当前场景状态摘要 JSON。
+//
+// 输出 JSON 结构（被检查点断言评估器、前端渲染层共同消费）：
+//
+//	{"scenes":[{"scene_code":"<code>", "tick":<n>, "render_state_json": {<场景渲染态对象>}}]}
+//
+// render_state_json 必须以原生嵌套 JSON 对象形式输出，故使用 json.RawMessage——若改回
+// []byte，encoding/json 会将其 base64 编码为字符串，下游解析时需多一层 base64 解码，
+// 与文档约定的 JSONPath 断言（`$.tick`、`$.phase_index` 等直接走对象字段）相违。
 func (m *StateManager) BuildSceneSummary(states []SceneStateSnapshot) []byte {
+	type sceneSummaryItem struct {
+		SceneCode       string          `json:"scene_code"`
+		Tick            int64           `json:"tick"`
+		RenderStateJSON json.RawMessage `json:"render_state_json"`
+	}
 	payload := struct {
-		Scenes []struct {
-			SceneCode       string `json:"scene_code"`
-			Tick            int64  `json:"tick"`
-			RenderStateJSON []byte `json:"render_state_json"`
-		} `json:"scenes"`
+		Scenes []sceneSummaryItem `json:"scenes"`
 	}{
-		Scenes: make([]struct {
-			SceneCode       string `json:"scene_code"`
-			Tick            int64  `json:"tick"`
-			RenderStateJSON []byte `json:"render_state_json"`
-		}, 0, len(states)),
+		Scenes: make([]sceneSummaryItem, 0, len(states)),
 	}
 
 	for _, state := range states {
-		payload.Scenes = append(payload.Scenes, struct {
-			SceneCode       string `json:"scene_code"`
-			Tick            int64  `json:"tick"`
-			RenderStateJSON []byte `json:"render_state_json"`
-		}{
+		payload.Scenes = append(payload.Scenes, sceneSummaryItem{
 			SceneCode:       state.SceneCode,
 			Tick:            state.Tick,
 			RenderStateJSON: cloneSnapshotBytes(state.RenderStateJSON),

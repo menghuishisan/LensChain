@@ -131,6 +131,7 @@ export function SimEnginePanel({ sessionID, scenes, onLayoutChange, className }:
                   category={scene.category}
                   attachScene={sim.attachScene}
                   detachScene={sim.detachScene}
+                  redrawScene={sim.redrawScene}
                   state={state}
                   isFullscreen={isFullscreen}
                 />
@@ -172,12 +173,23 @@ export function SimEnginePanel({ sessionID, scenes, onLayoutChange, className }:
 
 /**
  * 场景 Canvas 渲染组件
+ *
+ * 画布尺寸契约：
+ * 文档（@docs/modules/04-实验环境/06-可视化仿真引擎设计.md）规定场景面板基于 12 列栅格系统，
+ * default_size 仅决定栅格占位（如 6×4），实际画布像素随容器宽度、面板拖拽和全屏切换动态变化。
+ * 因此 <canvas> 的 drawingbuffer（width/height 属性）必须实时跟随 DOM 容器的实际像素尺寸，
+ * 否则领域渲染器拿到的 `surface.canvas.width/height` 永远是浏览器默认 300×150，
+ * 所有图形会被裁剪到画布外。
+ *
+ * 实现：ResizeObserver 监听容器尺寸，按 devicePixelRatio 缩放写入 canvas.width/height
+ * 与 SVG viewBox，每次尺寸变化后调 panel.redrawScene 让当前 state 在新尺寸下重绘一次。
  */
 function SceneCanvas({
   sceneCode,
   category,
   attachScene,
   detachScene,
+  redrawScene,
   state,
   isFullscreen,
 }: {
@@ -185,31 +197,72 @@ function SceneCanvas({
   category: string;
   attachScene: (code: string, cat: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => void;
   detachScene: (code: string) => void;
+  redrawScene: (code: string) => void;
   state: RenderState | undefined;
   isFullscreen: boolean;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const attachedRef = useRef(false);
 
   useEffect(() => {
-    if (!canvasRef.current || attachedRef.current) return;
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    const svg = svgRef.current;
+    if (!container || !canvas) return;
 
-    attachScene(sceneCode, category, canvasRef.current, svgRef.current as unknown as HTMLElement ?? undefined);
-    attachedRef.current = true;
+    if (!attachedRef.current) {
+      attachScene(sceneCode, category, canvas, svg as unknown as HTMLElement ?? undefined);
+      attachedRef.current = true;
+    }
+
+    // syncSize 把 DOM 实际像素同步到 canvas drawingbuffer 和 SVG viewBox，
+    // 并在尺寸真正改变时触发一次重绘。devicePixelRatio 用于 HiDPI 屏的清晰度。
+    const syncSize = () => {
+      const rect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const targetW = Math.max(1, Math.round(rect.width * dpr));
+      const targetH = Math.max(1, Math.round(rect.height * dpr));
+      let changed = false;
+      if (canvas.width !== targetW) {
+        canvas.width = targetW;
+        changed = true;
+      }
+      if (canvas.height !== targetH) {
+        canvas.height = targetH;
+        changed = true;
+      }
+      if (svg) {
+        const viewBox = `0 0 ${targetW} ${targetH}`;
+        if (svg.getAttribute('viewBox') !== viewBox) {
+          svg.setAttribute('viewBox', viewBox);
+          changed = true;
+        }
+      }
+      if (changed) {
+        redrawScene(sceneCode);
+      }
+    };
+
+    syncSize();
+    const observer = new ResizeObserver(syncSize);
+    observer.observe(container);
 
     return () => {
+      observer.disconnect();
       if (attachedRef.current) {
         detachScene(sceneCode);
         attachedRef.current = false;
       }
     };
-  }, [sceneCode, category, attachScene, detachScene]);
+  }, [sceneCode, category, attachScene, detachScene, redrawScene]);
 
+  // 全屏切换会改变容器高度，ResizeObserver 会自动触发 syncSize
   const height = isFullscreen ? 'h-[calc(100vh-200px)]' : 'h-64';
 
   return (
-    <div className={cn('relative', height)}>
+    <div ref={containerRef} className={cn('relative', height)}>
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
       <svg ref={svgRef} className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg" />
       {!state && (

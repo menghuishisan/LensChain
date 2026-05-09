@@ -279,6 +279,10 @@ func (o *K8sOrchestrator) ensurePod(ctx context.Context, name string, labels map
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyOnFailure,
+			// 关闭 K8s 默认的 Service env 注入：场景算法容器仅需 SCENARIO_LISTEN_ADDR /
+			// SCENE_CODE 两个显式 env，namespace 内可能存在其它平台 Service（grpc-server
+			// 等），它们的 *_HOST / *_PORT 环境变量会污染容器。服务发现走 DNS 即可。
+			EnableServiceLinks: boolPtr(false),
 			Containers: []corev1.Container{{
 				Name:            scenarioContainerName,
 				Image:           config.ContainerImageURL,

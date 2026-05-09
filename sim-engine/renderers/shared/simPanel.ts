@@ -121,6 +121,19 @@ export class SimPanel {
   }
 
   /**
+   * redrawScene 以当前缓存状态强制重绘一帧。
+   *
+   * 用于画布尺寸变化（窗口缩放 / 全屏切换 / 拖拽布局）后，让渲染器在新的
+   * canvas drawingbuffer 尺寸下重新走一次绘制管线。不修改 stateCache。
+   * 若场景尚未挂载或尚无缓存状态，则静默忽略。
+   */
+  public redrawScene(sceneCode: string): void {
+    const state = this.stateCache.get(sceneCode);
+    if (!state) return;
+    this.views.get(sceneCode)?.render(state);
+  }
+
+  /**
    * connect 建立与 Core 的 WebSocket 数据通道。
    */
   public connect(stateResolver: (message: WebSocketMessage) => RenderState): void {

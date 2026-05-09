@@ -34,6 +34,17 @@ export const XTermTerminal = forwardRef<XTermTerminalHandle, XTermTerminalProps>
     const terminalRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
 
+    // onData/onResize 用 ref 中转，避免 stale closure：
+    // useEffect 只依赖 readOnly，xterm 的 onData/onResize 注册一次即固化为对 ref 的解引用，
+    // 之后父组件每次 re-render 传新回调（例如 ExperimentTerminal 里 ready 由 false→true 后
+    // 重建的 handleTerminalData），都通过 ref 同步生效，不需要重建终端实例。
+    // 直接把 onData/onResize 加到 useEffect 依赖会导致每次 re-render 都重建终端，丢失
+    // 已有输出与滚动历史，是不可接受的。
+    const onDataRef = useRef(onData);
+    const onResizeRef = useRef(onResize);
+    useEffect(() => { onDataRef.current = onData; }, [onData]);
+    useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
+
     useImperativeHandle(ref, () => ({
       write: (data: string) => terminalRef.current?.write(data),
       clear: () => terminalRef.current?.clear(),
@@ -79,13 +90,10 @@ export const XTermTerminal = forwardRef<XTermTerminalHandle, XTermTerminalProps>
       fitAddonRef.current = fitAddon;
       terminalRef.current = terminal;
 
-      if (!readOnly && onData) {
-        terminal.onData(onData);
+      if (!readOnly) {
+        terminal.onData((data) => onDataRef.current?.(data));
       }
-
-      if (onResize) {
-        terminal.onResize(({ cols, rows }) => onResize(cols, rows));
-      }
+      terminal.onResize(({ cols, rows }) => onResizeRef.current?.(cols, rows));
 
       const resizeObserver = new ResizeObserver(() => {
         requestAnimationFrame(() => fitAddonRef.current?.fit());

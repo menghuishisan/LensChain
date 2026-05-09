@@ -754,65 +754,118 @@ ON CONFLICT (id) DO NOTHING;
 -- 09. 检查点
 -- =====================================================================
 
+-- check_type: 1=脚本验证 / 2=手动评分 / 3=SimEngine 状态断言
+-- 脚本断言走 script_content + script_language + target_container 列；
+-- SimEngine 断言走 assertion_config 列，DSL 见
+--   docs/modules/04-实验环境/02-数据库设计.md §2.6
+--   {scene_code, conditions:[{path, operator, value}], require_all}
+-- 算子集合：eq / ne / gt / gte / lt / lte / contains（与 CTF 模块一致）
 INSERT INTO template_checkpoints (
     id, template_id, title, description,
-    check_type, assertion_config, score, sort_order,
+    check_type, script_content, script_language, target_container,
+    assertion_config, score, scope, sort_order,
     created_at, updated_at
 )
 VALUES
--- 共识机制可视化对比（8001）— check_type: 3=SimEngine状态断言
-(920000000000010001, 920000000000008001, '观察 PoW 出块', '在 PoW 场景中推进至少 10 个 Tick，观察一次成功出块。',
- 3, '{"scene_code":"pow-mining","condition":"tick >= 10"}'::jsonb, 25, 1, NOW(), NOW()),
-(920000000000010002, 920000000000008001, '注入拜占庭节点', '在 PBFT 场景中触发注入拜占庭节点交互。',
- 3, '{"scene_code":"pbft-consensus","action_code":"inject_byzantine_node"}'::jsonb, 25, 2, NOW(), NOW()),
-(920000000000010003, 920000000000008001, '触发 Raft Leader 故障', '在 Raft 场景中让 Leader 宕机并观察重新选举。',
- 3, '{"scene_code":"raft-election","action_code":"fail_leader"}'::jsonb, 25, 3, NOW(), NOW()),
-(920000000000010004, 920000000000008001, '完成四种共识对比', '将四个共识场景都推进至结束状态。',
- 3, '{"all_scenes_completed":true}'::jsonb, 25, 4, NOW(), NOW()),
+-- ---- 共识机制可视化对比（8001）— 4 个 SimEngine 状态断言 ----
+(920000000000010001, 920000000000008001, '推进 PoW 出块', '在 PoW 场景中至少推进 10 个 Tick，观察算力竞赛与新区块产生。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"pow-mining","conditions":[{"path":"$.tick","operator":"gte","value":10,"description":"至少推进 10 个 tick"}],"require_all":true}'::jsonb,
+ 25, 1, 1, NOW(), NOW()),
+(920000000000010002, 920000000000008001, '推进 PBFT 至 Commit 阶段', '在 PBFT 场景中至少推进 15 个 Tick，达到 Commit 阶段。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"pbft-consensus","conditions":[{"path":"$.tick","operator":"gte","value":15,"description":"至少 15 个 tick"},{"path":"$.phase_index","operator":"gte","value":2,"description":"达到 Commit（phase_index>=2）"}],"require_all":true}'::jsonb,
+ 25, 1, 2, NOW(), NOW()),
+(920000000000010003, 920000000000008001, '推进 Raft 选举完成', '在 Raft 场景中至少推进 12 个 Tick，完成 Leader 选举与日志复制阶段。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"raft-election","conditions":[{"path":"$.tick","operator":"gte","value":12},{"path":"$.phase_index","operator":"gte","value":2,"description":"进入日志复制阶段"}],"require_all":true}'::jsonb,
+ 25, 1, 3, NOW(), NOW()),
+(920000000000010004, 920000000000008001, '推进 PoS 验证者轮转', '在 PoS 场景中至少推进 10 个 Tick，观察一次完整 Epoch 轮转。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"pos-validator","conditions":[{"path":"$.tick","operator":"gte","value":10}],"require_all":true}'::jsonb,
+ 25, 1, 4, NOW(), NOW()),
 
--- 密码学基础（8002）
-(920000000000010005, 920000000000008002, '观察雪崩效应', '在 SHA-256 场景中修改输入，对比哈希变化。',
- 3, '{"scene_code":"sha256-hash","action_code":"mutate_input"}'::jsonb, 25, 1, NOW(), NOW()),
-(920000000000010006, 920000000000008002, '完成 ECDSA 签名', '在 ECDSA 场景中完成一次签名和验签流程。',
- 3, '{"scene_code":"ecdsa-sign","condition":"tick >= 12"}'::jsonb, 25, 2, NOW(), NOW()),
-(920000000000010007, 920000000000008002, '篡改 Merkle 叶子', '篡改一个叶子并观察验证路径失效。',
- 3, '{"scene_code":"merkle-tree","action_code":"tamper_leaf"}'::jsonb, 25, 3, NOW(), NOW()),
-(920000000000010008, 920000000000008002, '完成零知识证明交互', '在 ZKP 场景中完成承诺-挑战-响应全流程。',
- 3, '{"scene_code":"zkp-basic","condition":"tick >= 12"}'::jsonb, 25, 4, NOW(), NOW()),
+-- ---- 密码学基础（8002）— 4 个 SimEngine 状态断言 ----
+(920000000000010005, 920000000000008002, '完成 SHA-256 计算', '在 SHA-256 场景中至少进行 3 次输入修改，观察雪崩效应。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"sha256-hash","conditions":[{"path":"$.tick","operator":"gte","value":3,"description":"至少 3 次 mutate_input"}],"require_all":true}'::jsonb,
+ 25, 1, 1, NOW(), NOW()),
+(920000000000010006, 920000000000008002, '完成 ECDSA 签名', '在 ECDSA 场景中至少推进 8 个 Tick，覆盖签名与验签流程。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"ecdsa-sign","conditions":[{"path":"$.tick","operator":"gte","value":8}],"require_all":true}'::jsonb,
+ 25, 1, 2, NOW(), NOW()),
+(920000000000010007, 920000000000008002, '完成 Merkle 树构建与篡改', '在 Merkle 树场景中至少推进 8 个 Tick，触发一次叶子篡改与验证路径失效。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"merkle-tree","conditions":[{"path":"$.tick","operator":"gte","value":8}],"require_all":true}'::jsonb,
+ 25, 1, 3, NOW(), NOW()),
+(920000000000010008, 920000000000008002, '完成零知识证明交互', '在 ZKP 场景中至少推进 10 个 Tick，覆盖承诺-挑战-响应三阶段。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"zkp-basic","conditions":[{"path":"$.tick","operator":"gte","value":10},{"path":"$.phase_index","operator":"gte","value":2,"description":"完成响应阶段"}],"require_all":true}'::jsonb,
+ 25, 1, 4, NOW(), NOW()),
 
--- 交易与 Gas（8003）
-(920000000000010009, 920000000000008003, '追踪交易生命周期', '在交易生命周期场景中创建交易并观察完整流程。',
- 3, '{"scene_code":"tx-lifecycle","action_code":"create_tx"}'::jsonb, 34, 1, NOW(), NOW()),
-(920000000000010010, 920000000000008003, '分析 Gas 消耗', '在 Gas 计算场景中切换操作码对比消耗差异。',
- 3, '{"scene_code":"gas-calculation","action_code":"switch_opcode"}'::jsonb, 33, 2, NOW(), NOW()),
-(920000000000010011, 920000000000008003, '观察 MEV 攻击', '在 MEV 场景中注入抢跑机器人并观察排序变化。',
- 3, '{"scene_code":"tx-ordering-mev","action_code":"inject_mev_bot"}'::jsonb, 33, 3, NOW(), NOW()),
+-- ---- 交易与 Gas（8003）— 3 个 SimEngine 状态断言 ----
+(920000000000010009, 920000000000008003, '追踪交易生命周期', '在交易生命周期场景中至少推进 12 个 Tick，覆盖创建到确认全流程。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"tx-lifecycle","conditions":[{"path":"$.tick","operator":"gte","value":12}],"require_all":true}'::jsonb,
+ 34, 1, 1, NOW(), NOW()),
+(920000000000010010, 920000000000008003, '分析 Gas 消耗', '在 Gas 计算场景中至少进行 5 次操作码切换，对比消耗差异。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"gas-calculation","conditions":[{"path":"$.tick","operator":"gte","value":5}],"require_all":true}'::jsonb,
+ 33, 1, 2, NOW(), NOW()),
+(920000000000010011, 920000000000008003, '观察 MEV 攻击', '在 MEV 场景中至少推进 10 个 Tick，观察抢跑机器人对排序的影响。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"tx-ordering-mev","conditions":[{"path":"$.tick","operator":"gte","value":10}],"require_all":true}'::jsonb,
+ 33, 1, 3, NOW(), NOW()),
 
--- 攻防安全（8004）
-(920000000000010012, 920000000000008004, '执行 51% 攻击', '提升攻击者算力至 55%，观察链重组。',
- 3, '{"scene_code":"51-percent-attack","action_code":"boost_attacker_hashrate"}'::jsonb, 25, 1, NOW(), NOW()),
-(920000000000010013, 920000000000008004, '触发双花攻击', '发送冲突交易，观察商家交易被替换。',
- 3, '{"scene_code":"double-spend","action_code":"send_conflict_tx"}'::jsonb, 25, 2, NOW(), NOW()),
-(920000000000010014, 920000000000008004, '触发重入攻击', '执行重入攻击并观察余额被清空。',
- 3, '{"scene_code":"reentrancy-attack","action_code":"trigger_reentrancy"}'::jsonb, 25, 3, NOW(), NOW()),
-(920000000000010015, 920000000000008004, '观察整数溢出', '增加数值到临界点并观察回绕现象。',
- 3, '{"scene_code":"integer-overflow","action_code":"add_value"}'::jsonb, 25, 4, NOW(), NOW()),
+-- ---- 攻防安全（8004）— 4 个 SimEngine 状态断言 ----
+(920000000000010012, 920000000000008004, '执行 51% 攻击', '在 51% 攻击场景中至少推进 12 个 Tick，观察链重组。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"51-percent-attack","conditions":[{"path":"$.tick","operator":"gte","value":12}],"require_all":true}'::jsonb,
+ 25, 1, 1, NOW(), NOW()),
+(920000000000010013, 920000000000008004, '触发双花攻击', '在双花场景中至少推进 10 个 Tick，发送冲突交易并观察确认。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"double-spend","conditions":[{"path":"$.tick","operator":"gte","value":10}],"require_all":true}'::jsonb,
+ 25, 1, 2, NOW(), NOW()),
+(920000000000010014, 920000000000008004, '触发重入攻击', '在重入攻击场景中至少推进 10 个 Tick，观察资金被清空。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"reentrancy-attack","conditions":[{"path":"$.tick","operator":"gte","value":10}],"require_all":true}'::jsonb,
+ 25, 1, 3, NOW(), NOW()),
+(920000000000010015, 920000000000008004, '观察整数溢出', '在整数溢出场景中至少推进 8 个 Tick，触发回绕。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"integer-overflow","conditions":[{"path":"$.tick","operator":"gte","value":8}],"require_all":true}'::jsonb,
+ 25, 1, 4, NOW(), NOW()),
 
--- EVM 混合实验（8005）— check_type: 1=脚本验证, 3=SimEngine断言
-(920000000000010016, 920000000000008005, '部署合约到 geth', '在 Remix IDE 中编译并部署合约到本地 geth 节点。',
- 1, '{"target_container":"remix-ide","command":"curl -s http://geth:8545 | jq .result","expected":"0x"}'::jsonb, 40, 1, NOW(), NOW()),
-(920000000000010017, 920000000000008005, '跟踪 EVM 执行', '在仿真面板的 EVM 执行步进场景中至少推进 10 步。',
- 3, '{"scene_code":"evm-execution","condition":"tick >= 10"}'::jsonb, 30, 2, NOW(), NOW()),
-(920000000000010018, 920000000000008005, '观察合约状态变化', '在合约状态机场景中触发至少一次状态迁移。',
- 3, '{"scene_code":"contract-state-machine","action_code":"fire_event"}'::jsonb, 30, 3, NOW(), NOW()),
+-- ---- EVM 混合实验（8005）— 1 个脚本 + 2 个 SimEngine 状态断言 ----
+(920000000000010016, 920000000000008005, '验证 geth RPC 可达', '在 geth 容器内通过 JSON-RPC 调用 eth_blockNumber，要求返回非零结果。',
+ 1,
+ E'#!/bin/sh\nset -e\nresp=$(curl -sS -X POST http://localhost:8545 -H ''Content-Type: application/json'' -d ''{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'')\necho "$resp"\necho "$resp" | grep -q ''"result"''\n',
+ 'bash', 'geth',
+ NULL,
+ 40, 1, 1, NOW(), NOW()),
+(920000000000010017, 920000000000008005, '推进 EVM 执行步进', '在 EVM 执行场景中至少推进 10 个 Tick，覆盖一段操作码序列。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"evm-execution","conditions":[{"path":"$.tick","operator":"gte","value":10}],"require_all":true}'::jsonb,
+ 30, 1, 2, NOW(), NOW()),
+(920000000000010018, 920000000000008005, '触发合约状态迁移', '在合约状态机场景中至少触发 3 次事件，覆盖状态迁移。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"contract-state-machine","conditions":[{"path":"$.tick","operator":"gte","value":3}],"require_all":true}'::jsonb,
+ 30, 1, 3, NOW(), NOW()),
 
--- PoW 混合实验（8006）
-(920000000000010019, 920000000000008006, '启动 geth 挖矿', '连接 geth 节点并确认出块。',
- 1, '{"target_container":"blockscout","command":"curl -s http://geth:8545 -X POST -H \"Content-Type:application/json\" -d ''{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}''","expected":"0x"}'::jsonb, 30, 1, NOW(), NOW()),
-(920000000000010020, 920000000000008006, '观察 PoW 仿真', '在 PoW 挖矿仿真场景中推进至少 15 个 Tick。',
- 3, '{"scene_code":"pow-mining","condition":"tick >= 15"}'::jsonb, 35, 2, NOW(), NOW()),
-(920000000000010021, 920000000000008006, '对比真实与仿真区块同步', '在区块同步场景中观察至少一次新区块传播。',
- 3, '{"scene_code":"block-sync","condition":"tick >= 10"}'::jsonb, 35, 3, NOW(), NOW())
+-- ---- PoW 混合实验（8006）— 1 个脚本 + 2 个 SimEngine 状态断言 ----
+(920000000000010019, 920000000000008006, '验证 geth 出块', '在 geth 容器内调用 eth_blockNumber，要求当前区块高度大于 0。',
+ 1,
+ E'#!/bin/sh\nset -e\nresp=$(curl -sS -X POST http://localhost:8545 -H ''Content-Type: application/json'' -d ''{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'')\necho "$resp"\nhex=$(echo "$resp" | sed -n ''s/.*"result":"\\([^"]*\\)".*/\\1/p'')\ntest -n "$hex"\ntest "$hex" != "0x0"\n',
+ 'bash', 'geth',
+ NULL,
+ 30, 1, 1, NOW(), NOW()),
+(920000000000010020, 920000000000008006, '推进 PoW 仿真', '在 PoW 挖矿仿真场景中至少推进 15 个 Tick。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"pow-mining","conditions":[{"path":"$.tick","operator":"gte","value":15}],"require_all":true}'::jsonb,
+ 35, 1, 2, NOW(), NOW()),
+(920000000000010021, 920000000000008006, '观察区块同步', '在区块同步场景中至少推进 10 个 Tick，观察新区块传播。',
+ 3, NULL, NULL, NULL,
+ '{"scene_code":"block-sync","conditions":[{"path":"$.tick","operator":"gte","value":10}],"require_all":true}'::jsonb,
+ 35, 1, 3, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 -- =====================================================================

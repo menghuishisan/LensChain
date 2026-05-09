@@ -118,7 +118,6 @@ type runtime struct {
 	opMu              *sync.Mutex
 	clock             *simcore.Clock
 	eventBus          *simcore.EventBus
-	snapshots         map[string]Snapshot
 	snapshotStack     *simcore.SnapshotStack
 	lastSnapshotState []byte
 	initialSnapshot   []byte
@@ -528,10 +527,6 @@ func (e *Engine) CreateSnapshot(sessionID string, description string) (Snapshot,
 		return Snapshot{}, err
 	}
 	snapshot.ObjectURL = objectURL
-	if runtime.snapshots == nil {
-		runtime.snapshots = make(map[string]Snapshot)
-	}
-	runtime.snapshots[snapshotID] = snapshot
 	runtime.updatedAt = time.Now().UTC()
 	e.runtimes[sessionID] = runtime
 	e.hub.Publish(sessionID, ws.Message{
@@ -544,6 +539,18 @@ func (e *Engine) CreateSnapshot(sessionID string, description string) (Snapshot,
 }
 
 // RestoreSnapshot 校验快照存在并恢复到快照 tick。
+//
+// 快照查找走 SnapshotStore（MinIO/S3）唯一权威源，不再依赖 runtime.snapshots
+// 这一份内存映射。原因：
+//
+//	平台暂停-恢复链路是"销毁原 SimEngine 会话 → 重新创建新会话 → 在新会话上恢复
+//	旧快照"，新会话的 runtime.snapshots 必然为空。CreateSnapshot 已经把快照通过
+//	e.store.Save 持久化到对象存储，所以跨会话恢复天然合法。原内存成员检查会把
+//	这条合法路径误判为"snapshot not found"。
+//
+// 容器回收路径不受影响：DestroySession 删除 runtime / 场景 Pod / namespace 的逻辑
+// 与 RestoreSnapshot 解耦，本函数仅做"读 store + 回放 state + 推 WS"，不参与
+// 任何资源生命周期管理。
 func (e *Engine) RestoreSnapshot(sessionID string, snapshotID string) error {
 	e.mu.RLock()
 	runtime, ok := e.runtimes[sessionID]
@@ -554,13 +561,9 @@ func (e *Engine) RestoreSnapshot(sessionID string, snapshotID string) error {
 	if e.store == nil {
 		return errors.New("snapshot store is not configured")
 	}
-	snapshot, ok := runtime.snapshots[snapshotID]
-	if !ok {
-		return errors.New("snapshot not found")
-	}
 	payload, err := e.store.Load(snapshotID)
 	if err != nil {
-		return err
+		return fmt.Errorf("加载快照 %s 失败: %w", snapshotID, err)
 	}
 	if err := runtime.clock.Rewind(payload.Tick); err != nil && payload.Tick != runtime.clock.Tick() {
 		runtime.clock.Reset()
@@ -613,7 +616,7 @@ func (e *Engine) RestoreSnapshot(sessionID string, snapshotID string) error {
 	}
 	e.hub.Publish(sessionID, ws.Message{
 		Type:        ws.MessageTypeSnapshot,
-		Tick:        snapshot.Tick,
+		Tick:        payload.Tick,
 		TimestampMS: time.Now().UTC().UnixMilli(),
 		PayloadJSON: []byte(`{"snapshot_id":"` + snapshotID + `","snapshot_type":"restore"}`),
 	})

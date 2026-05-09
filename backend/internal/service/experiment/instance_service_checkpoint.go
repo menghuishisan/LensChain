@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/datatypes"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
+	"github.com/lenschain/backend/internal/pkg/assertion"
 	"github.com/lenschain/backend/internal/pkg/snowflake"
 )
 
@@ -332,9 +334,15 @@ func (s *instanceService) validateSimCheckpoint(ctx context.Context, instance *e
 		if err != nil {
 			result.ErrorMessage = err.Error()
 		} else {
-			result.Passed = s.evaluateSimAssertion(json.RawMessage(cp.AssertionConfig), state.SceneState)
-			result.CheckOutput = string(state.SceneState)
-			result.Score = cp.Score
+			passed, evalResult := evaluateSimAssertion(json.RawMessage(cp.AssertionConfig), state.SceneState)
+			result.Passed = passed
+			result.CheckOutput = formatSimAssertionOutput(evalResult)
+			if !passed && evalResult.Reason != "" && result.ErrorMessage == "" {
+				result.ErrorMessage = evalResult.Reason
+			}
+			if passed {
+				result.Score = cp.Score
+			}
 		}
 	}
 
@@ -529,31 +537,196 @@ func (s *instanceService) persistCheckpointState(ctx context.Context, cp *entity
 	return results
 }
 
-// evaluateSimAssertion 评估 SimEngine 状态断言。
-func (s *instanceService) evaluateSimAssertion(assertionConfig json.RawMessage, sceneState json.RawMessage) bool {
-	if assertionConfig == nil || sceneState == nil {
-		return false
+// simAssertionConfig 解析后的 SimEngine 状态断言配置。
+//
+// 契约：docs/modules/04-实验环境/02-数据库设计.md §2.6 template_checkpoints.assertion_config
+//
+//	{
+//	  "scene_code": "<必填，定位会话内的目标场景>",
+//	  "conditions": [
+//	    {"path": "$.x.y", "operator": "<eq|ne|gt|gte|lt|lte|contains>", "value": <any>, "description": "..."}
+//	  ],
+//	  "require_all": true   // 可选，缺省 true
+//	}
+type simAssertionConfig struct {
+	SceneCode  string                  `json:"scene_code"`
+	Conditions []simAssertionCondition `json:"conditions"`
+	RequireAll *bool                   `json:"require_all"`
+}
+
+type simAssertionCondition struct {
+	Path        string          `json:"path"`
+	Operator    string          `json:"operator"`
+	Value       json.RawMessage `json:"value"`
+	Description string          `json:"description,omitempty"`
+}
+
+type simAssertionConditionResult struct {
+	Path        string `json:"path"`
+	Operator    string `json:"operator"`
+	Description string `json:"description,omitempty"`
+	Passed      bool   `json:"passed"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type simAssertionResult struct {
+	Passed     bool                          `json:"passed"`
+	Reason     string                        `json:"reason,omitempty"`
+	Conditions []simAssertionConditionResult `json:"conditions,omitempty"`
+}
+
+// sessionStateEnvelope 与 sim-engine simcore.StateManager.BuildSceneSummary 输出 JSON 结构对齐。
+type sessionStateEnvelope struct {
+	Scenes []sceneStateSummary `json:"scenes"`
+}
+
+type sceneStateSummary struct {
+	SceneCode       string          `json:"scene_code"`
+	Tick            int64           `json:"tick"`
+	RenderStateJSON json.RawMessage `json:"render_state_json"`
+}
+
+// evaluateSimAssertion 按文档 DSL 评估 SimEngine 状态断言。
+//
+// 评估流程：
+//  1. 解析 assertion_config，校验 scene_code / conditions 必填；
+//  2. 解析会话状态 envelope，按 scene_code 定位目标场景；
+//  3. 解码场景 render_state_json，并把 wrapper 的 tick / scene_code 注入根字段，
+//     这样 `$.tick` 这种最常用的进度断言无需场景容器在 RenderEnvelope 里重复写 tick；
+//  4. 每条 condition 通过 pkg/assertion 走 JSONPath 取值 + operator 比较，
+//     按 require_all 汇总（默认 true）；
+//  5. 返回 (passed, result)，result 包含逐条条件的详细原因，便于学生看到失败点。
+//
+// 算子集合 / JSONPath 语法见 backend/internal/pkg/assertion，与 CTF 模块共享同一套基础设施。
+func evaluateSimAssertion(assertionConfig json.RawMessage, sceneState json.RawMessage) (bool, simAssertionResult) {
+	if len(assertionConfig) == 0 {
+		return false, simAssertionResult{Reason: "断言配置为空"}
 	}
-	var config map[string]interface{}
-	var state map[string]interface{}
-	if err := json.Unmarshal(assertionConfig, &config); err != nil {
-		return false
+	var cfg simAssertionConfig
+	if err := json.Unmarshal(assertionConfig, &cfg); err != nil {
+		return false, simAssertionResult{Reason: fmt.Sprintf("断言配置解析失败: %v", err)}
 	}
-	if err := json.Unmarshal(sceneState, &state); err != nil {
-		return false
+	cfg.SceneCode = strings.TrimSpace(cfg.SceneCode)
+	if cfg.SceneCode == "" {
+		return false, simAssertionResult{Reason: "断言缺少 scene_code"}
 	}
-	for key, expected := range config {
-		actual, ok := state[key]
-		if !ok {
-			return false
+	if len(cfg.Conditions) == 0 {
+		return false, simAssertionResult{Reason: "断言缺少 conditions"}
+	}
+	if len(sceneState) == 0 {
+		return false, simAssertionResult{Reason: "SimEngine 会话状态为空"}
+	}
+
+	var envelope sessionStateEnvelope
+	if err := json.Unmarshal(sceneState, &envelope); err != nil {
+		return false, simAssertionResult{Reason: fmt.Sprintf("会话状态解析失败: %v", err)}
+	}
+	scene, ok := findSceneByCode(envelope.Scenes, cfg.SceneCode)
+	if !ok {
+		return false, simAssertionResult{Reason: fmt.Sprintf("会话未激活场景 %q", cfg.SceneCode)}
+	}
+	context := map[string]any{}
+	if len(scene.RenderStateJSON) > 0 {
+		if err := json.Unmarshal(scene.RenderStateJSON, &context); err != nil {
+			return false, simAssertionResult{Reason: fmt.Sprintf("场景渲染态解析失败: %v", err)}
 		}
-		expectedJSON, _ := json.Marshal(expected)
-		actualJSON, _ := json.Marshal(actual)
-		if string(expectedJSON) != string(actualJSON) {
-			return false
+	}
+	context["tick"] = scene.Tick
+	context["scene_code"] = scene.SceneCode
+
+	requireAll := true
+	if cfg.RequireAll != nil {
+		requireAll = *cfg.RequireAll
+	}
+
+	results := make([]simAssertionConditionResult, 0, len(cfg.Conditions))
+	passedCount := 0
+	for _, condition := range cfg.Conditions {
+		item := evaluateSimAssertionCondition(condition, context)
+		results = append(results, item)
+		if item.Passed {
+			passedCount++
+		} else if requireAll {
+			break
 		}
 	}
-	return true
+
+	overall := simAssertionResult{Conditions: results}
+	if requireAll {
+		overall.Passed = passedCount == len(cfg.Conditions)
+		if !overall.Passed {
+			overall.Reason = "存在未通过的条件"
+		}
+	} else {
+		overall.Passed = passedCount > 0
+		if !overall.Passed {
+			overall.Reason = "所有条件均未通过"
+		}
+	}
+	return overall.Passed, overall
+}
+
+// findSceneByCode 在场景摘要列表里按 code 精确匹配。
+func findSceneByCode(scenes []sceneStateSummary, code string) (sceneStateSummary, bool) {
+	for _, s := range scenes {
+		if s.SceneCode == code {
+			return s, true
+		}
+	}
+	return sceneStateSummary{}, false
+}
+
+// evaluateSimAssertionCondition 评估单条断言条件。
+func evaluateSimAssertionCondition(condition simAssertionCondition, context map[string]any) simAssertionConditionResult {
+	result := simAssertionConditionResult{
+		Path:        condition.Path,
+		Operator:    condition.Operator,
+		Description: condition.Description,
+	}
+	if condition.Path == "" {
+		result.Reason = "条件缺少 path"
+		return result
+	}
+	if !assertion.IsValidOperator(condition.Operator) {
+		result.Reason = fmt.Sprintf("不支持的算子 %q", condition.Operator)
+		return result
+	}
+	pathExpr, err := assertion.Compile(condition.Path)
+	if err != nil {
+		result.Reason = err.Error()
+		return result
+	}
+	actual, err := pathExpr.Lookup(context)
+	if err != nil {
+		result.Reason = err.Error()
+		return result
+	}
+	var expected any
+	if len(condition.Value) > 0 {
+		if err := json.Unmarshal(condition.Value, &expected); err != nil {
+			result.Reason = fmt.Sprintf("expected value 解析失败: %v", err)
+			return result
+		}
+	}
+	passed, reason := assertion.Compare(actual, condition.Operator, expected)
+	result.Passed = passed
+	if !passed {
+		result.Reason = reason
+	}
+	return result
+}
+
+// formatSimAssertionOutput 把评估结果格式化成结构化 JSON 字符串作为检查点输出，
+// 便于前端检查点面板展示通过/未通过条件列表。失败兜底为可读 reason。
+func formatSimAssertionOutput(result simAssertionResult) string {
+	data, err := json.Marshal(result)
+	if err != nil {
+		if result.Reason != "" {
+			return result.Reason
+		}
+		return "状态断言评估失败"
+	}
+	return string(data)
 }
 
 // extractFirstCheckpointMember 从断言详情中提取第一个组员结果。

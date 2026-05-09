@@ -257,6 +257,9 @@ VALUES
         NOW(),
         NOW()
     ),
+    -- Blockscout 是 Phoenix(Elixir) 应用，启动时强制要求 DATABASE_URL 与 SECRET_KEY_BASE，
+    -- 否则容器立即 Completed（exit 0）。manifest required_dependencies 已声明依赖 postgres，
+    -- 这里把 env / depends_on 与依赖容器一并补齐。
     (
         910000000000009015,
         910000000000008006,
@@ -264,15 +267,35 @@ VALUES
         'blockscout',
         1,
         NULL,
-        '[{"key":"ETHEREUM_JSONRPC_HTTP_URL","value":"http://geth:8545","desc":"EVM 节点 RPC 地址","conditions":[]}]'::jsonb,
+        '[{"key":"ETHEREUM_JSONRPC_HTTP_URL","value":"http://geth:8545","desc":"EVM 节点 RPC 地址","conditions":[]},{"key":"ETHEREUM_JSONRPC_VARIANT","value":"geth","desc":"上游节点类型","conditions":[]},{"key":"DATABASE_URL","value":"postgresql://postgres:postgres@postgres:5432/blockscout","desc":"Postgres 连接串","conditions":[]},{"key":"ECTO_USE_SSL","value":"false","desc":"教学环境关闭 TLS","conditions":[]},{"key":"SECRET_KEY_BASE","value":"VTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVoxMjM0NTY3ODkw","desc":"Phoenix 会话签名密钥（教学环境固定）","conditions":[]}]'::jsonb,
         '[{"container_port":4000,"service_port":4000,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '500m',
         '1Gi',
-        '[{"container_name":"geth"}]'::jsonb,
+        '[{"container_name":"geth"},{"container_name":"postgres"}]'::jsonb,
         2,
         FALSE,
         2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 6 的 Postgres 容器：blockscout 持久化所需，与 geth 同 startup_order=1 并行启动。
+    (
+        910000000000009033,
+        910000000000008006,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'postgres' AND iv.version = '15'),
+        'postgres',
+        1,
+        NULL,
+        '[{"key":"POSTGRES_PASSWORD","value":"postgres","desc":"Postgres 超级用户密码","conditions":[]},{"key":"POSTGRES_DB","value":"blockscout","desc":"Blockscout 使用的数据库","conditions":[]},{"key":"POSTGRES_USER","value":"postgres","desc":"Postgres 超级用户","conditions":[]}]'::jsonb,
+        '[{"container_port":5432,"service_port":5432,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '512Mi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        5,
         NOW(),
         NOW()
     ),

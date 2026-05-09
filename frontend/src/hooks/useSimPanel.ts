@@ -42,6 +42,7 @@ export interface UseSimPanelReturn {
   layout: PanelLayoutItem[];
   attachScene: (sceneCode: string, category: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => void;
   detachScene: (sceneCode: string) => void;
+  redrawScene: (sceneCode: string) => void;
   sendControl: (command: TimeControlCommand, value?: number) => void;
   sendAction: (action: SimAction) => void;
   rewindTo: (targetTick: number) => void;
@@ -59,7 +60,12 @@ export interface UseSimPanelReturn {
 export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
   const { sessionId, scenes, initialLayout, layoutStorageKey } = options;
   const accessToken = useAuthStore(s => s.accessToken);
-  const panelRef = useRef<SimPanel | null>(null);
+  // panel 必须用 state 而不是 ref：子组件 SceneCanvas 的 useEffect 在父组件 useEffect 之前执行
+  // （React 对 effect 的提交顺序是子先父后），如果只用 ref，第一次 attachScene 调用时 ref
+  // 仍是 null，调用变为 no-op，导致场景永不绑定 SceneView，Canvas 永远不绘制。
+  // 用 state 后 panel 创建会触发重渲，所有 useCallback 依赖 panel 后随之更新，
+  // 子组件 useEffect 因依赖变更重跑一次 attachScene，这次 panel 已就绪。
+  const [panel, setPanel] = useState<SimPanel | null>(null);
   const [connected, setConnected] = useState(false);
   const [sceneStates, setSceneStates] = useState<Map<string, RenderState>>(new Map());
   const [layout, setLayout] = useState<PanelLayoutItem[]>(initialLayout ?? []);
@@ -88,7 +94,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     const wsBase = rawBase.replace(/^https?:/, (proto) => (proto === 'https:' ? 'wss:' : 'ws:')).replace(/\/$/, '');
     const endpoint = `${wsBase}/ws/sim-engine`;
 
-    const panel = createDefaultSimPanel({
+    const instance = createDefaultSimPanel({
       sessionId,
       token: accessToken ?? '',
       endpoint,
@@ -96,17 +102,17 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
       layoutStorageKey: layoutStorageKey ?? `sim-layout-${sessionId}`,
     });
 
-    panelRef.current = panel;
+    setPanel(instance);
 
     // 订阅连接状态，跟踪真实 WebSocket open/close
-    const unsubscribeStatus = panel.subscribeConnectionStatus(setConnected);
+    const unsubscribeStatus = instance.subscribeConnectionStatus(setConnected);
 
     // 订阅消息以跟踪状态变化
-    panel.subscribeMessages((message: WebSocketMessage) => {
+    instance.subscribeMessages((message: WebSocketMessage) => {
       if (message.type === 'state_diff' || message.type === 'state_full') {
         const code = message.scene_code;
         if (code) {
-          const state = panel.getSceneState(code);
+          const state = instance.getSceneState(code);
           if (state) {
             setSceneStates(prev => {
               const next = new Map(prev);
@@ -119,7 +125,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     });
 
     // 连接 WebSocket，stateResolver 将消息转为 RenderState
-    panel.connect((message: WebSocketMessage): RenderState => {
+    instance.connect((message: WebSocketMessage): RenderState => {
       const sceneCode = message.scene_code ?? '';
       const config = sceneConfigMapRef.current.get(sceneCode);
       return createRenderState({
@@ -135,60 +141,69 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
 
     return () => {
       unsubscribeStatus();
-      panel.disconnect();
-      panelRef.current = null;
+      instance.disconnect();
+      setPanel(null);
       setConnected(false);
     };
   }, [sessionId, accessToken]);
 
+  // 所有暴露给消费者的回调都依赖 panel state，panel 创建后回调身份变化，
+  // 子组件 useEffect（依赖回调）会重跑一次 attachScene，确保场景在 panel 就绪后绑定。
   const attachScene = useCallback((sceneCode: string, category: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => {
-    panelRef.current?.attachScene(sceneCode, category, canvas, overlay);
-  }, []);
+    panel?.attachScene(sceneCode, category, canvas, overlay);
+  }, [panel]);
 
   const detachScene = useCallback((sceneCode: string) => {
-    panelRef.current?.detachScene(sceneCode);
-  }, []);
+    panel?.detachScene(sceneCode);
+  }, [panel]);
+
+  // redrawScene 用于画布尺寸变化后强制以当前缓存状态重绘一帧。
+  // 不修改 stateCache，仅触发 SceneView.render 重新走渲染管线。
+  const redrawScene = useCallback((sceneCode: string) => {
+    panel?.redrawScene(sceneCode);
+  }, [panel]);
 
   const sendControl = useCallback((command: TimeControlCommand, value?: number) => {
-    panelRef.current?.sendControl(command, value);
-  }, []);
+    panel?.sendControl(command, value);
+  }, [panel]);
 
   const sendAction = useCallback((action: SimAction) => {
-    panelRef.current?.sendAction(action);
-  }, []);
+    panel?.sendAction(action);
+  }, [panel]);
 
   const rewindTo = useCallback((targetTick: number) => {
-    panelRef.current?.rewindTo(targetTick);
-  }, []);
+    panel?.rewindTo(targetTick);
+  }, [panel]);
 
   const getControls = useCallback((sceneCode: string): ControlDescriptor[] => {
-    return panelRef.current?.getAvailableControls(sceneCode) ?? [];
-  }, []);
+    return panel?.getAvailableControls(sceneCode) ?? [];
+  }, [panel]);
 
   const getInteractionActions = useCallback((sceneCode: string): InteractionAction[] => {
-    return panelRef.current?.listInteractionActions(sceneCode) ?? [];
-  }, []);
+    return panel?.listInteractionActions(sceneCode) ?? [];
+  }, [panel]);
 
   const submitInteraction = useCallback((sceneCode: string, actionCode: string, inputs: InteractionInputMap) => {
-    panelRef.current?.submitInteraction(sceneCode, actionCode, inputs);
-  }, []);
+    panel?.submitInteraction(sceneCode, actionCode, inputs);
+  }, [panel]);
 
   const saveLayoutCb = useCallback(() => {
-    const currentLayout = panelRef.current?.getLayout() ?? [];
-    panelRef.current?.saveLayout(currentLayout);
-  }, []);
+    const currentLayout = panel?.getLayout() ?? [];
+    panel?.saveLayout(currentLayout);
+  }, [panel]);
 
   const captureScene = useCallback((sceneCode: string): string | null => {
-    return panelRef.current?.captureScene(sceneCode) ?? null;
-  }, []);
+    return panel?.captureScene(sceneCode) ?? null;
+  }, [panel]);
 
   return {
-    panel: panelRef.current,
+    panel,
     connected,
     sceneStates,
     layout,
     attachScene,
     detachScene,
+    redrawScene,
     sendControl,
     sendAction,
     rewindTo,

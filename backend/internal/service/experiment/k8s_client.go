@@ -352,6 +352,16 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 			Containers:    containers,
 			Volumes:       volumes,
 			RestartPolicy: corev1.RestartPolicyNever,
+			// EnableServiceLinks=false 关闭 K8s 默认的 Service 环境变量注入。
+			//
+			// 默认行为下，K8s 会把同 namespace 的每个 Service 以
+			// `<NAME>_HOST` / `<NAME>_PORT` / `<NAME>_PORT_<port>_TCP_*` 等环境变量
+			// 注入容器，导致 CLI 参数与 env 绑定的二进制（如 geth 把 --port 绑定到
+			// $GETH_PORT）解析"tcp://10.x.x.x:8545"为 int 失败而崩溃。
+			//
+			// 实验 namespace 内的服务发现仅依赖 K8s DNS（service-name.namespace.svc），
+			// 不需要 env 注入。关闭后 DNS 解析完全不受影响，但消除了所有此类污染。
+			EnableServiceLinks: boolPtr(false),
 			SecurityContext: &corev1.PodSecurityContext{
 				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 			},
