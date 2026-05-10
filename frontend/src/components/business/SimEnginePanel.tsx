@@ -1,406 +1,373 @@
 'use client';
 
 // SimEnginePanel.tsx
-// SimEngine 可视化仿真面板
-// 集成领域渲染器实现 Canvas 绘制，支持时间控制、场景交互、栅格布局
+// SimEngine 仿真面板主编排组件（06.2 §一）。
+// 三段式布局：TopBar / MainCanvas+Sidebar / ControlBar + InteractionForm。
+// 编排 useSimPanel、useSimMode、useSimInteraction、useSimSchemaInvalidation hook。
+// 按模式（single/comparison/linkage/hybrid）和布局（grid/focus/carousel）渲染场景画布。
 
-import { useEffect, useRef, useState } from 'react';
-import { Activity, Camera, Maximize2, Minimize2, Pause, Play, RotateCcw, SkipForward, Wifi, WifiOff } from 'lucide-react';
-import { useSimPanel } from '@/hooks/useSimPanel';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/Card';
 import { cn } from '@/lib/utils';
-import type { ID } from '@/types/api';
-import type { RenderState, ControlDescriptor, InteractionAction, TimeControlCommand, InteractionInputValue } from '@lenschain/sim-engine-renderers';
+import { useSimPanel, type SimSceneConfig } from '@/hooks/useSimPanel';
+import { useSimMode } from '@/hooks/useSimMode';
+import { useSimInteraction, useSimSchemaInvalidation } from '@/hooks/useSimInteraction';
+import { SimTopBar } from '@/components/business/SimTopBar';
+import { SimSceneGrid, type SceneSlotConfig } from '@/components/business/SimSceneGrid';
+import { SimControlBar } from '@/components/business/SimControlBar';
+import { SimInteractionForm } from '@/components/business/SimInteractionForm';
+import { SimSidebar, type MetricItem, type LinkIndicatorItem } from '@/components/business/SimSidebar';
+import { SimSharedStatePanel } from '@/components/business/SimSharedStatePanel';
+import { SimTeacherInterventionPanel } from '@/components/business/SimTeacherInterventionPanel';
+import { SimAnnotationToolbar, type AnnotationTool } from '@/components/business/SimAnnotationToolbar';
+import { SimCrossCanvasOverlay, type LinkArc } from '@/components/business/SimCrossCanvasOverlay';
+import type { ExperimentType, SimLayoutMode, SimSharedStateGroup, SimTimeControlMode } from '@/types/experiment';
 
-/** SimEnginePanel 接受的最小场景输入类型。 */
-export interface SimSceneInput {
-  id: ID;
-  scenario?: { code?: string; category?: string; name?: string; time_control_mode?: string } | null;
+/** SimEnginePanel 外部可见场景信息。 */
+export interface SceneInfo {
+  scenario?: {
+    code?: string;
+    name?: string;
+    category?: string;
+    time_control_mode?: SimTimeControlMode;
+  } | null;
+  scene_id?: string;
+  link_group_id?: string | null;
+  link_group_name?: string | null;
+}
+
+function getSceneCode(scene: SceneInfo): string {
+  return scene.scenario?.code ?? scene.scene_id ?? 'unknown';
 }
 
 export interface SimEnginePanelProps {
-  sessionID: ID;
-  scenes: SimSceneInput[];
-  onLayoutChange?: (layouts: Array<{ scene_id: ID; layout_position: Record<string, unknown> }>) => void;
+  sessionID: string | null;
+  instanceID?: string;
+  scenes: SceneInfo[];
+  experimentType?: ExperimentType;
+  userRole?: string;
+  onLayoutChange?: (layout: unknown) => void;
   className?: string;
 }
 
-function getSceneCode(scene: SimSceneInput) {
-  return scene.scenario?.code ?? String(scene.id);
-}
-
 /**
- * SimEngine 可视化仿真面板
- * 使用领域渲染器在 Canvas 上绘制仿真动画
+ * SimEnginePanel 三段式仿真面板（06.2 §一）。
+ *
+ * 自动判定运行模式（single/comparison/linkage/hybrid），
+ * 根据场景数选择布局（grid/focus/carousel），
+ * 渲染时间控制栏（process/continuous 模式）和交互表单（ActionDef 驱动）。
  */
-export function SimEnginePanel({ sessionID, scenes, onLayoutChange, className }: SimEnginePanelProps) {
-  const sceneConfigs = scenes.map(s => ({
-    sceneCode: getSceneCode(s),
-    category: s.scenario?.category ?? 'node_network',
-    algorithmType: s.scenario?.code ?? '',
-    title: s.scenario?.name ?? '未命名场景',
-  }));
+export function SimEnginePanel({
+  sessionID,
+  instanceID,
+  scenes,
+  experimentType = 1,
+  userRole = 'student',
+  className,
+}: SimEnginePanelProps) {
+  // ─── 场景配置构建 ─────────────────────────────────
+  const sceneConfigs: SimSceneConfig[] = useMemo(
+    () =>
+      scenes.map((s) => ({
+        sceneCode: getSceneCode(s),
+        category: s.scenario?.category ?? 'node_network',
+        algorithmType: s.scenario?.code ?? '',
+        title: s.scenario?.name ?? '未命名场景',
+      })),
+    [scenes],
+  );
 
+  // ─── 核心 Hook ────────────────────────────────────
   const sim = useSimPanel({
-    sessionId: String(sessionID),
+    sessionId: String(sessionID ?? ''),
     scenes: sceneConfigs,
     layoutStorageKey: `sim-layout-${sessionID}`,
   });
 
-  const [fullscreenScene, setFullscreenScene] = useState<string | null>(null);
+  const hasActiveLinkGroup = scenes.some((s) => s.link_group_id != null);
+  const firstTimeControlMode = scenes[0]?.scenario?.time_control_mode ?? 'reactive';
 
+  const [viewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1440));
+  const [layoutOverride, setLayoutOverride] = useState<SimLayoutMode | null>(null);
+  const [interventionOpen, setInterventionOpen] = useState(false);
+  const [annotationVisible, setAnnotationVisible] = useState(false);
+  const [, setActiveAnnotationTool] = useState<AnnotationTool | null>(null);
+  const isTeacher = userRole === 'teacher';
+
+  // 标注工具切换：通过 SimPanel 下发 annotation 原语设置当前绘制模式
+  const handleAnnotationToolChange = useCallback((tool: AnnotationTool | null) => {
+    setActiveAnnotationTool(tool);
+    if (sim.panel) {
+      sim.panel.sendAction({
+        sceneCode: '__annotation__',
+        actionCode: 'set_tool',
+        params: { tool: tool ?? 'none' },
+      });
+    }
+  }, [sim.panel]);
+
+  // 清空所有标注：通过 SimPanel 下发 clear_all 指令
+  const handleAnnotationClear = useCallback(() => {
+    setActiveAnnotationTool(null);
+    if (sim.panel) {
+      sim.panel.sendAction({
+        sceneCode: '__annotation__',
+        actionCode: 'clear_all',
+        params: {},
+      });
+    }
+  }, [sim.panel]);
+
+  const simMode = useSimMode({
+    experimentType,
+    sceneCount: sceneConfigs.length,
+    hasActiveLinkGroup,
+    viewportWidth,
+    timeControlMode: firstTimeControlMode,
+  });
+
+  const activeLayout = layoutOverride ?? simMode.layout;
+
+  // schema_invalidated 信号处理
+  useSimSchemaInvalidation(instanceID ?? '', sim.latestMessage);
+
+  // 第一个场景的交互 schema（单场景时直接渲染，多场景时各场景分别获取）
+  const firstScene = sceneConfigs[0];
+  const firstInteraction = useSimInteraction({
+    instanceID: instanceID ?? '',
+    sceneCode: firstScene?.sceneCode ?? '',
+    enabled: !!instanceID && !!firstScene,
+    userRole,
+  });
+
+  // ─── 状态派生 ─────────────────────────────────────
+  const firstState = firstScene ? sim.sceneStates.get(firstScene.sceneCode) : undefined;
+  const currentTick = firstState?.tick ?? 0;
+
+  // 从 control_ack 消息推导播放状态
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => {
+    const msg = sim.latestMessage;
+    if (!msg || msg.type !== 'control_ack') return;
+    const ack = msg.payload as { command?: string; success?: boolean };
+    if (!ack.success) return;
+    if (ack.command === 'play' || ack.command === 'resume') setPlaying(true);
+    else if (ack.command === 'pause' || ack.command === 'reset') setPlaying(false);
+  }, [sim.latestMessage]);
+
+  const sceneSlots: SceneSlotConfig[] = sceneConfigs.map((sc) => ({
+    sceneCode: sc.sceneCode,
+    category: sc.category,
+    title: sc.title,
+    hasState: sim.sceneStates.has(sc.sceneCode),
+  }));
+
+  const metrics: MetricItem[] = useMemo(() => {
+    if (!firstState?.metrics) return [];
+    return firstState.metrics.map((m) => ({ label: m.label, value: m.value }));
+  }, [firstState?.metrics]);
+
+  const linkIndicators: LinkIndicatorItem[] = useMemo(() => {
+    return scenes
+      .filter((s) => s.link_group_id)
+      .map((s) => ({
+        linkGroup: s.link_group_id!,
+        status: 'idle' as const,
+        label: s.link_group_name ?? s.link_group_id!,
+      }));
+  }, [scenes]);
+
+  const microSteps = firstState?.envelope?.micro_steps ?? [];
+
+  // 从 WS render 消息的 container_data.shared_state 累积联动 SharedState 字段
+  const sharedStateRef = useRef(new Map<string, SimSharedStateGroup>());
+  const [sharedStateGroups, setSharedStateGroups] = useState<SimSharedStateGroup[]>([]);
+  useEffect(() => {
+    const msg = sim.latestMessage;
+    if (!msg || msg.type !== 'render') return;
+    const payload = msg.payload as { container_data?: { shared_state?: Record<string, unknown> } };
+    const sharedData = payload.container_data?.shared_state;
+    if (!sharedData) return;
+
+    const sceneCode = msg.scene_code ?? '';
+    const sceneInfo = scenes.find((s) => getSceneCode(s) === sceneCode);
+    const linkGroupId = sceneInfo?.link_group_id;
+    if (!linkGroupId) return;
+
+    const groupMap = sharedStateRef.current;
+    let group = groupMap.get(linkGroupId);
+    if (!group) {
+      group = {
+        link_group_id: linkGroupId,
+        link_group_name: sceneInfo?.link_group_name ?? linkGroupId,
+        fields: [],
+      };
+      groupMap.set(linkGroupId, group);
+    }
+    for (const [fieldName, value] of Object.entries(sharedData)) {
+      const existing = group.fields.find((f) => f.field_name === fieldName);
+      if (existing) {
+        existing.value = value;
+      } else {
+        group.fields.push({
+          field_name: fieldName,
+          value,
+          owner_scene: sceneCode,
+          owner_scene_label: sceneInfo?.scenario?.name ?? sceneCode,
+        });
+      }
+    }
+    setSharedStateGroups(Array.from(groupMap.values()).map((g) => ({ ...g, fields: [...g.fields] })));
+  }, [sim.latestMessage, scenes]);
+
+  // 从 WS link_triggers 消息实时推导跨画布弧线坐标
+  const [linkArcs, setLinkArcs] = useState<LinkArc[]>([]);
+  const mainCanvasRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (simMode.mode !== 'linkage' || sceneConfigs.length <= 1) return;
+    const msg = sim.latestMessage;
+    if (!msg || msg.type !== 'render') return;
+    const envelope = msg.payload as { link_triggers?: Array<{
+      id: string;
+      source_scene: string;
+      link_group: string;
+      source_anchor_id?: string;
+      target_anchor_id?: string;
+      changed_fields?: string[];
+      ts: number;
+    }> };
+    const triggers = envelope.link_triggers;
+    if (!triggers || triggers.length === 0) return;
+
+    const container = mainCanvasRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+
+    const newArcs: LinkArc[] = triggers.map((t) => {
+      // 尝试从 DOM 中查找 anchor 元素的几何中心
+      const sourceEl = t.source_anchor_id ? container.querySelector(`[data-anchor-id="${t.source_anchor_id}"]`) : null;
+      const targetEl = t.target_anchor_id ? container.querySelector(`[data-anchor-id="${t.target_anchor_id}"]`) : null;
+      const sourceRect = sourceEl?.getBoundingClientRect();
+      const targetRect = targetEl?.getBoundingClientRect();
+
+      return {
+        id: t.id,
+        sourceX: sourceRect ? sourceRect.left + sourceRect.width / 2 - containerRect.left : 100,
+        sourceY: sourceRect ? sourceRect.top + sourceRect.height / 2 - containerRect.top : 100,
+        targetX: targetRect ? targetRect.left + targetRect.width / 2 - containerRect.left : 300,
+        targetY: targetRect ? targetRect.top + targetRect.height / 2 - containerRect.top : 100,
+        colorType: (t.link_group?.includes('attack') ? 'attack'
+          : t.link_group?.includes('network') ? 'network'
+          : t.link_group?.includes('crypto') ? 'crypto'
+          : t.link_group?.includes('economic') ? 'economic'
+          : t.link_group?.includes('consensus') ? 'consensus'
+          : 'blockchain-integrity') as LinkArc['colorType'],
+        label: t.changed_fields?.join(', '),
+        createdAt: Date.now(),
+      };
+    });
+
+    setLinkArcs((prev) => [...prev, ...newArcs]);
+  }, [sim.latestMessage, simMode.mode, sceneConfigs.length]);
+
+  // ─── 空态 ─────────────────────────────────────────
   if (!sessionID) {
     return (
-      <Card className={cn('border-amber-400/20 bg-slate-950 text-white', className)}>
-        <CardContent className="p-6">
-          <p className="text-sm text-amber-100">可视化内容还在准备中，请稍后刷新查看。</p>
+      <Card className={cn('border-dashed', className)}>
+        <CardContent className="flex items-center justify-center py-12">
+          <p className="text-sm text-muted-foreground">可视化内容还在准备中，请稍后刷新查看。</p>
         </CardContent>
       </Card>
     );
   }
 
+  // ─── 三段式布局 ───────────────────────────────────
   return (
-    <Card className={cn('overflow-hidden border-cyan-500/20 bg-slate-950 text-white', className)}>
-      <CardHeader className="border-b border-white/10 py-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-sm text-white">
-            <Activity className="h-4 w-4 text-cyan-300" />
-            SimEngine 可视化仿真
-          </CardTitle>
-          <Badge variant={sim.connected ? 'default' : 'destructive'} className="text-xs gap-1">
-            {sim.connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-            {sim.connected ? '已连接' : '未连接'}
-          </Badge>
+    <Card className={cn('overflow-hidden flex flex-col', className)}>
+      {/* §1.1 TopBar */}
+      <SimTopBar
+        mode={simMode.mode}
+        layout={activeLayout}
+        connected={sim.connected}
+        sceneCount={sceneConfigs.length}
+        onLayoutChange={setLayoutOverride}
+        onIntervene={isTeacher ? () => setInterventionOpen(true) : undefined}
+        onAnnotationToggle={isTeacher ? () => setAnnotationVisible((v) => !v) : undefined}
+        annotationActive={annotationVisible}
+      />
+
+      {/* §1.1 MainCanvas + Sidebar */}
+      <div ref={mainCanvasRef} className="relative flex flex-1 min-h-0">
+        {/* §7.1 教师标注工具栏（左侧浮动） */}
+        {isTeacher && annotationVisible && (
+          <SimAnnotationToolbar
+            onToolChange={handleAnnotationToolChange}
+            onClearAll={handleAnnotationClear}
+          />
+        )}
+
+        {/* §6.2 联动跨画布弧线（仅 linkage 模式同屏多场景） */}
+        {simMode.mode === 'linkage' && sceneConfigs.length > 1 && (
+          <SimCrossCanvasOverlay arcs={linkArcs} />
+        )}
+
+        <div className="flex-1 p-4 overflow-auto">
+          <SimSceneGrid
+            scenes={sceneSlots}
+            layout={activeLayout}
+            attachScene={sim.attachScene}
+            detachScene={sim.detachScene}
+            redrawScene={sim.redrawScene}
+            captureScene={sim.captureScene}
+          />
         </div>
-      </CardHeader>
 
-      <CardContent className="space-y-4 p-4">
-        <div className="grid gap-4 lg:grid-cols-2">
-          {sceneConfigs.map(scene => {
-            const state = sim.sceneStates.get(scene.sceneCode);
-            const isFullscreen = fullscreenScene === scene.sceneCode;
-
-            return (
-              <div
-                key={scene.sceneCode}
-                className={cn(
-                  'rounded-xl border border-white/10 bg-gradient-to-br from-slate-900 to-cyan-950/40 overflow-hidden',
-                  isFullscreen && 'fixed inset-4 z-50 bg-slate-900',
-                )}
-              >
-                {/* 场景头部 */}
-                <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-                  <div>
-                    <p className="text-sm font-medium">{scene.title}</p>
-                    <p className="text-xs text-slate-400">{scene.category}</p>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-slate-300 hover:bg-white/10"
-                      onClick={() => {
-                        const dataUrl = sim.captureScene(scene.sceneCode);
-                        if (dataUrl) {
-                          const a = document.createElement('a');
-                          a.href = dataUrl;
-                          a.download = `${scene.sceneCode}-screenshot.png`;
-                          a.click();
-                        }
-                      }}
-                    >
-                      <Camera className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-slate-300 hover:bg-white/10"
-                      onClick={() => setFullscreenScene(isFullscreen ? null : scene.sceneCode)}
-                    >
-                      {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Canvas 渲染区域 */}
-                <SceneCanvas
-                  sceneCode={scene.sceneCode}
-                  category={scene.category}
-                  attachScene={sim.attachScene}
-                  detachScene={sim.detachScene}
-                  redrawScene={sim.redrawScene}
-                  state={state}
-                  isFullscreen={isFullscreen}
-                />
-
-                {/* 指标卡片 */}
-                {state?.metrics && state.metrics.length > 0 && (
-                  <div className="flex flex-wrap gap-2 px-3 py-2 border-t border-white/10">
-                    {state.metrics.map((m, i) => (
-                      <div key={i} className="rounded bg-white/5 px-2 py-1 text-xs">
-                        <span className="text-slate-400">{m.label}:</span>{' '}
-                        <span className="font-medium text-cyan-200">{m.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* 时间控制器 */}
-                <TimeController
-                  state={state}
-                  controls={sim.getControls(scene.sceneCode)}
-                  onControl={sim.sendControl}
-                  connected={sim.connected}
-                />
-
-                {/* 场景交互面板 */}
-                <InteractionForm
-                  actions={sim.getInteractionActions(scene.sceneCode)}
-                  onSubmit={(actionCode, inputs) => sim.submitInteraction(scene.sceneCode, actionCode, inputs)}
-                  connected={sim.connected}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * 场景 Canvas 渲染组件
- *
- * 画布尺寸契约：
- * 文档（@docs/modules/04-实验环境/06-可视化仿真引擎设计.md）规定场景面板基于 12 列栅格系统，
- * default_size 仅决定栅格占位（如 6×4），实际画布像素随容器宽度、面板拖拽和全屏切换动态变化。
- * 因此 <canvas> 的 drawingbuffer（width/height 属性）必须实时跟随 DOM 容器的实际像素尺寸，
- * 否则领域渲染器拿到的 `surface.canvas.width/height` 永远是浏览器默认 300×150，
- * 所有图形会被裁剪到画布外。
- *
- * 实现：ResizeObserver 监听容器尺寸，按 devicePixelRatio 缩放写入 canvas.width/height
- * 与 SVG viewBox，每次尺寸变化后调 panel.redrawScene 让当前 state 在新尺寸下重绘一次。
- */
-function SceneCanvas({
-  sceneCode,
-  category,
-  attachScene,
-  detachScene,
-  redrawScene,
-  state,
-  isFullscreen,
-}: {
-  sceneCode: string;
-  category: string;
-  attachScene: (code: string, cat: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => void;
-  detachScene: (code: string) => void;
-  redrawScene: (code: string) => void;
-  state: RenderState | undefined;
-  isFullscreen: boolean;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const attachedRef = useRef(false);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas = canvasRef.current;
-    const svg = svgRef.current;
-    if (!container || !canvas) return;
-
-    if (!attachedRef.current) {
-      attachScene(sceneCode, category, canvas, svg as unknown as HTMLElement ?? undefined);
-      attachedRef.current = true;
-    }
-
-    // syncSize 把 DOM 实际像素同步到 canvas drawingbuffer 和 SVG viewBox，
-    // 并在尺寸真正改变时触发一次重绘。devicePixelRatio 用于 HiDPI 屏的清晰度。
-    const syncSize = () => {
-      const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const targetW = Math.max(1, Math.round(rect.width * dpr));
-      const targetH = Math.max(1, Math.round(rect.height * dpr));
-      let changed = false;
-      if (canvas.width !== targetW) {
-        canvas.width = targetW;
-        changed = true;
-      }
-      if (canvas.height !== targetH) {
-        canvas.height = targetH;
-        changed = true;
-      }
-      if (svg) {
-        const viewBox = `0 0 ${targetW} ${targetH}`;
-        if (svg.getAttribute('viewBox') !== viewBox) {
-          svg.setAttribute('viewBox', viewBox);
-          changed = true;
-        }
-      }
-      if (changed) {
-        redrawScene(sceneCode);
-      }
-    };
-
-    syncSize();
-    const observer = new ResizeObserver(syncSize);
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-      if (attachedRef.current) {
-        detachScene(sceneCode);
-        attachedRef.current = false;
-      }
-    };
-  }, [sceneCode, category, attachScene, detachScene, redrawScene]);
-
-  // 全屏切换会改变容器高度，ResizeObserver 会自动触发 syncSize
-  const height = isFullscreen ? 'h-[calc(100vh-200px)]' : 'h-64';
-
-  return (
-    <div ref={containerRef} className={cn('relative', height)}>
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-      <svg ref={svgRef} className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg" />
-      {!state && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="text-center">
-            <div className="mx-auto h-12 w-12 rounded-full border border-cyan-300/30 bg-cyan-300/10 animate-pulse" />
-            <p className="mt-2 text-xs text-slate-400">等待仿真数据...</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * 时间控制器组件
- * 根据时间控制模式动态渲染按钮
- */
-function TimeController({
-  state,
-  controls,
-  onControl,
-  connected,
-}: {
-  state: RenderState | undefined;
-  controls: ControlDescriptor[];
-  onControl: (command: TimeControlCommand, value?: number) => void;
-  connected: boolean;
-}) {
-  const [speed, setSpeed] = useState(1);
-
-  if (!controls.length) return null;
-
-  const iconMap: Record<string, React.ReactNode> = {
-    play: <Play className="h-3.5 w-3.5" />,
-    pause: <Pause className="h-3.5 w-3.5" />,
-    step: <SkipForward className="h-3.5 w-3.5" />,
-    reset: <RotateCcw className="h-3.5 w-3.5" />,
-    resume: <Play className="h-3.5 w-3.5" />,
-  };
-
-  const speedOptions = [0.5, 1, 1.5, 2];
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-t border-white/10">
-      {controls.map(ctrl => (
-        <Button
-          key={ctrl.command}
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs border-white/15 bg-white/5 text-white hover:bg-white/10"
-          disabled={!connected || !ctrl.enabled}
-          onClick={() => onControl(ctrl.command)}
-        >
-          {iconMap[ctrl.command] ?? null}
-          {ctrl.label}
-        </Button>
-      ))}
-
-      {controls.some(c => c.command === 'set_speed' || c.command === 'play' || c.command === 'resume') && (
-        <div className="flex items-center gap-1 ml-2">
-          <span className="text-xs text-slate-400">速度:</span>
-          {speedOptions.map(s => (
-            <Button
-              key={s}
-              variant={speed === s ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-6 px-2 text-xs"
-              disabled={!connected}
-              onClick={() => { setSpeed(s); onControl('set_speed', s); }}
-            >
-              {s}x
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {state && (
-        <span className="ml-auto text-xs text-slate-500">
-          Tick: {state.tick ?? 0}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/**
- * 场景交互面板
- * 根据 schema 动态生成操作表单
- */
-function InteractionForm({
-  actions,
-  onSubmit,
-  connected,
-}: {
-  actions: InteractionAction[];
-  onSubmit: (actionCode: string, inputs: Record<string, InteractionInputValue>) => void;
-  connected: boolean;
-}) {
-  const [inputs, setInputs] = useState<Record<string, Record<string, InteractionInputValue>>>({});
-
-  if (!actions.length) return null;
-
-  return (
-    <div className="px-3 py-2 border-t border-white/10 space-y-2">
-      <p className="text-xs font-medium text-slate-300">场景操作</p>
-      <div className="flex flex-wrap gap-2">
-        {actions.map(action => {
-          const hasFields = action.fields && action.fields.length > 0;
-          const actionInputs = inputs[action.actionCode] ?? {};
-
-          return (
-            <div key={action.actionCode} className="flex items-center gap-1">
-              {hasFields && action.fields.map(field => (
-                <Input
-                  key={field.key}
-                  className="h-7 w-24 text-xs border-white/10 bg-white/5 text-white"
-                  placeholder={field.label}
-                  value={String(actionInputs[field.key] ?? '')}
-                  onChange={e => setInputs(prev => ({
-                    ...prev,
-                    [action.actionCode]: { ...prev[action.actionCode], [field.key]: e.target.value },
-                  }))}
-                />
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs border-cyan-300/20 bg-cyan-300/5 text-cyan-100 hover:bg-cyan-300/10"
-                disabled={!connected}
-                onClick={() => onSubmit(action.actionCode, actionInputs)}
-              >
-                {action.label}
-              </Button>
-            </div>
-          );
-        })}
+        <SimSidebar
+          mode={simMode.mode}
+          metrics={metrics}
+          linkIndicators={linkIndicators}
+          containerHealth={[]}
+          microSteps={microSteps}
+          activeMicroStepId={firstState?.activeMicroStepId}
+        />
       </div>
-    </div>
+
+      {/* §6.3 SharedState 联动面板（仅 linkage 模式） */}
+      {simMode.showSharedStatePanel && <SimSharedStatePanel groups={sharedStateGroups} />}
+
+      {/* §四 ControlBar（reactive 模式不渲染） */}
+      {simMode.showTimeControl && (
+        <SimControlBar
+          timeControlMode={firstTimeControlMode}
+          mode={simMode.mode}
+          tick={currentTick}
+          playing={playing}
+          speed={1}
+          connected={sim.connected}
+          canStepBack={simMode.canStepBack}
+          stepBackTooltip={simMode.stepBackTooltip}
+          onControl={(cmd, val) => sim.sendSimControl(cmd, val)}
+          onStepBack={() => firstScene && sim.stepBack(firstScene.sceneCode)}
+        />
+      )}
+
+      {/* §五 InteractionForm */}
+      <SimInteractionForm
+        actions={firstInteraction.actions}
+        connected={sim.connected}
+        onSubmit={(actionCode, params) =>
+          firstScene && sim.submitInteraction(firstScene.sceneCode, actionCode, params)
+        }
+      />
+
+      {/* §七.2 教师干预抽屉面板 */}
+      {isTeacher && instanceID && (
+        <SimTeacherInterventionPanel
+          experimentID={instanceID}
+          open={interventionOpen}
+          onClose={() => setInterventionOpen(false)}
+        />
+      )}
+    </Card>
   );
 }

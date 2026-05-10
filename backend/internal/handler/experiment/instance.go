@@ -999,6 +999,47 @@ func (h *InstanceHandler) AssignCourseQuota(c *gin.Context) {
 	response.Success(c, respData)
 }
 
+// GetSimInteractionSchema 获取场景交互 schema。
+// GET /api/v1/experiment-instances/:id/sim-scenes/:scene_code/interaction-schema
+func (h *InstanceHandler) GetSimInteractionSchema(c *gin.Context) {
+	instanceID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	sceneCode := c.Param("scene_code")
+	if sceneCode == "" {
+		response.Error(c, errcode.ErrInvalidParams.WithMessage("scene_code 不能为空"))
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	respData, err := h.instanceService.GetSimInteractionSchema(c.Request.Context(), sc, instanceID, sceneCode)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, respData)
+}
+
+// TeacherIntervene 教师干预仿真实验。
+// POST /api/v1/teacher/experiments/:id/intervene
+func (h *InstanceHandler) TeacherIntervene(c *gin.Context) {
+	instanceID, ok := validator.ParsePathID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.TeacherInterveneReq
+	if !validator.BindJSON(c, &req) {
+		return
+	}
+	sc := handlerctx.BuildServiceContext(c)
+	respData, err := h.instanceService.TeacherIntervene(c.Request.Context(), sc, instanceID, &req)
+	if err != nil {
+		handlerctx.HandleError(c, err)
+		return
+	}
+	response.Success(c, respData)
+}
+
 // derefGroupListItems 将分组列表指针切片转换为值切片，保持响应结构与 API 文档一致。
 func derefGroupListItems(items []*dto.GroupListItem) []dto.GroupListItem {
 	result := make([]dto.GroupListItem, 0, len(items))

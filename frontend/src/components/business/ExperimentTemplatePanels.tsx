@@ -16,6 +16,11 @@ const Editor = dynamic(() => import("@monaco-editor/react").then((mod) => ({ def
   loading: () => <div className="h-[180px] rounded-md border border-border bg-muted/40" />,
 });
 
+const SimConfigWizard = dynamic(
+  () => import("@/components/business/SimConfigWizard").then((mod) => ({ default: mod.SimConfigWizard })),
+  { ssr: false, loading: () => <div className="h-40 rounded-md border border-dashed border-border bg-muted/40 flex items-center justify-center text-sm text-muted-foreground">加载仿真配置向导…</div> },
+);
+
 import { ExperimentTemplateCard } from "@/components/business/ExperimentTemplateCard";
 import { ImageDocSidebar } from "@/components/business/ImageDocSidebar";
 import { ContainerOrchestrationCanvas } from "@/components/business/ContainerOrchestrationCanvas";
@@ -141,6 +146,7 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
   const [selectedScenarioID, setSelectedScenarioID] = useState("");
   const [selectedLinkGroupID, setSelectedLinkGroupID] = useState("");
   const [scenarioCategoryFilter, setScenarioCategoryFilter] = useState("all");
+  const [showSimWizard, setShowSimWizard] = useState(false);
   const [showDocSidebar, setShowDocSidebar] = useState(false);
   const [activeStep, setActiveStep] = useState<(typeof TEMPLATE_STEPS)[number]["id"]>("basic");
   const [k8sConfigText, setK8sConfigText] = useState("{\n  \"namespace_resource\": {},\n  \"network_policy\": {}\n}");
@@ -260,7 +266,6 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
       scenario_id: selectedScenarioID,
       link_group_id: selectedLinkGroupID || null,
       scene_params: {},
-      initial_state: {},
       data_source_mode: form.experiment_type === 1 ? 1 : 3,
       data_source_config: {},
       layout_position: { order: activeTemplate?.sim_scenes.length ?? 0, column_span: 6 },
@@ -438,54 +443,104 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
         <TabsContent value="sim">
           <Card>
             <CardHeader>
-              <CardTitle>工具与仿真场景</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>工具与仿真场景</CardTitle>
+                {form.experiment_type !== 2 && (
+                  <Button variant={showSimWizard ? "secondary" : "outline"} size="sm" className="text-xs" onClick={() => setShowSimWizard(!showSimWizard)}>
+                    {showSimWizard ? "简易模式" : "向导模式"}
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-5">
-              <Tabs value={scenarioCategoryFilter} onValueChange={setScenarioCategoryFilter}>
-                <TabsList className="flex w-full flex-wrap justify-start gap-1 bg-transparent p-0">
-                  <TabsTrigger value="all">全部领域</TabsTrigger>
-                  <TabsTrigger value="node-network">节点网络</TabsTrigger>
-                  <TabsTrigger value="consensus">共识机制</TabsTrigger>
-                  <TabsTrigger value="data-structure">数据结构</TabsTrigger>
-                  <TabsTrigger value="transaction">交易流程</TabsTrigger>
-                  <TabsTrigger value="cryptography">密码学</TabsTrigger>
-                  <TabsTrigger value="smart-contract">智能合约</TabsTrigger>
-                  <TabsTrigger value="attack-security">攻击安全</TabsTrigger>
-                  <TabsTrigger value="economic">经济模型</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
-                <FormField label="仿真场景">
-                  <Select value={selectedScenarioID} onValueChange={setSelectedScenarioID}>
-                    <SelectTrigger><SelectValue placeholder="选择仿真内容" /></SelectTrigger>
-                    <SelectContent>
-                      {(scenariosQuery.data?.list ?? []).filter((scenario) => scenarioCategoryFilter === "all" || scenario.category === scenarioCategoryFilter).map((scenario) => (
-                        <SelectItem key={scenario.id} value={scenario.id}>{scenario.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
-                <FormField label="联动组">
-                  <Select value={selectedLinkGroupID} onValueChange={setSelectedLinkGroupID}>
-                    <SelectTrigger><SelectValue placeholder="可选联动关系" /></SelectTrigger>
-                    <SelectContent>
-                      {(linkGroupsQuery.data ?? []).map((group) => (
-                        <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
-                <Button className="self-end" disabled={!canEditSubresources || !selectedScenarioID || form.experiment_type === 2} onClick={addSimScene} isLoading={configMutations.createScene.isPending}>添加内容</Button>
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                {(activeTemplate?.sim_scenes ?? []).map((scene) => (
-                  <div key={scene.id} className="rounded-xl border border-border p-4">
-                    <p className="font-semibold">{scene.scenario?.name ?? "未命名场景"}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">数据源：{scene.data_source_mode_text} · 联动组：{scene.link_group_name ?? "无"} · 时间控制：{scene.scenario?.time_control_mode ?? "未知"}</p>
-                    <pre className="mt-3 overflow-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(scene.layout_position ?? {}, null, 2)}</pre>
+              {/* §8.1 向导模式：experiment_type 1(纯仿真) 或 3(混合) 时可用 */}
+              {showSimWizard && form.experiment_type !== 2 ? (
+                <SimConfigWizard
+                  scenarios={(scenariosQuery.data?.list ?? []).map((s) => ({
+                    id: s.id,
+                    code: s.code ?? s.id,
+                    name: s.name,
+                    category: s.category,
+                    category_text: s.category_text ?? s.category,
+                    time_control_mode: s.time_control_mode ?? "process",
+                    data_source_mode: s.data_source_mode ?? 1,
+                    difficulty_level: "L1" as const,
+                    description: null,
+                    default_params: null,
+                    supported_link_groups: [],
+                    container_image_url: "",
+                  }))}
+                  linkGroups={(linkGroupsQuery.data ?? []).map((g) => ({
+                    ...g,
+                    schema_fields: [],
+                    clock_sync: true,
+                    color_type: "consensus" as const,
+                  }))}
+                  onPublish={(config) => {
+                    // 向导完成后，逐一调用 createScene 将结果写入后端
+                    for (const scene of config.scenes) {
+                      configMutations.createScene.mutate({
+                        scenario_id: scene.scenarioId,
+                        scene_params: scene.params,
+                        data_source_mode: form.experiment_type === 1 ? 1 : 3,
+                        data_source_config: {},
+                        layout_position: { order: 0, column_span: 6 },
+                      });
+                    }
+                    setShowSimWizard(false);
+                  }}
+                  onCancel={() => setShowSimWizard(false)}
+                />
+              ) : (
+                <>
+                  {/* 简易模式：保留原有 select + 添加流程 */}
+                  <Tabs value={scenarioCategoryFilter} onValueChange={setScenarioCategoryFilter}>
+                    <TabsList className="flex w-full flex-wrap justify-start gap-1 bg-transparent p-0">
+                      <TabsTrigger value="all">全部领域</TabsTrigger>
+                      <TabsTrigger value="node-network">节点网络</TabsTrigger>
+                      <TabsTrigger value="consensus">共识机制</TabsTrigger>
+                      <TabsTrigger value="data-structure">数据结构</TabsTrigger>
+                      <TabsTrigger value="transaction">交易流程</TabsTrigger>
+                      <TabsTrigger value="cryptography">密码学</TabsTrigger>
+                      <TabsTrigger value="smart-contract">智能合约</TabsTrigger>
+                      <TabsTrigger value="attack-security">攻击安全</TabsTrigger>
+                      <TabsTrigger value="economic">经济模型</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
+                    <FormField label="仿真场景">
+                      <Select value={selectedScenarioID} onValueChange={setSelectedScenarioID}>
+                        <SelectTrigger><SelectValue placeholder="选择仿真内容" /></SelectTrigger>
+                        <SelectContent>
+                          {(scenariosQuery.data?.list ?? []).filter((scenario) => scenarioCategoryFilter === "all" || scenario.category === scenarioCategoryFilter).map((scenario) => (
+                            <SelectItem key={scenario.id} value={scenario.id}>{scenario.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                    <FormField label="联动组">
+                      <Select value={selectedLinkGroupID} onValueChange={setSelectedLinkGroupID}>
+                        <SelectTrigger><SelectValue placeholder="可选联动关系" /></SelectTrigger>
+                        <SelectContent>
+                          {(linkGroupsQuery.data ?? []).map((group) => (
+                            <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                    <Button className="self-end" disabled={!canEditSubresources || !selectedScenarioID || form.experiment_type === 2} onClick={addSimScene} isLoading={configMutations.createScene.isPending}>添加内容</Button>
                   </div>
-                ))}
-              </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {(activeTemplate?.sim_scenes ?? []).map((scene) => (
+                      <div key={scene.id} className="rounded-xl border border-border p-4">
+                        <p className="font-semibold">{scene.scenario?.name ?? "未命名场景"}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">数据源：{scene.data_source_mode_text} · 联动组：{scene.link_group_name ?? "无"} · 时间控制：{scene.scenario?.time_control_mode ?? "未知"}</p>
+                        <pre className="mt-3 overflow-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(scene.layout_position ?? {}, null, 2)}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setActiveStep(visibleSteps[Math.max(currentStepIndex - 1, 0)]?.id ?? activeStep)}>
                   上一步

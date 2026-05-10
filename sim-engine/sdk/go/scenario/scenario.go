@@ -1,272 +1,321 @@
+// 模块：sim-engine/sdk/go/scenario
+// 文件职责：sdk 对外稳定 API — 通过 type alias 真正重导出 framework 协议契约 +
+//          定义 sdk 自己的 Scenario 接口与 gRPC 适配契约 + 提供校验函数。
+// 协议依据：docs/modules/04-实验环境/06-可视化仿真引擎设计.md §6.2 / §6.3 / §6.4。
+//
+// 与 framework 的关系：
+//   - sdk 是教师自定义场景使用的稳定 API；framework 是协议契约 SSOT。
+//   - 本文件用 `type X = framework.X` 把 framework 的协议类型与常量真正 alias 重导出，
+//     底层 Go 类型只有一份，避免双套同步带来的协议腐化。
+//   - sdk 自有的 Meta / InitRequest / InitResult / StepRequest / StepResult /
+//     ActionRequest / ActionResult / Scenario 接口属于"sdk 与 gRPC server 适配的中间层"，
+//     不入 framework（framework 是协议契约，不管教师如何写场景接口）。
+
 package scenario
 
 import (
 	"context"
 	"errors"
 	"strings"
+
+	fw "github.com/lenschain/sim-engine/framework"
 )
 
-// Category 表示场景所属的前端领域渲染器。
-// 除平台内置 8 个领域外，也允许教师声明新的自定义领域编码。
-type Category string
+// =====================================================================
+// 协议类型重导出（真 type alias，与 framework 同一类型）
+// =====================================================================
+
+// 协议数据结构（详 06.md §6.2）。
+type (
+	Primitive       = fw.Primitive
+	MicroStep       = fw.MicroStep
+	LinkTrigger     = fw.LinkTrigger
+	ContainerMetric = fw.ContainerMetric
+	RenderEnvelope  = fw.RenderEnvelope
+	SceneState      = fw.SceneState
+)
+
+// 交互定义（详 06.md §6.3）。
+type (
+	InteractionDefinition = fw.InteractionDefinition
+	ActionDef             = fw.ActionDef
+	FieldDef              = fw.FieldDef
+)
+
+// 场景定义钩子（详 06.md §6.4）。
+type (
+	Definition   = fw.Definition
+	InitInput    = fw.InitInput
+	StepInput    = fw.StepInput
+	StepOutput   = fw.StepOutput
+	ActionInput  = fw.ActionInput
+	ActionOutput = fw.ActionOutput
+)
+
+// 几何工具（详 framework/layout.go）。
+type Point = fw.Point
+
+// =====================================================================
+// 枚举常量重导出
+// =====================================================================
+
+// PrimitiveType 与 PrimitiveLayer。
+type (
+	PrimitiveType  = fw.PrimitiveType
+	PrimitiveLayer = fw.PrimitiveLayer
+)
+
+// 47 原语 type 常量。
+const (
+	PrimGeometryNode         = fw.PrimGeometryNode
+	PrimGeometryEdge         = fw.PrimGeometryEdge
+	PrimGeometryBar          = fw.PrimGeometryBar
+	PrimGeometryCurve        = fw.PrimGeometryCurve
+	PrimGeometryPolygon      = fw.PrimGeometryPolygon
+	PrimGeometryArea         = fw.PrimGeometryArea
+	PrimGeometryGridCell     = fw.PrimGeometryGridCell
+	PrimGeometryRing         = fw.PrimGeometryRing
+	PrimEffectParticleStream = fw.PrimEffectParticleStream
+	PrimEffectBurst          = fw.PrimEffectBurst
+	PrimEffectPulse          = fw.PrimEffectPulse
+	PrimEffectTrail          = fw.PrimEffectTrail
+	PrimEffectGlow           = fw.PrimEffectGlow
+	PrimEffectShake          = fw.PrimEffectShake
+	PrimEffectShiftAnimation = fw.PrimEffectShiftAnimation
+	PrimLayoutHorizontalLane = fw.PrimLayoutHorizontalLane
+	PrimLayoutStack          = fw.PrimLayoutStack
+	PrimLayoutRing           = fw.PrimLayoutRing
+	PrimLayoutTree           = fw.PrimLayoutTree
+	PrimLayoutGraph          = fw.PrimLayoutGraph
+	PrimLayoutMatrix         = fw.PrimLayoutMatrix
+	PrimDataLabel            = fw.PrimDataLabel
+	PrimDataTooltip          = fw.PrimDataTooltip
+	PrimDataAnnotation       = fw.PrimDataAnnotation
+	PrimDataRegisterRow      = fw.PrimDataRegisterRow
+	PrimDataMathPipeline     = fw.PrimDataMathPipeline
+	PrimDataCodeBlock        = fw.PrimDataCodeBlock
+	PrimDataMathFormula      = fw.PrimDataMathFormula
+
+	PrimStatePhaseProgress       = fw.PrimStatePhaseProgress
+	PrimStateProgressBar         = fw.PrimStateProgressBar
+	PrimStateTargetZone          = fw.PrimStateTargetZone
+	PrimStateLinkIndicator       = fw.PrimStateLinkIndicator
+	PrimStateExternalEventMarker = fw.PrimStateExternalEventMarker
+	PrimStateErrorOverlay        = fw.PrimStateErrorOverlay
+	PrimStateVerifyPathHighlight = fw.PrimStateVerifyPathHighlight
+	PrimStateRiskGauge           = fw.PrimStateRiskGauge
+
+	PrimDomainVoteMatrix    = fw.PrimDomainVoteMatrix
+	PrimDomainDualTrack     = fw.PrimDomainDualTrack
+	PrimDomainTimeWheel     = fw.PrimDomainTimeWheel
+	PrimDomainPieChart      = fw.PrimDomainPieChart
+	PrimDomainSankeyFlow    = fw.PrimDomainSankeyFlow
+	PrimDomainHeatMap       = fw.PrimDomainHeatMap
+	PrimDomainMempoolSlot   = fw.PrimDomainMempoolSlot
+	PrimDomainBridgeTrack   = fw.PrimDomainBridgeTrack
+	PrimDomainCodeMarker    = fw.PrimDomainCodeMarker
+	PrimDomainPartitionZone = fw.PrimDomainPartitionZone
+	PrimDomainCurvePoint    = fw.PrimDomainCurvePoint
+)
+
+// 4 Layer 常量。
+const (
+	LayerBackground = fw.LayerBackground
+	LayerContent    = fw.LayerContent
+	LayerEffect     = fw.LayerEffect
+	LayerOverlay    = fw.LayerOverlay
+)
+
+// 时间控制 / 数据源 / 类目 / 角色 / 触发 / 字段类型 / 混合通道 枚举。
+type (
+	TimeControlMode = fw.TimeControlMode
+	DataSourceMode  = fw.DataSourceMode
+	Category        = fw.SceneCategory
+	ActionCategory  = fw.ActionCategory
+	ActionTrigger   = fw.ActionTrigger
+	FieldType       = fw.FieldType
+	HybridChannel   = fw.HybridChannel
+	UserRole        = fw.UserRole
+)
 
 const (
-	// CategoryNodeNetwork 表示节点与网络领域。
-	CategoryNodeNetwork Category = "node_network"
-	// CategoryConsensus 表示共识过程领域。
-	CategoryConsensus Category = "consensus"
-	// CategoryCryptography 表示密码学运算领域。
-	CategoryCryptography Category = "cryptography"
-	// CategoryDataStructure 表示数据结构领域。
-	CategoryDataStructure Category = "data_structure"
-	// CategoryTransaction 表示交易生命周期领域。
-	CategoryTransaction Category = "transaction"
-	// CategorySmartContract 表示智能合约领域。
-	CategorySmartContract Category = "smart_contract"
-	// CategoryAttackSecurity 表示攻击与安全领域。
-	CategoryAttackSecurity Category = "attack_security"
-	// CategoryEconomic 表示经济模型领域。
-	CategoryEconomic Category = "economic"
+	TimeControlProcess    = fw.TimeControlProcess
+	TimeControlReactive   = fw.TimeControlReactive
+	TimeControlContinuous = fw.TimeControlContinuous
+
+	DataSourceSimulation = fw.DataSourceSimulation
+	DataSourceCollection = fw.DataSourceCollection
+	DataSourceDual       = fw.DataSourceDual
+
+	CategoryNodeNetwork    = fw.CategoryNodeNetwork
+	CategoryConsensus      = fw.CategoryConsensus
+	CategoryCryptography   = fw.CategoryCryptography
+	CategoryDataStructure  = fw.CategoryDataStructure
+	CategoryTransaction    = fw.CategoryTransaction
+	CategorySmartContract  = fw.CategorySmartContract
+	CategoryAttackSecurity = fw.CategoryAttackSecurity
+	CategoryEconomic       = fw.CategoryEconomic
+	CategoryGeneric        = fw.CategoryGeneric
+
+	ActionParamTune    = fw.ActionParamTune
+	ActionAttackInject = fw.ActionAttackInject
+	ActionPrimary      = fw.ActionPrimary
+	ActionObserve      = fw.ActionObserve
+
+	TriggerSubmit    = fw.TriggerSubmit
+	TriggerImmediate = fw.TriggerImmediate
+	TriggerHold      = fw.TriggerHold
+
+	FieldString      = fw.FieldString
+	FieldNumber      = fw.FieldNumber
+	FieldBoolean     = fw.FieldBoolean
+	FieldSelect      = fw.FieldSelect
+	FieldEnum        = fw.FieldEnum
+	FieldRange       = fw.FieldRange
+	FieldJSON        = fw.FieldJSON
+	FieldMultiSelect = fw.FieldMultiSelect
+
+	HybridChannelSim       = fw.HybridChannelSim
+	HybridChannelContainer = fw.HybridChannelContainer
+
+	RoleStudent = fw.RoleStudent
+	RoleTeacher = fw.RoleTeacher
 )
 
-// TimeControlMode 表示场景时间控制模式。
-type TimeControlMode string
+// v0.5 新增类型与常量重导出（AGENTS.md §0.7.1 C27 / C29 / C32 / C37）。
+type (
+	ExtensionLevel = fw.ExtensionLevel
+	InterveneType  = fw.InterveneType
+)
 
 const (
-	// TimeControlModeProcess 表示带播放、单步、回退能力的过程化模式。
-	TimeControlModeProcess TimeControlMode = "process"
-	// TimeControlModeReactive 表示输入即响应的交互响应式模式。
-	TimeControlModeReactive TimeControlMode = "reactive"
-	// TimeControlModeContinuous 表示持续演化观察的连续运行模式。
-	TimeControlModeContinuous TimeControlMode = "continuous"
+	ExtensionL1 = fw.ExtensionL1
+	ExtensionL2 = fw.ExtensionL2
+	ExtensionL3 = fw.ExtensionL3
+
+	InterveneHint     = fw.InterveneHint
+	InterveneFault    = fw.InterveneFault
+	InterveneAttack   = fw.InterveneAttack
+	IntervenePhase    = fw.IntervenePhase
+	InterveneTopology = fw.InterveneTopology
+	InterveneState    = fw.InterveneState
+	InterveneReset    = fw.InterveneReset
+	InterveneEpoch    = fw.InterveneEpoch
+	InterveneRevert   = fw.InterveneRevert
+	InterveneFreeze   = fw.InterveneFreeze
 )
 
-// DataSourceMode 表示场景数据源模式。
-type DataSourceMode string
-
-const (
-	// DataSourceModeSimulation 表示状态完全来自仿真算法。
-	DataSourceModeSimulation DataSourceMode = "simulation"
-	// DataSourceModeCollection 表示状态完全来自外部采集。
-	DataSourceModeCollection DataSourceMode = "collection"
-	// DataSourceModeDual 表示同时支持仿真与采集两种输入。
-	DataSourceModeDual DataSourceMode = "dual"
+// 角色集合常量（详 framework）。
+var (
+	RolesAll         = fw.RolesAll
+	RolesStudentOnly = fw.RolesStudentOnly
+	RolesTeacherOnly = fw.RolesTeacherOnly
 )
 
-// Meta 是场景算法容器上报给平台的元信息。
+// =====================================================================
+// sdk 自有：Scenario 接口与 gRPC 适配中间类型
+// =====================================================================
+
+// Meta 是场景对外元信息（gRPC 适配层使用）。
+//
+// 教师写场景时通过 Scenario.Meta(ctx) 返回该结构；底层 sdk.Server 把它转换为 proto.ScenarioMeta。
 type Meta struct {
 	Code                    string
 	Name                    string
+	Description             string
 	Category                Category
 	AlgorithmType           string
-	Description             string
 	Version                 string
 	TimeControlMode         TimeControlMode
 	DataSourceMode          DataSourceMode
-	DefaultParams           []byte
-	DefaultState            []byte
+	DefaultParams           []byte // JSON
+	DefaultState            []byte // JSON
+	CustomRendererPackage   string // L3 npm 包名（仅 generic）
 	SupportedLinkGroupCodes []string
+
+	// v0.5 新增（详 AGENTS.md §0.7.1 C10 / C29 / C37）
+	ExtensionLevel     ExtensionLevel
+	LinkGroupVersion   string
+	SupportsMultiActor bool
+	OwnedFieldPaths    []string
 }
 
-// InitRequest 是场景初始化请求。
+// InitRequest 场景初始化 gRPC 请求。
 type InitRequest struct {
-	SceneCode        string
-	InstanceID       string
-	StudentID        string
-	Seed             int64
-	SessionID        string
-	ParamsJSON       []byte
-	InitialStateJSON []byte
-	SharedStateJSON  []byte
-}
-
-// State 是场景完整状态和可渲染状态。
-type State struct {
-	Tick            int64
-	StateJSON       []byte
-	RenderStateJSON []byte
-	SharedStateJSON []byte
-}
-
-// StepRequest 是仿真时钟步推进请求。
-type StepRequest struct {
 	SessionID       string
 	SceneCode       string
-	Tick            int64
-	StateJSON       []byte
+	InstanceID      string
+	StudentID       string
+	Seed            int64
+	ParamsJSON      []byte
 	SharedStateJSON []byte
 }
 
-// StepResult 是仿真时钟步推进结果。
-type StepResult struct {
+// InitResult 场景初始化结果。
+type InitResult struct {
 	Tick                int64
-	StateJSON           []byte
-	RenderStateJSON     []byte
-	Events              []Event
+	SceneStateJSON      []byte
+	RenderEnvelopeJSON  []byte
 	SharedStateDiffJSON []byte
 }
 
-// ActionRequest 是场景专属交互请求。
+// StepRequest 单 tick 推进请求。
+type StepRequest struct {
+	SessionID                string
+	SceneCode                string
+	Tick                     int64
+	SceneStateJSON           []byte
+	SharedStateJSON          []byte
+	IncomingLinkTriggers     []LinkTrigger
+	IncomingContainerMetrics []ContainerMetric // v0.5 新增（详 §0.7.1 C1）
+}
+
+// StepResult 单 tick 推进结果。
+type StepResult struct {
+	Tick                int64
+	SceneStateJSON      []byte
+	RenderEnvelopeJSON  []byte
+	SharedStateDiffJSON []byte
+}
+
+// ActionRequest 交互请求。
 type ActionRequest struct {
 	SessionID       string
 	SceneCode       string
+	Tick            int64
+	SceneStateJSON  []byte
+	SharedStateJSON []byte
 	ActionCode      string
 	ParamsJSON      []byte
-	StateJSON       []byte
-	SharedStateJSON []byte
-	Tick            int64
 	ActorID         string
-	RoleKey         string
+	UserRole        UserRole
 }
 
-// ActionResult 是场景专属交互结果。
+// ActionResult 交互结果。
 type ActionResult struct {
-	Success         bool
-	ErrorMessage    string
-	StateJSON       []byte
-	RenderStateJSON []byte
-	Events          []Event
-	SharedStateDiff []byte
+	Success             bool
+	ErrorMessage        string
+	Tick                int64
+	SceneStateJSON      []byte
+	RenderEnvelopeJSON  []byte
+	SharedStateDiffJSON []byte
 }
 
-// RenderStateRequest 是场景按当前共享状态重建渲染态时的输入。
-type RenderStateRequest struct {
-	SessionID       string
-	SceneCode       string
-	Tick            int64
-	StateJSON       []byte
-	SharedStateJSON []byte
-}
-
-// Event 表示场景算法产生的过程事件。
-type Event struct {
-	EventID     string
-	EventType   string
-	SceneCode   string
-	Tick        int64
-	TimestampMS int64
-	PayloadJSON []byte
-}
-
-// InteractionSchema 是前端动态生成场景专属操作面板的依据。
-type InteractionSchema struct {
-	SceneCode string
-	Actions   []InteractionAction
-}
-
-// InteractionAction 表示一个可执行的场景操作。
-type InteractionAction struct {
-	ActionCode   string
-	Label        string
-	Description  string
-	Trigger      InteractionTrigger
-	Fields       []InteractionField
-	UISchemaJSON []byte
-}
-
-// InteractionField 表示操作面板中的一个输入字段。
-type InteractionField struct {
-	Key            string
-	Label          string
-	Type           InteractionFieldType
-	Required       bool
-	DefaultValue   string
-	Options        []InteractionOption
-	ValidationJSON []byte
-}
-
-// InteractionOption 表示选择类字段的候选项。
-type InteractionOption struct {
-	Value string
-	Label string
-}
-
-// InteractionFieldType 定义动态交互面板字段类型。
-type InteractionFieldType string
-
-const (
-	// InteractionFieldTypeString 表示字符串输入字段。
-	InteractionFieldTypeString InteractionFieldType = "string"
-	// InteractionFieldTypeNumber 表示数值输入字段。
-	InteractionFieldTypeNumber InteractionFieldType = "number"
-	// InteractionFieldTypeBoolean 表示布尔开关字段。
-	InteractionFieldTypeBoolean InteractionFieldType = "boolean"
-	// InteractionFieldTypeSelect 表示单选下拉字段。
-	InteractionFieldTypeSelect InteractionFieldType = "select"
-	// InteractionFieldTypeNodeRef 表示节点引用字段。
-	InteractionFieldTypeNodeRef InteractionFieldType = "node_ref"
-	// InteractionFieldTypeRange 表示范围滑块字段。
-	InteractionFieldTypeRange InteractionFieldType = "range"
-	// InteractionFieldTypeJSON 表示原始 JSON 输入字段。
-	InteractionFieldTypeJSON InteractionFieldType = "json"
-)
-
-// InteractionTrigger 定义交互操作的触发方式。
-type InteractionTrigger string
-
-const (
-	// InteractionTriggerClick 表示点击触发。
-	InteractionTriggerClick InteractionTrigger = "click"
-	// InteractionTriggerFormSubmit 表示表单提交触发。
-	InteractionTriggerFormSubmit InteractionTrigger = "form_submit"
-	// InteractionTriggerDrag 表示拖拽触发。
-	InteractionTriggerDrag InteractionTrigger = "drag"
-	// InteractionTriggerCanvasSelect 表示画布框选触发。
-	InteractionTriggerCanvasSelect InteractionTrigger = "canvas_select"
-)
-
-// InteractiveScenario 表示支持场景专属交互的扩展接口。
-type InteractiveScenario interface {
+// Scenario 是场景算法容器必须实现的最小接口。
+//
+// 教师自定义场景必须实现以下方法；返回 RenderEnvelope 须严格遵循协议字段（详 06.md §6.2）。
+// 平台内部场景通常通过 framework.Definition + sdk.NewRuntimeScenario 间接实现 Scenario。
+type Scenario interface {
+	Meta(ctx context.Context) (Meta, error)
+	InteractionSchema(ctx context.Context) (InteractionDefinition, error)
+	Init(ctx context.Context, req InitRequest) (InitResult, error)
+	Step(ctx context.Context, req StepRequest) (StepResult, error)
 	HandleAction(ctx context.Context, req ActionRequest) (ActionResult, error)
 }
 
-// InteractionSchemaProvider 表示支持动态交互面板定义的扩展接口。
-type InteractionSchemaProvider interface {
-	InteractionSchema(ctx context.Context) (InteractionSchema, error)
-}
-
-// RenderStateProvider 表示场景支持基于共享状态即时重建渲染态。
-type RenderStateProvider interface {
-	RenderState(ctx context.Context, req RenderStateRequest) (State, error)
-}
-
-// Scenario 是教师自定义场景需要实现的最小接口。
-type Scenario interface {
-	Meta(ctx context.Context) (Meta, error)
-	Init(ctx context.Context, req InitRequest) (State, error)
-	Step(ctx context.Context, req StepRequest) (StepResult, error)
-}
-
-// FuncScenario 用函数快速组装一个场景，适合示例和轻量场景。
-type FuncScenario struct {
-	MetaValue Meta
-	InitFunc  func(context.Context, InitRequest) (State, error)
-	StepFunc  func(context.Context, StepRequest) (StepResult, error)
-}
-
-// Meta 返回场景元信息。
-func (s FuncScenario) Meta(context.Context) (Meta, error) {
-	if err := ValidateMeta(s.MetaValue); err != nil {
-		return Meta{}, err
-	}
-	return s.MetaValue, nil
-}
-
-// Init 调用函数式初始化逻辑。
-func (s FuncScenario) Init(ctx context.Context, req InitRequest) (State, error) {
-	if s.InitFunc == nil {
-		return State{}, errors.New("必须提供初始化函数")
-	}
-	return s.InitFunc(ctx, req)
-}
-
-// Step 调用函数式仿真时钟步推进逻辑。
-func (s FuncScenario) Step(ctx context.Context, req StepRequest) (StepResult, error) {
-	if s.StepFunc == nil {
-		return StepResult{}, errors.New("必须提供推进函数")
-	}
-	return s.StepFunc(ctx, req)
-}
+// =====================================================================
+// 校验函数
+// =====================================================================
 
 // ValidateMeta 校验场景元信息是否满足平台上架要求。
 func ValidateMeta(meta Meta) error {
@@ -277,7 +326,7 @@ func ValidateMeta(meta Meta) error {
 		return errors.New("场景名称不能为空")
 	}
 	if !validCategory(meta.Category) {
-		return errors.New("场景领域类型不合法")
+		return errors.New("场景类目不合法")
 	}
 	if strings.TrimSpace(meta.AlgorithmType) == "" {
 		return errors.New("算法类型不能为空")
@@ -294,91 +343,82 @@ func ValidateMeta(meta Meta) error {
 	return nil
 }
 
-// validCategory 校验领域类型是否合法。
-// 文档允许教师为全新领域同时上传自定义渲染器，因此这里不能把领域编码锁死为内置枚举。
-func validCategory(category Category) bool {
-	if strings.TrimSpace(string(category)) == "" {
-		return false
+// ValidateInteractionDefinition 校验交互定义。
+func ValidateInteractionDefinition(def InteractionDefinition) error {
+	if strings.TrimSpace(def.SceneCode) == "" {
+		return errors.New("交互定义的场景编码不能为空")
 	}
-	switch category {
-	case CategoryNodeNetwork, CategoryConsensus, CategoryCryptography, CategoryDataStructure,
-		CategoryTransaction, CategorySmartContract, CategoryAttackSecurity, CategoryEconomic:
-		return true
-	default:
-		return true
-	}
-}
-
-// validTimeControlMode 校验时间控制模式是否合法。
-func validTimeControlMode(mode TimeControlMode) bool {
-	switch mode {
-	case TimeControlModeProcess, TimeControlModeReactive, TimeControlModeContinuous:
-		return true
-	default:
-		return false
-	}
-}
-
-// validDataSourceMode 校验数据源模式是否合法。
-func validDataSourceMode(mode DataSourceMode) bool {
-	switch mode {
-	case DataSourceModeSimulation, DataSourceModeCollection, DataSourceModeDual:
-		return true
-	default:
-		return false
-	}
-}
-
-// ValidateInteractionSchema 校验动态交互面板定义。
-func ValidateInteractionSchema(schema InteractionSchema) error {
-	if strings.TrimSpace(schema.SceneCode) == "" {
-		return errors.New("交互面板的场景编码不能为空")
-	}
-	if len(schema.Actions) == 0 {
-		return errors.New("交互面板至少要包含一个操作")
-	}
-	for _, action := range schema.Actions {
+	for _, action := range def.Actions {
 		if strings.TrimSpace(action.ActionCode) == "" {
-			return errors.New("交互操作编码不能为空")
+			return errors.New("ActionDef.action_code 不能为空")
 		}
 		if strings.TrimSpace(action.Label) == "" {
-			return errors.New("交互操作标题不能为空")
+			return errors.New("ActionDef.label 不能为空")
 		}
-		if !validInteractionTrigger(action.Trigger) {
-			return errors.New("交互触发方式不合法")
+		if !validActionCategory(action.Category) {
+			return errors.New("ActionDef.category 不合法")
+		}
+		if !validActionTrigger(action.Trigger) {
+			return errors.New("ActionDef.trigger 不合法")
 		}
 		for _, field := range action.Fields {
-			if strings.TrimSpace(field.Key) == "" {
-				return errors.New("交互字段键不能为空")
+			if strings.TrimSpace(field.Name) == "" {
+				return errors.New("FieldDef.name 不能为空")
 			}
-			if strings.TrimSpace(field.Label) == "" {
-				return errors.New("交互字段标题不能为空")
-			}
-			if !validInteractionFieldType(field.Type) {
-				return errors.New("交互字段类型不合法")
+			if !validFieldType(field.Type) {
+				return errors.New("FieldDef.type 不合法")
 			}
 		}
 	}
 	return nil
 }
 
-// validInteractionFieldType 校验交互字段类型是否合法。
-func validInteractionFieldType(fieldType InteractionFieldType) bool {
-	switch fieldType {
-	case InteractionFieldTypeString, InteractionFieldTypeNumber, InteractionFieldTypeBoolean,
-		InteractionFieldTypeSelect, InteractionFieldTypeNodeRef, InteractionFieldTypeRange, InteractionFieldTypeJSON:
+func validCategory(c Category) bool {
+	switch c {
+	case CategoryNodeNetwork, CategoryConsensus, CategoryCryptography, CategoryDataStructure,
+		CategoryTransaction, CategorySmartContract, CategoryAttackSecurity, CategoryEconomic, CategoryGeneric:
 		return true
-	default:
-		return false
 	}
+	return false
 }
 
-// validInteractionTrigger 校验交互触发方式是否合法。
-func validInteractionTrigger(trigger InteractionTrigger) bool {
-	switch trigger {
-	case InteractionTriggerClick, InteractionTriggerFormSubmit, InteractionTriggerDrag, InteractionTriggerCanvasSelect:
+func validTimeControlMode(m TimeControlMode) bool {
+	switch m {
+	case TimeControlProcess, TimeControlReactive, TimeControlContinuous:
 		return true
-	default:
-		return false
 	}
+	return false
+}
+
+func validDataSourceMode(m DataSourceMode) bool {
+	switch m {
+	case DataSourceSimulation, DataSourceCollection, DataSourceDual:
+		return true
+	}
+	return false
+}
+
+func validActionCategory(c ActionCategory) bool {
+	switch c {
+	case ActionParamTune, ActionAttackInject, ActionPrimary, ActionObserve:
+		return true
+	}
+	return false
+}
+
+func validActionTrigger(t ActionTrigger) bool {
+	switch t {
+	case TriggerSubmit, TriggerImmediate, TriggerHold:
+		return true
+	}
+	return false
+}
+
+func validFieldType(t FieldType) bool {
+	switch t {
+	case FieldString, FieldNumber, FieldBoolean, FieldSelect,
+		FieldEnum, FieldRange, FieldJSON, FieldMultiSelect:
+		return true
+	}
+	return false
 }

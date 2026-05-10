@@ -99,7 +99,7 @@ export class WSClient {
       payload: {
         action_code: action.actionCode,
         actor_id: action.actorId ?? "",
-        role_key: action.roleKey ?? "",
+        user_role: action.userRole ?? "",
         params: action.params
       }
     });
@@ -122,7 +122,7 @@ export class WSClient {
    */
   public sendRewind(targetTick: number): void {
     this.send({
-      type: "rewind_to",
+      type: "step_back",
       tick: 0,
       timestamp: Date.now(),
       payload: { target_tick: targetTick }

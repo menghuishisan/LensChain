@@ -1,19 +1,18 @@
-import type { InteractionSchema, RenderState, SceneCategory, TimeControlMode } from "./types.js";
+import type { InteractionSchema, RenderEnvelope, RenderState, SceneCategory, TimeControlMode } from "./types.js";
 
 /**
- * createRenderState 创建标准渲染状态对象。
+ * createRenderState 创建标准渲染状态对象（新协议：envelope-based）。
  */
 export function createRenderState(input: {
   sceneCode: string;
   title: string;
   category: SceneCategory;
-  algorithmType: string;
   timeControlMode: TimeControlMode;
   tick?: number;
   totalTicks?: number;
   linked?: boolean;
   linkGroupName?: string;
-  renderData?: RenderState["renderData"];
+  envelope?: RenderEnvelope;
   metrics?: RenderState["metrics"];
   tooltip?: RenderState["tooltip"];
   timeline?: RenderState["timeline"];
@@ -24,10 +23,9 @@ export function createRenderState(input: {
     sceneCode: input.sceneCode,
     title: input.title,
     category: input.category,
-    algorithmType: input.algorithmType,
     timeControlMode: input.timeControlMode,
     tick: input.tick ?? 0,
-    renderData: input.renderData ?? {},
+    envelope: input.envelope ?? { primitives: [], micro_steps: [] },
     metrics: input.metrics ?? [],
     tooltip: input.tooltip ?? [],
     timeline: input.timeline ?? [],

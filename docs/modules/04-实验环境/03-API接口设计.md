@@ -544,7 +544,6 @@
         "link_group_id": "1780000000700005",
         "link_group_name": "区块链完整性组",
         "scene_params": { "initial_blocks": 5, "fork_probability": 0.1 },
-        "initial_state": {},
         "data_source_mode": 1,
         "data_source_mode_text": "仿真模式",
         "data_source_config": null,
@@ -2719,12 +2718,11 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
 > `session_id` 为 SimEngine 会话ID，在启动实验时由 SimEngine Core 分配。
 > 前端浏览器 WebSocket 连接通过 query token 完成鉴权；服务端实现时需校验该 token 与实验实例、会话归属关系。
 
-**消息格式：**
+**通用消息格式：**
 
 ```json
-// 通用消息格式
 {
-  "type": "state_diff | state_full | event | link_update | control_ack | snapshot | action | control | rewind_to",
+  "type": "render | event | control_ack | schema_invalidated | action | control | step_back",
   "scene_code": "pbft-consensus",
   "tick": 42,
   "timestamp": 1712500000000,
@@ -2732,39 +2730,67 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
 }
 ```
 
+`payload` 类型按 `type` 决定。详细协议规范以 [`06-可视化仿真引擎设计.md`](./06-可视化仿真引擎设计.md) §七 为 SSOT，本节仅给出接口示例。
+
 **后端 → 前端消息：**
 
-| type | 说明 | payload 示例 |
-|------|------|-------------|
-| `state_diff` | 状态增量更新（每 tick） | `{"nodes":{"node-3":{"status":"byzantine"}},"messages":[...]}` |
-| `state_full` | 完整状态快照（初始化/回退时） | 完整状态树 |
-| `event` | 仿真事件通知 | `{"event":"view_change","data":{"new_view":2,"reason":"timeout"}}` |
-| `link_update` | 联动状态变更 | `{"source_scene":"pow-mining","affected_scenes":["51-percent-attack"],"changed_keys":["nodes.attacker.hashrate"]}` |
-| `control_ack` | 控制指令确认 | `{"command":"pause","success":true}` |
-| `snapshot` | 快照通知 | `{"snapshot_type":"keyframe","snapshot_id":"snap-001"}` |
+| type | 说明 | payload 类型 |
+|---|---|---|
+| `render` | 渲染数据下发（每 tick / Action 响应 / 重连首帧） | `RenderEnvelope`（详 06.md §6.2，含 `primitives` / `micro_steps` / `link_triggers` / `container_data` / `changed_keys` / `is_full_snapshot`） |
+| `event` | 仿真事件通知（侧栏日志 / 提示） | `{"event": string, "data": {...}}` |
+| `control_ack` | 控制指令确认 | `{"command": string, "success": bool, "error"?: string}` |
+| `schema_invalidated` | 教师调试场景导致 ActionDef 变更，提示前端重新拉取 InteractionDefinition（见 §4.2） | `{"reason": "teacher_published"}` |
+
+> `render` 是**唯一**的渲染数据通道，统一承载全量首帧（`is_full_snapshot=true`）与增量帧；前端按 `changed_keys` 做局部 patch。
 
 **前端 → 后端消息：**
 
-| type | 说明 | payload 示例 |
-|------|------|-------------|
-| `action` | 用户交互操作 | `{"action_code":"crash_node","params":{"node_id":"node-3"}}` |
-| `control` | 仿真控制 | `{"command":"play" | "pause" | "step" | "set_speed" | "reset" | "resume","value":1.5}` |
-| `rewind_to` | 回退到指定 tick | `{"target_tick":30}` |
+| type | 说明 | payload 类型 |
+|---|---|---|
+| `action` | 用户交互操作 | `{"action_code": string, "params": {...}}`（params 字段对齐 `ActionDef.Fields`，详 06.md §6.3） |
+| `control` | 仿真控制 | `{"command": string, "value"?: number}` |
+| `step_back` | 单步回退（仅单场景 process 模式） | `{}`（无 payload，每次回退 1 个 tick） |
+
+**control 命令枚举：**
+
+| command | 适用模式 | 说明 |
+|---|---|---|
+| `play` | process | 播放（process 模式使用，不使用 `resume`） |
+| `pause` | process / continuous | 暂停 |
+| `step` | process | 单步前进 1 tick |
+| `set_speed` | process / continuous | 变速；`value ∈ {0.5, 1, 1.5, 2}` |
+| `reset` | process | 重置到 tick=0，丢弃所有快照 |
+| `resume` | continuous | 恢复持续运行（continuous 模式使用，不使用 `play`） |
+
+> reactive 模式无时间控件，操作即响应。
+> `step_back` 仅在单场景 process 会话有效；联动 / 多场景对照 / 混合实验 / continuous / reactive 模式下服务端返回 `control_ack {success:false, error:"step_back_not_allowed_in_<context>"}`。最多回退 N=20 步（环形快照缓冲），缓冲耗尽返回 `{success:false, error:"buffer_exhausted"}`。
+> 平台**不提供**任意 tick 跳转能力，全部需重做请走 `control { command: "reset" }`。
 
 **消息示例：**
 
 ```json
-// 状态增量推送（SimEngine Core → 前端）
+// 渲染数据下发（SimEngine Core → 前端）
 {
-  "type": "state_diff",
-  "scene_code": "blockchain-structure-fork",
+  "type": "render",
+  "scene_code": "pbft-consensus",
   "tick": 150,
   "timestamp": 1712500000000,
   "payload": {
-    "blocks": [...],
-    "latest_block": 42,
-    "fork_detected": false,
-    "nodes": [...]
+    "primitives": [
+      {"id":"node-0","type":"node","layer":"content","params":{"x":120,"y":200,"label":"Primary"},"clickable":true,"click_action":"inject_byzantine"},
+      {"id":"vote-prepare","type":"vote_matrix","layer":"content","params":{"rows":7,"cols":3,"filled":[[0,0],[1,0]]}},
+      {"id":"link-pbft-attack","type":"link_indicator","layer":"overlay","params":{"link_group":"pbft-attack-group","status":"recent"}}
+    ],
+    "micro_steps": [
+      {"id":"pp-1","label":"主节点构造提议","duration_ms":1500,"highlight_ids":["node-0"]},
+      {"id":"pp-2","label":"广播 pre-prepare","duration_ms":1800,"fire_primitives":["edge-0-1","edge-0-2"]}
+    ],
+    "link_triggers": [
+      {"id":"evt-001","source_scene":"pbft-byzantine","source_action":"inject_byzantine_nodes","link_group":"pbft-attack-group","changed_fields":["byzantine_nodes"],"payload":{"byzantine_nodes":["node-3"]},"ts":1712500000000,"source_anchor_id":"byz-node-3","target_anchor_id":"node-3"}
+    ],
+    "changed_keys": ["node-3","vote-prepare","link-pbft-attack"],
+    "is_full_snapshot": false,
+    "data": {"view_number":0,"prepared_count":5,"committed_count":0}
   }
 }
 
@@ -2776,10 +2802,7 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
   "timestamp": 1712500000000,
   "payload": {
     "action_code": "inject_byzantine",
-    "params": {
-      "node_id": "node-3",
-      "behavior": "send_conflicting"
-    }
+    "params": { "node_ids": ["node-3"] }
   }
 }
 
@@ -2789,62 +2812,85 @@ wss://api.lianjing.com/api/v1/ws/sim-engine/:session_id?token=<jwt>
   "scene_code": "pbft-consensus",
   "tick": 150,
   "timestamp": 1712500000000,
-  "payload": {
-    "command": "set_speed",
-    "value": 1.5
-  }
+  "payload": { "command": "set_speed", "value": 0.5 }
 }
 
-// 联动事件广播（SimEngine Core → 同联动组所有场景前端）
+// 单步回退（仅单场景 process 模式，前端 → SimEngine Core）
 {
-  "type": "link_update",
+  "type": "step_back",
   "scene_code": "pbft-consensus",
   "tick": 150,
   "timestamp": 1712500000000,
-  "payload": {
-    "link_group_id": "1780000000700002",
-    "source_scene": "pbft-consensus",
-    "event": "byzantine_injected",
-    "data": {
-      "node_id": "node-3",
-      "behavior": "send_conflicting",
-      "affected_scenes": ["pbft-consensus", "byzantine-attack", "network-partition"]
-    }
-  }
+  "payload": {}
 }
+```
 
-// 快照通知（SimEngine Core → 前端）
+---
+
+### 4.2 GET 仿真场景交互 schema
+
+```
+GET /api/v1/experiment-instances/:id/sim-scenes/:scene_code/interaction-schema
+```
+
+返回该场景的 `InteractionDefinition`（包含全部学生 / 教师可执行 `ActionDef` 列表）。前端按此动态生成交互面板。
+
+**权限：** 实验实例所属学生 / 该实验所属教师。
+
+**响应：**
+
+```json
 {
-  "type": "snapshot",
-  "scene_code": "pbft-consensus",
-  "tick": 150,
-  "timestamp": 1712500000000,
-  "payload": {
-    "snapshot_type": "keyframe",
-    "snapshot_id": "snap-001"
+  "code": 0,
+  "data": {
+    "scene_code": "pbft-consensus",
+    "schema_version": "v2.0-2026-05-09T12:00:00Z",
+    "actions": [
+      {
+        "action_code": "inject_byzantine",
+        "label": "注入拜占庭节点",
+        "description": "选定的节点将开始发送伪造投票",
+        "category": "attack_inject",
+        "trigger": "submit",
+        "fields": [
+          { "name": "node_ids", "type": "multi_select", "label": "节点", "required": true, "options_from": "state.nodes" }
+        ],
+        "roles": ["student"],
+        "cooldown_ms": 800,
+        "triggers_link_groups": ["pbft-attack-group"],
+        "link_owner_fields": ["byzantine_nodes"]
+      },
+      {
+        "action_code": "set_view_timeout",
+        "label": "ViewChange 超时",
+        "category": "param_tune",
+        "trigger": "submit",
+        "fields": [
+          { "name": "timeout_ms", "type": "range", "label": "毫秒", "min": 500, "max": 10000, "step": 100, "default": 5000 }
+        ],
+        "roles": ["student"]
+      }
+    ]
   }
 }
 ```
 
-**时间控制指令（command 枚举）：**
+**缓存：** 浏览器 HTTP 缓存 24h（`Cache-Control: max-age=86400, stale-while-revalidate=86400`）。
 
-| command | 适用模式 | 说明 |
-|---------|----------|------|
-| play | process | 播放 |
-| pause | process, continuous | 暂停 |
-| step | process | 单步推进 |
-| set_speed | process, continuous | 变速（0.5x / 1x / 1.5x / 2x） |
-| reset | process | 重置到初始状态 |
-| resume | continuous | 恢复持续运行 |
+**失效：** 教师在场景配置页发布新 schema 时，SimEngine Core 通过 WebSocket `schema_invalidated` 通知本实验内全部在线客户端，客户端立即作废本地缓存并重新拉取。
 
-> 回退到指定 tick 不通过 `control.command` 传递，统一使用独立消息 `rewind_to`，负载为 `{"target_tick":30}`。
-> process 模式使用 `play` 启动播放，不使用 `resume`；continuous 模式使用 `resume` 恢复持续运行，不使用 `play`。
+**`category` 字段语义：**
 
-> reactive 模式无时间控件，操作即响应。
+| category | 含义 | UI 颜色 |
+|---|---|---|
+| `param_tune` | 参数调整 | 蓝 [⚙ 调参] |
+| `attack_inject` | 攻击注入 | 红 [⚠ 攻击]（额外加二次确认） |
+| `primary` | 主动操作 | 绿 [▶ 操作] |
+| `observe` | 观察 / 切视图 | 灰 [👁 观察] |
 
 ---
 
-*文档版本：v3.0*
+*文档版本：v3.1*
 *创建日期：2026-04-08*
-*更新日期：2026-04-08*
-*更新说明：v3.0 — 新增镜像配置模板接口(2.29)、镜像结构化文档接口(2.30)、5层模板配置验证接口(2.31)、镜像预拉取状态接口(2.32)、触发预拉取接口(2.33)；镜像创建接口(2.1)请求体增加typical_companions/required_dependencies/resource_recommendation/documentation_url字段；概览表新增1.23-1.25节*
+*更新日期：2026-05-09*
+*更新说明：v3.1 — SimEngine WebSocket 协议重构（§4.1）：消息类型收敛为 `render / event / control_ack / schema_invalidated / action / control / step_back`；删除 `state_diff / state_full / link_update / snapshot / rewind_to`；`render` 统一承载 `RenderEnvelope`（primitives / micro_steps / link_triggers / container_data）；新增 `step_back`（仅单场景 process 模式，N=20 缓冲）；新增 §4.2 `GET /api/v1/experiment-instances/:id/sim-scenes/:scene_code/interaction-schema`（24h HTTP 缓存 + WS `schema_invalidated` 失效信号）；详细协议规范以 `06-可视化仿真引擎设计.md` §六-§七为 SSOT。*

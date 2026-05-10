@@ -875,3 +875,76 @@ func IsValidTagCategory(s string) bool {
 	_, ok := TagCategoryText[s]
 	return ok
 }
+
+// ========== 扩展层级（sim_scenarios.extension_level） ==========
+
+const (
+	ExtensionLevelL1 = 1 // 平台原语组合
+	ExtensionLevelL2 = 2 // 平台 +1 原语函数
+	ExtensionLevelL3 = 3 // 自定义 npm 渲染器（教师扩展）
+)
+
+// ExtensionLevelText 扩展层级文本映射
+var ExtensionLevelText = map[int16]string{
+	ExtensionLevelL1: "L1 平台原语组合",
+	ExtensionLevelL2: "L2 平台+自定义原语",
+	ExtensionLevelL3: "L3 自定义npm渲染器",
+}
+
+// ========== 联动组状态（sim_link_groups.status） ==========
+
+const (
+	LinkGroupStatusActive     = 1 // 可用
+	LinkGroupStatusDeprecated = 2 // 已弃用（仅历史实验保留）
+)
+
+// ========== 联动组类目（sim_link_groups.category） ==========
+
+const (
+	LinkGroupCategoryAttack              = "attack"
+	LinkGroupCategoryNetwork             = "network"
+	LinkGroupCategoryCrypto              = "crypto"
+	LinkGroupCategoryEconomic            = "economic"
+	LinkGroupCategoryConsensus           = "consensus"
+	LinkGroupCategoryBlockchainIntegrity = "blockchain-integrity"
+)
+
+// ========== 多场景布局角色（template_sim_scenes.layout_role） ==========
+
+const (
+	LayoutRolePrimary   = 1 // 主场景
+	LayoutRoleSecondary = 2 // 次场景
+	LayoutRoleAuxiliary = 3 // 辅助场景
+)
+
+// ========== 展示模式（template_sim_scenes.display_mode） ==========
+
+const (
+	DisplayModeSingle = "single"  // 单画布全宽
+	DisplayModeSplit2 = "split-2" // 1×2 横排
+	DisplayModeSplit3 = "split-3" // 1×3 横排
+	DisplayModeGrid4  = "grid-4"  // 2×2 网格
+)
+
+// ========== 教师干预类型（teacher_intervene_logs.intervene_type） ==========
+
+const (
+	InterveneTypeBroadcast        = "broadcast"
+	InterveneTypePauseAll         = "pause_all"
+	InterveneTypeResumeAll        = "resume_all"
+	InterveneTypeForceStep        = "force_step"
+	InterveneTypeForceReset       = "force_reset"
+	InterveneTypePushStep         = "push_step"
+	InterveneTypeDebugSharedState = "debug_shared_state"
+	InterveneTypeUnlockLinkClock  = "unlock_link_clock"
+	InterveneTypeKickStudent      = "kick_student"
+	InterveneTypeAnnotation       = "annotation"
+)
+
+// ========== 干预作用范围（teacher_intervene_logs.target_scope） ==========
+
+const (
+	InterveneTargetScopeGlobal = "global" // 全班
+	InterveneTargetScopeMulti  = "multi"  // 多选学生
+	InterveneTargetScopeSingle = "single" // 单学生
+)

@@ -30,8 +30,11 @@ export type ExperimentInstanceStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 /** SimEngine 时间控制模式。 */
 export type SimTimeControlMode = "process" | "reactive" | "continuous";
 
-/** SimEngine 消息类型。 */
-export type SimEngineMessageType = "state_diff" | "state_full" | "event" | "link_update" | "control_ack" | "snapshot" | "action" | "control" | "rewind_to";
+/** SimEngine WS 后端→前端消息类型（API v3.1 §4.1）。 */
+export type SimWSDownlinkType = "render" | "event" | "control_ack" | "schema_invalidated";
+
+/** SimEngine WS 前端→后端消息类型（API v3.1 §4.1）。 */
+export type SimWSUplinkType = "action" | "control" | "step_back";
 
 /** 实验实例 WebSocket 消息类型。 */
 export type ExperimentInstanceWSMessageType = "status_change" | "checkpoint_result" | "guidance_message" | "idle_warning" | "duration_warning" | "container_status";
@@ -349,7 +352,6 @@ export interface TemplateSimScene {
   link_group_id: ID | null;
   link_group_name: string | null;
   scene_params: JsonObject | null;
-  initial_state: JsonObject | null;
   data_source_mode: 1 | 2 | 3;
   data_source_mode_text: string;
   data_source_config: JsonObject | null;
@@ -477,7 +479,6 @@ export interface TemplateSimSceneRequest {
   scenario_id: ID;
   link_group_id?: ID | null;
   scene_params?: JsonObject | null;
-  initial_state?: JsonObject | null;
   data_source_mode: 1 | 2 | 3;
   data_source_config?: JsonObject | null;
   layout_position?: JsonObject | null;
@@ -888,14 +889,284 @@ export interface ImagePullStatusItem {
 /** 镜像预拉取状态响应。 */
 export type ImagePullStatusResponse = PaginatedData<ImagePullStatusItem>;
 
-/** SimEngine 消息。 */
-export interface SimEngineMessage {
-  type: SimEngineMessageType;
+/** 通用实时连接状态。 */
+export type RealtimeStatus = "idle" | "connecting" | "open" | "closed" | "reconnecting" | "error";
+
+// ─── SimEngine 4 模式与布局（06.2 §二 / §三） ─────────────
+
+/** SimEngine 4 模式（06.2 §2.1）：single 单仿真 / comparison 对照 / linkage 联动 / hybrid 混合。 */
+export type SimMode = "single" | "comparison" | "linkage" | "hybrid";
+
+/** 多场景布局模式（06.2 §3.1-3.3）。 */
+export type SimLayoutMode = "grid" | "focus" | "carousel";
+
+/** 场景布局角色（06.2 §8.6 步骤④）。 */
+export type SimLayoutRole = "primary" | "secondary" | "auxiliary";
+
+/** 场景显示模式（06.2 §8.6 步骤④）。 */
+export type SimDisplayMode = "single" | "split-2" | "split-3" | "grid-4";
+
+// ─── SimEngine WS 消息（API v3.1 §4.1） ────────────────────
+
+/** SimEngine WS 通用消息结构。 */
+export interface SimWSMessage {
+  type: SimWSDownlinkType | SimWSUplinkType;
   scene_code?: string;
   tick?: number;
   timestamp?: number;
   payload: JsonObject;
 }
 
-/** 通用实时连接状态。 */
-export type RealtimeStatus = "idle" | "connecting" | "open" | "closed" | "reconnecting" | "error";
+/** SimEngine control 命令（API §4.1 control 命令枚举）。 */
+export type SimControlCommand = "play" | "pause" | "step" | "set_speed" | "reset" | "resume";
+
+/** control_ack payload。 */
+export interface SimControlAck {
+  command: string;
+  success: boolean;
+  error?: string;
+}
+
+// ─── RenderEnvelope（06.md §6.2 / API §4.1） ───────────────
+
+/** 渲染原语层级。 */
+export type SimPrimitiveLayer = "background" | "content" | "overlay" | "annotation";
+
+/** 渲染原语。 */
+export interface SimPrimitive {
+  id: string;
+  type: string;
+  layer: SimPrimitiveLayer;
+  params: JsonObject;
+  clickable?: boolean;
+  click_action?: string;
+}
+
+/** 微步骤（06.md §5.3）。 */
+export interface SimMicroStep {
+  id: string;
+  label: string;
+  duration_ms: number;
+  highlight_ids?: string[];
+  fire_primitives?: string[];
+}
+
+/** 联动触发事件（06.2 §6.2）。 */
+export interface SimLinkTrigger {
+  id: string;
+  source_scene: string;
+  source_action: string;
+  link_group: string;
+  changed_fields: string[];
+  payload: JsonObject;
+  ts: number;
+  source_anchor_id?: string;
+  target_anchor_id?: string;
+}
+
+/** RenderEnvelope（render 消息 payload，API §4.1）。 */
+export interface SimRenderEnvelope {
+  primitives: SimPrimitive[];
+  micro_steps?: SimMicroStep[];
+  link_triggers?: SimLinkTrigger[];
+  container_data?: JsonObject;
+  changed_keys?: string[];
+  is_full_snapshot?: boolean;
+  data?: JsonObject;
+}
+
+// ─── InteractionSchema（06.2 §五 / API §4.2） ──────────────
+
+/** ActionDef category（06.2 §5.2）。 */
+export type SimActionCategory = "param_tune" | "attack_inject" | "primary" | "observe";
+
+/** ActionDef trigger（06.2 §5.2）。 */
+export type SimActionTrigger = "submit" | "immediate" | "hold";
+
+/** FieldDef type → shadcn/ui 映射（06.2 §5.3）。 */
+export type SimFieldDefType = "string" | "number" | "boolean" | "select" | "enum" | "range" | "multi_select" | "json";
+
+/** FieldDef 交互字段定义。 */
+export interface SimFieldDef {
+  name: string;
+  type: SimFieldDefType;
+  label: string;
+  required?: boolean;
+  default?: unknown;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: Array<{ label: string; value: string }>;
+  options_from?: string;
+}
+
+/** ActionDef 交互操作定义（API §4.2）。 */
+export interface SimActionDef {
+  action_code: string;
+  label: string;
+  description?: string;
+  category: SimActionCategory;
+  trigger: SimActionTrigger;
+  fields: SimFieldDef[];
+  roles: string[];
+  cooldown_ms?: number;
+  writes_owned_fields?: string[];
+  hybrid_channel?: string;
+  container_cmd?: string;
+  reversible?: boolean;
+  intervene_type?: string;
+}
+
+/** InteractionSchema 响应（API §4.2）。 */
+export interface SimInteractionSchema {
+  scene_code: string;
+  schema_version: string;
+  actions: SimActionDef[];
+}
+
+// ─── 联动可视化（06.2 §六） ────────────────────────────────
+
+/** 联动组配色类目（06.2 §6.2）。 */
+export type SimLinkGroupColorType = "attack" | "network" | "crypto" | "economic" | "consensus" | "blockchain-integrity";
+
+/** 联动指示器状态（06.2 §6.1）。 */
+export type SimLinkIndicatorStatus = "idle" | "active" | "recent";
+
+/** SharedState 单字段（06.2 §6.3）。 */
+export interface SimSharedStateField {
+  field_name: string;
+  value: unknown;
+  owner_scene: string;
+  owner_scene_label: string;
+}
+
+/** SharedState 组状态（06.2 §6.3 手风琴 section）。 */
+export interface SimSharedStateGroup {
+  link_group_id: ID;
+  link_group_name: string;
+  fields: SimSharedStateField[];
+}
+
+/** 联动组详情（扩展已有 SimLinkGroup，含 schema 字段与 owner 信息）。 */
+export interface SimLinkGroupDetail extends SimLinkGroup {
+  schema_fields: Array<{
+    field_path: string;
+    owner_scene_code: string;
+    owner_scene_name: string;
+  }>;
+  clock_sync: boolean;
+  color_type: SimLinkGroupColorType;
+}
+
+// ─── 教师干预（06.2 §七） ──────────────────────────────────
+
+/** 教师干预操作类型。 */
+export type TeacherInterveneAction =
+  | "broadcast_message"
+  | "force_pause_all"
+  | "force_resume_all"
+  | "force_step"
+  | "force_reset"
+  | "unlock_link_clock"
+  | "debug_shared_state"
+  | "kick_student";
+
+/** 教师干预请求（POST /api/v1/teacher/experiments/:id/intervene）。 */
+export interface TeacherInterveneRequest {
+  action: TeacherInterveneAction;
+  target_student_ids?: ID[];
+  target_scene_code?: string;
+  target_link_group_id?: ID;
+  message?: string;
+  field_name?: string;
+  field_value?: unknown;
+}
+
+// ─── 教师 SimEngine 监控增强视图（06.2 §九） ───────────────
+
+/** 教师 SimEngine 监控 WS 消息类型（06.2 §9.8）。 */
+export type SimTeacherMonitorWSType =
+  | "student_thumbnail"
+  | "student_progress"
+  | "student_alert"
+  | "student_join"
+  | "student_leave"
+  | "student_phase_transition";
+
+/** 学生仿真状态标记（06.2 §9.4）。 */
+export type SimStudentStatusMark = "normal" | "behind" | "error" | "offline";
+
+/** 学生缩略图数据（06.2 §9.5.2 快照轮询）。 */
+export interface SimStudentThumbnail {
+  student_id: ID;
+  student_name: string;
+  student_no: string;
+  tick: number;
+  phase: string;
+  status: SimStudentStatusMark;
+  primitives: SimPrimitive[];
+  error_message?: string;
+}
+
+/** 学生进度更新批量条目（06.2 §9.5.2 事件推送）。 */
+export interface SimStudentProgress {
+  student_id: ID;
+  tick: number;
+  phase: string;
+  status: SimStudentStatusMark;
+}
+
+/** 学生操作历史条目（06.2 §9.6 详情面板）。 */
+export interface SimStudentActionHistory {
+  action_code: string;
+  params: JsonObject;
+  timestamp: string;
+}
+
+// ─── 教师实验配置向导（06.2 §八） ──────────────────────────
+
+/** 仿真场景库条目（向导步骤① 场景选择卡片用）。 */
+export interface SimScenarioCatalogItem {
+  id: ID;
+  code: string;
+  name: string;
+  category: string;
+  category_text: string;
+  time_control_mode: SimTimeControlMode;
+  data_source_mode: 1 | 2 | 3;
+  difficulty_level: "L1" | "L2" | "L3";
+  description: string | null;
+  default_params: JsonObject | null;
+  supported_link_groups: string[];
+  container_image_url: string;
+}
+
+/** 向导步骤④ 场景布局配置。 */
+export interface SimSceneLayoutConfig {
+  scene_id: ID;
+  layout_role: SimLayoutRole;
+  display_mode: SimDisplayMode;
+  link_to_primary: boolean;
+  default_visible: boolean;
+}
+
+/** 场景库管理页条目（P-04 §10.3）。 */
+export interface SimScenarioAdminItem {
+  id: ID;
+  code: string;
+  name: string;
+  category: string;
+  category_text: string;
+  time_control_mode: SimTimeControlMode;
+  difficulty_level: "L1" | "L2" | "L3";
+  status: AssetStatus;
+  status_text: string;
+  source_type: ImageSourceType;
+  source_type_text: string;
+  data_source_mode: 1 | 2 | 3;
+  usage_count: number;
+  school_count: number;
+  course_count: number;
+  created_at: string;
+  updated_at: string;
+}

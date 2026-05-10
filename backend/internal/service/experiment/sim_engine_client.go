@@ -79,14 +79,19 @@ func (c *simEngineClient) CreateSession(ctx context.Context, req *CreateSimSessi
 		scenes = append(scenes, &simenginev1.SceneConfig{
 			SceneCode:             scene.SceneCode,
 			ScenarioId:            scene.ScenarioID,
+			ScenarioVersion:       scene.ScenarioVersion,
 			LinkGroupId:           scene.LinkGroupID,
 			LinkGroupCode:         scene.LinkGroupCode,
+			LinkGroupVersion:      scene.LinkGroupVersion,
+			LayoutRole:            scene.LayoutRole,
+			DisplayMode:           scene.DisplayMode,
+			LinkToPrimary:         scene.LinkToPrimary,
+			DefaultVisible:        scene.DefaultVisible,
 			ParamsJson:            scene.Params,
-			InitialStateJson:      scene.InitialState,
+			SharedStateJson:       scene.SharedState,
+			DataSourceMode:        toProtoDataSourceMode(scene.DataSourceMode),
 			DataSourceConfigJson:  scene.DataSourceConfig,
 			LayoutPositionJson:    scene.LayoutPosition,
-			DataSourceMode:        toProtoDataSourceMode(scene.DataSourceMode),
-			SharedStateJson:       scene.SharedState,
 			ContainerImageUrl:     scene.ContainerImageURL,
 			ResourceRequestCpu:    scene.ResourceRequestCPU,
 			ResourceRequestMemory: scene.ResourceRequestMemory,
@@ -175,16 +180,16 @@ func (c *simEngineClient) SendInteraction(ctx context.Context, sessionID string,
 		ActionCode: interaction.ActionCode,
 		ParamsJson: interaction.Params,
 		ActorId:    interaction.ActorID,
-		RoleKey:    interaction.RoleKey,
+		UserRole:   interaction.UserRole,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &SimInteractionResult{
-		Success:      response.GetSuccess(),
-		Data:         response.GetDataJson(),
-		ErrorMessage: response.GetErrorMessage(),
+		Success:            response.GetSuccess(),
+		RenderEnvelopeJSON: response.GetRenderEnvelopeJson(),
+		ErrorMessage:       response.GetErrorMessage(),
 	}, nil
 }
 
@@ -201,13 +206,18 @@ func (c *simEngineClient) GetInteractionSchema(ctx context.Context, sessionID st
 		return nil, err
 	}
 
-	actionsJSON, err := json.Marshal(response.GetActions())
+	def := response.GetDefinition()
+	if def == nil {
+		return &SimInteractionSchema{SceneCode: sceneCode}, nil
+	}
+
+	actionsJSON, err := json.Marshal(def.GetActions())
 	if err != nil {
 		return nil, fmt.Errorf("序列化交互 schema 失败: %w", err)
 	}
 
 	return &SimInteractionSchema{
-		SceneCode: response.GetSceneCode(),
+		SceneCode: def.GetSceneCode(),
 		Actions:   actionsJSON,
 	}, nil
 }
@@ -304,6 +314,32 @@ func (c *simEngineClient) StopDataCollection(ctx context.Context, sessionID stri
 		return fmt.Errorf("停止数据采集失败: %s", response.GetErrorMessage())
 	}
 	return nil
+}
+
+// PublishTeacherIntervention 发送教师干预指令到 SimEngine Core
+func (c *simEngineClient) PublishTeacherIntervention(ctx context.Context, req *SimTeacherInterventionRequest) (*SimTeacherInterventionResult, error) {
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	response, err := c.client.PublishTeacherIntervention(callCtx, &simenginev1.PublishTeacherInterventionRequest{
+		InstanceId:       req.InstanceID,
+		TeacherId:        req.TeacherID,
+		ActionCode:       req.ActionCode,
+		TargetSessionIds: req.TargetSessionIDs,
+		TargetSceneCodes: req.TargetSceneCodes,
+		TargetLinkGroup:  req.TargetLinkGroup,
+		ParamsJson:       req.Params,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("教师干预指令发送失败: %w", err)
+	}
+
+	return &SimTeacherInterventionResult{
+		Success:            response.GetSuccess(),
+		ErrorMessage:       response.GetErrorMessage(),
+		AffectedSessionIDs: append([]string(nil), response.GetAffectedSessionIds()...),
+		Result:             response.GetResultJson(),
+	}, nil
 }
 
 // toProtoDataSourceMode 将字符串数据源模式转换为协议枚举。

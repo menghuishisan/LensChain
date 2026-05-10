@@ -44,6 +44,8 @@ deploy/docker-compose/data/
 sim-engine/renderers/package-lock.json
 
 # Internal guidance / local assistant docs
+# NOTE: 临时放开 AGENTS.md 以便 Cascade / AI 会话读取各端规范文档（重构期）。
+# 重构完成后恢复为全部忽略：取消下方 4 行注释即可。
 AGENTS.md
 CLAUDE.md
 **/AGENTS.md
@@ -58,5 +60,3 @@ docs/*
 !docs/数据库表总览.md
 !docs/项目功能总览.md
 
-# 本地测试笔记：仅本地维护，提交时手动跳过（不放进 .gitignore，
-# 否则 IDE / Cascade 工具链无法读写。请勿 git add TESTING_NOTES.md。）

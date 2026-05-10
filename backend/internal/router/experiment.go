@@ -190,6 +190,14 @@ func RegisterExperimentRoutes(rg *gin.RouterGroup, eh *ExperimentHandlers) {
 		instances.POST("/:id/message", middleware.RequireTeacher(), eh.InstanceHandler.SendGuidance)
 		instances.POST("/:id/force-destroy", middleware.RequireTeacher(), eh.InstanceHandler.ForceDestroyInstance)
 		instances.POST("/:id/manual-grade", middleware.RequireTeacher(), eh.InstanceHandler.ManualGradeInstance)
+		instances.GET("/:id/sim-scenes/:scene_code/interaction-schema", eh.InstanceHandler.GetSimInteractionSchema)
+	}
+
+	// ========== 4.5 教师仿真干预（06.md §14.5） ==========
+	teacherExperiment := rg.Group("/teacher/experiments")
+	teacherExperiment.Use(middleware.JWTAuth(), middleware.TenantIsolation(), middleware.RequireTeacher())
+	{
+		teacherExperiment.POST("/:id/intervene", eh.InstanceHandler.TeacherIntervene)
 	}
 
 	checkpointResults := rg.Group("/checkpoint-results")

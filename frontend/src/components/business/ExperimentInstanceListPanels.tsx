@@ -3,9 +3,15 @@
 // ExperimentInstanceListPanels.tsx
 // 模块04实验实例、教师监控和管理端资源页面级业务面板。
 
-import { Activity, BarChart3, CheckCircle, Circle, Eye, Loader2, Play, RotateCcw, Square } from "lucide-react";
+import { Activity, BarChart3, CheckCircle, Circle, Eye, Gamepad2, Loader2, Play, RotateCcw, Square, TableProperties } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+
+const SimMonitorEnhancedView = dynamic(
+  () => import("@/components/business/SimMonitorEnhancedView").then((mod) => ({ default: mod.SimMonitorEnhancedView })),
+  { ssr: false, loading: () => <div className="p-8 text-center text-sm text-muted-foreground">加载增强监控视图…</div> },
+);
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -79,7 +85,7 @@ export function StudentExperimentListPanel() {
             <Play className="h-5 w-5 text-primary" />
             启动实验
           </CardTitle>
-          <CardDescription>选择一个实验模板，点击"启动"后系统将自动分配容器环境。首次启动通常需要 10-30 秒。</CardDescription>
+          <CardDescription>选择一个实验模板，点击&ldquo;启动&rdquo;后系统将自动分配容器环境。首次启动通常需要 10-30 秒。</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
           <FormField label="已发布实验模板">
@@ -358,19 +364,41 @@ export function ExperimentLaunchPanel({ templateID }: { templateID: ID }) {
 
 /**
  * TeacherExperimentMonitorPanel 教师课程实验监控面板。
+ * 含仿真实验时支持切换到 SimEngine 增强视图（06.2 §九）。
  */
-export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
+export function TeacherExperimentMonitorPanel({ courseID, experimentID }: { courseID: ID; experimentID?: ID }) {
   const monitorQuery = useCourseExperimentMonitor(courseID);
   const statisticsQuery = useCourseExperimentStatistics(courseID);
   const realtime = useCourseExperimentMonitorRealtime(courseID);
   const mutations = useExperimentMonitorMutations();
   const router = useRouter();
+  const [viewMode, setViewMode] = useState<"table" | "thumbnail">("table");
 
   if (monitorQuery.isLoading) {
     return <LoadingState variant="table" title="正在加载课堂实验观察" description="正在整理学生进度、评分情况和资源使用。" />;
   }
 
   const monitor = monitorQuery.data;
+
+  // §9.1 如果含仿真场景且使用 thumbnail 视图，渲染增强视图
+  if (viewMode === "thumbnail" && experimentID) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between px-4 py-2 border-b">
+          <h1 className="font-display text-lg font-semibold">课堂实验观察</h1>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setViewMode("table")}>
+              <TableProperties className="h-3 w-3" />表格
+            </Button>
+            <Button size="sm" variant="secondary" className="h-7 text-xs gap-1" onClick={() => setViewMode("thumbnail")}>
+              <Gamepad2 className="h-3 w-3" />缩略图
+            </Button>
+          </div>
+        </div>
+        <SimMonitorEnhancedView experimentID={experimentID} className="flex-1" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -379,7 +407,19 @@ export function TeacherExperimentMonitorPanel({ courseID }: { courseID: ID }) {
           <h1 className="font-display text-3xl font-semibold">课堂实验观察</h1>
           <p className="mt-2 text-sm text-muted-foreground">实时查看学生进度、实验状态和资源使用情况。</p>
         </div>
-        <Badge variant={realtime.status === "open" ? "success" : "outline"}>{realtime.status === "open" ? "实时连接" : "未连接"}</Badge>
+        <div className="flex items-center gap-2">
+          {experimentID && (
+            <>
+              <Button size="sm" variant={viewMode === "table" ? "secondary" : "outline"} className="h-7 text-xs gap-1" onClick={() => setViewMode("table")}>
+                <TableProperties className="h-3 w-3" />表格
+              </Button>
+              <Button size="sm" variant={viewMode === "thumbnail" ? "secondary" : "outline"} className="h-7 text-xs gap-1" onClick={() => setViewMode("thumbnail")}>
+                <Gamepad2 className="h-3 w-3" />缩略图
+              </Button>
+            </>
+          )}
+          <Badge variant={realtime.status === "open" ? "success" : "outline"}>{realtime.status === "open" ? "实时连接" : "未连接"}</Badge>
+        </div>
       </div>
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard title="运行中" value={monitor?.summary?.running ?? 0} />

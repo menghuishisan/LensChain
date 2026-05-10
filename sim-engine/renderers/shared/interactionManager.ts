@@ -31,7 +31,6 @@ export class InteractionManager {
       const state = stateProvider();
       const event = {
         sceneCode: state.sceneCode,
-        algorithmType: state.algorithmType,
         type: input.type,
         x: input.x,
         y: input.y

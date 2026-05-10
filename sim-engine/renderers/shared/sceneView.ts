@@ -1,8 +1,9 @@
 import type { DomainRenderer } from "./domainRenderer.js";
-import type { PanelLayoutItem, RenderState, RenderSurface } from "./types.js";
+import type { PanelLayoutItem, RenderState, RenderSurface, SpeedMultiplier } from "./types.js";
 import { AnimationScheduler } from "./animationScheduler.js";
 import { AnnotationStore, captureCanvas, startCanvasRecording } from "./mediaToolkit.js";
 import { FallbackRenderer } from "./fallbackRenderer.js";
+import { MicroStepScheduler } from "./microStepScheduler.js";
 import { ViewportController } from "./viewportController.js";
 
 /**
@@ -11,9 +12,12 @@ import { ViewportController } from "./viewportController.js";
 export class SceneView {
   private readonly viewport = new ViewportController();
   private readonly scheduler = new AnimationScheduler();
+  private readonly microScheduler = new MicroStepScheduler();
   private readonly annotations = new AnnotationStore();
   private currentState?: RenderState;
   private readonly fallbackRenderer: FallbackRenderer;
+  private speed: SpeedMultiplier = 1;
+  private rafId = 0;
 
   /**
    * constructor 初始化场景视图。
@@ -32,6 +36,13 @@ export class SceneView {
   public setState(state: RenderState): void {
     const previous = this.currentState;
     this.currentState = state;
+
+    const steps = state.envelope.micro_steps ?? [];
+    if (steps.length > 0) {
+      this.microScheduler.schedule(steps, state.timeControlMode, this.speed);
+      this.startMicroLoop();
+    }
+
     if (!previous) {
       this.render(state);
       return;
@@ -44,6 +55,64 @@ export class SceneView {
         this.renderFailure(state);
       }
     });
+  }
+
+  /**
+   * setSpeed 设置播放速率。
+   */
+  public setSpeed(speed: SpeedMultiplier): void {
+    this.speed = speed;
+    this.microScheduler.setSpeed(speed);
+  }
+
+  /**
+   * advanceMicroStep 手动推进一步（process 模式）。
+   */
+  public advanceMicroStep(): boolean {
+    const advanced = this.microScheduler.advance();
+    if (this.currentState) {
+      const nextState = { ...this.currentState };
+      const activeId = this.microScheduler.getState().activeId;
+      if (activeId) {
+        nextState.activeMicroStepId = activeId;
+      } else {
+        delete nextState.activeMicroStepId;
+      }
+      this.currentState = nextState;
+      this.render(nextState);
+    }
+    return advanced;
+  }
+
+  /**
+   * getMicroStepState 返回当前微步骤调度快照。
+   */
+  public getMicroStepState() {
+    return this.microScheduler.getState();
+  }
+
+  private startMicroLoop(): void {
+    if (this.rafId) return;
+    const loop = (now: number) => {
+      const switched = this.microScheduler.tick(now);
+      if (switched && this.currentState) {
+        const nextState = { ...this.currentState };
+        const activeId = this.microScheduler.getState().activeId;
+        if (activeId) {
+          nextState.activeMicroStepId = activeId;
+        } else {
+          delete nextState.activeMicroStepId;
+        }
+        this.currentState = nextState;
+        this.render(nextState);
+      }
+      if (!this.microScheduler.getState().finished) {
+        this.rafId = requestAnimationFrame(loop);
+      } else {
+        this.rafId = 0;
+      }
+    };
+    this.rafId = requestAnimationFrame(loop);
   }
 
   /**
@@ -143,12 +212,15 @@ export class SceneView {
    * createContext 生成渲染器执行上下文。
    */
   private createContext() {
+    const theme = this.renderer.getTheme();
     return {
       surface: this.surface,
       width: this.surface.canvas.width,
       height: this.surface.canvas.height,
       viewport: this.viewport.getState(),
-      now: performance.now()
+      now: performance.now(),
+      speed: 1 as const,
+      theme: theme.theme
     };
   }
 

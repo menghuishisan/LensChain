@@ -8,9 +8,10 @@ import (
 )
 
 // InteractionContext 表示一次多人协作交互附带的操作者上下文。
+// UserRole 对齐 06.md §6.3 ActionRequest.user_role（可为 student / teacher 以及多人协作场景中的自定义角色键）。
 type InteractionContext struct {
-	ActorID string
-	RoleKey string
+	ActorID  string
+	UserRole string
 }
 
 // collaborationPolicy 保存会话级多人协作权限规则。
@@ -44,8 +45,8 @@ type collaborationPolicyConfig struct {
 
 // collaborationMemberConfig 描述单个协作成员与其角色绑定关系。
 type collaborationMemberConfig struct {
-	ActorID string `json:"actor_id"`
-	RoleKey string `json:"role_key"`
+	ActorID  string `json:"actor_id"`
+	UserRole string `json:"user_role"`
 }
 
 // parseCollaborationPolicy 从会话配置中提取多人协作权限规则。
@@ -65,11 +66,11 @@ func parseCollaborationPolicy(sessionConfigJSON []byte) (collaborationPolicy, er
 	}
 	for _, member := range config.Collaboration.Members {
 		actorID := strings.TrimSpace(member.ActorID)
-		roleKey := strings.TrimSpace(member.RoleKey)
-		if actorID == "" || roleKey == "" {
-			return collaborationPolicy{}, errors.New("collaboration member actor_id and role_key are required")
+		userRole := strings.TrimSpace(member.UserRole)
+		if actorID == "" || userRole == "" {
+			return collaborationPolicy{}, errors.New("协作成员 actor_id 与 user_role 不能为空")
 		}
-		policy.members[actorID] = roleKey
+		policy.members[actorID] = userRole
 	}
 	for roleKey, rolePolicy := range config.Collaboration.Roles {
 		trimmedRoleKey := strings.TrimSpace(roleKey)
@@ -89,30 +90,30 @@ func (p collaborationPolicy) Validate(sceneCode string, actionCode string, param
 	}
 
 	actorID := strings.TrimSpace(ctx.ActorID)
-	roleKey := strings.TrimSpace(ctx.RoleKey)
-	if actorID == "" || roleKey == "" {
-		return errors.New("actor_id and role_key are required for collaboration session")
+	userRole := strings.TrimSpace(ctx.UserRole)
+	if actorID == "" || userRole == "" {
+		return errors.New("协作会话中 actor_id 与 user_role 不能为空")
 	}
 
-	expectedRoleKey, ok := p.members[actorID]
+	expectedRole, ok := p.members[actorID]
 	if !ok {
-		return fmt.Errorf("actor %s is not registered in collaboration session", actorID)
+		return fmt.Errorf("actor %s 未在协作会话中注册", actorID)
 	}
-	if expectedRoleKey != roleKey {
-		return fmt.Errorf("actor %s role mismatch", actorID)
+	if expectedRole != userRole {
+		return fmt.Errorf("actor %s 角色不一致", actorID)
 	}
 
-	rolePolicy, ok := p.roles[roleKey]
+	rolePolicy, ok := p.roles[userRole]
 	if !ok {
-		return fmt.Errorf("role %s is not configured", roleKey)
+		return fmt.Errorf("角色 %s 未配置权限策略", userRole)
 	}
 
 	scenePolicy, ok := rolePolicy.Scenes[sceneCode]
 	if !ok {
-		return fmt.Errorf("role %s has no access to scene %s", roleKey, sceneCode)
+		return fmt.Errorf("角色 %s 无权访问场景 %s", userRole, sceneCode)
 	}
 	if !containsString(scenePolicy.Actions, actionCode) {
-		return fmt.Errorf("role %s cannot execute action %s", roleKey, actionCode)
+		return fmt.Errorf("角色 %s 不可执行 action %s", userRole, actionCode)
 	}
 
 	if len(scenePolicy.ResourceIDs) == 0 {

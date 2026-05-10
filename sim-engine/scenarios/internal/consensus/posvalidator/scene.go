@@ -1,396 +1,855 @@
+// 模块：sim-engine/scenarios/internal/consensus/posvalidator
+// 文件职责：CON-02 权益证明（PoS）验证者选举场景的完整实现。
+//
+// SSOT 依据：06.md §4.2.2 / §3.2 / §6.2 / §6.3 / §8.3；AGENTS.md §0 + §6。
+//
+// 算法实现：自实现 PoS 加权随机出块者选择 + 验证者奖励 + slashing 扣押 +
+// 委托质押（LSD），零第三方加密库；复用 sha256hash.Sum256 提供确定性随机：
+//
+//   · 出块者选择：seed_e = SHA-256(global_seed || epoch_be64) → 大端整数 mod total_stake
+//     落在哪个验证者的 stake 区间即被选中（与抵押权重严格成正比）
+//   · 奖励：当选验证者获得固定奖励（block_reward），增加其 stake
+//   · Slashing：恶意行为（双签 / 离线）扣除 slash_pct% stake，不参与选举
+//   · LSD：用户把 stake 委托给某验证者，按比例分享奖励 / slashing 风险
+//
+// 教学决策：
+//   - ring_layout 把 N 个验证者均匀环形排列
+//   - pie_chart 显示 stake 占比
+//   - 当前出块者 glow + burst
+//   - risk_gauge 显示中心化程度（HHI 指数）
+
 package posvalidator
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 
-	"github.com/lenschain/sim-engine/scenarios/internal/framework"
+	fw "github.com/lenschain/sim-engine/framework"
+	"github.com/lenschain/sim-engine/scenarios/internal/cryptography/sha256hash"
 )
 
-// DefaultState 构造 PoS 验证者选举场景的初始状态。
-func DefaultState() framework.SceneState {
-	return framework.SceneState{
-		SceneCode:    "pos-validator",
-		Title:        "PoS 验证者选举",
-		Phase:        "质押汇总",
-		PhaseIndex:   0,
-		Progress:     0,
-		StepDuration: 1500,
-		TotalTicks:   18,
-		Stages:       []string{"质押汇总", "随机抽样", "Epoch 轮转", "奖励结算"},
-		Nodes: []framework.Node{
-			{ID: "validator-a", Label: "Validator-A", Status: "active", Role: "validator", X: 150, Y: 170, Stake: 120},
-			{ID: "validator-b", Label: "Validator-B", Status: "normal", Role: "validator", X: 320, Y: 120, Stake: 260},
-			{ID: "validator-c", Label: "Validator-C", Status: "normal", Role: "validator", X: 500, Y: 170, Stake: 180},
-			{ID: "validator-d", Label: "Validator-D", Status: "normal", Role: "validator", X: 330, Y: 330, Stake: 90},
-		},
-		ChangedKeys: []string{"nodes", "data", "metrics"},
-		Data:        map[string]any{},
-		Extra:       map[string]any{},
+// =====================================================================
+// 元信息
+// =====================================================================
+
+const (
+	sceneCode     = "pos-validator"
+	schemaVersion = "v1.0.0"
+	algorithmType = "pos-stake-weighted"
+
+	defaultBlockReward = 1
+	maxValidators      = 16
+	maxEpochHistory    = 32
+
+	linkGroupPosEconomy = "pos-economy-group"
+	linkOwnerSubtree    = "validators.pos"
+)
+
+// =====================================================================
+// 验证者 / 状态
+// =====================================================================
+
+type validator struct {
+	ID          string
+	Stake       int64
+	BlocksMined int
+	Slashed     bool
+	SlashedAt   int // epoch
+	Delegators  []delegator
+}
+
+type delegator struct {
+	UserID string
+	Amount int64
+}
+
+type epochRecord struct {
+	Epoch    int
+	Producer string
+	Reward   int64
+	Slashed  string
+}
+
+type snapState struct {
+	Validators   []validator
+	GlobalSeed   string
+	BlockReward  int64
+	SlashPctBp   int // 10000 = 100%
+	CurrentEpoch int
+	History      []epochRecord
+	LastError    string
+}
+
+// defaultValidators 4 个验证者，stake 按比例分配（演示中心化程度）。
+func defaultValidators() []validator {
+	return []validator{
+		{ID: "alice", Stake: 100},
+		{ID: "bob", Stake: 200},
+		{ID: "carol", Stake: 300},
+		{ID: "dave", Stake: 400},
 	}
 }
 
-// Init 初始化验证者权重和首个 Epoch。
-func Init(state *framework.SceneState, _ framework.InitInput) error {
-	validators := defaultValidators()
-	return rebuildState(state, validators, 1, "质押汇总", "")
+func defaultSnapState() snapState {
+	return snapState{
+		Validators:  defaultValidators(),
+		GlobalSeed:  "lenschain-pos-2026",
+		BlockReward: defaultBlockReward,
+		SlashPctBp:  3000, // 默认扣 30%
+	}
 }
 
-// Step 执行权重汇总、随机抽样、Epoch 轮转和奖励结算。
-func Step(state *framework.SceneState, input framework.StepInput) (framework.StepOutput, error) {
-	validators := decodeValidators(state)
-	epoch := int(framework.NumberValue(state.Data["epoch"], 1))
-	phase := nextPhase(framework.StringValue(state.Data["phase_name"], "质押汇总"))
-	selectedID := framework.StringValue(state.Data["selected_validator"], "")
-	epoch, selectedID = applySharedValidatorState(validators, input.SharedState, epoch, selectedID)
-	events := make([]framework.TimelineEvent, 0, 1)
-
-	switch phase {
-	case "质押汇总":
-		events = append(events, framework.NewEvent(state.SceneCode, state.Tick, "汇总质押", fmt.Sprintf("当前总质押为 %.0f。", totalStake(validators)), "info"))
-	case "随机抽样":
-		selectedID = weightedSelect(validators, epoch)
-		events = append(events, framework.NewEvent(state.SceneCode, state.Tick, "选出验证者", fmt.Sprintf("Epoch %d 选中 %s。", epoch, selectedID), "success"))
-	case "Epoch 轮转":
-		epoch++
-		events = append(events, framework.NewEvent(state.SceneCode, state.Tick, "Epoch 轮转", fmt.Sprintf("进入 Epoch %d。", epoch), "info"))
-	case "奖励结算":
-		rewardValidator(validators, selectedID)
-		events = append(events, framework.NewEvent(state.SceneCode, state.Tick, "奖励结算", fmt.Sprintf("%s 获得出块奖励。", selectedID), "success"))
-	}
-
-	if err := rebuildState(state, validators, epoch, phase, selectedID); err != nil {
-		return framework.StepOutput{}, err
-	}
-	return framework.StepOutput{
-		Events: events,
-		SharedDiff: map[string]any{
-			"stakes": map[string]any{
-				"validators":   state.Data["validators"],
-				"total_stake":  state.Data["total_stake"],
-				"selected":     selectedID,
-				"voting_power": totalStake(validators),
-			},
-			"epoch":    epoch,
-			"selected": selectedID,
-			"token_supply": map[string]any{
-				"total":       state.Data["token_supply"],
-				"circulating": state.Data["token_supply"],
-				"inflation":   totalReward(validators) / 1000000,
-			},
-		},
-	}, nil
-}
-
-// HandleAction 处理追加质押交互并重新计算权重。
-func HandleAction(state *framework.SceneState, input framework.ActionInput) (framework.ActionOutput, error) {
-	validators := decodeValidators(state)
-	targetID := framework.NormalizeDashedID("validator", framework.StringValue(input.Params["resource_id"], "validator-a"), "validator-a")
-	stake := framework.NumberValue(input.Params["stake"], 100)
-	for index := range validators {
-		if validators[index].ID == targetID {
-			validators[index].Stake += stake
+// totalStake 返回所有未 Slash 验证者 stake 总和。
+func (st snapState) totalStake() int64 {
+	var sum int64
+	for _, v := range st.Validators {
+		if !v.Slashed {
+			sum += v.Stake
 		}
 	}
-	epoch := int(framework.NumberValue(state.Data["epoch"], 1))
-	selectedID := framework.StringValue(state.Data["selected_validator"], "")
-	if err := rebuildState(state, validators, epoch, "质押汇总", selectedID); err != nil {
-		return framework.ActionOutput{}, err
-	}
-	event := framework.NewEvent(state.SceneCode, state.Tick, "追加质押", fmt.Sprintf("%s 追加质押 %.0f。", targetID, stake), "warning")
-	return framework.ActionOutput{
-		Success: true,
-		Events:  []framework.TimelineEvent{event},
-		SharedDiff: map[string]any{
-			"stakes": map[string]any{
-				"validators":   state.Data["validators"],
-				"total_stake":  state.Data["total_stake"],
-				"selected":     selectedID,
-				"voting_power": totalStake(validators),
-			},
-		},
-	}, nil
+	return sum
 }
 
-// BuildRenderState 输出质押权重、选举结果和奖励数据。
-func BuildRenderState(state framework.SceneState) framework.RenderEnvelope {
-	return framework.RenderEnvelope{
-		Nodes:       state.Nodes,
-		Messages:    state.Messages,
-		Stages:      state.Stages,
-		ChangedKeys: state.ChangedKeys,
-		Phase:       state.Phase,
-		PhaseIndex:  state.PhaseIndex,
-		Progress:    state.Progress,
-		Data:        framework.CloneMap(state.Data),
-		Extra:       framework.CloneMap(state.Extra),
+// pickProducer 给定 epoch + global_seed，按 stake 加权选出 producer ID。
+// 算法：seed = SHA-256(global_seed || epoch_be64)，把 hash 解读为大整数 mod total_stake，
+// 然后累加 stake 找到落在哪个区间的验证者。
+func (st snapState) pickProducer(epoch int) (string, int) {
+	total := st.totalStake()
+	if total <= 0 {
+		return "", -1
 	}
-}
-
-// SyncSharedState 在质押、供应量和治理共享状态变化后重建 PoS 验证者场景。
-func SyncSharedState(state *framework.SceneState, sharedState map[string]any) error {
-	validators := decodeValidators(state)
-	epoch := int(framework.NumberValue(state.Data["epoch"], 1))
-	selectedID := framework.StringValue(state.Data["selected_validator"], "")
-	epoch, selectedID = applySharedValidatorState(validators, sharedState, epoch, selectedID)
-	return rebuildState(state, validators, epoch, framework.StringValue(state.Data["phase_name"], state.Phase), selectedID)
-}
-
-// validatorState 保存验证者质押、权重、奖励和惩罚状态。
-type validatorState struct {
-	ID      string  `json:"id"`
-	Label   string  `json:"label"`
-	Stake   float64 `json:"stake"`
-	Weight  float64 `json:"weight"`
-	Reward  float64 `json:"reward"`
-	Slashed bool    `json:"slashed"`
-	VRFSeed string  `json:"vrf_seed"`
-}
-
-// defaultValidators 创建默认验证者集合。
-func defaultValidators() []validatorState {
-	return []validatorState{
-		{ID: "validator-a", Label: "Validator-A", Stake: 120, VRFSeed: "seed-a"},
-		{ID: "validator-b", Label: "Validator-B", Stake: 260, VRFSeed: "seed-b"},
-		{ID: "validator-c", Label: "Validator-C", Stake: 180, VRFSeed: "seed-c"},
-		{ID: "validator-d", Label: "Validator-D", Stake: 90, VRFSeed: "seed-d"},
-	}
-}
-
-// rebuildState 根据质押权重重建可视化状态。
-func rebuildState(state *framework.SceneState, validators []validatorState, epoch int, phase string, selectedID string) error {
-	total := totalStake(validators)
-	for index := range validators {
-		if total > 0 {
-			validators[index].Weight = validators[index].Stake / total
-		}
-	}
-	state.Phase = phase
-	state.PhaseIndex = phaseIndex(phase)
-	state.Progress = framework.NextProgress(state.Tick, state.TotalTicks)
-	state.Nodes = make([]framework.Node, 0, len(validators))
-	for index, validator := range validators {
-		status := "normal"
-		if validator.ID == selectedID {
-			status = "success"
-		}
-		if validator.Slashed {
-			status = "slashed"
-		}
-		state.Nodes = append(state.Nodes, framework.Node{
-			ID:     validator.ID,
-			Label:  validator.Label,
-			Status: status,
-			Role:   "validator",
-			X:      150 + float64(index%2)*280,
-			Y:      150 + float64(index/2)*170,
-			Stake:  validator.Stake,
-			Load:   validator.Weight * 100,
-			Attributes: map[string]any{
-				"stake":   validator.Stake,
-				"weight":  validator.Weight,
-				"reward":  validator.Reward,
-				"slashed": validator.Slashed,
-			},
-		})
-	}
-	state.Messages = []framework.Message{
-		{ID: "pos-randomness", Label: "VRF Randomness", Kind: "vote", Status: phase, SourceID: "validator-a", TargetID: selectedID},
-	}
-	state.Metrics = []framework.Metric{
-		{Key: "epoch", Label: "Epoch", Value: fmt.Sprintf("%d", epoch), Tone: "info"},
-		{Key: "total_stake", Label: "总质押", Value: fmt.Sprintf("%.0f", total), Tone: "success"},
-		{Key: "selected", Label: "当选验证者", Value: selectedLabel(validators, selectedID), Tone: "warning"},
-		{Key: "vrf", Label: "VRF 种子", Value: selectedVRF(validators, selectedID), Tone: "info"},
-		{Key: "reward", Label: "累计奖励", Value: fmt.Sprintf("%.1f", totalReward(validators)), Tone: "success"},
-	}
-	state.Tooltip = []framework.TooltipEntry{
-		{Label: "阶段", Value: phase},
-		{Label: "选择规则", Value: "基于质押权重的确定性随机抽样"},
-		{Label: "VRF", Value: selectedVRF(validators, selectedID)},
-	}
-	state.Data = map[string]any{
-		"phase_name":         phase,
-		"epoch":              epoch,
-		"validators":         validators,
-		"selected_validator": selectedID,
-		"total_stake":        total,
-		"token_supply":       1000000 + totalReward(validators),
-	}
-	state.Extra = map[string]any{
-		"description": "该场景实现质押权重、确定性随机选举、Epoch 轮转和奖励结算。",
-	}
-	state.ChangedKeys = []string{"nodes", "messages", "metrics", "data", "tooltip"}
-	return nil
-}
-
-// decodeValidators 从通用 JSON 状态恢复验证者集合。
-func decodeValidators(state *framework.SceneState) []validatorState {
-	raw, ok := state.Data["validators"].([]any)
-	if !ok {
-		if typed, ok := state.Data["validators"].([]validatorState); ok {
-			return typed
-		}
-		return defaultValidators()
-	}
-	result := make([]validatorState, 0, len(raw))
-	for _, item := range raw {
-		entry, ok := item.(map[string]any)
-		if !ok {
+	var buf []byte
+	buf = append(buf, []byte(st.GlobalSeed)...)
+	var ep [8]byte
+	binary.BigEndian.PutUint64(ep[:], uint64(epoch))
+	buf = append(buf, ep[:]...)
+	h := sha256hash.Sum256(buf)
+	hashInt := new(big.Int).SetBytes(h[:])
+	pick := new(big.Int).Mod(hashInt, big.NewInt(total)).Int64()
+	cum := int64(0)
+	for i, v := range st.Validators {
+		if v.Slashed {
 			continue
 		}
-		result = append(result, validatorState{
-			ID:      framework.StringValue(entry["id"], ""),
-			Label:   framework.StringValue(entry["label"], ""),
-			Stake:   framework.NumberValue(entry["stake"], 0),
-			Weight:  framework.NumberValue(entry["weight"], 0),
-			Reward:  framework.NumberValue(entry["reward"], 0),
-			Slashed: framework.BoolValue(entry["slashed"], false),
-		})
+		cum += v.Stake
+		if pick < cum {
+			return v.ID, i
+		}
 	}
-	if len(result) == 0 {
-		return defaultValidators()
+	// 浮点边界（理论不会触发）
+	for i, v := range st.Validators {
+		if !v.Slashed {
+			return v.ID, i
+		}
 	}
-	return result
+	return "", -1
 }
 
-// weightedSelect 按质押权重执行确定性随机抽样。
-func weightedSelect(validators []validatorState, epoch int) string {
-	total := totalStake(validators)
+// hhiIndex 计算 stake 分布的赫芬达尔-赫希曼指数（HHI），衡量中心化（10000 = 完全垄断）。
+func (st snapState) hhiIndex() float64 {
+	total := float64(st.totalStake())
 	if total == 0 {
-		return validators[0].ID
-	}
-	seed := sha256.Sum256([]byte(fmt.Sprintf("epoch-%d", epoch)))
-	point := float64(binary.BigEndian.Uint64(seed[:8])%uint64(total*1000)) / 1000
-	acc := 0.0
-	for _, validator := range validators {
-		acc += validator.Stake
-		if point <= acc {
-			return validator.ID
-		}
-	}
-	return validators[len(validators)-1].ID
-}
-
-// rewardValidator 给当选验证者发放奖励。
-func rewardValidator(validators []validatorState, selectedID string) {
-	for index := range validators {
-		if validators[index].ID == selectedID {
-			validators[index].Reward += 2.5
-			validators[index].Stake += 2.5
-		}
-	}
-}
-
-// totalStake 统计当前有效总质押。
-func totalStake(validators []validatorState) float64 {
-	total := 0.0
-	for _, validator := range validators {
-		if !validator.Slashed {
-			total += validator.Stake
-		}
-	}
-	return total
-}
-
-// totalReward 统计累计奖励。
-func totalReward(validators []validatorState) float64 {
-	total := 0.0
-	for _, validator := range validators {
-		total += validator.Reward
-	}
-	return total
-}
-
-// selectedVRF 返回当选验证者的 VRF 种子展示文本。
-func selectedVRF(validators []validatorState, selectedID string) string {
-	if selectedID == "" {
-		return "未抽样"
-	}
-	for _, validator := range validators {
-		if validator.ID == selectedID {
-			if strings.TrimSpace(validator.VRFSeed) != "" {
-				return validator.VRFSeed
-			}
-			return "seed-missing"
-		}
-	}
-	return selectedID
-}
-
-// selectedLabel 返回当选验证者展示标签。
-func selectedLabel(validators []validatorState, selectedID string) string {
-	if selectedID == "" {
-		return "未选择"
-	}
-	for _, validator := range validators {
-		if validator.ID == selectedID {
-			return validator.Label
-		}
-	}
-	return selectedID
-}
-
-// nextPhase 返回 PoS 选举流程的下一阶段。
-func nextPhase(phase string) string {
-	switch phase {
-	case "质押汇总":
-		return "随机抽样"
-	case "随机抽样":
-		return "Epoch 轮转"
-	case "Epoch 轮转":
-		return "奖励结算"
-	default:
-		return "质押汇总"
-	}
-}
-
-// phaseIndex 将阶段名称映射为前端时间线索引。
-func phaseIndex(phase string) int {
-	switch phase {
-	case "质押汇总":
-		return 0
-	case "随机抽样":
-		return 1
-	case "Epoch 轮转":
-		return 2
-	case "奖励结算":
-		return 3
-	default:
 		return 0
 	}
+	hhi := 0.0
+	for _, v := range st.Validators {
+		if v.Slashed {
+			continue
+		}
+		share := float64(v.Stake) / total
+		hhi += share * share * 10000
+	}
+	return hhi
 }
 
-// applySharedValidatorState 将 PoS 经济组中的质押与治理共享状态映射回验证者选举场景。
-func applySharedValidatorState(validators []validatorState, sharedState map[string]any, epoch int, selectedID string) (int, string) {
-	if len(sharedState) == 0 {
-		return epoch, selectedID
+// =====================================================================
+// 持久化
+// =====================================================================
+
+func loadState(s *fw.SceneState) snapState {
+	if s == nil || s.Data == nil {
+		return defaultSnapState()
 	}
-	if stakes, ok := sharedState["stakes"].(map[string]any); ok {
-		if sharedValidators, ok := stakes["validators"].([]any); ok {
-			for _, item := range sharedValidators {
-				entry, ok := item.(map[string]any)
-				if !ok {
-					continue
+	d := s.Data
+	st := snapState{
+		GlobalSeed:   fw.MapStr(d, "global_seed", "lenschain-pos-2026"),
+		BlockReward:  int64(fw.MapInt(d, "block_reward", defaultBlockReward)),
+		SlashPctBp:   fw.MapInt(d, "slash_pct_bp", 3000),
+		CurrentEpoch: fw.MapInt(d, "current_epoch", 0),
+		LastError:    fw.MapStr(d, "last_error", ""),
+	}
+	if vsAny, ok := d["validators"].([]any); ok {
+		for _, vAny := range vsAny {
+			if vm, ok := vAny.(map[string]any); ok {
+				v := validator{
+					ID:          fw.MapStr(vm, "id", ""),
+					Stake:       int64(fw.MapInt(vm, "stake", 0)),
+					BlocksMined: fw.MapInt(vm, "blocks", 0),
+					Slashed:     fw.MapBool(vm, "slashed", false),
+					SlashedAt:   fw.MapInt(vm, "slashed_at", 0),
 				}
-				validatorID := framework.StringValue(entry["id"], "")
-				for index := range validators {
-					if validators[index].ID == validatorID {
-						validators[index].Stake = framework.NumberValue(entry["stake"], validators[index].Stake)
-						validators[index].Reward = framework.NumberValue(entry["reward"], validators[index].Reward)
-						validators[index].Slashed = framework.BoolValue(entry["slashed"], validators[index].Slashed)
+				if delsAny, ok := vm["delegators"].([]any); ok {
+					for _, dAny := range delsAny {
+						if dm, ok := dAny.(map[string]any); ok {
+							v.Delegators = append(v.Delegators, delegator{
+								UserID: fw.MapStr(dm, "user", ""),
+								Amount: int64(fw.MapInt(dm, "amount", 0)),
+							})
+						}
 					}
 				}
+				st.Validators = append(st.Validators, v)
 			}
 		}
 	}
-	if sharedEpoch := int(framework.NumberValue(sharedState["epoch"], float64(epoch))); sharedEpoch > epoch {
-		epoch = sharedEpoch
+	if len(st.Validators) == 0 {
+		st.Validators = defaultValidators()
 	}
-	if sharedSelected := framework.StringValue(sharedState["selected"], ""); sharedSelected != "" {
-		selectedID = sharedSelected
+	if hist, ok := d["history"].([]any); ok {
+		for _, hAny := range hist {
+			if hm, ok := hAny.(map[string]any); ok {
+				st.History = append(st.History, epochRecord{
+					Epoch:    fw.MapInt(hm, "epoch", 0),
+					Producer: fw.MapStr(hm, "producer", ""),
+					Reward:   int64(fw.MapInt(hm, "reward", 0)),
+					Slashed:  fw.MapStr(hm, "slashed", ""),
+				})
+			}
+		}
 	}
-	return epoch, selectedID
+	return st
+}
+
+func saveState(s *fw.SceneState, st snapState) {
+	if s.Data == nil {
+		s.Data = map[string]any{}
+	}
+	s.Data["global_seed"] = st.GlobalSeed
+	s.Data["block_reward"] = st.BlockReward
+	s.Data["slash_pct_bp"] = st.SlashPctBp
+	s.Data["current_epoch"] = st.CurrentEpoch
+	s.Data["last_error"] = st.LastError
+	vs := make([]any, len(st.Validators))
+	for i, v := range st.Validators {
+		dels := make([]any, len(v.Delegators))
+		for j, d := range v.Delegators {
+			dels[j] = map[string]any{"user": d.UserID, "amount": d.Amount}
+		}
+		vs[i] = map[string]any{
+			"id":         v.ID,
+			"stake":      v.Stake,
+			"blocks":     v.BlocksMined,
+			"slashed":    v.Slashed,
+			"slashed_at": v.SlashedAt,
+			"delegators": dels,
+		}
+	}
+	s.Data["validators"] = vs
+	hist := make([]any, len(st.History))
+	for i, h := range st.History {
+		hist[i] = map[string]any{
+			"epoch":    h.Epoch,
+			"producer": h.Producer,
+			"reward":   h.Reward,
+			"slashed":  h.Slashed,
+		}
+	}
+	s.Data["history"] = hist
+}
+
+// =====================================================================
+// 场景定义
+// =====================================================================
+
+func Definition() fw.Definition {
+	return fw.Definition{
+		Code:                sceneCode,
+		Name:                "权益证明（PoS 验证者）",
+		Description:         "演示 PoS 加权随机选举、出块奖励、slashing、委托质押（LSD）",
+		Category:            fw.CategoryConsensus,
+		AlgorithmType:       algorithmType,
+		Version:             schemaVersion,
+		TimeControlMode:     fw.TimeControlProcess,
+		DataSourceMode:      fw.DataSourceSimulation,
+		SupportedLinkGroups: []string{linkGroupPosEconomy},
+
+		ExtensionLevel:     fw.ExtensionL1,
+		LinkGroupVersion:   "v0.5.0",
+		SupportsMultiActor: false,
+		OwnedFieldPaths: []string{
+			"validators.pos.current_producer",
+			"validators.pos.epoch",
+			"validators.pos.slashed_set",
+		},
+
+		DefaultParams: func() map[string]any { return map[string]any{} },
+		DefaultState:  defaultStateFw,
+		Interaction:   interactionDefinition,
+		Init:                initScene,
+		Step:                stepScene,
+		HandleAction:        handleAction,
+	}
+}
+
+func defaultStateFw() fw.SceneState {
+	return fw.SceneState{
+		SceneCode: sceneCode,
+		Tick:      0,
+		Phase:     "ready",
+		Data:      map[string]any{},
+	}
+}
+
+func interactionDefinition() fw.InteractionDefinition {
+	return fw.InteractionDefinition{
+		SceneCode:     sceneCode,
+		SchemaVersion: schemaVersion,
+		Actions: []fw.ActionDef{
+			{
+				ActionCode: "set_validators", Label: "设置验证者集",
+				Description: "格式: id1:stake1,id2:stake2,...（≤ 16 个）",
+				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "validators_csv", Type: fw.FieldString, Label: "验证者 CSV", Required: true,
+						Default: "alice:100,bob:200,carol:300,dave:400"},
+					{Name: "global_seed", Type: fw.FieldString, Label: "全局随机种子", Required: false, Default: "lenschain-pos-2026"},
+				},
+			},
+			{
+				ActionCode: "run_epoch", Label: "推进 1 个 Epoch",
+				Description: "按 stake 加权选出 producer，分发奖励",
+				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				WritesOwnedFields: []string{"validators.pos.current_producer", "validators.pos.epoch"},
+				LinkOwnerFields:   []string{"validators.pos.current_producer", "validators.pos.epoch"},
+			},
+			{
+				ActionCode: "run_n_epochs", Label: "推进 N 个 Epoch",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "n", Type: fw.FieldNumber, Label: "Epoch 数", Required: true, Default: 10, Min: 1, Max: 1000, Step: 1},
+				},
+				WritesOwnedFields: []string{"validators.pos.epoch"},
+				LinkOwnerFields:   []string{"validators.pos.epoch"},
+			},
+			{
+				ActionCode: "slash_validator", Label: "扣押恶意验证者",
+				Description: "对指定验证者执行 slash（按 slash_pct 扣 stake，移出选举）",
+				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "validator_id", Type: fw.FieldString, Label: "验证者 ID", Required: true, Default: "dave"},
+				},
+				WritesOwnedFields: []string{"validators.pos.slashed_set"},
+				LinkOwnerFields:   []string{"validators.pos.slashed_set"},
+			},
+			{
+				ActionCode: "delegate_stake", Label: "委托质押（LSD）",
+				Description: "用户把 stake 委托给某验证者",
+				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "user_id", Type: fw.FieldString, Label: "用户 ID", Required: true, Default: "user-1"},
+					{Name: "validator_id", Type: fw.FieldString, Label: "验证者 ID", Required: true, Default: "alice"},
+					{Name: "amount", Type: fw.FieldNumber, Label: "委托数量", Required: true, Default: 50, Min: 1, Step: 1},
+				},
+			},
+			{
+				ActionCode: "reset", Label: "重置",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+			},
+			{
+				ActionCode:    "teacher_inject_fault",
+				Label:         "教师注入故障",
+				Description:   "仅教师可用，注入故障用于教学演示",
+				Category:      fw.ActionAttackInject,
+				Trigger:       fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleTeacher},
+				InterveneType: fw.InterveneFault,
+				Fields: []fw.FieldDef{
+					{Name: "description", Type: fw.FieldString, Label: "故障描述", Required: false, Default: "教师注入故障"},
+				},
+			},
+			fw.BroadcastHintAction(),
+		},
+	}
+}
+
+// =====================================================================
+// 钩子
+// =====================================================================
+
+func initScene(state *fw.SceneState, in fw.InitInput) (fw.RenderEnvelope, error) {
+	state.Seed = in.Seed
+	st := loadState(state)
+	saveState(state, st)
+	state.Phase = "epoch-0"
+	env := buildEnvelope(st, "init", "PoS 初始化（4 个默认验证者）", true)
+	publishOwnerSubtree(&env, st)
+	return env, nil
+}
+
+func stepScene(state *fw.SceneState, in fw.StepInput) (fw.StepOutput, error) {
+	st := loadState(state)
+	state.Tick = in.Tick
+	env := buildEnvelope(st, "tick", "", false)
+	return fw.StepOutput{Render: env}, nil
+}
+
+func handleAction(state *fw.SceneState, in fw.ActionInput) (fw.ActionOutput, error) {
+	_ = fw.EnsureActorBucket(state, in.ActorID)
+	if out, ok := fw.HandleBroadcastHint(state, in); ok {
+		return out, nil
+	}
+
+	st := loadState(state)
+	out := fw.ActionOutput{Success: true}
+
+	switch in.ActionCode {
+	case "set_validators":
+		csv := fw.MapStr(in.Params, "validators_csv", "")
+		seed := fw.MapStr(in.Params, "global_seed", "lenschain-pos-2026")
+		vs, err := parseValidators(csv)
+		if err != nil {
+			return fw.ActionOutput{Success: false, ErrorMessage: err.Error()}, nil
+		}
+		st.Validators = vs
+		st.GlobalSeed = seed
+		st.CurrentEpoch = 0
+		st.History = nil
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "set_validators", fmt.Sprintf("已设置 %d 个验证者", len(vs)), true)
+		appendSetValidatorsMicroSteps(&out.Render)
+		return out, nil
+
+	case "run_epoch":
+		producer, idx := st.pickProducer(st.CurrentEpoch)
+		if idx < 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "无可用验证者（全部被 slash 或 stake=0）"}, nil
+		}
+		st.Validators[idx].Stake += st.BlockReward
+		st.Validators[idx].BlocksMined++
+		rec := epochRecord{Epoch: st.CurrentEpoch, Producer: producer, Reward: st.BlockReward}
+		st.History = append(st.History, rec)
+		if len(st.History) > maxEpochHistory {
+			st.History = st.History[len(st.History)-maxEpochHistory:]
+		}
+		st.CurrentEpoch++
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "run_epoch", fmt.Sprintf("Epoch %d → 出块者 %s（奖励 %d）", rec.Epoch, producer, rec.Reward), false)
+		appendRunEpochMicroSteps(&out.Render, producer, idx)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "run_n_epochs":
+		n := fw.MapInt(in.Params, "n", 10)
+		if n < 1 {
+			n = 1
+		}
+		if n > 1000 {
+			n = 1000
+		}
+		var lastProducer string
+		var lastIdx int
+		for i := 0; i < n; i++ {
+			producer, idx := st.pickProducer(st.CurrentEpoch)
+			if idx < 0 {
+				return fw.ActionOutput{Success: false, ErrorMessage: "中途无可用验证者"}, nil
+			}
+			st.Validators[idx].Stake += st.BlockReward
+			st.Validators[idx].BlocksMined++
+			rec := epochRecord{Epoch: st.CurrentEpoch, Producer: producer, Reward: st.BlockReward}
+			st.History = append(st.History, rec)
+			st.CurrentEpoch++
+			lastProducer = producer
+			lastIdx = idx
+		}
+		if len(st.History) > maxEpochHistory {
+			st.History = st.History[len(st.History)-maxEpochHistory:]
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "run_n_epochs", fmt.Sprintf("推进 %d epoch（终态出块者 %s）", n, lastProducer), false)
+		appendRunEpochMicroSteps(&out.Render, lastProducer, lastIdx)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "slash_validator":
+		vid := fw.MapStr(in.Params, "validator_id", "")
+		idx := -1
+		for i, v := range st.Validators {
+			if v.ID == vid {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "未找到验证者: " + vid}, nil
+		}
+		if st.Validators[idx].Slashed {
+			return fw.ActionOutput{Success: false, ErrorMessage: vid + " 已被 slash"}, nil
+		}
+		st.Validators[idx].Stake = st.Validators[idx].Stake * int64(10000-st.SlashPctBp) / 10000
+		st.Validators[idx].Slashed = true
+		st.Validators[idx].SlashedAt = st.CurrentEpoch
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "slash_validator", fmt.Sprintf("已 slash %s（扣 %.1f%%）", vid, float64(st.SlashPctBp)/100), false)
+		appendSlashMicroSteps(&out.Render, vid, idx)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "delegate_stake":
+		user := fw.MapStr(in.Params, "user_id", "user-1")
+		vid := fw.MapStr(in.Params, "validator_id", "")
+		amount := int64(fw.MapInt(in.Params, "amount", 50))
+		idx := -1
+		for i, v := range st.Validators {
+			if v.ID == vid {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "未找到验证者: " + vid}, nil
+		}
+		if amount <= 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "委托量必须 > 0"}, nil
+		}
+		st.Validators[idx].Stake += amount
+		st.Validators[idx].Delegators = append(st.Validators[idx].Delegators, delegator{UserID: user, Amount: amount})
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "delegate_stake", fmt.Sprintf("%s 委托 %d 给 %s", user, amount, vid), false)
+		appendDelegateMicroSteps(&out.Render, idx)
+		return out, nil
+
+	case "teacher_inject_fault":
+		if in.UserRole != fw.RoleTeacher {
+			return fw.ActionOutput{Success: false, ErrorMessage: "仅教师可调用"}, nil
+		}
+		desc, _ := in.Params["description"].(string)
+		if desc == "" {
+			desc = "教师注入故障"
+		}
+		annot := fw.PrimAnnotation(fmt.Sprintf("teacher-fault-%d", state.Tick), "text", "teacher", 5000, map[string]any{"x": 0.5, "y": 0.1}, nil, desc)
+		return fw.ActionOutput{
+			Success: true,
+			Render: fw.RenderEnvelope{
+				Primitives:  []fw.Primitive{annot},
+				ChangedKeys: []string{"teacher_action"},
+			},
+		}, nil
+
+	case "reset":
+		st = defaultSnapState()
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "reset", "已重置", true)
+		return out, nil
+	}
+
+	return fw.ActionOutput{Success: false, ErrorMessage: "未知 ActionCode: " + in.ActionCode}, errors.New("unknown action")
+}
+
+// parseValidators 解析 "id1:stake1,id2:stake2,..." 格式。
+func parseValidators(csv string) ([]validator, error) {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
+		return nil, errors.New("CSV 为空")
+	}
+	parts := strings.Split(csv, ",")
+	if len(parts) > maxValidators {
+		return nil, fmt.Errorf("验证者数量 ≤ %d", maxValidators)
+	}
+	out := make([]validator, 0, len(parts))
+	for _, p := range parts {
+		kv := strings.Split(strings.TrimSpace(p), ":")
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("格式错误: %s", p)
+		}
+		stake, err := atoi64(strings.TrimSpace(kv[1]))
+		if err != nil || stake < 0 {
+			return nil, fmt.Errorf("stake 非法: %s", p)
+		}
+		out = append(out, validator{ID: strings.TrimSpace(kv[0]), Stake: stake})
+	}
+	if len(out) == 0 {
+		return nil, errors.New("至少 1 个验证者")
+	}
+	return out, nil
+}
+
+// =====================================================================
+// RenderEnvelope 构造
+// =====================================================================
+
+func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.RenderEnvelope {
+	prims := make([]fw.Primitive, 0, 30)
+
+	// 1) 环形布局：N 个验证者
+	nodeIDs := make([]string, 0, len(st.Validators))
+	for _, v := range st.Validators {
+		nodeIDs = append(nodeIDs, "node-"+v.ID)
+	}
+	prims = append(prims, fw.PrimRingLayout("validator-ring", len(st.Validators)))
+
+	// 2) 验证者节点
+	currentProducer := ""
+	if len(st.History) > 0 {
+		currentProducer = st.History[len(st.History)-1].Producer
+	}
+	for _, v := range st.Validators {
+		status := "normal"
+		role := "validator"
+		if v.Slashed {
+			status = "error"
+			role = "slashed"
+		} else if v.ID == currentProducer {
+			status = "active"
+			role = "producer"
+		}
+		label := fmt.Sprintf("%s\nstake=%d\n出块=%d", v.ID, v.Stake, v.BlocksMined)
+		if v.Slashed {
+			label = fmt.Sprintf("%s\n[SLASHED]\nstake=%d", v.ID, v.Stake)
+		}
+		prims = append(prims, fw.PrimNode("node-"+v.ID, label, status, role))
+	}
+
+	// 3) Stake 占比饼图
+	segments := make([]map[string]any, 0, len(st.Validators))
+	for _, v := range st.Validators {
+		colorRole := "info"
+		if v.Slashed {
+			colorRole = "danger"
+		} else if v.ID == currentProducer {
+			colorRole = "success"
+		}
+		segments = append(segments, map[string]any{
+			"label":      v.ID,
+			"value":      float64(v.Stake),
+			"color_role": colorRole,
+		})
+	}
+	prims = append(prims, fw.PrimPieChart("stake-pie", segments))
+
+	// 4) HHI 中心化仪表
+	hhi := st.hhiIndex()
+	prims = append(prims, fw.PrimRiskGauge("hhi-gauge", hhi,
+		[]map[string]any{
+			{"from": 0.0, "to": 1500.0, "color": "success"},    // 高度分散
+			{"from": 1500.0, "to": 2500.0, "color": "warning"}, // 中度集中
+			{"from": 2500.0, "to": 10000.0, "color": "danger"}, // 高度集中
+		},
+	))
+
+	// 5) 公式
+	prims = append(prims, fw.PrimMathFormula("formula-pick",
+		`P(\text{producer}=v) = \frac{\mathrm{stake}_v}{\sum_i \mathrm{stake}_i};\ \ \text{seed}_e = \mathrm{SHA256}(\text{global\_seed}\,\|\,e)`, false))
+
+	// 6) Epoch 信息
+	prims = append(prims, fw.PrimCodeBlock("cb-epoch",
+		fmt.Sprintf("当前 Epoch = %d\n总 stake = %d\n出块者 = %s\nHHI = %.1f / 10000", st.CurrentEpoch, st.totalStake(), currentProducer, hhi),
+		"text", nil, 4))
+
+	// 7) 验证者表
+	rows := []string{"id        stake    blocks  status      delegators"}
+	for _, v := range st.Validators {
+		statusStr := "active"
+		if v.Slashed {
+			statusStr = fmt.Sprintf("SLASHED(%d)", v.SlashedAt)
+		}
+		rows = append(rows, fmt.Sprintf("%-9s %-7d  %-6d  %-11s %d 个",
+			v.ID, v.Stake, v.BlocksMined, statusStr, len(v.Delegators)))
+	}
+	prims = append(prims, fw.PrimCodeBlock("cb-table", strings.Join(rows, "\n"), "text", nil, 12))
+
+	// 8) Epoch 历史
+	histLines := []string{"Epoch  Producer  Reward"}
+	startIdx := 0
+	if len(st.History) > 12 {
+		startIdx = len(st.History) - 12
+		histLines = append(histLines, "  …")
+	}
+	for _, h := range st.History[startIdx:] {
+		histLines = append(histLines, fmt.Sprintf("  %-4d  %-8s  +%d", h.Epoch, h.Producer, h.Reward))
+	}
+	prims = append(prims, fw.PrimCodeBlock("cb-history", strings.Join(histLines, "\n"), "text", nil, 14))
+
+	// 9) 动效
+	if currentProducer != "" {
+		prims = append(prims, fw.PrimGlow("glow-producer", "node-"+currentProducer, "success", 0.9))
+		prims = append(prims, fw.PrimBurst("burst-producer", "node-"+currentProducer, "success",
+			int64(st.CurrentEpoch), 700))
+	}
+	for _, v := range st.Validators {
+		if v.Slashed {
+			prims = append(prims, fw.PrimGlow("glow-slash-"+v.ID, "node-"+v.ID, "danger", 0.7))
+			prims = append(prims, fw.PrimShake("shake-"+v.ID, "node-"+v.ID, 0.4, 600))
+		}
+	}
+
+	// 10) 联动徽章
+	prims = append(prims, fw.PrimLinkIndicator("link-pos-econ", linkGroupPosEconomy, "idle", ""))
+
+	if st.LastError != "" {
+		prims = append(prims, fw.PrimErrorOverlay("err", "warning", "PoS 错误", st.LastError, "scene", "请检查参数", true))
+	}
+
+	return fw.RenderEnvelope{
+		Primitives:     prims,
+		IsFullSnapshot: fullSnapshot,
+		ChangedKeys:    []string{reason},
+		Data:           buildSidePanelData(st, summary),
+	}
+}
+
+func buildSidePanelData(st snapState, summary string) map[string]any {
+	currentProducer := ""
+	if len(st.History) > 0 {
+		currentProducer = st.History[len(st.History)-1].Producer
+	}
+	slashedSet := []string{}
+	for _, v := range st.Validators {
+		if v.Slashed {
+			slashedSet = append(slashedSet, v.ID)
+		}
+	}
+	d := map[string]any{
+		"current_epoch":    st.CurrentEpoch,
+		"current_producer": currentProducer,
+		"validator_count":  len(st.Validators),
+		"total_stake":      st.totalStake(),
+		"hhi_index":        st.hhiIndex(),
+		"slashed_set":      slashedSet,
+		"block_reward":     st.BlockReward,
+		"history_count":    len(st.History),
+		"global_seed":      st.GlobalSeed,
+	}
+	if summary != "" {
+		d["summary"] = summary
+	}
+	return d
+}
+
+// =====================================================================
+// MicroStep 模板
+// =====================================================================
+
+func appendSetValidatorsMicroSteps(env *fw.RenderEnvelope) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "sv-1", Label: "解析验证者集", DurationMs: 400, HighlightIDs: []string{"validator-ring"}, ParentPhase: "setup"},
+		{ID: "sv-2", Label: "计算 stake 占比", DurationMs: 500, HighlightIDs: []string{"stake-pie"}},
+		{ID: "sv-3", Label: "评估 HHI 中心化指数", DurationMs: 500, HighlightIDs: []string{"hhi-gauge"}},
+	}
+}
+
+func appendRunEpochMicroSteps(env *fw.RenderEnvelope, producer string, idx int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "re-1", Label: "seed_e = SHA-256(global_seed || epoch)", DurationMs: 400, HighlightIDs: []string{"formula-pick", "cb-epoch"}},
+		{ID: "re-2", Label: "hash mod total_stake → 落入区间", DurationMs: 500, HighlightIDs: []string{"stake-pie"}, FirePrimitives: []string{"glow-producer"}},
+		{ID: "re-3", Label: fmt.Sprintf("出块者 = %s（奖励入账）", producer), DurationMs: 600, HighlightIDs: []string{"cb-table", "cb-history"}, FirePrimitives: []string{"burst-producer"}, IsLinkTrigger: true},
+	}
+}
+
+func appendSlashMicroSteps(env *fw.RenderEnvelope, vid string, idx int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "sl-1", Label: "检测 " + vid + " 恶意行为", DurationMs: 400, HighlightIDs: []string{"node-" + vid}, FirePrimitives: []string{"shake-" + vid}},
+		{ID: "sl-2", Label: "扣除 stake（slash_pct）", DurationMs: 500, HighlightIDs: []string{"cb-table"}},
+		{ID: "sl-3", Label: vid + " 移出选举池", DurationMs: 500, HighlightIDs: []string{"validator-ring", "stake-pie"}, IsLinkTrigger: true},
+	}
+}
+
+func appendDelegateMicroSteps(env *fw.RenderEnvelope, idx int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "dl-1", Label: "委托人转入 stake", DurationMs: 400, HighlightIDs: []string{"cb-table"}},
+		{ID: "dl-2", Label: "更新验证者总 stake", DurationMs: 400, HighlightIDs: []string{"stake-pie"}},
+		{ID: "dl-3", Label: "重算 HHI", DurationMs: 400, HighlightIDs: []string{"hhi-gauge"}},
+	}
+}
+
+// =====================================================================
+// 联动
+// =====================================================================
+
+// currentProducerOrEmpty 取最近一个 epoch 的出块者；无记录返回空串。
+func currentProducerOrEmpty(st snapState) string {
+	if len(st.History) == 0 {
+		return ""
+	}
+	return st.History[len(st.History)-1].Producer
+}
+
+func publishOwnerSubtree(env *fw.RenderEnvelope, st snapState) {
+	if env.Data == nil {
+		env.Data = map[string]any{}
+	}
+	env.LinkTriggers = append(env.LinkTriggers, fw.LinkTrigger{
+		ID:             "pos-publish",
+		SourceScene:    sceneCode,
+		SourceAction:   "publish_validators",
+		LinkGroup:      linkGroupPosEconomy,
+		ChangedFields:  []string{"validators.pos.current_producer", "validators.pos.epoch"},
+		Payload: map[string]any{
+			"epoch":    st.CurrentEpoch,
+			"producer": currentProducerOrEmpty(st),
+		},
+		SourceAnchorID: "pos-output-anchor",
+		TargetAnchorID: "economy-anchor",
+	})
+	env.ChangedKeys = append(env.ChangedKeys, "validators.pos.epoch", "validators.pos.current_producer")
+	env.Data["link_owner_subtree"] = linkOwnerSubtree
+}
+
+func ownerDiff(st snapState) map[string]any {
+	currentProducer := ""
+	if len(st.History) > 0 {
+		currentProducer = st.History[len(st.History)-1].Producer
+	}
+	slashedSet := []string{}
+	for _, v := range st.Validators {
+		if v.Slashed {
+			slashedSet = append(slashedSet, v.ID)
+		}
+	}
+	return map[string]any{
+		"validators": map[string]any{
+			"pos": map[string]any{
+				"epoch":            st.CurrentEpoch,
+				"current_producer": currentProducer,
+				"total_stake":      st.totalStake(),
+				"validator_count":  len(st.Validators),
+				"slashed_set":      slashedSet,
+				"hhi_index":        st.hhiIndex(),
+			},
+		},
+	}
+}
+
+// =====================================================================
+// 工具
+// =====================================================================
+
+func atoi64(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("empty")
+	}
+	var n int64
+	sign := int64(1)
+	i := 0
+	if s[0] == '-' {
+		sign = -1
+		i = 1
+	}
+	for ; i < len(s); i++ {
+		c := s[i]
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("非法字符 %c", c)
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n * sign, nil
 }

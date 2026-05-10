@@ -48,10 +48,13 @@ import type {
   K8sClusterStatus,
   ReviewAssetRequest,
   ResumeExperimentInstanceRequest,
+  SimInteractionSchema,
   SimLinkGroup,
+  SimLinkGroupDetail,
   SimScenarioDetail,
   SimScenarioListResponse,
   SimScenarioRequest,
+  TeacherInterveneRequest,
   StudentTemplateSummary,
   TemplateCheckpoint,
   TemplateCheckpointRequest,
@@ -821,4 +824,26 @@ export function listImagePullStatus(params: QueryParams = {}) {
  */
 export function triggerImagePull(payload: { image_version_id?: ID; node_name?: string; scope?: "all" | "node" }) {
   return apiClient.post<{ task_id: ID; queued_nodes: string[] }>("/admin/image-pull", payload);
+}
+
+/**
+ * getInteractionSchema 对应 GET /api/v1/experiment-instances/:id/sim-scenes/:scene_code/interaction-schema。
+ * 返回场景交互定义（ActionDef 列表），浏览器 HTTP 缓存 24h（API §4.2）。
+ */
+export function getInteractionSchema(instanceID: ID, sceneCode: string) {
+  return apiClient.get<SimInteractionSchema>(`/experiment-instances/${instanceID}/sim-scenes/${sceneCode}/interaction-schema`);
+}
+
+/**
+ * teacherIntervene 对应 POST /api/v1/teacher/experiments/:id/intervene，用于教师实时干预（06.2 §七.2）。
+ */
+export function teacherIntervene(experimentID: ID, payload: TeacherInterveneRequest) {
+  return apiClient.post<null>(`/teacher/experiments/${experimentID}/intervene`, payload);
+}
+
+/**
+ * getSimLinkGroupDetail 对应 GET /api/v1/sim-link-groups/:id/detail，用于联动组详情含 schema 字段和 owner。
+ */
+export function getSimLinkGroupDetail(linkGroupID: ID) {
+  return apiClient.get<SimLinkGroupDetail>(`/sim-link-groups/${linkGroupID}/detail`);
 }

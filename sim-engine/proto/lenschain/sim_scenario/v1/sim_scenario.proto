@@ -1,43 +1,52 @@
+// 模块：SimEngine 场景算法容器 gRPC 契约
+// 文件职责：定义 Core ↔ 场景算法容器之间的 gRPC 服务与消息。
+// 协议依据：docs/modules/04-实验环境/06-可视化仿真引擎设计.md §6.2 / §6.3 / §6.4。
+//
+// 设计要点：
+// 1. 渲染数据 RenderEnvelope（Primitive / MicroStep / LinkTrigger / ContainerMetric）以
+//    序列化 JSON 字节（render_envelope_json）携带，结构契约由 Go/TS 类型层维护。
+// 2. SceneState / SharedState 同样以 JSON 字节传输；场景容器无状态，状态由 Core 持有。
+// 3. 不在本 proto 定义前端 WebSocket 协议（WS 协议为 JSON，定义在 03-API接口设计.md §四）。
 syntax = "proto3";
 
 package lenschain.sim_scenario.v1;
 
 option go_package = "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_scenario/v1;simscenariov1";
 
-// SimScenario 是每个场景算法容器必须暴露的 gRPC 服务。
-// Core 只通过此接口驱动算法容器，不直接理解具体场景的内部算法。
+// SimScenarioService 是每个场景算法容器必须实现的 gRPC 服务。
+// Core 通过此接口驱动场景算法容器；场景容器无状态，每次请求基于输入参数重放算法。
 service SimScenarioService {
-  // Init 初始化场景状态。
-  rpc Init(InitRequest) returns (InitResponse);
-
-  // Step 执行一个仿真 tick。
-  rpc Step(StepRequest) returns (StepResponse);
-
-  // HandleAction 处理前端采集到的场景专属交互。
-  rpc HandleAction(HandleActionRequest) returns (HandleActionResponse);
-
-  // GetRenderState 获取当前可渲染状态。
-  rpc GetRenderState(GetRenderStateRequest) returns (GetRenderStateResponse);
-
-  // GetInteractionSchema 获取场景专属操作面板定义。
-  rpc GetInteractionSchema(GetInteractionSchemaRequest) returns (GetInteractionSchemaResponse);
-
-  // GetMeta 获取场景元信息。
+  // GetMeta 返回场景元信息（启动时由 Core 调用一次）。
   rpc GetMeta(GetMetaRequest) returns (GetMetaResponse);
 
-  // HealthCheck 检查场景容器健康状态。
+  // GetInteractionSchema 返回该场景的 InteractionDefinition（ActionDef 列表）。
+  // 前端通过 HTTP `GET /interaction-schema` 间接调用，Core 负责缓存与失效。
+  rpc GetInteractionSchema(GetInteractionSchemaRequest) returns (GetInteractionSchemaResponse);
+
+  // Init 初始化场景：返回首帧 RenderEnvelope（is_full_snapshot=true）与初始 SceneState。
+  rpc Init(InitRequest) returns (InitResponse);
+
+  // Step 执行单 tick：用于 process / continuous 模式。返回新的 SceneState、RenderEnvelope、SharedState diff。
+  rpc Step(StepRequest) returns (StepResponse);
+
+  // HandleAction 处理学生 / 教师交互：用于 reactive 模式触发算法以及任意模式的 ActionDef 调用。
+  rpc HandleAction(HandleActionRequest) returns (HandleActionResponse);
+
+  // HealthCheck 健康检查；Core 周期调用，失败计数到阈值后触发 error_overlay。
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
 }
 
-// TimeControlMode 定义场景的时间控制模式。
+// ============== 枚举 ==============
+
+// TimeControlMode 与 06.md §五 三种时间控制模式对齐。
 enum TimeControlMode {
   TIME_CONTROL_MODE_UNSPECIFIED = 0;
-  TIME_CONTROL_MODE_PROCESS = 1;
-  TIME_CONTROL_MODE_REACTIVE = 2;
-  TIME_CONTROL_MODE_CONTINUOUS = 3;
+  TIME_CONTROL_MODE_PROCESS = 1;     // 过程化：明确步骤的场景（PBFT / 交易生命周期等）
+  TIME_CONTROL_MODE_REACTIVE = 2;    // 交互响应式：输入即响应（SHA-256 / Merkle 等）
+  TIME_CONTROL_MODE_CONTINUOUS = 3;  // 持续运行式：持续演化观察（P2P / Gossip 等）
 }
 
-// DataSourceMode 定义场景的数据源模式。
+// DataSourceMode 表示场景使用的数据来源（混合实验时为 dual）。
 enum DataSourceMode {
   DATA_SOURCE_MODE_UNSPECIFIED = 0;
   DATA_SOURCE_MODE_SIMULATION = 1;
@@ -45,7 +54,7 @@ enum DataSourceMode {
   DATA_SOURCE_MODE_DUAL = 3;
 }
 
-// HealthStatus 定义场景容器健康状态。
+// HealthStatus 表示场景容器健康状态。
 enum HealthStatus {
   HEALTH_STATUS_UNSPECIFIED = 0;
   HEALTH_STATUS_SERVING = 1;
@@ -53,184 +62,169 @@ enum HealthStatus {
   HEALTH_STATUS_STARTING = 3;
 }
 
-// InteractionFieldType 定义动态交互面板字段类型。
-enum InteractionFieldType {
-  INTERACTION_FIELD_TYPE_UNSPECIFIED = 0;
-  INTERACTION_FIELD_TYPE_STRING = 1;
-  INTERACTION_FIELD_TYPE_NUMBER = 2;
-  INTERACTION_FIELD_TYPE_BOOLEAN = 3;
-  INTERACTION_FIELD_TYPE_SELECT = 4;
-  INTERACTION_FIELD_TYPE_NODE_REF = 5;
-  INTERACTION_FIELD_TYPE_RANGE = 6;
-  INTERACTION_FIELD_TYPE_JSON = 7;
+// ActionCategory 与 06.md §6.3 ActionDef.category 业务语义对齐。
+enum ActionCategory {
+  ACTION_CATEGORY_UNSPECIFIED = 0;
+  ACTION_CATEGORY_PARAM_TUNE = 1;     // [⚙ 调参] 改数值参数
+  ACTION_CATEGORY_ATTACK_INJECT = 2;  // [⚠ 攻击] 注入恶意行为，前端二次确认
+  ACTION_CATEGORY_PRIMARY = 3;        // [▶ 操作] 走正常流程的主动动作
+  ACTION_CATEGORY_OBSERVE = 4;        // [👁 观察] 切视图、不改状态
 }
 
-// InteractionTrigger 定义交互操作的触发方式。
-enum InteractionTrigger {
-  INTERACTION_TRIGGER_UNSPECIFIED = 0;
-  INTERACTION_TRIGGER_CLICK = 1;
-  INTERACTION_TRIGGER_FORM_SUBMIT = 2;
-  INTERACTION_TRIGGER_DRAG = 3;
-  INTERACTION_TRIGGER_CANVAS_SELECT = 4;
+// ActionTrigger 与 06.md §6.3 ActionDef.trigger 对齐。
+enum ActionTrigger {
+  ACTION_TRIGGER_UNSPECIFIED = 0;
+  ACTION_TRIGGER_SUBMIT = 1;     // 表单提交
+  ACTION_TRIGGER_IMMEDIATE = 2;  // 即时触发（按钮点击立即执行）
+  ACTION_TRIGGER_HOLD = 3;       // 长按 / 持续触发
 }
 
-// CollectorEvent 表示混合实验采集模式下的标准化采集事件。
-message CollectorEvent {
-  string source = 1;
-  int64 timestamp_ms = 2;
-  string data_type = 3;
-  bytes payload_json = 4;
+// FieldType 与 06.md §6.3 FieldDef.type 对齐。
+enum FieldType {
+  FIELD_TYPE_UNSPECIFIED = 0;
+  FIELD_TYPE_STRING = 1;
+  FIELD_TYPE_NUMBER = 2;
+  FIELD_TYPE_BOOLEAN = 3;
+  FIELD_TYPE_SELECT = 4;
+  FIELD_TYPE_ENUM = 5;
+  FIELD_TYPE_RANGE = 6;
+  FIELD_TYPE_JSON = 7;
+  FIELD_TYPE_MULTI_SELECT = 8;
 }
 
-// ScenarioMeta 是场景库和 Core 自动匹配渲染器的唯一元信息来源。
+// HybridChannel 表示混合实验中 ActionDef 的执行通道。
+enum HybridChannel {
+  HYBRID_CHANNEL_UNSPECIFIED = 0;
+  HYBRID_CHANNEL_SIM = 1;        // 默认：仿真侧执行
+  HYBRID_CHANNEL_CONTAINER = 2;  // 真链容器侧执行（按 container_cmd 模板执行）
+}
+
+// ============== 元信息 ==============
+
+// ScenarioMeta 是场景库与 Core 的唯一元信息来源（与 06.md §6.4 ScenarioMeta 对齐）。
 message ScenarioMeta {
-  string code = 1;
-  string name = 2;
-  string category = 3;
-  string algorithm_type = 5;
-  string description = 6;
-  string version = 7;
-  TimeControlMode time_control_mode = 8;
-  DataSourceMode data_source_mode = 9;
-  bytes default_params_json = 10;
-  bytes default_state_json = 11;
-  repeated string supported_link_group_codes = 12;
+  string code = 1;                                   // 场景 code，全局唯一（如 "pbft-consensus"）
+  string name = 2;                                   // 中文显示名
+  string category = 3;                               // 9 选 1 类目编码（详 §3.5）
+  string algorithm_type = 4;                         // 算法标识（与 sim_scenarios.algorithm_type 对齐）
+  string description = 5;
+  string version = 6;                                // 场景版本（与 sim_scenarios.current_version 对齐）
+  TimeControlMode time_control_mode = 7;
+  DataSourceMode data_source_mode = 8;
+  bytes default_params_json = 9;                     // 默认参数（JSON）
+  bytes default_state_json = 10;                     // 默认 SceneState（JSON）
+  string custom_renderer_package = 11;               // L3 npm 包名（仅 category=generic）
+  repeated string supported_link_group_codes = 12;   // 该场景声明支持的联动组 code 列表（保留作冷启动默认值，DB 配置优先级更高）
+
+  // ===== v0.5 新增字段（详 AGENTS.md §0.7.6 / §0.7.1 C10 / C29 / C37） =====
+
+  // extension_level 场景扩展层级：L1 平台内置 / L2 平台扩展 / L3 教师自定义。
+  string extension_level = 13;
+  // link_group_version 显式锁定本场景使用的 LinkGroup schema 版本（owner-based v0.5+）。
+  string link_group_version = 14;
+  // supports_multi_actor 标识本场景是否支持多 actor 共享会话（详 §0.7.3）。
+  bool supports_multi_actor = 15;
+  // owned_field_paths 本场景能产出的全部 owner 字段路径（与 link_group 解耦，详 §0.7.6）。
+  repeated string owned_field_paths = 16;
 }
 
-// InitRequest 是 Core 初始化场景时传入的上下文。
+// ============== 渲染数据请求 / 响应 ==============
+
+// InitRequest 是场景初始化请求。
 message InitRequest {
   string session_id = 1;
   string scene_code = 2;
   string instance_id = 3;
   string student_id = 4;
   int64 seed = 5;
-  bytes params_json = 6;
-  bytes initial_state_json = 7;
-  bytes shared_state_json = 8;
+  bytes params_json = 6;          // 实验配置参数（JSON）
+  bytes shared_state_json = 7;    // 联动共享状态（JSON，可选）
 }
 
-// SceneState 是场景算法容器返回给 Core 的完整状态。
+// InitResponse 返回首帧 RenderEnvelope 与初始 SceneState。
 message InitResponse {
   string scene_code = 1;
   int64 tick = 2;
-  bytes state_json = 3;
-  bytes render_state_json = 4;
-  bytes shared_state_json = 5;
-  repeated SimEvent events = 6;
+  bytes scene_state_json = 3;       // 场景算法状态快照（仅 Core 持有，场景下次调用时回传）
+  bytes render_envelope_json = 4;   // RenderEnvelope（is_full_snapshot=true）
+  bytes shared_state_diff_json = 5; // 联动共享状态写入（仅 owner 字段，可选）
 }
 
-// StepRequest 表示单次仿真时钟推进请求。
+// StepRequest 表示单 tick 推进请求。
 message StepRequest {
   string session_id = 1;
   string scene_code = 2;
-  bytes state_json = 3;
-  int64 tick = 4;
-  bytes shared_state_json = 5;
+  int64 tick = 3;                    // 即将推进到的 tick 序号
+  bytes scene_state_json = 4;        // 上一帧 SceneState
+  bytes shared_state_json = 5;       // 当前联动共享状态（聚合视图）
+  repeated LinkTriggerRef incoming_link_triggers = 6; // Core fan-out 进来的联动事件，待场景在本 tick 体现
+
+  // incoming_container_metrics 是 Core Collector 上一周期采集到的容器指标，
+  // 在本次 Step 之前注入；混合实验场景借此驱动可视化（详 §0.7.9 Core 1）。
+  repeated ContainerMetric incoming_container_metrics = 7;
 }
 
-// StepResponse 表示单次 tick 计算结果。
+// ContainerMetric 是混合实验中由 collector-agent 上报、Core 注入到 StepRequest 的单条指标。
+// value 为任意 JSON 值（字节），target_primitive / target_param 用于前端把值塞入对应原语 Param。
+message ContainerMetric {
+  string source_container = 1;
+  string metric_key = 2;
+  bytes value_json = 3;
+  int64 timestamp_ms = 4;
+  string target_primitive = 5;
+  string target_param = 6;
+}
+
+// StepResponse 表示 tick 推进结果。
 message StepResponse {
   string scene_code = 1;
   int64 tick = 2;
-  bytes state_json = 3;
-  bytes render_state_json = 4;
-  repeated SimEvent events = 5;
-  bytes shared_state_diff_json = 6;
+  bytes scene_state_json = 3;
+  bytes render_envelope_json = 4;     // RenderEnvelope（is_full_snapshot 通常 false）
+  bytes shared_state_diff_json = 5;   // 仅本场景 owner 字段的写入
 }
 
-// ActionRequest 表示前端通过 Core 转发给场景容器的交互操作。
+// HandleActionRequest 表示交互请求。
 message HandleActionRequest {
   string session_id = 1;
   string scene_code = 2;
-  bytes state_json = 3;
-  string action_code = 4;
-  bytes params_json = 5;
-  int64 tick = 6;
-  bytes shared_state_json = 7;
+  int64 tick = 3;
+  bytes scene_state_json = 4;
+  bytes shared_state_json = 5;
+  string action_code = 6;
+  bytes params_json = 7;       // 与 ActionDef.fields 对齐
   string actor_id = 8;
-  string role_key = 9;
+  string user_role = 9;        // student | teacher
 }
 
-// ActionResponse 表示交互操作处理结果。
+// HandleActionResponse 表示交互结果。
 message HandleActionResponse {
   string scene_code = 1;
   int64 tick = 2;
   bool success = 3;
   string error_message = 4;
-  bytes state_json = 5;
-  bytes render_state_json = 6;
-  repeated SimEvent events = 7;
-  bytes shared_state_diff_json = 8;
+  bytes scene_state_json = 5;
+  bytes render_envelope_json = 6;
+  bytes shared_state_diff_json = 7;
 }
 
-// StateRequest 表示 Core 查询可渲染状态。
-message GetRenderStateRequest {
-  string session_id = 1;
-  string scene_code = 2;
-  bytes state_json = 3;
-  int64 tick = 4;
-  bytes shared_state_json = 5;
-}
-
-// RenderState 是前端领域渲染器消费的标准状态。
-message GetRenderStateResponse {
-  string scene_code = 1;
-  string category = 2;
-  string algorithm_type = 3;
-  int64 tick = 4;
-  bytes state_json = 5;
-  bytes render_state_json = 6;
-  bytes metrics_json = 7;
-  repeated SimEvent events = 8;
-}
-
-// SimEvent 表示场景算法产生的过程事件。
-message SimEvent {
-  string event_id = 1;
-  string event_type = 2;
-  string scene_code = 3;
-  int64 tick = 4;
-  int64 timestamp_ms = 5;
+// LinkTriggerRef 是 Core 在 Step 时透传给场景的联动事件最小结构。
+// 场景容器据此在本 tick 的 RenderEnvelope.link_triggers[] 中可视化（详 06.md §8.5.2）。
+message LinkTriggerRef {
+  string id = 1;
+  string source_scene = 2;
+  string source_action = 3;
+  string link_group = 4;
+  repeated string changed_fields = 5;
   bytes payload_json = 6;
+  int64 timestamp_ms = 7;
+  string source_anchor_id = 8;
+  string target_anchor_id = 9;
 }
 
-// InteractionSchema 是前端动态生成场景专属操作面板的依据。
-message GetInteractionSchemaRequest {}
+// ============== 交互定义 ==============
 
-// GetInteractionSchemaResponse 是前端动态生成场景专属操作面板的依据。
-message GetInteractionSchemaResponse {
-  string scene_code = 1;
-  repeated InteractionAction actions = 2;
-}
-
-// InteractionAction 表示一个可执行的场景操作。
-message InteractionAction {
-  string action_code = 1;
-  string label = 2;
-  string description = 3;
-  InteractionTrigger trigger = 4;
-  repeated InteractionField fields = 5;
-  bytes ui_schema_json = 6;
-}
-
-// InteractionField 表示操作面板中的一个输入字段。
-message InteractionField {
-  string key = 1;
-  string label = 2;
-  InteractionFieldType type = 3;
-  bool required = 4;
-  string default_value = 5;
-  repeated InteractionOption options = 6;
-  bytes validation_json = 7;
-}
-
-// InteractionOption 表示选择类字段的候选项。
-message InteractionOption {
-  string value = 1;
-  string label = 2;
-}
-
-// HealthResponse 表示场景容器健康检查结果。
+// GetMetaRequest 是场景元信息查询请求。
 message GetMetaRequest {}
 
 // GetMetaResponse 返回场景元信息。
@@ -238,10 +232,73 @@ message GetMetaResponse {
   ScenarioMeta meta = 1;
 }
 
+// GetInteractionSchemaRequest 是场景交互 schema 查询请求。
+message GetInteractionSchemaRequest {}
+
+// GetInteractionSchemaResponse 返回 InteractionDefinition。
+message GetInteractionSchemaResponse {
+  InteractionDefinition definition = 1;
+}
+
+// InteractionDefinition 是场景对外暴露的全部 ActionDef。
+message InteractionDefinition {
+  string scene_code = 1;
+  string schema_version = 2;        // schema 版本号，用于前端缓存失效判断
+  repeated ActionDef actions = 3;
+}
+
+// ActionDef 与 06.md §6.3 ActionDef 对齐。
+message ActionDef {
+  // 旧字段 9 (triggers_link_groups) 已按 AGENTS.md §0.7.6 弃用并移除；
+  // 由 Core 按 DB sim_link_group_scenes 反查 field_path → [target_link_groups] 自动 fan-out。
+  reserved 9;
+  reserved "triggers_link_groups";
+
+  string action_code = 1;                          // 全局唯一标识（小写下划线）
+  string label = 2;                                // 学生看到的按钮文字
+  string description = 3;
+  ActionCategory category = 4;
+  ActionTrigger trigger = 5;
+  repeated FieldDef fields = 6;
+  repeated string roles = 7;                       // ["student"] / ["teacher"] / 两者
+  int32 cooldown_ms = 8;
+  repeated string link_owner_fields = 10;          // 该 action 写入的 owner 字段（详 §8.3）
+  HybridChannel hybrid_channel = 11;
+  string container_cmd = 12;                       // 容器通道命令模板（含 {{field}} 占位符）
+
+  // ===== v0.5 新增字段（详 AGENTS.md §0.7.6 / §0.7.7 / §0.7.8） =====
+
+  // writes_owned_fields 列出本动作会修改的 owner 字段路径（必须 ⊆ ScenarioMeta.owned_field_paths）。
+  // Core 按本字段反查路由表自动 fan-out 联动；新增联动无需重编译镜像。
+  repeated string writes_owned_fields = 13;
+  // reversible 标识本动作是否可参与 process 模式回退栈（container-channel / 外部副作用必须 false）。
+  bool reversible = 14;
+  // intervene_type 教师干预类型（hint/fault/attack/phase/topology/state/reset/epoch/revert/freeze）。
+  // Roles 含 teacher 时必填，用于 Core 写审计日志（详 §10.9）。
+  string intervene_type = 15;
+}
+
+// FieldDef 与 06.md §6.3 FieldDef 对齐。
+// default / min / max / step / options 因可能是任意类型，统一以 JSON 字节传输。
+message FieldDef {
+  string name = 1;
+  FieldType type = 2;
+  string label = 3;
+  bool required = 4;
+  bytes default_json = 5;
+  bytes min_json = 6;
+  bytes max_json = 7;
+  bytes step_json = 8;
+  bytes options_json = 9;          // 静态候选项数组（JSON）
+  string options_from = 10;        // 动态候选项来源路径（如 "state.nodes"）
+}
+
+// ============== 健康检查 ==============
+
 // HealthCheckRequest 是健康检查请求。
 message HealthCheckRequest {}
 
-// HealthCheckResponse 表示场景容器健康检查结果。
+// HealthCheckResponse 表示健康检查结果。
 message HealthCheckResponse {
   HealthStatus status = 1;
   string message = 2;

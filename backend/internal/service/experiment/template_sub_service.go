@@ -758,10 +758,9 @@ func (s *templateSubService) ListInitScripts(ctx context.Context, sc *svcctx.Ser
 // ---------------------------------------------------------------------------
 
 // simSceneConfig 仿真场景 Config JSONB 内部结构
-// entity 的 Config 字段存储合并后的 JSON，DTO 拆分为 SceneParams + InitialState + DataSourceMode
+// entity 的 Config 字段存储合并后的 JSON，DTO 拆分为 SceneParams + DataSourceMode
 type simSceneConfig struct {
 	SceneParams    json.RawMessage `json:"scene_params,omitempty"`
-	InitialState   json.RawMessage `json:"initial_state,omitempty"`
 	DataSourceMode int16           `json:"data_source_mode"`
 }
 
@@ -784,10 +783,9 @@ func (s *templateSubService) CreateSimScene(ctx context.Context, sc *svcctx.Serv
 		return nil, errcode.ErrScenarioNotFound
 	}
 
-	// 合并 SceneParams + InitialState + DataSourceMode 到 Config JSONB
+	// 合并 SceneParams + DataSourceMode 到 Config JSONB
 	cfg := simSceneConfig{
 		SceneParams:    req.SceneParams,
-		InitialState:   req.InitialState,
 		DataSourceMode: req.DataSourceMode,
 	}
 	configBytes, _ := json.Marshal(cfg)
@@ -838,10 +836,6 @@ func (s *templateSubService) UpdateSimScene(ctx context.Context, sc *svcctx.Serv
 	configChanged := false
 	if req.SceneParams != nil {
 		existingCfg.SceneParams = req.SceneParams
-		configChanged = true
-	}
-	if req.InitialState != nil {
-		existingCfg.InitialState = req.InitialState
 		configChanged = true
 	}
 	if req.DataSourceMode != nil {

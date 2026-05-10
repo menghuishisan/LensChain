@@ -879,7 +879,6 @@ type CreateTemplateSimSceneReq struct {
 	ScenarioID       string          `json:"scenario_id" binding:"required"`
 	LinkGroupID      *string         `json:"link_group_id"`
 	SceneParams      json.RawMessage `json:"scene_params"`
-	InitialState     json.RawMessage `json:"initial_state"`
 	DataSourceMode   int16           `json:"data_source_mode" binding:"required,oneof=1 2 3"`
 	DataSourceConfig json.RawMessage `json:"data_source_config"`
 	LayoutPosition   json.RawMessage `json:"layout_position"`
@@ -889,7 +888,6 @@ type CreateTemplateSimSceneReq struct {
 // PUT /api/v1/template-sim-scenes/:id
 type UpdateTemplateSimSceneReq struct {
 	SceneParams      json.RawMessage `json:"scene_params"`
-	InitialState     json.RawMessage `json:"initial_state"`
 	DataSourceMode   *int16          `json:"data_source_mode" binding:"omitempty,oneof=1 2 3"`
 	DataSourceConfig json.RawMessage `json:"data_source_config"`
 	LayoutPosition   json.RawMessage `json:"layout_position"`
@@ -915,7 +913,6 @@ type TemplateSimSceneResp struct {
 	LinkGroupID        *string         `json:"link_group_id"`
 	LinkGroupName      *string         `json:"link_group_name"`
 	SceneParams        json.RawMessage `json:"scene_params"`
-	InitialState       json.RawMessage `json:"initial_state"`
 	DataSourceMode     int16           `json:"data_source_mode"`
 	DataSourceModeText string          `json:"data_source_mode_text"`
 	DataSourceConfig   json.RawMessage `json:"data_source_config"`

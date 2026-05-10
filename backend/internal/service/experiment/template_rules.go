@@ -131,7 +131,7 @@ func buildMissingDependencyIssue(containerName, dependency string) dto.Validatio
 	}
 }
 
-// decodeSimSceneConfig 解析模板场景配置，统一恢复 scene_params、initial_state 与 data_source_mode。
+// decodeSimSceneConfig 解析模板场景配置，统一恢复 scene_params 与 data_source_mode。
 func decodeSimSceneConfig(raw json.RawMessage) simSceneConfig {
 	var cfg simSceneConfig
 	if len(raw) == 0 {

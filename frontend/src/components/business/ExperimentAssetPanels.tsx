@@ -3,7 +3,7 @@
 // ExperimentAssetPanels.tsx
 // 模块04镜像与仿真场景业务面板，负责镜像上传、镜像详情/审核和仿真场景库。
 
-import { FileArchive, Grid3X3, Image as ImageIcon, List, ShieldCheck, ShieldAlert, UploadCloud } from "lucide-react";
+import { Grid3X3, Image as ImageIcon, List, ShieldCheck, ShieldAlert, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -554,62 +554,126 @@ export function ExperimentImageReviewPanel({ imageID }: { imageID: ID }) {
   );
 }
 
-// SimScenarioLibraryPanel 教师或管理员查看仿真场景库与上传场景包。
+// SimScenarioLibraryPanel 仿真场景库管理（06.2 §十）。
+// 超管视图：三段式布局 + 4 Tab（场景列表 / 联动组 / 审核中 / 已下架）。
+// 教师视图：仅可见已上架场景列表（无审核 Tab）。
 export function SimScenarioLibraryPanel({ reviewMode = false }: { reviewMode?: boolean }) {
-  const scenariosQuery = useSimScenarios({ page: 1, page_size: 20 });
+  const scenariosQuery = useSimScenarios({ page: 1, page_size: 100 });
   const scenarioMutations = useSimScenarioMutations();
-  const uploadMutation = useExperimentFileUploadMutation();
-  const [containerImageURL, setContainerImageURL] = useState("");
-  const [name, setName] = useState("");
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState("list");
 
-  const createScenario = () => {
-    scenarioMutations.create.mutate({
-      name,
-      code: name.toLowerCase().replace(/\s+/g, "-"),
-      category: "custom",
-      algorithm_type: "custom-container",
-      time_control_mode: "process",
-      container_image_url: containerImageURL,
-      data_source_mode: 1,
-      default_params: {},
-      interaction_schema: {},
-      default_size: { w: 640, h: 360 },
-    });
-  };
+  const allScenarios = scenariosQuery.data?.list ?? [];
+
+  const listedScenarios = allScenarios.filter((s) => {
+    if (search && !s.name.includes(search) && !s.code?.includes(search)) return false;
+    if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
+    return true;
+  });
+  const pendingScenarios = allScenarios.filter((s) => s.status === 2);
+  const archivedScenarios = allScenarios.filter((s) => s.status === 4);
 
   return (
     <div className="space-y-5">
-      <h1 className="font-display text-3xl font-semibold">仿真场景库</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>登记或上传自定义场景</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
-          <FormField label="场景名称">
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="PBFT 可视化扩展" />
-          </FormField>
-          <FormField label="场景容器镜像">
-            <Input value={containerImageURL} onChange={(event) => setContainerImageURL(event.target.value)} placeholder="registry.example/scenario:1.0" />
-          </FormField>
-          <Button className="self-end" onClick={createScenario} isLoading={scenarioMutations.create.isPending}>创建场景</Button>
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted md:col-span-3">
-            <FileArchive className="h-4 w-4" />
-            上传场景包
-            <input className="sr-only" type="file" accept=".zip,.tar,.tar.gz" onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                uploadMutation.mutate({ file, purpose: "scenario_package" });
-              }
-            }} />
-          </label>
-          {uploadMutation.data ? <p className="text-sm text-muted-foreground md:col-span-3">场景包已上传：{uploadMutation.data.file_url}，{formatFileSize(uploadMutation.data.file_size)}</p> : null}
-        </CardContent>
-      </Card>
-      <div className="grid gap-4 xl:grid-cols-2">
-        {(scenariosQuery.data?.list ?? []).map((scenario) => (
-          <SimScenarioCard key={scenario.id} scenario={scenario} reviewMode={reviewMode} />
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-3xl font-semibold">仿真场景库</h1>
       </div>
+
+      {/* §10.2 顶部筛选栏 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-32 h-8 text-xs"><SelectValue placeholder="领域" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部领域</SelectItem>
+            <SelectItem value="node_network">节点网络</SelectItem>
+            <SelectItem value="consensus">共识机制</SelectItem>
+            <SelectItem value="cryptography">密码学</SelectItem>
+            <SelectItem value="data_structure">数据结构</SelectItem>
+            <SelectItem value="transaction">交易流程</SelectItem>
+            <SelectItem value="smart_contract">智能合约</SelectItem>
+            <SelectItem value="attack_security">攻击安全</SelectItem>
+            <SelectItem value="economic">经济模型</SelectItem>
+            <SelectItem value="generic">教师扩展</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input className="h-8 w-48 text-xs" placeholder="🔍 搜索场景..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+
+      {/* §10.2 底部 Tab */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="list">场景列表 {listedScenarios.length}</TabsTrigger>
+          {reviewMode && <TabsTrigger value="linkgroups">联动组</TabsTrigger>}
+          {reviewMode && <TabsTrigger value="pending">审核中 {pendingScenarios.length}</TabsTrigger>}
+          {reviewMode && <TabsTrigger value="archived">已下架 {archivedScenarios.length}</TabsTrigger>}
+        </TabsList>
+
+        {/* §10.3 场景列表 Tab */}
+        <TabsContent value="list">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {listedScenarios.map((scenario) => (
+              <SimScenarioCard key={scenario.id} scenario={scenario} reviewMode={reviewMode} />
+            ))}
+          </div>
+          {listedScenarios.length === 0 && <EmptyState title="未找到场景" description="尝试调整筛选条件。" />}
+        </TabsContent>
+
+        {/* §10.5 联动组 Tab */}
+        {reviewMode && (
+          <TabsContent value="linkgroups">
+            <p className="text-sm text-muted-foreground py-6 text-center">联动组管理功能开发中，当前可通过场景卡片查看联动归属。</p>
+          </TabsContent>
+        )}
+
+        {/* §10.6 审核中 Tab */}
+        {reviewMode && (
+          <TabsContent value="pending">
+            {pendingScenarios.length === 0 ? (
+              <EmptyState title="无待审核场景" description="教师提交的自定义场景将在此处列出。" />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>场景名</TableHead>
+                    <TableHead>场景标识码</TableHead>
+                    <TableHead>领域</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingScenarios.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-semibold">{s.name}</TableCell>
+                      <TableCell className="font-mono text-xs">{s.code}</TableCell>
+                      <TableCell><Badge variant="outline">{s.category_text}</Badge></TableCell>
+                      <TableCell className="space-x-2">
+                        <Button size="sm" onClick={() => scenarioMutations.review.mutate({ action: "approve" })}>通过</Button>
+                        <Button size="sm" variant="destructive" onClick={() => scenarioMutations.review.mutate({ action: "reject", comment: "场景验证未通过" })}>退回</Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </TabsContent>
+        )}
+
+        {/* 已下架 Tab */}
+        {reviewMode && (
+          <TabsContent value="archived">
+            {archivedScenarios.length === 0 ? (
+              <EmptyState title="无已下架场景" description="下架或弃用的场景将在此处列出。" />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {archivedScenarios.map((scenario) => (
+                  <SimScenarioCard key={scenario.id} scenario={scenario} reviewMode={reviewMode} />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/lenschain/backend/internal/config"
+	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
 	"github.com/lenschain/backend/internal/model/enum"
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
@@ -472,7 +473,7 @@ func (s *instanceService) RecordSimEngineOperation(ctx context.Context, sc *svcc
 	switch envelope.Type {
 	case "action":
 		action = enum.ActionSimInteraction
-	case "control", "rewind_to":
+	case "control", "step_back":
 		action = enum.ActionSimTimeControl
 	default:
 		return
@@ -531,6 +532,66 @@ func (s *instanceService) resolveTerminalStreamInfo(ctx context.Context, instanc
 		}, nil
 	}
 	return nil, errcode.ErrInstanceNotRunning
+}
+
+// GetSimInteractionSchema 获取场景交互 schema（前端交互面板渲染用）。
+// GET /api/v1/experiment-instances/:id/sim-scenes/:scene_code/interaction-schema
+// 学生可查看自己的实例，教师可查看课程下的实例。
+func (s *instanceService) GetSimInteractionSchema(ctx context.Context, sc *svcctx.ServiceContext, instanceID int64, sceneCode string) (*dto.SimInteractionSchemaResp, error) {
+	instance, err := s.getAccessibleInstance(ctx, sc, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	if instance.SimSessionID == nil || *instance.SimSessionID == "" {
+		return nil, errcode.ErrInvalidParams.WithMessage("该实例无仿真会话")
+	}
+
+	schema, err := s.simEngineSvc.GetInteractionSchema(ctx, *instance.SimSessionID, sceneCode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.SimInteractionSchemaResp{
+		SceneCode: schema.SceneCode,
+		Actions:   schema.Actions,
+	}, nil
+}
+
+// TeacherIntervene 教师干预（对齐 06.md §14.5 + proto PublishTeacherIntervention）。
+// POST /api/v1/teacher/experiments/:id/intervene
+// 仅课程教师可操作，通过 SimEngine gRPC 下发干预指令。
+func (s *instanceService) TeacherIntervene(ctx context.Context, sc *svcctx.ServiceContext, instanceID int64, req *dto.TeacherInterveneReq) (*dto.TeacherInterveneResp, error) {
+	instance, err := s.loadInstanceRecord(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	allowed, err := s.canTeachInstance(ctx, sc, instance)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, errcode.ErrForbidden
+	}
+
+	result, err := s.simEngineSvc.PublishTeacherIntervention(ctx, &SimTeacherInterventionRequest{
+		InstanceID:       strconv.FormatInt(instanceID, 10),
+		TeacherID:        strconv.FormatInt(sc.UserID, 10),
+		ActionCode:       req.ActionCode,
+		TargetSessionIDs: req.TargetSessionIDs,
+		TargetSceneCodes: req.TargetSceneCodes,
+		TargetLinkGroup:  req.TargetLinkGroup,
+		Params:           req.Params,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.TeacherInterveneResp{
+		Success:            result.Success,
+		ErrorMessage:       result.ErrorMessage,
+		AffectedSessionIDs: result.AffectedSessionIDs,
+		Result:             result.Result,
+	}, nil
 }
 
 // touchInstanceActivity 刷新实例的最近操作时间。

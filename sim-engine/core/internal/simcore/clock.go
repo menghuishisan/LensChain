@@ -113,15 +113,17 @@ func (c *Clock) Reset() {
 	c.running = false
 }
 
-// Rewind 将过程化时钟回退到指定 tick。
-func (c *Clock) Rewind(targetTick int64) error {
+// StepBack 单步回退 1 个 tick（对齐 06.md §7.4 step_back：仅单场景 process 模式有效）。
+// 上层（如 LinkGroup / 多场景对照 / 混合实验）的可用性限制在会话层校验；
+// 本方法只负责 process 模式本身的可用性与 tick 边界校验。
+func (c *Clock) StepBack() error {
 	if c.mode != TimeControlModeProcess {
-		return unsupportedControl(c.mode, "rewind")
+		return unsupportedControl(c.mode, "step_back")
 	}
-	if targetTick < 0 || targetTick > c.tick {
-		return fmt.Errorf("invalid rewind target tick: %d", targetTick)
+	if c.tick <= 0 {
+		return fmt.Errorf("step_back 越过起始 tick")
 	}
-	c.tick = targetTick
+	c.tick--
 	c.running = false
 	return nil
 }

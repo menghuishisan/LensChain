@@ -21,40 +21,6 @@ export function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/**
- * deepMerge 按对象语义合并状态增量。
- */
-export function deepMerge(base: JsonObject, patch: JsonObject): JsonObject {
-  const result = deepClone(base);
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null) {
-      delete result[key];
-      continue;
-    }
-    const current = result[key];
-    if (isJsonObject(current) && isJsonObject(value)) {
-      result[key] = deepMerge(current, value);
-      continue;
-    }
-    result[key] = deepClone(value);
-  }
-  return result;
-}
-
-/**
- * flattenChangedKeys 将嵌套差异对象展平成路径列表。
- */
-export function flattenChangedKeys(value: JsonObject, prefix = ""): string[] {
-  const result: string[] = [];
-  for (const [key, child] of Object.entries(value)) {
-    const nextPath = prefix ? `${prefix}.${key}` : key;
-    result.push(nextPath);
-    if (isJsonObject(child)) {
-      result.push(...flattenChangedKeys(child, nextPath));
-    }
-  }
-  return result;
-}
 
 /**
  * isJsonObject 判断值是否为 JSON 对象。

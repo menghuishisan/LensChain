@@ -14,7 +14,8 @@ import type {
   ExperimentTerminalWSMessageType,
   JsonObject,
   RealtimeStatus,
-  SimEngineMessage,
+  SimTeacherMonitorWSType,
+  SimWSMessage,
 } from "@/types/experiment";
 
 const MAX_REALTIME_MESSAGES = 200;
@@ -232,14 +233,21 @@ export function useGroupMemberTerminalStream(groupID: ID, studentID: ID, enabled
 }
 
 /**
- * useSimEngineRealtime 连接 SimEngine 会话 WebSocket。
+ * useSimEngineRealtime 连接 SimEngine 会话 WebSocket（API v3.1 §4.1）。
  */
 export function useSimEngineRealtime(sessionID: ID, enabled = true) {
-  const realtime = useExperimentRealtime<SimEngineMessage & RealtimeMessage>(`/ws/sim-engine/${sessionID}`, { enabled: enabled && sessionID.length > 0 });
+  const realtime = useExperimentRealtime<SimWSMessage & RealtimeMessage>(`/ws/sim-engine/${sessionID}`, { enabled: enabled && sessionID.length > 0 });
   return {
     ...realtime,
     sendControl: (sceneCode: string, command: string, value?: number) => realtime.sendJson({ type: "control", scene_code: sceneCode, timestamp: Date.now(), payload: value === undefined ? { command } : { command, value } }),
     sendAction: (sceneCode: string, actionCode: string, params: JsonObject) => realtime.sendJson({ type: "action", scene_code: sceneCode, timestamp: Date.now(), payload: { action_code: actionCode, params } }),
-    rewindTo: (sceneCode: string, targetTick: number) => realtime.sendJson({ type: "rewind_to", scene_code: sceneCode, timestamp: Date.now(), payload: { target_tick: targetTick } }),
+    stepBack: (sceneCode: string) => realtime.sendJson({ type: "step_back", scene_code: sceneCode, timestamp: Date.now(), payload: {} }),
   };
+}
+
+/**
+ * useTeacherSimMonitor 连接教师 SimEngine 监控 WS（06.2 §9.8）。
+ */
+export function useTeacherSimMonitor(experimentID: ID, enabled = true) {
+  return useExperimentRealtime<RealtimeMessage<SimTeacherMonitorWSType>>(`/ws/teacher-monitor/${experimentID}`, { enabled: enabled && experimentID.length > 0 });
 }

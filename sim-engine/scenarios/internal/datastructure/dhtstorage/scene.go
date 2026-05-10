@@ -1,461 +1,922 @@
+// 模块：sim-engine/scenarios/internal/datastructure/dhtstorage
+// 文件职责：DS-05 DHT 存储（Kademlia STORE / FIND_VALUE）场景的完整实现。
+//
+// SSOT 依据：06.md §4.4.5 / §3.2 / §6.2 / §6.3 / §8.3；AGENTS.md §0 + §6。
+//
+// 算法实现：自实现 Kademlia DHT 存储层（基于 P2P discovery 思路扩展）：
+//   · 节点 ID = SHA-256(seed)[:idBytes]，XOR 距离衡量"近"
+//   · STORE(key, value)：把 (key, value) 存到与 hash(key) 距离最近的 R 个节点
+//   · FIND_VALUE(key)：从所有持有副本的节点中选距离最近的返回
+//   · TTL 过期：每个副本在 ttl ticks 后过期；过期前可重新发布
+//   · 节点离线：副本数 < R 时数据可能丢失（演示冗余必要性）
+
 package dhtstorage
 
 import (
-	"crypto/sha1"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"math/bits"
 	"sort"
 	"strings"
 
-	"github.com/lenschain/sim-engine/scenarios/internal/framework"
+	fw "github.com/lenschain/sim-engine/framework"
+	"github.com/lenschain/sim-engine/scenarios/internal/cryptography/sha256hash"
 )
 
 const (
-	// replicaCount 表示写入 DHT 时默认生成的副本数。
-	replicaCount = 3
+	sceneCode     = "dht-storage"
+	schemaVersion = "v1.0.0"
+	algorithmType = "kademlia-dht-storage"
+
+	defaultIDBits    = 32
+	defaultNodeCount = 8
+	defaultR         = 3 // 复制因子
+	defaultTTL       = 10
+	maxNodeCount     = 16
+	maxKeys          = 16
+
+	linkGroupNetworkBase = "network-base-group"
+	linkOwnerSubtree     = "datastructure.dht"
 )
 
-// DefaultState 构造分布式存储 DHT 场景的初始状态。
-func DefaultState() framework.SceneState {
-	return framework.SceneState{
-		SceneCode:    "dht-storage",
-		Title:        "分布式存储 DHT",
-		Phase:        "键映射",
-		PhaseIndex:   0,
-		Progress:     0,
-		StepDuration: 1200,
-		TotalTicks:   14,
-		Stages:       []string{"键映射", "副本分片", "路由查找"},
-		Nodes: []framework.Node{
-			{ID: "node-a", Label: "Node-1", Status: "active", Role: "storage", X: 180, Y: 70},
-			{ID: "node-b", Label: "Node-2", Status: "normal", Role: "storage", X: 420, Y: 70},
-			{ID: "node-c", Label: "Node-3", Status: "normal", Role: "storage", X: 570, Y: 220},
-			{ID: "node-d", Label: "Node-4", Status: "normal", Role: "storage", X: 420, Y: 370},
-			{ID: "node-e", Label: "Node-5", Status: "normal", Role: "storage", X: 180, Y: 370},
-			{ID: "node-f", Label: "Node-6", Status: "normal", Role: "storage", X: 30, Y: 220},
-		},
-		ChangedKeys: []string{"nodes", "data", "metrics"},
-		Data:        map[string]any{},
-		Extra:       map[string]any{},
-	}
+// =====================================================================
+// ID 与 XOR 距离
+// =====================================================================
+
+func makeID(seed string, idBits int) []byte {
+	h := sha256hash.Sum256([]byte(seed))
+	return append([]byte{}, h[:(idBits+7)/8]...)
 }
 
-// Init 初始化 DHT 环空间、键哈希和路由目标。
-func Init(state *framework.SceneState, _ framework.InitInput) error {
-	model := storageModel{
-		RingOrder:    defaultRing(),
-		ActiveKey:    "doc-1",
-		KeyHash:      hashToSlot("doc-1"),
-		PrimaryNode:  "node-b",
-		ReplicaNodes: []string{"node-b", "node-c", "node-d"},
-		RoutePath:    []string{"node-a", "node-b"},
-		Redundancy:   replicaCount,
+func xorDistance(a, b []byte) []byte {
+	out := make([]byte, len(a))
+	for i := range a {
+		out[i] = a[i] ^ b[i]
 	}
-	return rebuildState(state, model, "键映射")
+	return out
 }
 
-// Step 推进键映射、副本分片和路由查找过程。
-func Step(state *framework.SceneState, _ framework.StepInput) (framework.StepOutput, error) {
-	model := decodeModel(state)
-	phase := nextPhase(framework.StringValue(state.Data["phase_name"], "键映射"))
-	switch phase {
-	case "副本分片":
-		model.ReplicaNodes = selectReplicas(model.RingOrder, model.PrimaryNode)
-	case "路由查找":
-		model.RoutePath = buildRoute(model.RingOrder, "node-a", model.PrimaryNode)
-	}
-	if err := rebuildState(state, model, phase); err != nil {
-		return framework.StepOutput{}, err
-	}
-	event := framework.NewEvent(state.SceneCode, state.Tick, phase, fmt.Sprintf("DHT 进入%s阶段。", phase), toneByPhase(phase))
-	return framework.StepOutput{
-		Events: []framework.TimelineEvent{event},
-		SharedDiff: map[string]any{
-			"topology": map[string]any{
-				"dht_ring":     encodeRing(model.RingOrder),
-				"route_path":   append([]string(nil), model.RoutePath...),
-				"primary_node": model.PrimaryNode,
-			},
-			"storage": map[string]any{
-				model.ActiveKey: map[string]any{
-					"hash_slot":  model.KeyHash,
-					"replicas":   append([]string(nil), model.ReplicaNodes...),
-					"redundancy": model.Redundancy,
-				},
-			},
-		},
-	}, nil
-}
-
-// HandleAction 写入新键并重新计算主节点、副本和路由。
-func HandleAction(state *framework.SceneState, input framework.ActionInput) (framework.ActionOutput, error) {
-	model := decodeModel(state)
-	model.ActiveKey = framework.StringValue(input.Params["key"], "doc-1")
-	model.KeyHash = hashToSlot(model.ActiveKey)
-	model.PrimaryNode = locatePrimary(model.RingOrder, model.KeyHash)
-	model.ReplicaNodes = selectReplicas(model.RingOrder, model.PrimaryNode)
-	model.RoutePath = buildRoute(model.RingOrder, "node-a", model.PrimaryNode)
-	if err := rebuildState(state, model, "键映射"); err != nil {
-		return framework.ActionOutput{}, err
-	}
-	event := framework.NewEvent(state.SceneCode, state.Tick, "写入键值", fmt.Sprintf("已将键 %s 映射到 DHT 环。", model.ActiveKey), "warning")
-	return framework.ActionOutput{
-		Success: true,
-		Events:  []framework.TimelineEvent{event},
-		SharedDiff: map[string]any{
-			"storage": map[string]any{
-				model.ActiveKey: map[string]any{
-					"hash_slot": model.KeyHash,
-					"primary":   model.PrimaryNode,
-					"replicas":  append([]string(nil), model.ReplicaNodes...),
-				},
-			},
-		},
-	}, nil
-}
-
-// BuildRenderState 输出 DHT 环分布、路由路径和副本布局。
-func BuildRenderState(state framework.SceneState) framework.RenderEnvelope {
-	return framework.RenderEnvelope{
-		Nodes:       state.Nodes,
-		Messages:    state.Messages,
-		Stages:      state.Stages,
-		ChangedKeys: state.ChangedKeys,
-		Phase:       state.Phase,
-		PhaseIndex:  state.PhaseIndex,
-		Progress:    state.Progress,
-		Data:        framework.CloneMap(state.Data),
-		Extra:       framework.CloneMap(state.Extra),
-	}
-}
-
-// SyncSharedState 在网络基础组共享拓扑与存储状态变化后重建 DHT 场景。
-func SyncSharedState(state *framework.SceneState, sharedState map[string]any) error {
-	model := decodeModel(state)
-	applySharedDHTState(&model, sharedState)
-	return rebuildState(state, model, framework.StringValue(state.Data["phase_name"], state.Phase))
-}
-
-// ringNode 表示 DHT 环上的单个逻辑节点。
-type ringNode struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	Position int    `json:"position"`
-}
-
-// storageModel 保存键映射、副本分布和查找路径。
-type storageModel struct {
-	RingOrder    []ringNode `json:"ring_order"`
-	ActiveKey    string     `json:"active_key"`
-	KeyHash      int        `json:"key_hash"`
-	PrimaryNode  string     `json:"primary_node"`
-	ReplicaNodes []string   `json:"replica_nodes"`
-	RoutePath    []string   `json:"route_path"`
-	Redundancy   int        `json:"redundancy"`
-}
-
-// rebuildState 将 DHT 模型映射为环节点、数据流与内嵌指标。
-func rebuildState(state *framework.SceneState, model storageModel, phase string) error {
-	state.Phase = phase
-	state.PhaseIndex = phaseIndex(phase)
-	state.Progress = framework.NextProgress(state.Tick, state.TotalTicks)
-	replicaSet := make(map[string]struct{}, len(model.ReplicaNodes))
-	for _, replica := range model.ReplicaNodes {
-		replicaSet[replica] = struct{}{}
-	}
-	for index := range state.Nodes {
-		node := &state.Nodes[index]
-		node.Status = "normal"
-		node.Load = 0
-		node.Attributes = map[string]any{
-			"slot": ringPosition(model.RingOrder, node.ID),
-		}
-		if node.ID == model.PrimaryNode {
-			node.Status = "active"
-			node.Load = float64(model.KeyHash)
-		}
-		if _, ok := replicaSet[node.ID]; ok {
-			node.Status = "warning"
-			node.Load += 18
-		}
-		if contains(model.RoutePath, node.ID) {
-			node.Status = "success"
-			node.Load += 24
-		}
-	}
-	state.Messages = buildMessages(model, phase)
-	state.Metrics = []framework.Metric{
-		{Key: "key", Label: "当前键", Value: model.ActiveKey, Tone: "info"},
-		{Key: "slot", Label: "哈希槽位", Value: fmt.Sprintf("%d/255", model.KeyHash), Tone: "warning"},
-		{Key: "primary", Label: "主节点", Value: model.PrimaryNode, Tone: "success"},
-		{Key: "replicas", Label: "副本数", Value: fmt.Sprintf("%d", len(model.ReplicaNodes)), Tone: "info"},
-	}
-	state.Tooltip = []framework.TooltipEntry{
-		{Label: "副本节点", Value: strings.Join(model.ReplicaNodes, ", ")},
-		{Label: "路由路径", Value: strings.Join(model.RoutePath, " -> ")},
-		{Label: "冗余级别", Value: fmt.Sprintf("%d", model.Redundancy)},
-	}
-	state.Data = map[string]any{
-		"phase_name":  phase,
-		"dht_storage": model,
-	}
-	state.Extra = map[string]any{
-		"description": "该场景真实模拟键在 DHT 环上的哈希映射、副本放置和逐跳路由查找。",
-	}
-	state.ChangedKeys = []string{"nodes", "messages", "metrics", "data", "tooltip"}
-	return nil
-}
-
-// decodeModel 从通用 JSON 状态恢复 DHT 模型。
-func decodeModel(state *framework.SceneState) storageModel {
-	entry, ok := state.Data["dht_storage"].(map[string]any)
-	if !ok {
-		if typed, ok := state.Data["dht_storage"].(storageModel); ok {
-			return typed
-		}
-		return storageModel{
-			RingOrder:    defaultRing(),
-			ActiveKey:    "doc-1",
-			KeyHash:      hashToSlot("doc-1"),
-			PrimaryNode:  "node-b",
-			ReplicaNodes: []string{"node-b", "node-c", "node-d"},
-			RoutePath:    []string{"node-a", "node-b"},
-			Redundancy:   replicaCount,
-		}
-	}
-	return storageModel{
-		RingOrder:    decodeRing(entry["ring_order"]),
-		ActiveKey:    framework.StringValue(entry["active_key"], "doc-1"),
-		KeyHash:      int(framework.NumberValue(entry["key_hash"], float64(hashToSlot("doc-1")))),
-		PrimaryNode:  framework.StringValue(entry["primary_node"], "node-b"),
-		ReplicaNodes: framework.ToStringSlice(entry["replica_nodes"]),
-		RoutePath:    framework.ToStringSlice(entry["route_path"]),
-		Redundancy:   int(framework.NumberValue(entry["redundancy"], replicaCount)),
-	}
-}
-
-// applySharedDHTState 将网络基础组共享拓扑与存储布局映射回 DHT 模型。
-func applySharedDHTState(model *storageModel, sharedState map[string]any) {
-	if len(sharedState) == 0 {
-		return
-	}
-	if topology, ok := sharedState["topology"].(map[string]any); ok {
-		if routePath := framework.ToStringSlice(topology["route_path"]); len(routePath) > 0 {
-			model.RoutePath = routePath
-		}
-		if primaryNode, ok := topology["primary_node"].(string); ok && strings.TrimSpace(primaryNode) != "" {
-			model.PrimaryNode = primaryNode
-		}
-	}
-	if storage, ok := sharedState["storage"].(map[string]any); ok {
-		if keyState, ok := storage[model.ActiveKey].(map[string]any); ok {
-			if hashSlot, ok := keyState["hash_slot"]; ok {
-				model.KeyHash = int(framework.NumberValue(hashSlot, float64(model.KeyHash)))
-			}
-			if replicas := framework.ToStringSlice(keyState["replicas"]); len(replicas) > 0 {
-				model.ReplicaNodes = replicas
-			}
-		}
-	}
-}
-
-// defaultRing 返回默认 DHT 环顺序。
-func defaultRing() []ringNode {
-	return []ringNode{
-		{ID: "node-a", Label: "Node-1", Position: 28},
-		{ID: "node-b", Label: "Node-2", Position: 87},
-		{ID: "node-c", Label: "Node-3", Position: 126},
-		{ID: "node-d", Label: "Node-4", Position: 173},
-		{ID: "node-e", Label: "Node-5", Position: 214},
-		{ID: "node-f", Label: "Node-6", Position: 242},
-	}
-}
-
-// hashToSlot 将键哈希到 0-255 的环空间。
-func hashToSlot(key string) int {
-	sum := sha1.Sum([]byte(key))
-	return int(sum[0])
-}
-
-// locatePrimary 在环上查找负责当前槽位的主节点。
-func locatePrimary(ring []ringNode, slot int) string {
-	sorted := append([]ringNode(nil), ring...)
-	sort.Slice(sorted, func(i int, j int) bool {
-		return sorted[i].Position < sorted[j].Position
-	})
-	for _, node := range sorted {
-		if slot <= node.Position {
-			return node.ID
-		}
-	}
-	return sorted[0].ID
-}
-
-// selectReplicas 选择主节点开始的连续副本集合。
-func selectReplicas(ring []ringNode, primary string) []string {
-	index := ringIndex(ring, primary)
-	if index < 0 {
-		return []string{primary}
-	}
-	result := make([]string, 0, replicaCount)
-	for offset := 0; offset < replicaCount; offset++ {
-		result = append(result, ring[(index+offset)%len(ring)].ID)
-	}
-	return result
-}
-
-// buildRoute 构造从起点节点到目标节点的逐跳路径。
-func buildRoute(ring []ringNode, from string, to string) []string {
-	start := ringIndex(ring, from)
-	target := ringIndex(ring, to)
-	if start < 0 || target < 0 {
-		return []string{from, to}
-	}
-	result := []string{ring[start].ID}
-	index := start
-	for index != target {
-		index = (index + 1) % len(ring)
-		result = append(result, ring[index].ID)
-	}
-	return result
-}
-
-// buildMessages 生成键映射、副本复制和路由查找消息。
-func buildMessages(model storageModel, phase string) []framework.Message {
-	messages := []framework.Message{
-		{ID: "hash-map", Label: fmt.Sprintf("%s@%d", model.ActiveKey, model.KeyHash), Kind: "pointer", Status: phase, SourceID: "node-a", TargetID: model.PrimaryNode},
-	}
-	for index, replica := range model.ReplicaNodes {
-		messages = append(messages, framework.Message{
-			ID:       fmt.Sprintf("replica-%d", index),
-			Label:    fmt.Sprintf("Replica-%d", index+1),
-			Kind:     "pointer",
-			Status:   phase,
-			SourceID: model.PrimaryNode,
-			TargetID: replica,
-			Attributes: map[string]any{
-				"replica": true,
-			},
-		})
-	}
-	if phase == "路由查找" {
-		for index := 0; index < len(model.RoutePath)-1; index++ {
-			messages = append(messages, framework.Message{
-				ID:       fmt.Sprintf("route-%d", index),
-				Label:    fmt.Sprintf("Hop-%d", index+1),
-				Kind:     "pointer",
-				Status:   "route",
-				SourceID: model.RoutePath[index],
-				TargetID: model.RoutePath[index+1],
-			})
-		}
-	}
-	return messages
-}
-
-// encodeRing 将环顺序转为前端友好的映射。
-func encodeRing(ring []ringNode) []map[string]any {
-	result := make([]map[string]any, 0, len(ring))
-	for _, node := range ring {
-		result = append(result, map[string]any{
-			"id":       node.ID,
-			"label":    node.Label,
-			"position": node.Position,
-		})
-	}
-	return result
-}
-
-// decodeRing 从通用 JSON 列表恢复环节点顺序。
-func decodeRing(value any) []ringNode {
-	raw, ok := value.([]any)
-	if !ok {
-		if typed, ok := value.([]ringNode); ok {
-			return append([]ringNode(nil), typed...)
-		}
-		return defaultRing()
-	}
-	result := make([]ringNode, 0, len(raw))
-	for _, item := range raw {
-		entry, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		result = append(result, ringNode{
-			ID:       framework.StringValue(entry["id"], ""),
-			Label:    framework.StringValue(entry["label"], ""),
-			Position: int(framework.NumberValue(entry["position"], 0)),
-		})
-	}
-	if len(result) == 0 {
-		return defaultRing()
-	}
-	return result
-}
-
-// nextPhase 返回 DHT 场景的下一阶段。
-func nextPhase(phase string) string {
-	switch phase {
-	case "键映射":
-		return "副本分片"
-	case "副本分片":
-		return "路由查找"
-	default:
-		return "键映射"
-	}
-}
-
-// phaseIndex 将阶段映射到时间线索引。
-func phaseIndex(phase string) int {
-	switch phase {
-	case "键映射":
-		return 0
-	case "副本分片":
-		return 1
-	case "路由查找":
-		return 2
-	default:
-		return 0
-	}
-}
-
-// toneByPhase 返回阶段对应的色调。
-func toneByPhase(phase string) string {
-	if phase == "路由查找" {
-		return "success"
-	}
-	if phase == "副本分片" {
-		return "warning"
-	}
-	return "info"
-}
-
-// ringIndex 返回指定节点在环顺序中的下标。
-func ringIndex(ring []ringNode, nodeID string) int {
-	for index, node := range ring {
-		if node.ID == nodeID {
-			return index
-		}
-	}
-	return -1
-}
-
-// ringPosition 返回节点在环上的槽位。
-func ringPosition(ring []ringNode, nodeID string) int {
-	for _, node := range ring {
-		if node.ID == nodeID {
-			return node.Position
-		}
-	}
-	return -1
-}
-
-// contains 判断字符串切片中是否包含指定值。
-func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
+func distLess(a, b []byte) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
 		}
 	}
 	return false
 }
+
+func leadingZeros(d []byte) int {
+	for i, b := range d {
+		if b == 0 {
+			continue
+		}
+		return i*8 + bits.LeadingZeros8(b)
+	}
+	return len(d) * 8
+}
+
+// =====================================================================
+// 节点 / 数据
+// =====================================================================
+
+type valueEntry struct {
+	Value      string
+	StoredTick int
+	Expires    int
+}
+
+type dhtNode struct {
+	Label  string
+	ID     []byte
+	IsDown bool
+	Store  map[string]valueEntry // key (hex) → value entry
+}
+
+type findResult struct {
+	Key      string
+	KeyHash  []byte
+	Found    bool
+	FromNode string
+	Value    string
+	Replicas []string // 持有该 key 的所有节点 label
+	Expired  bool
+}
+
+type snapState struct {
+	IDBits    int
+	R         int
+	TTL       int
+	Tick      int
+	Nodes     []dhtNode
+	Keys      []string
+	LastFind  *findResult
+	LastError string
+}
+
+func defaultSnapState() snapState {
+	st := snapState{
+		IDBits: defaultIDBits,
+		R:      defaultR,
+		TTL:    defaultTTL,
+	}
+	for i := 0; i < defaultNodeCount; i++ {
+		label := fmt.Sprintf("n%d", i)
+		st.Nodes = append(st.Nodes, dhtNode{
+			Label: label,
+			ID:    makeID(label+"-seed", st.IDBits),
+			Store: map[string]valueEntry{},
+		})
+	}
+	return st
+}
+
+// keyToHash 把 key 字符串映射到与节点 ID 相同长度的字节数组。
+func (st snapState) keyToHash(key string) []byte {
+	h := sha256hash.Sum256([]byte(key))
+	return append([]byte{}, h[:(st.IDBits+7)/8]...)
+}
+
+// closestNodes 返回距离 keyHash 最近的 m 个非 down 节点（按 label）。
+func (st snapState) closestNodes(keyHash []byte, m int) []*dhtNode {
+	type idxDist struct {
+		Idx  int
+		Dist []byte
+	}
+	cands := []idxDist{}
+	for i := range st.Nodes {
+		if st.Nodes[i].IsDown {
+			continue
+		}
+		cands = append(cands, idxDist{Idx: i, Dist: xorDistance(st.Nodes[i].ID, keyHash)})
+	}
+	sort.Slice(cands, func(a, b int) bool {
+		return distLess(cands[a].Dist, cands[b].Dist)
+	})
+	if len(cands) > m {
+		cands = cands[:m]
+	}
+	out := make([]*dhtNode, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, &st.Nodes[c.Idx])
+	}
+	return out
+}
+
+// store 把 (key, value) 存到 R 个最近节点。
+func (st *snapState) store(key, value string) []string {
+	keyHash := st.keyToHash(key)
+	keyHex := hex.EncodeToString(keyHash)
+	closest := st.closestNodes(keyHash, st.R)
+	stored := []string{}
+	for _, n := range closest {
+		n.Store[keyHex] = valueEntry{
+			Value: value, StoredTick: st.Tick, Expires: st.Tick + st.TTL,
+		}
+		stored = append(stored, n.Label)
+	}
+	keyExists := false
+	for _, k := range st.Keys {
+		if k == key {
+			keyExists = true
+			break
+		}
+	}
+	if !keyExists {
+		st.Keys = append(st.Keys, key)
+	}
+	return stored
+}
+
+// findValue 从所有持有该 key 的节点中返回最近未过期的 value。
+func (st snapState) findValue(key string) findResult {
+	keyHash := st.keyToHash(key)
+	keyHex := hex.EncodeToString(keyHash)
+	res := findResult{Key: key, KeyHash: keyHash}
+	holders := []*dhtNode{}
+	for i := range st.Nodes {
+		if st.Nodes[i].IsDown {
+			continue
+		}
+		if e, has := st.Nodes[i].Store[keyHex]; has {
+			res.Replicas = append(res.Replicas, st.Nodes[i].Label)
+			if e.Expires > st.Tick {
+				holders = append(holders, &st.Nodes[i])
+			} else {
+				res.Expired = true
+			}
+		}
+	}
+	if len(holders) == 0 {
+		res.Found = false
+		return res
+	}
+	sort.Slice(holders, func(i, j int) bool {
+		return distLess(xorDistance(holders[i].ID, keyHash), xorDistance(holders[j].ID, keyHash))
+	})
+	res.Found = true
+	res.FromNode = holders[0].Label
+	res.Value = holders[0].Store[keyHex].Value
+	return res
+}
+
+// republish 重新发布所有 key（重置 TTL）。
+func (st *snapState) republish() (int, []string) {
+	count := 0
+	updated := []string{}
+	for _, key := range st.Keys {
+		// 找到任一未过期持有副本
+		keyHash := st.keyToHash(key)
+		keyHex := hex.EncodeToString(keyHash)
+		var existingValue string
+		found := false
+		for _, n := range st.Nodes {
+			if n.IsDown {
+				continue
+			}
+			if e, has := n.Store[keyHex]; has && e.Expires > st.Tick {
+				existingValue = e.Value
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		nodes := st.store(key, existingValue)
+		count++
+		updated = append(updated, fmt.Sprintf("%s→{%s}", key, strings.Join(nodes, ",")))
+	}
+	return count, updated
+}
+
+// expireExpired 模拟 tick 推进时清理过期副本。
+func (st *snapState) expireExpired() int {
+	count := 0
+	for i := range st.Nodes {
+		for k, e := range st.Nodes[i].Store {
+			if e.Expires <= st.Tick {
+				delete(st.Nodes[i].Store, k)
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// =====================================================================
+// 持久化
+// =====================================================================
+
+func loadState(s *fw.SceneState) snapState {
+	if s == nil || s.Data == nil {
+		return defaultSnapState()
+	}
+	d := s.Data
+	st := snapState{
+		IDBits:    fw.MapInt(d, "id_bits", defaultIDBits),
+		R:         fw.MapInt(d, "r", defaultR),
+		TTL:       fw.MapInt(d, "ttl", defaultTTL),
+		Tick:      fw.MapInt(d, "tick", 0),
+		LastError: fw.MapStr(d, "last_error", ""),
+	}
+	if nodesAny, ok := d["nodes"].([]any); ok {
+		for _, nAny := range nodesAny {
+			if nm, ok := nAny.(map[string]any); ok {
+				idHex := fw.MapStr(nm, "id", "")
+				id, _ := hex.DecodeString(idHex)
+				n := dhtNode{
+					Label:  fw.MapStr(nm, "label", ""),
+					ID:     id,
+					IsDown: fw.MapBool(nm, "down", false),
+					Store:  map[string]valueEntry{},
+				}
+				if stAny, ok := nm["store"].(map[string]any); ok {
+					for k, v := range stAny {
+						if vm, ok := v.(map[string]any); ok {
+							n.Store[k] = valueEntry{
+								Value:      fw.MapStr(vm, "value", ""),
+								StoredTick: fw.MapInt(vm, "stored", 0),
+								Expires:    fw.MapInt(vm, "expires", 0),
+							}
+						}
+					}
+				}
+				st.Nodes = append(st.Nodes, n)
+			}
+		}
+	}
+	if len(st.Nodes) == 0 {
+		return defaultSnapState()
+	}
+	if keysAny, ok := d["keys"].([]any); ok {
+		for _, k := range keysAny {
+			if s, ok := k.(string); ok {
+				st.Keys = append(st.Keys, s)
+			}
+		}
+	}
+	return st
+}
+
+func saveState(s *fw.SceneState, st snapState) {
+	if s.Data == nil {
+		s.Data = map[string]any{}
+	}
+	s.Data["id_bits"] = st.IDBits
+	s.Data["r"] = st.R
+	s.Data["ttl"] = st.TTL
+	s.Data["tick"] = st.Tick
+	s.Data["last_error"] = st.LastError
+	nodesAny := make([]any, len(st.Nodes))
+	for i, n := range st.Nodes {
+		store := map[string]any{}
+		for k, v := range n.Store {
+			store[k] = map[string]any{
+				"value": v.Value, "stored": v.StoredTick, "expires": v.Expires,
+			}
+		}
+		nodesAny[i] = map[string]any{
+			"label": n.Label, "id": hex.EncodeToString(n.ID),
+			"down": n.IsDown, "store": store,
+		}
+	}
+	s.Data["nodes"] = nodesAny
+	keysAny := make([]any, len(st.Keys))
+	for i, k := range st.Keys {
+		keysAny[i] = k
+	}
+	s.Data["keys"] = keysAny
+}
+
+// =====================================================================
+// 场景定义
+// =====================================================================
+
+func Definition() fw.Definition {
+	return fw.Definition{
+		Code: sceneCode, Name: "DHT 分布式存储",
+		Description:         "演示 Kademlia DHT STORE / FIND_VALUE：复制因子 R + TTL + 重新发布 + 节点离线导致数据丢失",
+		Category:            fw.CategoryDataStructure,
+		AlgorithmType:       algorithmType,
+		Version:             schemaVersion,
+		TimeControlMode:     fw.TimeControlReactive,
+		DataSourceMode:      fw.DataSourceSimulation,
+		SupportedLinkGroups: []string{linkGroupNetworkBase},
+
+		ExtensionLevel:     fw.ExtensionL1,
+		LinkGroupVersion:   "v0.5.0",
+		SupportsMultiActor: false,
+		OwnedFieldPaths: []string{
+			"datastructure.dht.key_count",
+		},
+
+		DefaultParams: func() map[string]any { return map[string]any{} },
+		DefaultState:  defaultStateFw,
+		Interaction:   interactionDefinition,
+		Init:                initScene,
+		Step:                stepScene,
+		HandleAction:        handleAction,
+	}
+}
+
+func defaultStateFw() fw.SceneState {
+	return fw.SceneState{SceneCode: sceneCode, Tick: 0, Phase: "ready", Data: map[string]any{}}
+}
+
+func interactionDefinition() fw.InteractionDefinition {
+	return fw.InteractionDefinition{
+		SceneCode:     sceneCode,
+		SchemaVersion: schemaVersion,
+		Actions: []fw.ActionDef{
+			{
+				ActionCode: "set_params", Label: "设置 DHT 参数",
+				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "r", Type: fw.FieldNumber, Label: "复制因子 R", Required: true, Default: defaultR, Min: 1, Max: 8, Step: 1},
+					{Name: "ttl", Type: fw.FieldNumber, Label: "TTL (ticks)", Required: true, Default: defaultTTL, Min: 1, Max: 100, Step: 1},
+				},
+			},
+			{
+				ActionCode: "store", Label: "存储 (key, value)",
+				Description: "存到与 hash(key) 距离最近的 R 个节点",
+				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "key", Type: fw.FieldString, Label: "key", Required: true, Default: "alice"},
+					{Name: "value", Type: fw.FieldString, Label: "value", Required: true, Default: "0xCAFE"},
+				},
+				WritesOwnedFields: []string{"datastructure.dht.key_count"},
+				LinkOwnerFields:   []string{"datastructure.dht.key_count"},
+			},
+			{
+				ActionCode: "find_value", Label: "查询 key",
+				Category: fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "key", Type: fw.FieldString, Label: "key", Required: true, Default: "alice"},
+				},
+				LinkOwnerFields: []string{"datastructure.dht.last_find_result"},
+			},
+			{
+				ActionCode: "step_tick", Label: "推进 1 tick",
+				Description: "tick++，过期副本自动清理",
+				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+			},
+			{
+				ActionCode: "step_n_ticks", Label: "推进 N tick",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 5, Min: 1, Max: 100, Step: 1},
+				},
+			},
+			{
+				ActionCode: "republish", Label: "重新发布所有 key",
+				Description: "对每个尚未全过期的 key 重新执行 STORE",
+				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+			},
+			{
+				ActionCode: "crash_node", Label: "节点离线",
+				Description: "副本数 < R 时数据可能丢失",
+				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n0"},
+				},
+			},
+			{
+				ActionCode: "recover_node", Label: "节点恢复",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n0"},
+				},
+			},
+			{
+				ActionCode: "reset", Label: "重置",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+			},
+			{
+				ActionCode:    "teacher_inject_corruption",
+				Label:         "教师注入数据损坏",
+				Description:   "仅教师可用，注入数据损坏用于教学演示",
+				Category:      fw.ActionAttackInject,
+				Trigger:       fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleTeacher},
+				InterveneType: fw.InterveneFault,
+				Fields: []fw.FieldDef{
+					{Name: "description", Type: fw.FieldString, Label: "描述", Required: false, Default: "教师注入数据损坏"},
+				},
+			},
+			fw.BroadcastHintAction(),
+		},
+	}
+}
+
+// =====================================================================
+// 钩子
+// =====================================================================
+
+func initScene(state *fw.SceneState, in fw.InitInput) (fw.RenderEnvelope, error) {
+	st := loadState(state)
+	saveState(state, st)
+	state.Phase = "ready"
+	env := buildEnvelope(st, "init", "DHT Storage 初始化（8 节点 R=3 TTL=10）", true)
+	publishOwnerSubtree(&env, st)
+	return env, nil
+}
+
+func stepScene(state *fw.SceneState, in fw.StepInput) (fw.StepOutput, error) {
+	st := loadState(state)
+	state.Tick = in.Tick
+	env := buildEnvelope(st, "tick", "", false)
+	return fw.StepOutput{Render: env}, nil
+}
+
+func handleAction(state *fw.SceneState, in fw.ActionInput) (fw.ActionOutput, error) {
+	_ = fw.EnsureActorBucket(state, in.ActorID)
+	if out, ok := fw.HandleBroadcastHint(state, in); ok {
+		return out, nil
+	}
+
+	st := loadState(state)
+	out := fw.ActionOutput{Success: true}
+
+	switch in.ActionCode {
+	case "set_params":
+		st.R = fw.MapInt(in.Params, "r", defaultR)
+		st.TTL = fw.MapInt(in.Params, "ttl", defaultTTL)
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "set_params", fmt.Sprintf("R=%d TTL=%d", st.R, st.TTL), false)
+		return out, nil
+
+	case "store":
+		key := fw.MapStr(in.Params, "key", "alice")
+		value := fw.MapStr(in.Params, "value", "0xCAFE")
+		if len(st.Keys) >= maxKeys {
+			exists := false
+			for _, k := range st.Keys {
+				if k == key {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				return fw.ActionOutput{Success: false, ErrorMessage: fmt.Sprintf("key 数 ≥ %d", maxKeys)}, nil
+			}
+		}
+		nodes := st.store(key, value)
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "store",
+			fmt.Sprintf("STORE(%s, %s) → %d 副本: [%s]", key, value, len(nodes), strings.Join(nodes, ", ")), false)
+		appendStoreMicroSteps(&out.Render, key, len(nodes))
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "find_value":
+		key := fw.MapStr(in.Params, "key", "alice")
+		res := st.findValue(key)
+		st.LastFind = &res
+		saveState(state, st)
+		summary := fmt.Sprintf("FIND_VALUE(%s) → not found", key)
+		if res.Found {
+			summary = fmt.Sprintf("FIND_VALUE(%s) → \"%s\" from %s (replicas=%d)", key, res.Value, res.FromNode, len(res.Replicas))
+		}
+		out.Render = buildEnvelope(st, "find_value", summary, false)
+		appendFindMicroSteps(&out.Render, key, res.Found)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "step_tick":
+		st.Tick++
+		expired := st.expireExpired()
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "step_tick", fmt.Sprintf("tick=%d 清理过期副本 %d 个", st.Tick, expired), false)
+		return out, nil
+
+	case "step_n_ticks":
+		n := fw.MapInt(in.Params, "n", 5)
+		expiredTotal := 0
+		for i := 0; i < n; i++ {
+			st.Tick++
+			expiredTotal += st.expireExpired()
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "step_n_ticks",
+			fmt.Sprintf("推进 %d tick → 累计清理 %d 副本", n, expiredTotal), false)
+		return out, nil
+
+	case "republish":
+		count, _ := st.republish()
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "republish", fmt.Sprintf("重新发布 %d 个 key", count), false)
+		appendRepublishMicroSteps(&out.Render, count)
+		return out, nil
+
+	case "crash_node":
+		label := fw.MapStr(in.Params, "label", "n0")
+		for i := range st.Nodes {
+			if st.Nodes[i].Label == label {
+				st.Nodes[i].IsDown = true
+				break
+			}
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "crash_node", label+" 离线", false)
+		appendCrashMicroSteps(&out.Render, label)
+		return out, nil
+
+	case "recover_node":
+		label := fw.MapStr(in.Params, "label", "n0")
+		for i := range st.Nodes {
+			if st.Nodes[i].Label == label {
+				st.Nodes[i].IsDown = false
+				break
+			}
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "recover_node", label+" 恢复", false)
+		return out, nil
+
+	case "teacher_inject_corruption":
+		if in.UserRole != fw.RoleTeacher {
+			return fw.ActionOutput{Success: false, ErrorMessage: "仅教师可调用"}, nil
+		}
+		desc, _ := in.Params["description"].(string)
+		if desc == "" {
+			desc = "教师注入数据损坏"
+		}
+		annot := fw.PrimAnnotation(fmt.Sprintf("teacher-corrupt-%d", state.Tick), "text", "teacher", 5000, map[string]any{"x": 0.5, "y": 0.1}, nil, desc)
+		return fw.ActionOutput{
+			Success: true,
+			Render: fw.RenderEnvelope{
+				Primitives:  []fw.Primitive{annot},
+				ChangedKeys: []string{"teacher_action"},
+			},
+		}, nil
+
+	case "reset":
+		st = defaultSnapState()
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "reset", "已重置", true)
+		return out, nil
+	}
+
+	return fw.ActionOutput{Success: false, ErrorMessage: "未知 ActionCode: " + in.ActionCode}, errors.New("unknown action")
+}
+
+// =====================================================================
+// RenderEnvelope 构造
+// =====================================================================
+
+func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.RenderEnvelope {
+	prims := make([]fw.Primitive, 0, 40)
+
+	// 1) 节点环
+	prims = append(prims, fw.PrimRingLayout("node-ring", len(st.Nodes)))
+	holdersSet := map[string]bool{}
+	if st.LastFind != nil {
+		for _, h := range st.LastFind.Replicas {
+			holdersSet[h] = true
+		}
+	}
+	for _, n := range st.Nodes {
+		role := "node"
+		status := "normal"
+		if n.IsDown {
+			status = "error"
+			role = "down"
+		} else if holdersSet[n.Label] {
+			status = "active"
+			role = "replica"
+		} else if len(n.Store) > 0 {
+			role = "holder"
+		}
+		label := fmt.Sprintf("%s\nstore=%d\nid=%s", n.Label, len(n.Store), hex.EncodeToString(n.ID))
+		prims = append(prims, fw.PrimNode("node-"+n.Label, label, status, role))
+	}
+
+	// 2) heat_map：节点 × key 持有矩阵
+	if len(st.Keys) > 0 {
+		cells := make([]map[string]any, 0, len(st.Nodes)*len(st.Keys))
+		for i, n := range st.Nodes {
+			for j, key := range st.Keys {
+				keyHex := hex.EncodeToString(st.keyToHash(key))
+				val := 0
+				color := "muted"
+				if e, has := n.Store[keyHex]; has {
+					val = 1
+					if e.Expires > st.Tick {
+						color = "success"
+					} else {
+						color = "warning"
+					}
+				}
+				if n.IsDown {
+					color = "danger"
+				}
+				cells = append(cells, map[string]any{
+					"row": i, "col": j, "value": val, "color_role": color,
+				})
+			}
+		}
+		prims = append(prims, fw.PrimHeatMap("storage-matrix", len(st.Nodes), len(st.Keys), cells))
+	}
+
+	// 3) 公式
+	prims = append(prims, fw.PrimMathFormula("formula-store",
+		`\text{STORE}(k, v):\ \text{closest}_R(\mathrm{hash}(k))\ \text{节点存 } v;\ \ \text{TTL}\ \text{后过期}`, false))
+	prims = append(prims, fw.PrimMathFormula("formula-find",
+		`\text{FIND\_VALUE}(k):\ \text{any holder of}\ k\ \text{未过期} \to \text{return}`, false))
+
+	// 4) 状态
+	totalReplicas := 0
+	for _, n := range st.Nodes {
+		totalReplicas += len(n.Store)
+	}
+	activeNodes := 0
+	for _, n := range st.Nodes {
+		if !n.IsDown {
+			activeNodes++
+		}
+	}
+	prims = append(prims, fw.PrimCodeBlock("cb-status",
+		fmt.Sprintf("tick = %d\nID 位长 = %d\nR (复制因子) = %d\nTTL = %d\n节点 = %d (active=%d)\nkey 数 = %d\n副本总数 = %d",
+			st.Tick, st.IDBits, st.R, st.TTL,
+			len(st.Nodes), activeNodes, len(st.Keys), totalReplicas),
+		"text", nil, 8))
+
+	// 5) keys 表
+	if len(st.Keys) > 0 {
+		keyRows := []string{"key       hash             holders"}
+		for _, key := range st.Keys {
+			keyHex := hex.EncodeToString(st.keyToHash(key))
+			holders := []string{}
+			for _, n := range st.Nodes {
+				if e, has := n.Store[keyHex]; has && e.Expires > st.Tick && !n.IsDown {
+					holders = append(holders, n.Label)
+				}
+			}
+			status := "ok"
+			if len(holders) < st.R {
+				status = "DEGRADED"
+			}
+			if len(holders) == 0 {
+				status = "LOST"
+			}
+			keyRows = append(keyRows, fmt.Sprintf("%-9s %s [%s] %s",
+				key, keyHex[:14], strings.Join(holders, ","), status))
+		}
+		prims = append(prims, fw.PrimCodeBlock("cb-keys", strings.Join(keyRows, "\n"), "text", nil, 12))
+	}
+
+	// 6) 节点详情
+	nodeRows := []string{"label  id           down  keys  cpl→hash"}
+	for _, n := range st.Nodes {
+		cplStr := ""
+		if st.LastFind != nil {
+			cplStr = fmt.Sprintf("cpl=%d", leadingZeros(xorDistance(n.ID, st.LastFind.KeyHash)))
+		}
+		nodeRows = append(nodeRows, fmt.Sprintf("%-5s  %s   %-5v  %-4d  %s",
+			n.Label, hex.EncodeToString(n.ID), n.IsDown, len(n.Store), cplStr))
+	}
+	prims = append(prims, fw.PrimCodeBlock("cb-nodes", strings.Join(nodeRows, "\n"), "text", nil, 12))
+
+	// 7) 上次查询
+	if st.LastFind != nil {
+		queryLines := []string{
+			fmt.Sprintf("last_find = %s", st.LastFind.Key),
+			fmt.Sprintf("hash      = %s", hex.EncodeToString(st.LastFind.KeyHash)),
+			fmt.Sprintf("found     = %v", st.LastFind.Found),
+			fmt.Sprintf("from      = %s", st.LastFind.FromNode),
+			fmt.Sprintf("value     = %s", st.LastFind.Value),
+			fmt.Sprintf("replicas  = [%s]", strings.Join(st.LastFind.Replicas, ", ")),
+		}
+		if st.LastFind.Expired {
+			queryLines = append(queryLines, "⚠ 部分副本已过期")
+		}
+		prims = append(prims, fw.PrimCodeBlock("cb-query", strings.Join(queryLines, "\n"), "text", nil, 10))
+	}
+
+	// 8) 进度条：副本充足度
+	if len(st.Keys) > 0 {
+		ok := 0
+		for _, key := range st.Keys {
+			keyHex := hex.EncodeToString(st.keyToHash(key))
+			holders := 0
+			for _, n := range st.Nodes {
+				if e, has := n.Store[keyHex]; has && e.Expires > st.Tick && !n.IsDown {
+					holders++
+				}
+			}
+			if holders >= st.R {
+				ok++
+			}
+		}
+		prims = append(prims, fw.PrimProgressBar("redundancy", float64(ok), float64(len(st.Keys)),
+			fmt.Sprintf("满副本 key %d/%d", ok, len(st.Keys))))
+	}
+
+	// 9) 动效
+	for _, n := range st.Nodes {
+		if n.IsDown {
+			prims = append(prims, fw.PrimGlow("glow-down-"+n.Label, "node-"+n.Label, "danger", 0.7))
+		}
+		if holdersSet[n.Label] {
+			prims = append(prims, fw.PrimGlow("glow-replica-"+n.Label, "node-"+n.Label, "info", 0.7))
+		}
+	}
+	if st.LastFind != nil && st.LastFind.Found {
+		prims = append(prims, fw.PrimBurst("burst-found", "node-"+st.LastFind.FromNode, "success",
+			int64(st.Tick), 800))
+	}
+
+	// 10) 联动徽章
+	prims = append(prims, fw.PrimLinkIndicator("link-net", linkGroupNetworkBase, "idle", ""))
+
+	if st.LastError != "" {
+		prims = append(prims, fw.PrimErrorOverlay("err", "warning", "DHT 错误", st.LastError, "scene", "请检查参数", true))
+	}
+
+	return fw.RenderEnvelope{
+		Primitives:     prims,
+		IsFullSnapshot: fullSnapshot,
+		ChangedKeys:    []string{reason},
+		Data:           buildSidePanelData(st, summary),
+	}
+}
+
+func buildSidePanelData(st snapState, summary string) map[string]any {
+	totalReplicas := 0
+	for _, n := range st.Nodes {
+		totalReplicas += len(n.Store)
+	}
+	d := map[string]any{
+		"id_bits":       st.IDBits,
+		"r":             st.R,
+		"ttl":           st.TTL,
+		"tick":          st.Tick,
+		"node_count":    len(st.Nodes),
+		"key_count":     len(st.Keys),
+		"replica_count": totalReplicas,
+	}
+	if st.LastFind != nil {
+		d["last_find_result"] = st.LastFind.Found
+		d["last_find_key"] = st.LastFind.Key
+	}
+	if summary != "" {
+		d["summary"] = summary
+	}
+	return d
+}
+
+// =====================================================================
+// MicroStep
+// =====================================================================
+
+func appendStoreMicroSteps(env *fw.RenderEnvelope, key string, n int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "st-1", Label: fmt.Sprintf("hash(%s) → 256-bit", key), DurationMs: 400, HighlightIDs: []string{"formula-store"}},
+		{ID: "st-2", Label: fmt.Sprintf("找最近 R 个节点（%d 个）", n), DurationMs: 500, HighlightIDs: []string{"node-ring", "cb-nodes"}},
+		{ID: "st-3", Label: "在每个节点的 store 中保存 (key, value)", DurationMs: 500, HighlightIDs: []string{"storage-matrix"}, IsLinkTrigger: true},
+	}
+}
+
+func appendFindMicroSteps(env *fw.RenderEnvelope, key string, found bool) {
+	tail := "未找到（无副本或全过期）"
+	if found {
+		tail = "✓ 返回最近未过期副本的 value"
+	}
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "fd-1", Label: fmt.Sprintf("hash(%s)", key), DurationMs: 400, HighlightIDs: []string{"formula-find"}},
+		{ID: "fd-2", Label: "查询所有持有副本的节点", DurationMs: 500, HighlightIDs: []string{"storage-matrix"}},
+		{ID: "fd-3", Label: tail, DurationMs: 500, HighlightIDs: []string{"cb-query"}, FirePrimitives: []string{"burst-found"}, IsLinkTrigger: true},
+	}
+}
+
+func appendRepublishMicroSteps(env *fw.RenderEnvelope, count int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "rp-1", Label: "枚举所有 key", DurationMs: 400, HighlightIDs: []string{"cb-keys"}},
+		{ID: "rp-2", Label: "对每个未全过期 key 重 STORE", DurationMs: 500, HighlightIDs: []string{"storage-matrix"}},
+		{ID: "rp-3", Label: fmt.Sprintf("已重新发布 %d 个 key", count), DurationMs: 400, HighlightIDs: []string{"redundancy"}, IsLinkTrigger: true},
+	}
+}
+
+func appendCrashMicroSteps(env *fw.RenderEnvelope, label string) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "cr-1", Label: label + " 离线", DurationMs: 400, HighlightIDs: []string{"node-" + label}, FirePrimitives: []string{"glow-down-" + label}},
+		{ID: "cr-2", Label: "其副本不再可达 → 部分 key 副本数 < R", DurationMs: 500, HighlightIDs: []string{"redundancy", "cb-keys"}},
+		{ID: "cr-3", Label: "可触发 republish 修复或等下次 STORE 自然恢复", DurationMs: 500, HighlightIDs: []string{"formula-store"}, IsLinkTrigger: true},
+	}
+}
+
+// =====================================================================
+// 联动
+// =====================================================================
+
+func publishOwnerSubtree(env *fw.RenderEnvelope, st snapState) {
+	if env.Data == nil {
+		env.Data = map[string]any{}
+	}
+	env.LinkTriggers = append(env.LinkTriggers, fw.LinkTrigger{
+		ID:             "dht-publish",
+		SourceScene:    sceneCode,
+		SourceAction:   "publish_dht",
+		LinkGroup:      linkGroupNetworkBase,
+		ChangedFields:  []string{"datastructure.dht.key_count"},
+		Payload:        map[string]any{"key_count": len(st.Keys)},
+		SourceAnchorID: "dht-output-anchor",
+		TargetAnchorID: "network-base-anchor",
+	})
+	env.ChangedKeys = append(env.ChangedKeys, "datastructure.dht.key_count")
+	env.Data["link_owner_subtree"] = linkOwnerSubtree
+}
+
+func ownerDiff(st snapState) map[string]any {
+	totalReplicas := 0
+	for _, n := range st.Nodes {
+		totalReplicas += len(n.Store)
+	}
+	return map[string]any{
+		"datastructure": map[string]any{
+			"dht": map[string]any{
+				"id_bits":       st.IDBits,
+				"r":             st.R,
+				"ttl":           st.TTL,
+				"node_count":    len(st.Nodes),
+				"key_count":     len(st.Keys),
+				"replica_count": totalReplicas,
+			},
+		},
+	}
+}
+
+// =====================================================================
+// 工具
+// =====================================================================
 

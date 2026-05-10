@@ -1,5 +1,5 @@
-import type { JsonObject, RenderState, SceneSnapshot, TimelineEvent, WebSocketMessage } from "./types.js";
-import { asArray, asObject, asString, deepClone, deepMerge, flattenChangedKeys } from "./utils.js";
+import type { JsonObject, MicroStep, Primitive, RenderState, SceneSnapshot, TimelineEvent, WebSocketMessage } from "./types.js";
+import { asArray, asObject, asString, deepClone } from "./utils.js";
 
 /**
  * StateCache 保存场景完整状态与最多 1000 个历史快照。
@@ -47,51 +47,37 @@ export class StateCache {
 
   /**
    * applyMessage 将数据通道消息合并到状态缓存。
+   * 新协议仅处理 "render" 和 "event" 两种服务端推送。
    */
   public applyMessage(baseState: RenderState, message: WebSocketMessage): RenderState {
     const previous = this.states.get(baseState.sceneCode);
     let nextState = deepClone(baseState);
-    const envelope = this.normalizeEnvelope(message.payload);
-    if (message.type === "state_diff" && previous) {
+
+    if (message.type === "render") {
+      const meta = this.normalizeEnvelope(message.payload);
       nextState = {
-        ...previous,
+        ...(previous ?? baseState),
         tick: message.tick,
-        renderData: deepMerge(previous.renderData as JsonObject, envelope.renderData),
-        changedKeys: envelope.changedKeys ?? flattenChangedKeys(envelope.renderData)
+        envelope: {
+          primitives: (asArray(message.payload.primitives) ?? []) as Primitive[],
+          micro_steps: (asArray(message.payload.micro_steps) ?? []) as MicroStep[]
+        },
+        changedKeys: meta.changedKeys ?? []
       };
-      nextState = this.applyEnvelopeState(nextState, envelope);
-    }
-    if (message.type === "state_full") {
-      nextState = {
-        ...baseState,
-        tick: message.tick,
-        renderData: deepClone(envelope.renderData),
-        changedKeys: []
-      };
-      nextState = this.applyEnvelopeState(nextState, envelope);
-    }
-    if (message.type === "event" && previous) {
+      nextState = this.applyEnvelopeState(nextState, meta);
+    } else if (message.type === "event" && previous) {
       nextState = {
         ...previous,
         timeline: [...(previous.timeline ?? []), this.toTimelineEvent(message)],
         tick: message.tick
       };
-    }
-    if (message.type === "teacher_summary" && previous) {
+    } else if (previous) {
       nextState = {
         ...previous,
         tick: message.tick
       };
     }
-    if (message.type === "link_update" && previous) {
-      nextState = {
-        ...previous,
-        linked: true,
-        tick: message.tick,
-        changedKeys: this.resolveLinkChangedKeys(message.payload)
-      };
-      nextState = this.applyEnvelopeState(nextState, envelope);
-    }
+
     this.states.set(baseState.sceneCode, deepClone(nextState));
     this.pushHistory(baseState.sceneCode, nextState);
     return nextState;
@@ -148,10 +134,9 @@ export class StateCache {
   }
 
   /**
-   * normalizeEnvelope 将 Core 推送的完整 render envelope 提取为标准状态字段。
+   * normalizeEnvelope 从 render 载荷中提取元数据字段。
    */
   private normalizeEnvelope(payload: JsonObject): {
-    renderData: JsonObject;
     title?: string;
     timeControlMode?: RenderState["timeControlMode"];
     linked?: boolean;
@@ -162,14 +147,10 @@ export class StateCache {
     schema?: RenderState["schema"];
     changedKeys?: string[];
   } {
-    const renderData = deepClone(payload);
-    const extra = asObject(renderData.extra);
-    delete renderData.extra;
-
-    const timeControlMode = this.resolveTimeControlMode(extra.time_control_mode);
-    const changedKeys = asArray<unknown>(renderData.changed_keys).map((item) => asString(item)).filter(Boolean);
-    const envelope: {
-      renderData: JsonObject;
+    const meta = asObject(payload.meta);
+    const timeControlMode = this.resolveTimeControlMode(meta.time_control_mode);
+    const changedKeys = asArray<unknown>(payload.changed_keys).map((item) => asString(item)).filter(Boolean);
+    const result: {
       title?: string;
       timeControlMode?: RenderState["timeControlMode"];
       linked?: boolean;
@@ -179,44 +160,42 @@ export class StateCache {
       timeline?: RenderState["timeline"];
       schema?: RenderState["schema"];
       changedKeys?: string[];
-    } = {
-      renderData
-    };
+    } = {};
 
-    const title = asString(extra.title);
+    const title = asString(meta.title);
     if (title) {
-      envelope.title = title;
+      result.title = title;
     }
     if (timeControlMode !== undefined) {
-      envelope.timeControlMode = timeControlMode;
+      result.timeControlMode = timeControlMode;
     }
-    if (typeof extra.linked === "boolean") {
-      envelope.linked = extra.linked;
+    if (typeof meta.linked === "boolean") {
+      result.linked = meta.linked;
     }
-    const linkGroupName = asString(extra.link_group_name);
+    const linkGroupName = asString(meta.link_group_name);
     if (linkGroupName) {
-      envelope.linkGroupName = linkGroupName;
+      result.linkGroupName = linkGroupName;
     }
-    const metrics = asArray(extra.metrics) as NonNullable<RenderState["metrics"]>;
+    const metrics = asArray(meta.metrics) as NonNullable<RenderState["metrics"]>;
     if (metrics.length > 0) {
-      envelope.metrics = metrics;
+      result.metrics = metrics;
     }
-    const tooltip = asArray(extra.tooltip) as NonNullable<RenderState["tooltip"]>;
+    const tooltip = asArray(meta.tooltip) as NonNullable<RenderState["tooltip"]>;
     if (tooltip.length > 0) {
-      envelope.tooltip = tooltip;
+      result.tooltip = tooltip;
     }
-    const timeline = asArray(extra.timeline) as NonNullable<RenderState["timeline"]>;
+    const timeline = asArray(meta.timeline) as NonNullable<RenderState["timeline"]>;
     if (timeline.length > 0) {
-      envelope.timeline = timeline;
+      result.timeline = timeline;
     }
-    const schema = this.resolveSchema(extra.schema);
+    const schema = this.resolveSchema(meta.schema);
     if (schema !== undefined) {
-      envelope.schema = schema;
+      result.schema = schema;
     }
     if (changedKeys.length > 0) {
-      envelope.changedKeys = changedKeys;
+      result.changedKeys = changedKeys;
     }
-    return envelope;
+    return result;
   }
 
   /**
@@ -267,12 +246,6 @@ export class StateCache {
     return event;
   }
 
-  /**
-   * resolveLinkChangedKeys 读取后端在联动协议中显式声明的 changed_keys。
-   */
-  private resolveLinkChangedKeys(payload: JsonObject): string[] {
-    return asArray<unknown>(payload.changed_keys).map((item) => asString(item)).filter(Boolean);
-  }
 
   /**
    * resolveTimelineTone 将后端返回的事件语义收敛到前端允许的 tone 枚举。

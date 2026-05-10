@@ -4,6 +4,7 @@ import type {
   InteractionAction,
   InteractionInputMap,
   InteractionSchema,
+  JsonObject,
   PanelLayoutItem,
   RenderState,
   SceneSummary,
@@ -189,11 +190,11 @@ export class SimPanel {
    */
   public setState(state: RenderState): void {
     this.stateCache.applyMessage(state, {
-      type: "state_full",
+      type: "render",
       scene_code: state.sceneCode,
       tick: state.tick,
       timestamp: Date.now(),
-      payload: state.renderData
+      payload: { primitives: state.envelope.primitives, micro_steps: state.envelope.micro_steps ?? [] } as unknown as JsonObject
     });
     this.views.get(state.sceneCode)?.setState(state);
   }
@@ -359,7 +360,6 @@ export class SimPanel {
       const summary: SceneSummary = {
         sceneCode: state.sceneCode,
         title: state.title,
-        algorithmType: state.algorithmType,
         timeControlMode: state.timeControlMode,
         tick: state.tick,
         linked: state.linked ?? false,
@@ -417,6 +417,9 @@ export class SimPanel {
     }
     if (this.options.roleKey !== undefined) {
       payload.roleKey = this.options.roleKey;
+    }
+    if (this.options.userRole !== undefined) {
+      payload.userRole = this.options.userRole;
     }
     this.wsClient.sendAction(payload);
   }

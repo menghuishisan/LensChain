@@ -986,3 +986,33 @@ type CourseQuotaReq struct {
 	MaxConcurrency int `json:"max_concurrency" binding:"required,min=0"`
 	MaxPerStudent  int `json:"max_per_student" binding:"required,min=1"`
 }
+
+// ========== SimEngine 交互面板 DTO ==========
+
+// SimInteractionSchemaResp 场景交互 schema 响应
+// GET /api/v1/experiment-instances/:id/sim-scenes/:scene_code/interaction-schema
+type SimInteractionSchemaResp struct {
+	SceneCode string          `json:"scene_code"`
+	Actions   json.RawMessage `json:"actions"`
+}
+
+// ========== 教师干预 DTO ==========
+
+// TeacherInterveneReq 教师干预请求
+// POST /api/v1/teacher/experiments/:id/intervene
+type TeacherInterveneReq struct {
+	ActionCode       string          `json:"action_code" binding:"required"`
+	TargetSessionIDs []string        `json:"target_session_ids"`
+	TargetSceneCodes []string        `json:"target_scene_codes"`
+	TargetLinkGroup  string          `json:"target_link_group"`
+	Params           json.RawMessage `json:"params"`
+}
+
+// TeacherInterveneResp 教师干预响应
+// POST /api/v1/teacher/experiments/:id/intervene
+type TeacherInterveneResp struct {
+	Success            bool            `json:"success"`
+	ErrorMessage       string          `json:"error_message,omitempty"`
+	AffectedSessionIDs []string        `json:"affected_session_ids"`
+	Result             json.RawMessage `json:"result,omitempty"`
+}

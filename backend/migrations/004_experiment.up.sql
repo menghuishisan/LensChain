@@ -205,14 +205,19 @@ CREATE TABLE sim_scenarios (
     reviewed_at TIMESTAMP NULL,
     algorithm_type VARCHAR(100) NOT NULL,
     time_control_mode VARCHAR(20) NOT NULL DEFAULT 'process',
+    extension_level SMALLINT NOT NULL DEFAULT 1,
+    algorithm_logic_js TEXT NULL,
+    npm_package_name VARCHAR(200) NULL,
+    npm_package_version VARCHAR(50) NULL,
     container_image_url VARCHAR(500) NULL,
     container_image_size BIGINT NULL,
     default_params JSONB NULL,
+    default_params_schema JSONB NULL,
     interaction_schema JSONB NULL,
     data_source_mode SMALLINT NOT NULL DEFAULT 1,
     default_size JSONB NULL,
     delivery_phase SMALLINT NOT NULL DEFAULT 1,
-    version VARCHAR(50) NOT NULL DEFAULT '1.0.0',
+    current_version VARCHAR(50) NOT NULL DEFAULT '1.0.0',
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMP NULL,
@@ -233,12 +238,19 @@ CREATE TABLE sim_link_groups (
     id BIGINT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     code VARCHAR(100) NOT NULL,
+    version VARCHAR(20) NOT NULL DEFAULT '1.0.0',
     description TEXT NULL,
+    category VARCHAR(50) NOT NULL DEFAULT 'consensus',
     shared_state_schema JSONB NOT NULL,
+    force_clock_sync BOOLEAN NOT NULL DEFAULT TRUE,
+    status SMALLINT NOT NULL DEFAULT 1,
+    created_by BIGINT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-CREATE UNIQUE INDEX uk_sim_link_groups_code ON sim_link_groups(code);
+CREATE UNIQUE INDEX uk_sim_link_groups_code_version ON sim_link_groups(code, version);
+CREATE INDEX idx_sim_link_groups_code ON sim_link_groups(code);
+CREATE INDEX idx_sim_link_groups_status ON sim_link_groups(status);
 
 -- sim_link_group_scenes：联动组场景关联表。
 CREATE TABLE sim_link_group_scenes (
@@ -260,8 +272,14 @@ CREATE TABLE template_sim_scenes (
     template_id BIGINT NOT NULL,
     scenario_id BIGINT NOT NULL,
     link_group_id BIGINT NULL,
+    link_group_version VARCHAR(20) NULL,
+    scenario_version VARCHAR(20) NOT NULL DEFAULT '1.0.0',
     config JSONB NULL,
     layout_position JSONB NULL,
+    layout_role SMALLINT NOT NULL DEFAULT 2,
+    display_mode VARCHAR(20) NOT NULL DEFAULT 'split-2',
+    link_to_primary BOOLEAN NOT NULL DEFAULT TRUE,
+    default_visible BOOLEAN NOT NULL DEFAULT TRUE,
     data_source_config JSONB NULL,
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -273,6 +291,7 @@ CREATE TABLE template_sim_scenes (
 CREATE INDEX idx_template_sim_scenes_template_id ON template_sim_scenes(template_id);
 CREATE INDEX idx_template_sim_scenes_scenario_id ON template_sim_scenes(scenario_id);
 CREATE INDEX idx_template_sim_scenes_link_group_id ON template_sim_scenes(link_group_id);
+CREATE UNIQUE INDEX uk_template_sim_scenes_primary ON template_sim_scenes(template_id) WHERE layout_role = 1;
 
 -- tags：标签表。
 CREATE TABLE tags (
@@ -529,6 +548,55 @@ CREATE TABLE experiment_reports (
 );
 CREATE INDEX idx_experiment_reports_instance_id ON experiment_reports(instance_id);
 CREATE INDEX idx_experiment_reports_student_id ON experiment_reports(student_id);
+
+-- sim_scenario_versions：场景版本历史表。
+CREATE TABLE sim_scenario_versions (
+    id BIGINT PRIMARY KEY,
+    scenario_id BIGINT NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    algorithm_logic_js TEXT NULL,
+    npm_package_version VARCHAR(50) NULL,
+    container_image_url VARCHAR(500) NULL,
+    default_params_schema JSONB NULL,
+    default_params JSONB NULL,
+    interaction_schema JSONB NULL,
+    changelog TEXT NULL,
+    breaking_change BOOLEAN NOT NULL DEFAULT FALSE,
+    released_by BIGINT NULL,
+    released_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    status SMALLINT NOT NULL DEFAULT 1,
+    CONSTRAINT fk_scenario_versions_scenario_id FOREIGN KEY (scenario_id) REFERENCES sim_scenarios(id),
+    CONSTRAINT fk_scenario_versions_released_by FOREIGN KEY (released_by) REFERENCES users(id)
+);
+CREATE UNIQUE INDEX uk_scenario_versions ON sim_scenario_versions(scenario_id, version);
+CREATE INDEX idx_scenario_versions_scenario_id ON sim_scenario_versions(scenario_id);
+CREATE INDEX idx_scenario_versions_status ON sim_scenario_versions(status);
+
+-- teacher_intervene_logs：教师 SimEngine 干预审计日志表。
+CREATE TABLE teacher_intervene_logs (
+    id BIGINT PRIMARY KEY,
+    experiment_id BIGINT NOT NULL,
+    course_id BIGINT NULL,
+    teacher_id BIGINT NOT NULL,
+    school_id BIGINT NOT NULL,
+    intervene_type VARCHAR(50) NOT NULL,
+    target_scope VARCHAR(20) NOT NULL,
+    target_user_ids BIGINT[] NULL,
+    target_scene_code VARCHAR(100) NULL,
+    target_link_group_code VARCHAR(100) NULL,
+    payload JSONB NULL,
+    reason VARCHAR(500) NULL,
+    executed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    client_ip VARCHAR(50) NULL,
+    user_agent VARCHAR(500) NULL,
+    CONSTRAINT fk_intervene_logs_teacher_id FOREIGN KEY (teacher_id) REFERENCES users(id),
+    CONSTRAINT fk_intervene_logs_school_id FOREIGN KEY (school_id) REFERENCES schools(id)
+);
+CREATE INDEX idx_intervene_logs_experiment_id ON teacher_intervene_logs(experiment_id);
+CREATE INDEX idx_intervene_logs_teacher_id ON teacher_intervene_logs(teacher_id);
+CREATE INDEX idx_intervene_logs_school_id ON teacher_intervene_logs(school_id);
+CREATE INDEX idx_intervene_logs_intervene_type ON teacher_intervene_logs(intervene_type);
+CREATE INDEX idx_intervene_logs_executed_at ON teacher_intervene_logs(executed_at DESC);
 
 -- 补充需要延后声明的外键，避免同文件内前后依赖冲突。
 ALTER TABLE template_containers

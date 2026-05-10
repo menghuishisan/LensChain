@@ -4,7 +4,10 @@ go 1.24.0
 
 toolchain go1.24.3
 
-require github.com/lenschain/sim-engine/sdk/go v0.0.0
+require (
+	github.com/lenschain/sim-engine/framework v0.0.0
+	github.com/lenschain/sim-engine/sdk/go v0.0.0
+)
 
 require (
 	github.com/lenschain/sim-engine/proto/gen/go v0.0.0 // indirect
@@ -15,6 +18,8 @@ require (
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/lenschain/sim-engine/framework => ../framework
 
 replace github.com/lenschain/sim-engine/sdk/go => ../sdk/go
 

@@ -46,7 +46,7 @@ export function SnapshotPanel({ instanceID }: SnapshotPanelProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <FormField label="快照说明" description="快照会保存容器状态和 SimEngine 状态，便于回滚。">
+          <FormField label="快照说明" description="快照会保存容器状态和仿真状态，便于回滚。">
             <Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="例如：完成初始化后的稳定状态" />
           </FormField>
           <Button className="self-end" onClick={() => mutations.create.mutate(description)} isLoading={mutations.create.isPending}>

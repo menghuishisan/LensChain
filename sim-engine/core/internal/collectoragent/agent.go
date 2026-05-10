@@ -534,11 +534,9 @@ func parseBlockNumber(raw json.RawMessage) (uint64, error) {
 	return strconv.ParseUint(value, 10, 64)
 }
 
-// encodeBlockNumber 根据链生态要求输出块高参数。
-func encodeBlockNumber(ecosystem string, blockNumber uint64) string {
-	if ecosystem == "fisco" {
-		return fmt.Sprintf("0x%x", blockNumber)
-	}
+// encodeBlockNumber 将块高编码为 JSON-RPC 所需的 0x 前缀十六进制格式。
+// Ethereum 与 FISCO BCOS 均使用此格式（EIP-1474 / FISCO JSON-RPC 规范）。
+func encodeBlockNumber(_ string, blockNumber uint64) string {
 	return fmt.Sprintf("0x%x", blockNumber)
 }
 

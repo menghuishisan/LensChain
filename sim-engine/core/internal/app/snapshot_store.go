@@ -29,11 +29,13 @@ type SnapshotPayload struct {
 }
 
 // SnapshotScene 是单个场景的快照内容。
+// SceneStateJSON 为场景算法内部状态；RenderEnvelopeJSON 为最近一帧 RenderEnvelope；
+// SharedStateJSON 为联动共享状态快照（联动组场景才会填充）。
 type SnapshotScene struct {
-	SceneCode       string `json:"scene_code"`
-	StateJSON       []byte `json:"state_json"`
-	RenderStateJSON []byte `json:"render_state_json"`
-	SharedStateJSON []byte `json:"shared_state_json"`
+	SceneCode          string `json:"scene_code"`
+	SceneStateJSON     []byte `json:"scene_state_json"`
+	RenderEnvelopeJSON []byte `json:"render_envelope_json"`
+	SharedStateJSON    []byte `json:"shared_state_json,omitempty"`
 }
 
 // SnapshotStore 定义快照持久化存储接口。

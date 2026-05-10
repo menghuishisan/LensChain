@@ -7,6 +7,7 @@ package entity
 import (
 	"time"
 
+	"github.com/lib/pq"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -231,7 +232,7 @@ func (TemplateInitScript) TableName() string {
 // ---------------------------------------------------------------------------
 
 // SimScenario 仿真场景库表
-// 对应 sim_scenarios 表，27 个字段（含软删除）
+// 对应 sim_scenarios 表（含软删除）
 type SimScenario struct {
 	ID                 int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
 	Name               string         `gorm:"type:varchar(100);not null" json:"name"`
@@ -249,14 +250,19 @@ type SimScenario struct {
 	ReviewedAt         *time.Time     `gorm:"" json:"reviewed_at,omitempty"`
 	AlgorithmType      string         `gorm:"type:varchar(100);not null" json:"algorithm_type"`
 	TimeControlMode    string         `gorm:"type:varchar(20);not null;default:'process'" json:"time_control_mode"`
+	ExtensionLevel     int16          `gorm:"column:extension_level;type:smallint;not null;default:1" json:"extension_level"`
+	AlgorithmLogicJS   *string        `gorm:"column:algorithm_logic_js;type:text" json:"algorithm_logic_js,omitempty"`
+	NpmPackageName     *string        `gorm:"column:npm_package_name;type:varchar(200)" json:"npm_package_name,omitempty"`
+	NpmPackageVersion  *string        `gorm:"column:npm_package_version;type:varchar(50)" json:"npm_package_version,omitempty"`
 	ContainerImageURL  *string        `gorm:"type:varchar(500)" json:"container_image_url,omitempty"`
 	ContainerImageSize *int64         `gorm:"" json:"container_image_size,omitempty,string"`
 	DefaultParams      datatypes.JSON `gorm:"column:default_params;type:jsonb" json:"default_params,omitempty"`
+	DefaultParamsSchema datatypes.JSON `gorm:"column:default_params_schema;type:jsonb" json:"default_params_schema,omitempty"`
 	InteractionSchema  datatypes.JSON `gorm:"column:interaction_schema;type:jsonb" json:"interaction_schema,omitempty"`
 	DataSourceMode     int16          `gorm:"column:data_source_mode;type:smallint;not null;default:1" json:"data_source_mode"`
 	DefaultSize        datatypes.JSON `gorm:"column:default_size;type:jsonb" json:"default_size,omitempty"`
 	DeliveryPhase      int16          `gorm:"column:delivery_phase;type:smallint;not null;default:1" json:"delivery_phase"`
-	Version            string         `gorm:"type:varchar(50);not null;default:'1.0.0'" json:"version"`
+	CurrentVersion     string         `gorm:"column:current_version;type:varchar(50);not null;default:'1.0.0'" json:"current_version"`
 	CreatedAt          time.Time      `gorm:"not null;default:now()" json:"created_at"`
 	UpdatedAt          time.Time      `gorm:"not null;default:now()" json:"updated_at"`
 	DeletedAt          gorm.DeletedAt `gorm:"index" json:"-"`
@@ -277,8 +283,13 @@ type SimLinkGroup struct {
 	ID                int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
 	Name              string         `gorm:"type:varchar(100);not null" json:"name"`
 	Code              string         `gorm:"type:varchar(100);not null" json:"code"`
+	Version           string         `gorm:"type:varchar(20);not null;default:'1.0.0'" json:"version"`
 	Description       *string        `gorm:"type:text" json:"description,omitempty"`
+	Category          string         `gorm:"type:varchar(50);not null;default:'consensus'" json:"category"`
 	SharedStateSchema datatypes.JSON `gorm:"column:shared_state_schema;type:jsonb;not null" json:"shared_state_schema"`
+	ForceClockSync    bool           `gorm:"column:force_clock_sync;not null;default:true" json:"force_clock_sync"`
+	Status            int16          `gorm:"column:status;type:smallint;not null;default:1" json:"status"`
+	CreatedBy         *int64         `gorm:"" json:"created_by,omitempty,string"`
 	CreatedAt         time.Time      `gorm:"not null;default:now()" json:"created_at"`
 	UpdatedAt         time.Time      `gorm:"not null;default:now()" json:"updated_at"`
 }
@@ -313,14 +324,20 @@ func (SimLinkGroupScene) TableName() string {
 // ---------------------------------------------------------------------------
 
 // TemplateSimScene 模板仿真场景配置表
-// 对应 template_sim_scenes 表，9 个字段
+// 对应 template_sim_scenes 表
 type TemplateSimScene struct {
 	ID               int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
 	TemplateID       int64          `gorm:"not null;index" json:"template_id,string"`
 	ScenarioID       int64          `gorm:"not null;index" json:"scenario_id,string"`
 	LinkGroupID      *int64         `gorm:"index" json:"link_group_id,omitempty,string"`
+	LinkGroupVersion *string        `gorm:"column:link_group_version;type:varchar(20)" json:"link_group_version,omitempty"`
+	ScenarioVersion  string         `gorm:"column:scenario_version;type:varchar(20);not null;default:'1.0.0'" json:"scenario_version"`
 	Config           datatypes.JSON `gorm:"column:config;type:jsonb" json:"config,omitempty"`
 	LayoutPosition   datatypes.JSON `gorm:"column:layout_position;type:jsonb" json:"layout_position,omitempty"`
+	LayoutRole       int16          `gorm:"column:layout_role;type:smallint;not null;default:2" json:"layout_role"`
+	DisplayMode      string         `gorm:"column:display_mode;type:varchar(20);not null;default:'split-2'" json:"display_mode"`
+	LinkToPrimary    bool           `gorm:"column:link_to_primary;not null;default:true" json:"link_to_primary"`
+	DefaultVisible   bool           `gorm:"column:default_visible;not null;default:true" json:"default_visible"`
 	DataSourceConfig datatypes.JSON `gorm:"column:data_source_config;type:jsonb" json:"data_source_config,omitempty"`
 	SortOrder        int            `gorm:"not null;default:0" json:"sort_order"`
 	CreatedAt        time.Time      `gorm:"not null;default:now()" json:"created_at"`
@@ -330,6 +347,63 @@ type TemplateSimScene struct {
 // TableName 返回模板仿真场景配置表表名。
 func (TemplateSimScene) TableName() string {
 	return "template_sim_scenes"
+}
+
+// ---------------------------------------------------------------------------
+// 2.8.1 场景版本历史
+// ---------------------------------------------------------------------------
+
+// SimScenarioVersion 场景版本历史表
+// 对应 sim_scenario_versions 表
+type SimScenarioVersion struct {
+	ID                int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
+	ScenarioID        int64          `gorm:"not null;index" json:"scenario_id,string"`
+	Version           string         `gorm:"type:varchar(50);not null" json:"version"`
+	AlgorithmLogicJS  *string        `gorm:"column:algorithm_logic_js;type:text" json:"algorithm_logic_js,omitempty"`
+	NpmPackageVersion *string        `gorm:"column:npm_package_version;type:varchar(50)" json:"npm_package_version,omitempty"`
+	ContainerImageURL *string        `gorm:"type:varchar(500)" json:"container_image_url,omitempty"`
+	DefaultParamsSchema datatypes.JSON `gorm:"column:default_params_schema;type:jsonb" json:"default_params_schema,omitempty"`
+	DefaultParams     datatypes.JSON `gorm:"column:default_params;type:jsonb" json:"default_params,omitempty"`
+	InteractionSchema datatypes.JSON `gorm:"column:interaction_schema;type:jsonb" json:"interaction_schema,omitempty"`
+	Changelog         *string        `gorm:"type:text" json:"changelog,omitempty"`
+	BreakingChange    bool           `gorm:"not null;default:false" json:"breaking_change"`
+	ReleasedBy        *int64         `gorm:"" json:"released_by,omitempty,string"`
+	ReleasedAt        time.Time      `gorm:"not null;default:now()" json:"released_at"`
+	Status            int16          `gorm:"column:status;type:smallint;not null;default:1" json:"status"`
+}
+
+// TableName 返回场景版本历史表表名。
+func (SimScenarioVersion) TableName() string {
+	return "sim_scenario_versions"
+}
+
+// ---------------------------------------------------------------------------
+// 2.25 教师干预审计日志
+// ---------------------------------------------------------------------------
+
+// TeacherInterveneLog 教师 SimEngine 干预审计日志表
+// 对应 teacher_intervene_logs 表
+type TeacherInterveneLog struct {
+	ID                  int64          `gorm:"primaryKey;autoIncrement:false" json:"id,string"`
+	ExperimentID        int64          `gorm:"not null;index" json:"experiment_id,string"`
+	CourseID            *int64         `gorm:"index" json:"course_id,omitempty,string"`
+	TeacherID           int64          `gorm:"not null;index" json:"teacher_id,string"`
+	SchoolID            int64          `gorm:"not null;index" json:"school_id,string"`
+	InterveneType       string         `gorm:"type:varchar(50);not null" json:"intervene_type"`
+	TargetScope         string         `gorm:"type:varchar(20);not null" json:"target_scope"`
+	TargetUserIDs       pq.Int64Array  `gorm:"column:target_user_ids;type:bigint[]" json:"target_user_ids,omitempty"`
+	TargetSceneCode     *string        `gorm:"type:varchar(100)" json:"target_scene_code,omitempty"`
+	TargetLinkGroupCode *string        `gorm:"type:varchar(100)" json:"target_link_group_code,omitempty"`
+	Payload             datatypes.JSON `gorm:"column:payload;type:jsonb" json:"payload,omitempty"`
+	Reason              *string        `gorm:"type:varchar(500)" json:"reason,omitempty"`
+	ExecutedAt          time.Time      `gorm:"not null;default:now()" json:"executed_at"`
+	ClientIP            *string        `gorm:"type:varchar(50)" json:"client_ip,omitempty"`
+	UserAgent           *string        `gorm:"type:varchar(500)" json:"user_agent,omitempty"`
+}
+
+// TableName 返回教师干预审计日志表表名。
+func (TeacherInterveneLog) TableName() string {
+	return "teacher_intervene_logs"
 }
 
 // ---------------------------------------------------------------------------

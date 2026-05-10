@@ -2,15 +2,18 @@
 // SimEngine 默认渲染器注册表装配
 // 负责装配平台内置 8 个领域渲染器，并在同一个注册表上叠加自定义渲染器包。
 
-import { AttackSecurityRenderer } from "./attack-security/index.js";
-import { ConsensusRenderer } from "./consensus/index.js";
-import { CryptographyRenderer } from "./cryptography/index.js";
-import { DataStructureRenderer } from "./data-structure/index.js";
-import { EconomicRenderer } from "./economic/index.js";
-import { NodeNetworkRenderer } from "./node-network/index.js";
-import { SmartContractRenderer } from "./smart-contract/index.js";
+import {
+  AttackSecurityRenderer,
+  ConsensusRenderer,
+  CryptographyRenderer,
+  DataStructureRenderer,
+  EconomicRenderer,
+  GenericPrimitiveRenderer,
+  NodeNetworkRenderer,
+  SmartContractRenderer,
+  TransactionRenderer
+} from "./domains.js";
 import { DomainRendererRegistry, registerRendererPackage, type DomainRenderer, type RendererPackage } from "./shared/index.js";
-import { TransactionRenderer } from "./transaction/index.js";
 
 /**
  * CreateDefaultRegistryOptions 定义默认注册表可选的扩展输入。
@@ -33,6 +36,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
   registry.register(new SmartContractRenderer());
   registry.register(new AttackSecurityRenderer());
   registry.register(new EconomicRenderer());
+  registry.register(new GenericPrimitiveRenderer());
 
   for (const renderer of options.renderers ?? []) {
     registry.register(renderer);

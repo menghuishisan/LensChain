@@ -6,6 +6,8 @@ ALTER TABLE IF EXISTS experiment_instances DROP CONSTRAINT IF EXISTS fk_experime
 ALTER TABLE IF EXISTS template_containers DROP CONSTRAINT IF EXISTS fk_template_containers_role_id;
 
 DROP TABLE IF EXISTS experiment_reports;
+DROP TABLE IF EXISTS teacher_intervene_logs;
+DROP TABLE IF EXISTS sim_scenario_versions;
 DROP TABLE IF EXISTS resource_quotas;
 DROP TABLE IF EXISTS group_messages;
 DROP TABLE IF EXISTS group_members;

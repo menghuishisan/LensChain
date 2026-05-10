@@ -178,7 +178,6 @@ func buildTemplateSimSceneRespBase(scene *entity.TemplateSimScene) *dto.Template
 	}
 	cfg := decodeSimSceneConfig(json.RawMessage(scene.Config))
 	resp.SceneParams = cfg.SceneParams
-	resp.InitialState = cfg.InitialState
 	resp.DataSourceMode = cfg.DataSourceMode
 	resp.DataSourceModeText = enum.GetDataSourceModeText(cfg.DataSourceMode)
 	if scene.LinkGroupID != nil {

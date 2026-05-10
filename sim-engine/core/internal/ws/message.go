@@ -1,7 +1,17 @@
+// 模块：sim-engine/core/internal/ws
+// 文件职责：定义 SimEngine Core ↔ 前端 WebSocket 协议消息与会话级广播 Hub。
+// 协议依据：docs/modules/04-实验环境/06-可视化仿真引擎设计.md §七 / 03-API §四。
+//
+// 关键约束：
+// 1. 唯一渲染数据通道为 `render`；统一承载首帧（is_full_snapshot=true）与增量帧。
+// 2. 单步回退使用 `step_back` 顶层消息，不复用 `control.command`，对齐 §7.4。
+// 3. 教师监控摘要走 `event` 携带 `event=teacher_summary`，不再单独保留独立消息类型。
+
 package ws
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 )
 
@@ -9,26 +19,27 @@ import (
 type MessageType string
 
 const (
-	// MessageTypeStateDiff 表示 tick 增量状态推送。
-	MessageTypeStateDiff MessageType = "state_diff"
-	// MessageTypeStateFull 表示初始化或恢复时的完整状态推送。
-	MessageTypeStateFull MessageType = "state_full"
-	// MessageTypeEvent 表示过程事件通知。
+	// 后端 → 前端
+
+	// MessageTypeRender 表示渲染数据下发（每 tick / Action 响应 / 重连首帧）。
+	// 载荷为 RenderEnvelope（含 primitives / micro_steps / link_triggers /
+	// container_data / changed_keys / is_full_snapshot）。
+	MessageTypeRender MessageType = "render"
+	// MessageTypeEvent 表示仿真事件通知（侧栏日志 / 提示）。
 	MessageTypeEvent MessageType = "event"
-	// MessageTypeLinkUpdate 表示联动共享状态更新通知。
-	MessageTypeLinkUpdate MessageType = "link_update"
-	// MessageTypeControlAck 表示时间控制命令确认。
+	// MessageTypeControlAck 表示控制指令确认。
 	MessageTypeControlAck MessageType = "control_ack"
-	// MessageTypeSnapshot 表示快照创建或恢复通知。
-	MessageTypeSnapshot MessageType = "snapshot"
-	// MessageTypeAction 表示前端发起的场景交互消息。
+	// MessageTypeSchemaInvalidated 表示 ActionDef schema 失效（教师调试发布）。
+	MessageTypeSchemaInvalidated MessageType = "schema_invalidated"
+
+	// 前端 → 后端
+
+	// MessageTypeAction 表示用户交互操作（ActionDef 调用）。
 	MessageTypeAction MessageType = "action"
-	// MessageTypeControl 表示前端发起的时间控制消息。
+	// MessageTypeControl 表示仿真时间控制（play / pause / step / set_speed / reset / resume）。
 	MessageTypeControl MessageType = "control"
-	// MessageTypeRewindTo 表示前端发起的定点回退消息。
-	MessageTypeRewindTo MessageType = "rewind_to"
-	// MessageTypeTeacherSummary 表示教师监控摘要推送。
-	MessageTypeTeacherSummary MessageType = "teacher_summary"
+	// MessageTypeStepBack 表示单步回退（仅单场景 process 模式有效）。
+	MessageTypeStepBack MessageType = "step_back"
 )
 
 // Message 是前端与 SimEngine Core 之间的数据通道消息。
@@ -53,6 +64,48 @@ func Decode(data []byte) (Message, error) {
 	}
 	return msg, nil
 }
+
+// =====================================================================
+// 标准载荷结构（对照 06.md §7.3 / §7.4）
+// =====================================================================
+
+// ActionPayload 是前端 → 后端 action 消息载荷。
+type ActionPayload struct {
+	ActionCode string                 `json:"action_code"`
+	Params     map[string]any         `json:"params"`
+	ActorID    string                 `json:"actor_id,omitempty"`
+	UserRole   string                 `json:"user_role,omitempty"`
+}
+
+// ControlPayload 是前端 → 后端 control 消息载荷。
+// command 取值：play / pause / step / set_speed / reset / resume。
+// step_back 通过独立 MessageTypeStepBack 表达，不在此处。
+type ControlPayload struct {
+	Command string  `json:"command"`
+	Value   float64 `json:"value,omitempty"`
+}
+
+// EventPayload 是后端 → 前端 event 消息载荷。
+type EventPayload struct {
+	Event string         `json:"event"`
+	Data  map[string]any `json:"data,omitempty"`
+}
+
+// ControlAckPayload 是后端 → 前端 control_ack 消息载荷。
+type ControlAckPayload struct {
+	Command string `json:"command"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// SchemaInvalidatedPayload 是后端 → 前端 schema_invalidated 消息载荷。
+type SchemaInvalidatedPayload struct {
+	Reason string `json:"reason"`
+}
+
+// =====================================================================
+// 会话级广播 Hub
+// =====================================================================
 
 // Subscription 表示一个会话订阅。
 type Subscription struct {
@@ -103,6 +156,8 @@ func (h *Hub) Publish(sessionID string, msg Message) {
 		select {
 		case ch <- msg:
 		default:
+			log.Printf("[ws.Hub] message dropped: session=%s type=%s scene=%s tick=%d (subscriber channel full)",
+				sessionID, msg.Type, msg.SceneCode, msg.Tick)
 		}
 	}
 }

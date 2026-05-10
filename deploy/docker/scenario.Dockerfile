@@ -26,12 +26,14 @@ ARG COMMIT_SHA=unknown
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 
-# scenarios 模块通过 replace 引用 sdk/go 与 proto/gen/go：
+# scenarios 模块通过 replace 引用 framework、sdk/go 与 proto/gen/go：
+#   replace github.com/lenschain/sim-engine/framework => ../framework
 #   replace github.com/lenschain/sim-engine/sdk/go => ../sdk/go
 #   replace github.com/lenschain/sim-engine/proto/gen/go => ../proto/gen/go
-# 相对路径 ../ 从 /src/scenarios/ 出发指向 /src/sdk/go 和 /src/proto/gen/go，
+# 相对路径 ../ 从 /src/scenarios/ 出发指向同级目录，
 # 因此目录布局必须与宿主源码保持一致。
 COPY scenarios/go.mod scenarios/go.sum ./scenarios/
+COPY framework ./framework
 COPY sdk/go ./sdk/go
 COPY proto/gen/go ./proto/gen/go
 

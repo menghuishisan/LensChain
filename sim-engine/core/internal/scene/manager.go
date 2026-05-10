@@ -1,4 +1,15 @@
-// Package scene 管理场景算法运行时与容器调用适配。
+// 模块：sim-engine/core/internal/scene
+// 文件职责：场景运行时生命周期管理 + 场景算法容器调用契约（Manager / ScenarioClient / Orchestrator）。
+// 协议依据：docs/modules/04-实验环境/06-可视化仿真引擎设计.md §6.1 / §6.4 / §6.5。
+//
+// 关键设计：
+// 1. 场景容器无状态：每次 Step / HandleAction 输入完整 SceneState，输出新 SceneState + RenderEnvelope。
+// 2. Core 持有最新 RenderEnvelope；客户端断线重连时由 Manager 直接重发缓存（is_full_snapshot=true），
+//    不再通过 GetRenderState rpc 拉取（该接口已废弃）。
+// 3. Step 接收 Core LinkEngine fan-out 的 IncomingLinkTriggers；场景在本 tick 中可视化这些事件。
+// 4. ActionDef / FieldDef 与 06.md §6.3 协议对齐（含 category / roles / cooldown /
+//    writes_owned_fields / link_owner_fields / hybrid_channel / container_cmd 等字段）。
+
 package scene
 
 import (
@@ -8,22 +19,25 @@ import (
 	"sync"
 )
 
+// =====================================================================
+// 配置 / 元信息 / 状态
+// =====================================================================
+
 // Config 是启动单个场景运行时所需的配置。
 type Config struct {
-	SessionID        string
-	SceneCode        string
-	ParamsJSON       []byte
-	InitialStateJSON []byte
-	SharedStateJSON  []byte
+	SessionID  string
+	SceneCode  string
+	ParamsJSON []byte
+	// SharedStateJSON 联动共享状态当前快照（仅联动组场景）。
+	SharedStateJSON []byte
 	// ContainerImageURL 场景算法容器镜像地址（来自 backend 透传的 sim_scenarios.container_image_url）。
-	// Orchestrator 据此按需启动 Pod；为空时无法启动场景。
 	ContainerImageURL string
-	// ResourceRequestCPU / ResourceRequestMemory 场景容器资源请求；为空时使用 orchestrator 默认值。
+	// ResourceRequestCPU / ResourceRequestMemory 容器资源请求，为空时使用 orchestrator 默认值。
 	ResourceRequestCPU    string
 	ResourceRequestMemory string
 }
 
-// Meta 是场景元信息，Core 用它匹配渲染器和时间模式。
+// Meta 是场景元信息。
 type Meta struct {
 	Code                    string
 	Name                    string
@@ -35,19 +49,8 @@ type Meta struct {
 	DataSourceMode          string
 	DefaultParamsJSON       []byte
 	DefaultStateJSON        []byte
+	CustomRendererPackage   string
 	SupportedLinkGroupCodes []string
-}
-
-// RenderState 表示场景容器按需返回的可渲染状态。
-type RenderState struct {
-	SceneCode     string
-	Category      string
-	AlgorithmType string
-	Tick          int64
-	StateJSON     []byte
-	RenderStateJSON []byte
-	MetricsJSON   []byte
-	Events        []Event
 }
 
 // HealthStatus 表示场景容器健康状态。
@@ -57,138 +60,171 @@ type HealthStatus struct {
 	CheckedAtMS int64
 }
 
-// State 是场景完整状态和前端可渲染状态。
+// State 表示某场景在某 tick 的状态快照。
+//
+// SceneStateJSON：场景算法内部状态（Core 持有，下次调用回传给容器）。
+// RenderEnvelopeJSON：最近一次 RenderEnvelope（含 primitives / micro_steps / link_triggers /
+// container_data；首帧 IsFullSnapshot=true）。
 type State struct {
-	SceneCode       string
-	Tick            int64
-	StateJSON       []byte
-	RenderStateJSON []byte
-	SharedStateJSON []byte
+	SceneCode          string
+	Tick               int64
+	SceneStateJSON     []byte
+	RenderEnvelopeJSON []byte
 }
 
-// InitRequest 是场景初始化请求。
+// LinkTriggerRef 是 Core 透传给场景的联动事件引用（与 link.LinkTrigger 同义）。
+type LinkTriggerRef struct {
+	ID             string
+	SourceScene    string
+	SourceAction   string
+	LinkGroup      string
+	ChangedFields  []string
+	PayloadJSON    []byte
+	TimestampMS    int64
+	SourceAnchorID string
+	TargetAnchorID string
+}
+
+// =====================================================================
+// 请求 / 响应
+// =====================================================================
+
+// InitRequest 场景初始化请求。
 type InitRequest struct {
-	SessionID        string
-	SceneCode        string
-	ParamsJSON       []byte
-	InitialStateJSON []byte
-	SharedStateJSON  []byte
-}
-
-// StepRequest 是场景 tick 推进请求。
-type StepRequest struct {
 	SessionID       string
 	SceneCode       string
-	Tick            int64
-	StateJSON       []byte
+	InstanceID      string
+	StudentID       string
+	Seed            int64
+	ParamsJSON      []byte
 	SharedStateJSON []byte
 }
 
-// StepResult 是场景 tick 推进结果。
+// InitResult 场景初始化结果。
+type InitResult struct {
+	SceneCode           string
+	Tick                int64
+	SceneStateJSON      []byte
+	RenderEnvelopeJSON  []byte
+	SharedStateDiffJSON []byte
+}
+
+// StepRequest 场景 tick 推进请求。
+type StepRequest struct {
+	SessionID            string
+	SceneCode            string
+	Tick                 int64
+	SceneStateJSON       []byte
+	SharedStateJSON      []byte
+	IncomingLinkTriggers []LinkTriggerRef
+}
+
+// StepResult 场景 tick 推进结果。
 type StepResult struct {
 	SceneCode           string
 	Tick                int64
-	StateJSON           []byte
-	RenderStateJSON     []byte
-	Events              []Event
+	SceneStateJSON      []byte
+	RenderEnvelopeJSON  []byte
 	SharedStateDiffJSON []byte
 }
 
-// ActionRequest 是场景交互请求。
+// ActionRequest 场景交互请求。
 type ActionRequest struct {
 	SessionID       string
 	SceneCode       string
-	StateJSON       []byte
+	Tick            int64
+	SceneStateJSON  []byte
+	SharedStateJSON []byte
 	ActionCode      string
 	ParamsJSON      []byte
-	SharedStateJSON []byte
-	Tick            int64
 	ActorID         string
-	RoleKey         string
+	UserRole        string
 }
 
-// ActionResult 是场景交互结果。
+// ActionResult 场景交互结果。
 type ActionResult struct {
+	SceneCode           string
 	Tick                int64
 	Success             bool
 	ErrorMessage        string
-	StateJSON           []byte
-	RenderStateJSON     []byte
-	Events              []Event
+	SceneStateJSON      []byte
+	RenderEnvelopeJSON  []byte
 	SharedStateDiffJSON []byte
 }
 
-// Event 表示场景算法产生的过程事件。
-type Event struct {
-	EventID     string
-	EventType   string
-	SceneCode   string
-	Tick        int64
-	TimestampMS int64
-	PayloadJSON []byte
-}
-
-// InteractionFieldOption 表示交互字段选项。
-type InteractionFieldOption struct {
-	Value string
-	Label string
-}
-
-// InteractionField 表示场景交互面板的输入字段定义。
-type InteractionField struct {
-	Key            string
-	Label          string
-	Type           string
-	Required       bool
-	DefaultValue   string
-	Options        []InteractionFieldOption
-	ValidationJSON []byte
-}
-
-// InteractionAction 表示一个场景可执行交互动作。
-type InteractionAction struct {
-	ActionCode   string
-	Label        string
-	Description  string
-	Trigger      string
-	Fields       []InteractionField
-	UISchemaJSON []byte
-}
-
-// InteractionSchema 是场景专属交互面板定义。
-type InteractionSchema struct {
-	SceneCode string
-	Actions   []InteractionAction
-}
-
-// ActionContext 表示一次交互请求附带的操作者身份信息。
+// ActionContext 调用 ActionDef 时附带的操作者身份。
 type ActionContext struct {
-	ActorID string
-	RoleKey string
+	ActorID  string
+	UserRole string
 }
+
+// =====================================================================
+// 交互定义（与 06.md §6.3 协议对齐）
+// =====================================================================
+
+// FieldDef 单个输入字段定义。
+type FieldDef struct {
+	Name        string
+	Type        string
+	Label       string
+	Required    bool
+	DefaultJSON []byte
+	MinJSON     []byte
+	MaxJSON     []byte
+	StepJSON    []byte
+	OptionsJSON []byte
+	OptionsFrom string
+}
+
+// ActionDef 单个 ActionDef。
+type ActionDef struct {
+	ActionCode         string
+	Label              string
+	Description        string
+	Category           string
+	Trigger            string
+	Fields             []FieldDef
+	Roles              []string
+	CooldownMs         int
+	WritesOwnedFields []string
+	LinkOwnerFields   []string
+	HybridChannel      string
+	ContainerCmd       string
+}
+
+// InteractionDefinition 场景对外暴露的全部 ActionDef。
+type InteractionDefinition struct {
+	SceneCode     string
+	SchemaVersion string
+	Actions       []ActionDef
+}
+
+// =====================================================================
+// 接口契约
+// =====================================================================
 
 // ScenarioClient 是 Core 调用场景算法容器的最小接口。
 type ScenarioClient interface {
 	Meta(ctx context.Context) (Meta, error)
-	Init(ctx context.Context, req InitRequest) (State, error)
+	InteractionSchema(ctx context.Context) (InteractionDefinition, error)
+	Init(ctx context.Context, req InitRequest) (InitResult, error)
 	Step(ctx context.Context, req StepRequest) (StepResult, error)
 	HandleAction(ctx context.Context, req ActionRequest) (ActionResult, error)
-	InteractionSchema(ctx context.Context) (InteractionSchema, error)
-	RenderState(ctx context.Context, sessionID string, sceneCode string, stateJSON []byte, tick int64, sharedStateJSON []byte) (RenderState, error)
 	Health(ctx context.Context) (HealthStatus, error)
 	Close() error
 }
 
-// Orchestrator 是 SceneManager 唯一依赖的场景算法容器编排能力契约。
-// 唯一生产实现：K8sOrchestrator（internal/scene/k8s_orchestrator.go）。
+// Orchestrator 是 Manager 唯一依赖的场景算法容器编排能力契约。
+// 唯一生产实现：K8sOrchestrator（k8s_orchestrator.go）。
 type Orchestrator interface {
-	// StartScene 按需启动一个场景算法容器并返回可用的 gRPC 客户端。
 	StartScene(ctx context.Context, config Config) (ScenarioClient, error)
-	// EvictScene 在场景重启前驱逐旧 Pod / Service 与连接池条目。
 	EvictScene(ctx context.Context, sessionID, sceneCode string) error
-	// DestroySession 销毁会话对应的所有场景 Pod / Service。
 	DestroySession(ctx context.Context, sessionID string) error
 }
+
+// =====================================================================
+// Runtime / Manager
+// =====================================================================
 
 // Runtime 表示一个已启动的场景运行时。
 type Runtime struct {
@@ -206,7 +242,6 @@ type Manager struct {
 }
 
 // NewManager 创建场景管理器。
-// orch 必填，封装了启动 / 重启 / 销毁场景算法容器的全部能力。
 func NewManager(orch Orchestrator) *Manager {
 	if orch == nil {
 		panic("scene.NewManager: orchestrator is required")
@@ -217,8 +252,8 @@ func NewManager(orch Orchestrator) *Manager {
 	}
 }
 
-// Start 启动场景并保存运行时。
-func (m *Manager) Start(ctx context.Context, config Config) (Runtime, error) {
+// Start 启动场景并保存运行时（包含首帧 RenderEnvelope）。
+func (m *Manager) Start(ctx context.Context, config Config, instanceID string, studentID string, seed int64) (Runtime, error) {
 	if config.SceneCode == "" {
 		return Runtime{}, errors.New("scene code is required")
 	}
@@ -231,12 +266,14 @@ func (m *Manager) Start(ctx context.Context, config Config) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	state, err := client.Init(ctx, InitRequest{
-		SessionID:        config.SessionID,
-		SceneCode:        config.SceneCode,
-		ParamsJSON:       cloneBytes(config.ParamsJSON),
-		InitialStateJSON: cloneBytes(config.InitialStateJSON),
-		SharedStateJSON:  cloneBytes(config.SharedStateJSON),
+	result, err := client.Init(ctx, InitRequest{
+		SessionID:       config.SessionID,
+		SceneCode:       config.SceneCode,
+		InstanceID:      instanceID,
+		StudentID:       studentID,
+		Seed:            seed,
+		ParamsJSON:      cloneBytes(config.ParamsJSON),
+		SharedStateJSON: cloneBytes(config.SharedStateJSON),
 	})
 	if err != nil {
 		return Runtime{}, err
@@ -245,7 +282,12 @@ func (m *Manager) Start(ctx context.Context, config Config) (Runtime, error) {
 	runtime := Runtime{
 		Config: config,
 		Meta:   meta,
-		State:  state,
+		State: State{
+			SceneCode:          result.SceneCode,
+			Tick:               result.Tick,
+			SceneStateJSON:     cloneBytes(result.SceneStateJSON),
+			RenderEnvelopeJSON: cloneBytes(result.RenderEnvelopeJSON),
+		},
 		client: client,
 	}
 
@@ -255,7 +297,7 @@ func (m *Manager) Start(ctx context.Context, config Config) (Runtime, error) {
 	return runtime, nil
 }
 
-// Get 获取场景运行时。
+// Get 返回场景运行时副本。
 func (m *Manager) Get(sessionID string, sceneCode string) (Runtime, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -263,8 +305,21 @@ func (m *Manager) Get(sessionID string, sceneCode string) (Runtime, bool) {
 	return runtime, ok
 }
 
-// Step 推进指定场景一个 tick。
-func (m *Manager) Step(ctx context.Context, sessionID string, sceneCode string, tick int64, sharedStateJSON []byte) (StepResult, error) {
+// CurrentEnvelope 返回当前场景缓存的 RenderEnvelope JSON（用于断线重连首帧）。
+func (m *Manager) CurrentEnvelope(sessionID string, sceneCode string) ([]byte, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
+	if !ok {
+		return nil, false
+	}
+	return cloneBytes(runtime.State.RenderEnvelopeJSON), true
+}
+
+// Step 推进指定场景一个 tick；incoming 为 LinkEngine fan-out 给本场景的事件。
+func (m *Manager) Step(ctx context.Context, sessionID string, sceneCode string, tick int64,
+	sharedStateJSON []byte, incoming []LinkTriggerRef) (StepResult, error) {
+
 	m.mu.RLock()
 	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
 	m.mu.RUnlock()
@@ -273,26 +328,26 @@ func (m *Manager) Step(ctx context.Context, sessionID string, sceneCode string, 
 	}
 
 	result, err := runtime.client.Step(ctx, StepRequest{
-		SessionID:       runtime.Config.SessionID,
-		SceneCode:       sceneCode,
-		Tick:            tick,
-		StateJSON:       cloneBytes(runtime.State.StateJSON),
-		SharedStateJSON: cloneBytes(sharedStateJSON),
+		SessionID:            runtime.Config.SessionID,
+		SceneCode:            sceneCode,
+		Tick:                 tick,
+		SceneStateJSON:       cloneBytes(runtime.State.SceneStateJSON),
+		SharedStateJSON:      cloneBytes(sharedStateJSON),
+		IncomingLinkTriggers: cloneTriggers(incoming),
 	})
 	if err != nil {
 		return StepResult{}, err
 	}
 
 	runtime.State.Tick = result.Tick
-	runtime.State.SharedStateJSON = cloneBytes(sharedStateJSON)
 	if result.SceneCode != "" {
 		runtime.State.SceneCode = result.SceneCode
 	}
-	if result.StateJSON != nil {
-		runtime.State.StateJSON = cloneBytes(result.StateJSON)
+	if result.SceneStateJSON != nil {
+		runtime.State.SceneStateJSON = cloneBytes(result.SceneStateJSON)
 	}
-	if result.RenderStateJSON != nil {
-		runtime.State.RenderStateJSON = cloneBytes(result.RenderStateJSON)
+	if result.RenderEnvelopeJSON != nil {
+		runtime.State.RenderEnvelopeJSON = cloneBytes(result.RenderEnvelopeJSON)
 	}
 
 	m.mu.Lock()
@@ -301,16 +356,10 @@ func (m *Manager) Step(ctx context.Context, sessionID string, sceneCode string, 
 	return result, nil
 }
 
-// HandleAction 将场景专属交互转发给对应场景运行时。
-func (m *Manager) HandleAction(
-	ctx context.Context,
-	sessionID string,
-	sceneCode string,
-	actionCode string,
-	paramsJSON []byte,
-	sharedStateJSON []byte,
-	actionCtx ActionContext,
-) (ActionResult, error) {
+// HandleAction 转发交互请求给场景容器。
+func (m *Manager) HandleAction(ctx context.Context, sessionID string, sceneCode string,
+	actionCode string, paramsJSON []byte, sharedStateJSON []byte, actionCtx ActionContext) (ActionResult, error) {
+
 	m.mu.RLock()
 	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
 	m.mu.RUnlock()
@@ -321,86 +370,42 @@ func (m *Manager) HandleAction(
 	result, err := runtime.client.HandleAction(ctx, ActionRequest{
 		SessionID:       runtime.Config.SessionID,
 		SceneCode:       sceneCode,
-		StateJSON:       cloneBytes(runtime.State.StateJSON),
+		Tick:            runtime.State.Tick,
+		SceneStateJSON:  cloneBytes(runtime.State.SceneStateJSON),
+		SharedStateJSON: cloneBytes(sharedStateJSON),
 		ActionCode:      actionCode,
 		ParamsJSON:      cloneBytes(paramsJSON),
-		SharedStateJSON: cloneBytes(sharedStateJSON),
-		Tick:            runtime.State.Tick,
 		ActorID:         actionCtx.ActorID,
-		RoleKey:         actionCtx.RoleKey,
+		UserRole:        actionCtx.UserRole,
 	})
 	if err != nil {
 		return ActionResult{}, err
 	}
 
-	if result.StateJSON != nil || result.RenderStateJSON != nil {
-		if result.StateJSON != nil {
-			runtime.State.StateJSON = cloneBytes(result.StateJSON)
-		}
-		if result.RenderStateJSON != nil {
-			runtime.State.RenderStateJSON = cloneBytes(result.RenderStateJSON)
-		}
+	if result.SceneStateJSON != nil {
+		runtime.State.SceneStateJSON = cloneBytes(result.SceneStateJSON)
+	}
+	if result.RenderEnvelopeJSON != nil {
+		runtime.State.RenderEnvelopeJSON = cloneBytes(result.RenderEnvelopeJSON)
+	}
+	if result.Tick != 0 {
 		runtime.State.Tick = result.Tick
-		runtime.State.SharedStateJSON = cloneBytes(sharedStateJSON)
-		m.mu.Lock()
-		m.runtimes[runtimeKey(sessionID, sceneCode)] = runtime
-		m.mu.Unlock()
 	}
-	return result, nil
-}
-
-// InteractionSchema 返回指定场景的交互面板定义。
-func (m *Manager) InteractionSchema(ctx context.Context, sessionID string, sceneCode string) (InteractionSchema, error) {
-	m.mu.RLock()
-	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
-	m.mu.RUnlock()
-	if !ok {
-		return InteractionSchema{}, errors.New("scene runtime not found")
-	}
-	return runtime.client.InteractionSchema(ctx)
-}
-
-// RenderState 按需查询场景当前可渲染状态。
-func (m *Manager) RenderState(ctx context.Context, sessionID string, sceneCode string) (RenderState, error) {
-	m.mu.RLock()
-	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
-	m.mu.RUnlock()
-	if !ok {
-		return RenderState{}, errors.New("scene runtime not found")
-	}
-	return runtime.client.RenderState(ctx, sessionID, sceneCode, cloneBytes(runtime.State.StateJSON), runtime.State.Tick, cloneBytes(runtime.State.SharedStateJSON))
-}
-
-// RefreshRenderState 基于最新共享状态重新计算场景状态与渲染态。
-func (m *Manager) RefreshRenderState(ctx context.Context, sessionID string, sceneCode string, sharedStateJSON []byte) (State, error) {
-	m.mu.RLock()
-	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
-	m.mu.RUnlock()
-	if !ok {
-		return State{}, errors.New("scene runtime not found")
-	}
-
-	renderState, err := runtime.client.RenderState(
-		ctx,
-		sessionID,
-		sceneCode,
-		cloneBytes(runtime.State.StateJSON),
-		runtime.State.Tick,
-		cloneBytes(sharedStateJSON),
-	)
-	if err != nil {
-		return State{}, err
-	}
-
-	runtime.State.Tick = renderState.Tick
-	runtime.State.StateJSON = cloneBytes(renderState.StateJSON)
-	runtime.State.RenderStateJSON = cloneBytes(renderState.RenderStateJSON)
-	runtime.State.SharedStateJSON = cloneBytes(sharedStateJSON)
-
 	m.mu.Lock()
 	m.runtimes[runtimeKey(sessionID, sceneCode)] = runtime
 	m.mu.Unlock()
-	return runtime.State, nil
+	return result, nil
+}
+
+// InteractionSchema 返回指定场景的 InteractionDefinition。
+func (m *Manager) InteractionSchema(ctx context.Context, sessionID string, sceneCode string) (InteractionDefinition, error) {
+	m.mu.RLock()
+	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
+	m.mu.RUnlock()
+	if !ok {
+		return InteractionDefinition{}, errors.New("scene runtime not found")
+	}
+	return runtime.client.InteractionSchema(ctx)
 }
 
 // HealthCheck 查询场景容器健康状态。
@@ -414,8 +419,10 @@ func (m *Manager) HealthCheck(ctx context.Context, sessionID string, sceneCode s
 	return runtime.client.Health(ctx)
 }
 
-// Restart 驱逐旧场景 Pod 与连接池条目，起新 Pod，用最近状态连续该场景。
-func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode string) (Runtime, error) {
+// Restart 驱逐旧 Pod 与连接，启动新 Pod，并以最近 SceneState 重新 Init。
+func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode string,
+	instanceID string, studentID string, seed int64, sharedStateJSON []byte) (Runtime, error) {
+
 	m.mu.RLock()
 	runtime, ok := m.runtimes[runtimeKey(sessionID, sceneCode)]
 	m.mu.RUnlock()
@@ -423,11 +430,9 @@ func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode strin
 		return Runtime{}, errors.New("scene runtime not found")
 	}
 
-	// 关闭旧 client 连接，避免连接泄漏
 	if runtime.client != nil {
 		_ = runtime.client.Close()
 	}
-	// 让编排器删除旧 Pod / Service / 连接池条目
 	if err := m.orch.EvictScene(ctx, sessionID, sceneCode); err != nil {
 		return Runtime{}, err
 	}
@@ -440,12 +445,14 @@ func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode strin
 	if err != nil {
 		return Runtime{}, err
 	}
-	state, err := client.Init(ctx, InitRequest{
-		SessionID:        runtime.Config.SessionID,
-		SceneCode:        runtime.Config.SceneCode,
-		ParamsJSON:       cloneBytes(runtime.Config.ParamsJSON),
-		InitialStateJSON: cloneBytes(runtime.State.StateJSON),
-		SharedStateJSON:  cloneBytes(runtime.State.SharedStateJSON),
+	result, err := client.Init(ctx, InitRequest{
+		SessionID:       runtime.Config.SessionID,
+		SceneCode:       runtime.Config.SceneCode,
+		InstanceID:      instanceID,
+		StudentID:       studentID,
+		Seed:            seed,
+		ParamsJSON:      cloneBytes(runtime.Config.ParamsJSON),
+		SharedStateJSON: cloneBytes(sharedStateJSON),
 	})
 	if err != nil {
 		return Runtime{}, err
@@ -453,8 +460,14 @@ func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode strin
 
 	runtime.client = client
 	runtime.Meta = meta
-	if len(state.StateJSON) > 0 || len(state.RenderStateJSON) > 0 {
-		runtime.State = state
+	if result.SceneStateJSON != nil {
+		runtime.State.SceneStateJSON = cloneBytes(result.SceneStateJSON)
+	}
+	if result.RenderEnvelopeJSON != nil {
+		runtime.State.RenderEnvelopeJSON = cloneBytes(result.RenderEnvelopeJSON)
+	}
+	if result.Tick != 0 {
+		runtime.State.Tick = result.Tick
 	}
 
 	m.mu.Lock()
@@ -463,7 +476,7 @@ func (m *Manager) Restart(ctx context.Context, sessionID string, sceneCode strin
 	return runtime, nil
 }
 
-// ListBySession 返回会话内所有场景运行时快照。
+// ListBySession 返回会话内所有场景运行时副本。
 func (m *Manager) ListBySession(sessionID string) []Runtime {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -478,7 +491,7 @@ func (m *Manager) ListBySession(sessionID string) []Runtime {
 	return result
 }
 
-// RestoreState 用快照中的场景状态覆盖当前运行时状态。
+// RestoreState 用快照中的场景状态覆盖当前运行时状态（用于实例恢复）。
 func (m *Manager) RestoreState(sessionID string, sceneCode string, state State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -492,8 +505,7 @@ func (m *Manager) RestoreState(sessionID string, sceneCode string, state State) 
 	m.runtimes[key] = runtime
 }
 
-// DestroySession 销毁指定会话下的全部场景运行时，并关闭关联客户端连接，
-// 最后回调 Orchestrator.DestroySession 删除对应场景 Pod / Service。
+// DestroySession 销毁指定会话下的全部场景运行时并回调 Orchestrator。
 func (m *Manager) DestroySession(sessionID string) error {
 	m.mu.Lock()
 	var closeErr error
@@ -517,21 +529,10 @@ func (m *Manager) DestroySession(sessionID string) error {
 	return closeErr
 }
 
-// UpdateSharedState 用当前共享状态覆盖场景运行时，确保容器重启时按最新联动状态恢复。
-func (m *Manager) UpdateSharedState(sessionID string, sceneCode string, sharedStateJSON []byte) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	key := runtimeKey(sessionID, sceneCode)
-	runtime, ok := m.runtimes[key]
-	if !ok {
-		return
-	}
-	runtime.State.SharedStateJSON = cloneBytes(sharedStateJSON)
-	m.runtimes[key] = runtime
-}
-
-// InjectCollectionPatch 将采集事件补丁合并进指定场景的状态与渲染状态。
+// InjectCollectionPatch 将采集事件补丁合并进指定场景的 SceneState 与 RenderEnvelope。
+//
+// 本方法仅做纯 JSON 深度合并；不调用场景容器；用于混合实验把 ContainerMetric 注入到
+// 当前缓存的 RenderEnvelope（典型路径：补 RenderEnvelope.container_data[]）。
 func (m *Manager) InjectCollectionPatch(sessionID string, sceneCode string, patchJSON []byte) (State, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -542,27 +543,29 @@ func (m *Manager) InjectCollectionPatch(sessionID string, sceneCode string, patc
 		return State{}, errors.New("scene runtime not found")
 	}
 
-	stateJSON, err := mergeJSONObjects(runtime.State.StateJSON, patchJSON)
+	stateJSON, err := mergeJSONObjects(runtime.State.SceneStateJSON, patchJSON)
 	if err != nil {
 		return State{}, err
 	}
-	renderJSON, err := mergeJSONObjects(runtime.State.RenderStateJSON, patchJSON)
+	envelopeJSON, err := mergeJSONObjects(runtime.State.RenderEnvelopeJSON, patchJSON)
 	if err != nil {
 		return State{}, err
 	}
 
-	runtime.State.StateJSON = stateJSON
-	runtime.State.RenderStateJSON = renderJSON
+	runtime.State.SceneStateJSON = stateJSON
+	runtime.State.RenderEnvelopeJSON = envelopeJSON
 	m.runtimes[key] = runtime
 	return runtime.State, nil
 }
 
-// runtimeKey 生成会话内唯一的场景运行时键。
+// =====================================================================
+// 内部工具
+// =====================================================================
+
 func runtimeKey(sessionID string, sceneCode string) string {
 	return sessionID + "::" + sceneCode
 }
 
-// cloneBytes 复制场景状态字节切片。
 func cloneBytes(value []byte) []byte {
 	if value == nil {
 		return nil
@@ -572,11 +575,23 @@ func cloneBytes(value []byte) []byte {
 	return out
 }
 
+func cloneTriggers(items []LinkTriggerRef) []LinkTriggerRef {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]LinkTriggerRef, len(items))
+	for i, item := range items {
+		out[i] = item
+		out[i].ChangedFields = append([]string(nil), item.ChangedFields...)
+		out[i].PayloadJSON = cloneBytes(item.PayloadJSON)
+	}
+	return out
+}
+
 // mergeJSONObjects 将补丁 JSON 深度合并到原始 JSON。
 func mergeJSONObjects(baseJSON []byte, patchJSON []byte) ([]byte, error) {
 	var base map[string]any
 	var patch map[string]any
-
 	if len(baseJSON) == 0 {
 		base = make(map[string]any)
 	} else if err := json.Unmarshal(baseJSON, &base); err != nil {
@@ -588,12 +603,10 @@ func mergeJSONObjects(baseJSON []byte, patchJSON []byte) ([]byte, error) {
 	if err := json.Unmarshal(patchJSON, &patch); err != nil {
 		return nil, err
 	}
-
 	deepMerge(base, patch)
 	return json.Marshal(base)
 }
 
-// deepMerge 对 JSON 对象执行递归深度合并。
 func deepMerge(base map[string]any, patch map[string]any) {
 	for key, patchValue := range patch {
 		baseMap, baseIsMap := base[key].(map[string]any)

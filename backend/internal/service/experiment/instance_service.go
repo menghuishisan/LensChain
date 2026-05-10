@@ -84,6 +84,11 @@ type InstanceService interface {
 	UpdateReport(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.UpdateReportReq) (*dto.ReportResp, error)
 	SendGuidance(ctx context.Context, sc *svcctx.ServiceContext, id int64, req *dto.SendGuidanceReq) error
 	UploadExperimentFile(ctx context.Context, sc *svcctx.ServiceContext, fileName string, reader io.Reader, fileSize int64, contentType string, purpose string) (*dto.UploadExperimentFileResp, error)
+
+	// SimEngine 交互面板（对齐 06.md §6.3 + 03-API §1.11 扩展）
+	GetSimInteractionSchema(ctx context.Context, sc *svcctx.ServiceContext, instanceID int64, sceneCode string) (*dto.SimInteractionSchemaResp, error)
+	// 教师干预（对齐 06.md §14.5）
+	TeacherIntervene(ctx context.Context, sc *svcctx.ServiceContext, instanceID int64, req *dto.TeacherInterveneReq) (*dto.TeacherInterveneResp, error)
 }
 
 // instanceService 实验实例服务实现
@@ -926,10 +931,24 @@ func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *
 		StudentID:  instance.StudentID,
 	}
 
-	scenes := make([]SimSceneConfig, 0, len(template.SimScenes))
+	sceneCount := len(template.SimScenes)
+	scenes := make([]SimSceneConfig, 0, sceneCount)
 	hasLinkGroup := false
 
-	for _, ts := range template.SimScenes {
+	// 根据场景数量决定 DisplayMode
+	var displayMode string
+	switch {
+	case sceneCount <= 1:
+		displayMode = "single"
+	case sceneCount == 2:
+		displayMode = "split-2"
+	case sceneCount == 3:
+		displayMode = "split-3"
+	default:
+		displayMode = "grid-4"
+	}
+
+	for idx, ts := range template.SimScenes {
 		scenario, err := s.scenarioRepo.GetByID(ctx, ts.ScenarioID)
 		if err != nil {
 			continue
@@ -943,11 +962,20 @@ func (s *instanceService) buildSimSessionRequest(ctx context.Context, instance *
 			return nil, fmt.Errorf("场景 %s 未配置算法容器镜像（container_image_url），无法启动仿真会话", scenario.Code)
 		}
 
+		// 布局角色：第一个场景为 primary，其余为 secondary
+		layoutRole := "secondary"
+		if idx == 0 {
+			layoutRole = "primary"
+		}
+
 		sc := SimSceneConfig{
 			SceneCode:         scenario.Code,
 			ScenarioID:        strconv.FormatInt(ts.ScenarioID, 10),
+			LayoutRole:        layoutRole,
+			DisplayMode:       displayMode,
+			LinkToPrimary:     idx > 0, // 非 primary 场景默认联动到 primary
+			DefaultVisible:    true,
 			Params:            sceneCfg.SceneParams,
-			InitialState:      sceneCfg.InitialState,
 			LayoutPosition:    json.RawMessage(ts.LayoutPosition),
 			DataSourceConfig:  json.RawMessage(ts.DataSourceConfig),
 			DataSourceMode:    toSimSceneDataSourceMode(sceneCfg.DataSourceMode, scenario.DataSourceMode),

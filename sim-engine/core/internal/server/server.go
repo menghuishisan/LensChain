@@ -139,7 +139,7 @@ func handleSimEngineWS(engine *app.Engine, validator TokenValidator, w http.Resp
 			if grant.ReadOnly {
 				return
 			}
-			actionCode, actorID, roleKey, params := decodeActionPayload(message.PayloadJSON)
+			actionCode, actorID, userRole, params := decodeActionPayload(message.PayloadJSON)
 			_, _ = engine.SendInteraction(
 				r.Context(),
 				sessionID,
@@ -147,15 +147,16 @@ func handleSimEngineWS(engine *app.Engine, validator TokenValidator, w http.Resp
 				actionCode,
 				params,
 				app.InteractionContext{
-					ActorID: actorID,
-					RoleKey: roleKey,
+					ActorID:  actorID,
+					UserRole: userRole,
 				},
 			)
-		case simws.MessageTypeRewindTo:
+		case simws.MessageTypeStepBack:
 			if grant.ReadOnly {
 				return
 			}
-			_ = engine.ControlTime(sessionID, "rewind_to", message.PayloadJSON)
+			// step_back 打包为 control 语义交给 ControlTime（仅单场景 process 有效，上层会校验）。
+			_ = engine.StepBack(sessionID)
 		}
 
 		select {
@@ -235,11 +236,11 @@ func decodeActionPayload(payload []byte) (string, string, string, []byte) {
 	var data struct {
 		ActionCode string          `json:"action_code"`
 		ActorID    string          `json:"actor_id"`
-		RoleKey    string          `json:"role_key"`
+		UserRole   string          `json:"user_role"`
 		Params     json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal(payload, &data); err != nil {
 		return "", "", "", payload
 	}
-	return data.ActionCode, data.ActorID, data.RoleKey, data.Params
+	return data.ActionCode, data.ActorID, data.UserRole, data.Params
 }

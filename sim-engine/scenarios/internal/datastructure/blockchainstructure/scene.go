@@ -1,507 +1,873 @@
+// 模块：sim-engine/scenarios/internal/datastructure/blockchainstructure
+// 文件职责：DS-01 区块链结构（区块 + 链头链 + 分叉重组）场景的完整实现。
+//
+// SSOT 依据：06.md §4.4.1 / §3.2 / §6.2 / §6.3 / §8.3；AGENTS.md §0 + §6。
+//
+// 算法实现：自实现区块链数据结构（零外部依赖）：
+//   · Block：height + prev_hash + tx_root + ts + difficulty + nonce + miner → hash = SHA-256(serialized)
+//   · 主链：按 hash 索引的有向链，每个 block 的 prev_hash 必须 == 前一块 hash；
+//   · 分叉：可在任意 height 创建分叉块，与主链共存；
+//   · 重组：当某分叉 total_diff > 主链 total_diff 时，切换主链；
+//   · 完整性验证：从 tip 回溯到创世，每对 (block, prev) 验证 prev_hash 一致。
+
 package blockchainstructure
 
 import (
-	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
-	"github.com/lenschain/sim-engine/scenarios/internal/framework"
+	fw "github.com/lenschain/sim-engine/framework"
+	"github.com/lenschain/sim-engine/scenarios/internal/cryptography/sha256hash"
 )
 
-// DefaultState 构造区块链结构与分叉场景的初始状态。
-func DefaultState() framework.SceneState {
-	return framework.SceneState{
-		SceneCode:    "blockchain-structure",
-		Title:        "区块链结构与分叉",
-		Phase:        "创世块",
-		PhaseIndex:   0,
-		Progress:     0,
-		StepDuration: 1200,
-		TotalTicks:   16,
-		Stages:       []string{"创世块", "追加区块", "产生分叉", "最长链选择"},
-		ChangedKeys:  []string{"nodes", "data", "metrics"},
-		Data:         map[string]any{},
-		Extra:        map[string]any{},
-	}
+const (
+	sceneCode     = "blockchain-structure"
+	schemaVersion = "v1.0.0"
+	algorithmType = "blockchain"
+
+	defaultDifficulty = 100
+	maxBlocks         = 64
+
+	linkGroupBlockchainIntegr = "blockchain-integrity-group"
+	linkOwnerSubtree          = "chain.struct"
+)
+
+type block struct {
+	Height     int
+	PrevHash   string // hex
+	TxRoot     string // hex（简化：直接用 tx_count 派生）
+	Timestamp  uint32
+	Difficulty int
+	Nonce      uint64
+	Miner      string
+	Hash       string // hex
 }
 
-// Init 初始化包含创世块和两个后续区块的基础链。
-func Init(state *framework.SceneState, input framework.InitInput) error {
-	blocks := []blockState{
-		newBlock("block-0", 0, "", []string{"genesis"}, "main"),
+// computeBlockHash 用 SHA-256 计算区块头哈希。
+func computeBlockHash(b block) string {
+	buf := make([]byte, 0, 128)
+	prevBytes, _ := hex.DecodeString(b.PrevHash)
+	if len(prevBytes) < 32 {
+		prevBytes = append(prevBytes, make([]byte, 32-len(prevBytes))...)
 	}
-	blocks = append(blocks, newBlock("block-1", 1, blocks[0].Hash, []string{"tx-a"}, "main"))
-	blocks = append(blocks, newBlock("block-2", 2, blocks[1].Hash, []string{"tx-b"}, "main"))
-	blocks = applySharedChainState(blocks, input.SharedState, state.LinkGroup)
-	return rebuildState(state, blocks, "创世块")
+	buf = append(buf, prevBytes[:32]...)
+	trBytes, _ := hex.DecodeString(b.TxRoot)
+	if len(trBytes) < 32 {
+		trBytes = append(trBytes, make([]byte, 32-len(trBytes))...)
+	}
+	buf = append(buf, trBytes[:32]...)
+	var ts [4]byte
+	binary.BigEndian.PutUint32(ts[:], b.Timestamp)
+	buf = append(buf, ts[:]...)
+	var diff [4]byte
+	binary.BigEndian.PutUint32(diff[:], uint32(b.Difficulty))
+	buf = append(buf, diff[:]...)
+	var nonce [8]byte
+	binary.BigEndian.PutUint64(nonce[:], b.Nonce)
+	buf = append(buf, nonce[:]...)
+	buf = append(buf, []byte(b.Miner)...)
+	var height [4]byte
+	binary.BigEndian.PutUint32(height[:], uint32(b.Height))
+	buf = append(buf, height[:]...)
+	h := sha256hash.Sum256(buf)
+	return hex.EncodeToString(h[:])
 }
 
-// Step 推进追加区块、产生分叉和最长链选择流程。
-func Step(state *framework.SceneState, input framework.StepInput) (framework.StepOutput, error) {
-	blocks := decodeBlocks(state)
-	phase := nextPhase(framework.StringValue(state.Data["phase_name"], "创世块"))
-	if sharedBlocks, ok := input.SharedState["blocks"].([]any); ok && len(sharedBlocks) > len(blocks) {
-		blocks = decodeSharedBlocks(sharedBlocks, blocks)
-	}
-	blocks = applySharedChainState(blocks, input.SharedState, state.LinkGroup)
-	switch phase {
-	case "追加区块":
-		parent := tipOfBranch(blocks, "main")
-		blocks = append(blocks, newBlock(fmt.Sprintf("block-%d", len(blocks)), parent.Height+1, parent.Hash, []string{fmt.Sprintf("tx-%d", len(blocks))}, "main"))
-	case "产生分叉":
-		parent := blockByHeight(blocks, 1)
-		blocks = append(blocks, newBlock(fmt.Sprintf("fork-%d", len(blocks)), parent.Height+1, parent.Hash, []string{"tx-fork"}, "fork"))
-	case "最长链选择":
-		markLongestBranch(blocks)
-	}
-	if err := rebuildState(state, blocks, phase); err != nil {
-		return framework.StepOutput{}, err
-	}
-	event := framework.NewEvent(state.SceneCode, state.Tick, phase, fmt.Sprintf("链结构进入%s阶段。", phase), "info")
-	return framework.StepOutput{
-		Events:     []framework.TimelineEvent{event},
-		SharedDiff: buildSharedDiff(state.LinkGroup, blocks),
-	}, nil
+// computeTxRoot 教学版：直接 SHA-256(tx_count || miner || nonce)。
+func computeTxRoot(txCount int, miner string, nonce uint64) string {
+	buf := []byte(miner)
+	var c [4]byte
+	binary.BigEndian.PutUint32(c[:], uint32(txCount))
+	buf = append(buf, c[:]...)
+	var n [8]byte
+	binary.BigEndian.PutUint64(n[:], nonce)
+	buf = append(buf, n[:]...)
+	h := sha256hash.Sum256(buf)
+	return hex.EncodeToString(h[:])
 }
 
-// HandleAction 支持追加区块和制造分叉两类结构操作。
-func HandleAction(state *framework.SceneState, input framework.ActionInput) (framework.ActionOutput, error) {
-	blocks := decodeBlocks(state)
-	phase := "追加区块"
-	if input.ActionCode == "fork_chain" {
-		phase = "产生分叉"
-		parent := blockByHeight(blocks, int(framework.NumberValue(input.Params["height"], 1)))
-		blocks = append(blocks, newBlock(fmt.Sprintf("fork-%d", len(blocks)), parent.Height+1, parent.Hash, []string{"manual-fork"}, "fork"))
-	} else {
-		parent := tipOfBranch(blocks, "main")
-		blocks = append(blocks, newBlock(fmt.Sprintf("block-%d", len(blocks)), parent.Height+1, parent.Hash, []string{"manual-tx"}, "main"))
-	}
-	if err := rebuildState(state, blocks, phase); err != nil {
-		return framework.ActionOutput{}, err
-	}
-	event := framework.NewEvent(state.SceneCode, state.Tick, "更新链结构", fmt.Sprintf("已执行 %s。", phase), "success")
-	return framework.ActionOutput{
-		Success:    true,
-		Events:     []framework.TimelineEvent{event},
-		SharedDiff: buildSharedDiff(state.LinkGroup, blocks),
-	}, nil
+type chain struct {
+	BlocksByHash   map[string]block
+	BlocksByHeight map[int][]string // height → hash 列表（含分叉）
+	MainTip        string           // 当前主链 tip hash
+	GenesisHash    string
 }
 
-// BuildRenderState 返回区块链结构、分叉和最长链标记。
-func BuildRenderState(state framework.SceneState) framework.RenderEnvelope {
-	return framework.RenderEnvelope{
-		Nodes:       state.Nodes,
-		Messages:    state.Messages,
-		Stages:      state.Stages,
-		ChangedKeys: state.ChangedKeys,
-		Phase:       state.Phase,
-		PhaseIndex:  state.PhaseIndex,
-		Progress:    state.Progress,
-		Data:        framework.CloneMap(state.Data),
-		Extra:       framework.CloneMap(state.Extra),
+func newChain() chain {
+	c := chain{
+		BlocksByHash:   map[string]block{},
+		BlocksByHeight: map[int][]string{},
 	}
+	// 创世块
+	g := block{
+		Height: 0, PrevHash: strings.Repeat("0", 64),
+		TxRoot:    computeTxRoot(0, "genesis", 0),
+		Timestamp: 1700000000, Difficulty: defaultDifficulty, Nonce: 0, Miner: "genesis",
+	}
+	g.Hash = computeBlockHash(g)
+	c.BlocksByHash[g.Hash] = g
+	c.BlocksByHeight[0] = []string{g.Hash}
+	c.MainTip = g.Hash
+	c.GenesisHash = g.Hash
+	return c
 }
 
-// SyncSharedState 在共享链状态变化后重建区块链结构场景。
-func SyncSharedState(state *framework.SceneState, sharedState map[string]any) error {
-	blocks := applySharedChainState(decodeBlocks(state), sharedState, state.LinkGroup)
-	return rebuildState(state, blocks, framework.StringValue(state.Data["phase_name"], state.Phase))
-}
-
-// blockState 保存区块哈希指针、交易列表和分叉归属。
-type blockState struct {
-	ID           string   `json:"id"`
-	Height       int      `json:"height"`
-	Hash         string   `json:"hash"`
-	PrevHash     string   `json:"prev_hash"`
-	Transactions []string `json:"transactions"`
-	Branch       string   `json:"branch"`
-	IsLongest    bool     `json:"is_longest"`
-}
-
-// newBlock 使用父哈希和交易列表生成稳定区块哈希。
-func newBlock(id string, height int, prevHash string, transactions []string, branch string) blockState {
-	payload := fmt.Sprintf("%s|%d|%s|%s|%s", id, height, prevHash, strings.Join(transactions, ","), branch)
-	hash := sha256.Sum256([]byte(payload))
-	return blockState{
-		ID:           id,
-		Height:       height,
-		Hash:         hex.EncodeToString(hash[:]),
-		PrevHash:     prevHash,
-		Transactions: transactions,
-		Branch:       branch,
-		IsLongest:    branch == "main",
-	}
-}
-
-// rebuildState 将链结构转成节点、哈希指针消息和可视化指标。
-func rebuildState(state *framework.SceneState, blocks []blockState, phase string) error {
-	markLongestBranch(blocks)
-	state.Phase = phase
-	state.PhaseIndex = phaseIndex(phase)
-	state.Progress = framework.NextProgress(state.Tick, state.TotalTicks)
-	state.Nodes = make([]framework.Node, 0, len(blocks))
-	for index, block := range blocks {
-		y := 180.0
-		if block.Branch == "fork" {
-			y = 310
-		}
-		status := "normal"
-		if block.IsLongest {
-			status = "success"
-		}
-		if block.Branch == "fork" && !block.IsLongest {
-			status = "fork"
-		}
-		state.Nodes = append(state.Nodes, framework.Node{
-			ID:     block.ID,
-			Label:  fmt.Sprintf("Block-%d", block.Height),
-			Status: status,
-			Role:   "block",
-			X:      120 + float64(index)*130,
-			Y:      y,
-			Load:   float64(len(block.Transactions) * 20),
-			Attributes: map[string]any{
-				"hash":         block.Hash,
-				"prev_hash":    block.PrevHash,
-				"height":       block.Height,
-				"transactions": block.Transactions,
-				"branch":       block.Branch,
-				"is_longest":   block.IsLongest,
-			},
-		})
-	}
-	state.Messages = buildMessages(blocks, phase)
-	state.Metrics = []framework.Metric{
-		{Key: "blocks", Label: "区块数", Value: fmt.Sprintf("%d", len(blocks)), Tone: "info"},
-		{Key: "height", Label: "最长链高度", Value: fmt.Sprintf("%d", longestHeight(blocks)), Tone: "success"},
-		{Key: "forks", Label: "分叉数", Value: fmt.Sprintf("%d", forkCount(blocks)), Tone: "warning"},
-	}
-	state.Tooltip = []framework.TooltipEntry{
-		{Label: "阶段", Value: phase},
-		{Label: "最长链", Value: longestBranch(blocks)},
-	}
-	state.Data = map[string]any{
-		"phase_name":   phase,
-		"blocks":       blocks,
-		"transactions": transactionIndex(blocks),
-		"longest":      longestBranch(blocks),
-	}
-	state.Extra = map[string]any{
-		"description": "该场景实现区块哈希指针、分叉树和最长链选择。",
-	}
-	state.ChangedKeys = []string{"nodes", "messages", "metrics", "data", "tooltip"}
-	return nil
-}
-
-// decodeBlocks 从通用 JSON 状态恢复区块列表。
-func decodeBlocks(state *framework.SceneState) []blockState {
-	raw, ok := state.Data["blocks"].([]any)
+// addBlockOnTop 在 prevHash 之上挖新块；如果 prevHash == MainTip 则延续主链；否则形成分叉。
+func (c *chain) addBlockOnTop(prevHash string, miner string, txCount int, ts uint32, nonce uint64) (block, error) {
+	prev, ok := c.BlocksByHash[prevHash]
 	if !ok {
-		if typed, ok := state.Data["blocks"].([]blockState); ok {
-			return typed
-		}
-		blocks := []blockState{newBlock("block-0", 0, "", []string{"genesis"}, "main")}
-		return append(blocks, newBlock("block-1", 1, blocks[0].Hash, []string{"tx-a"}, "main"))
+		return block{}, fmt.Errorf("找不到 prev hash: %s", prevHash)
 	}
-	return decodeSharedBlocks(raw, nil)
+	b := block{
+		Height: prev.Height + 1, PrevHash: prevHash,
+		TxRoot:    computeTxRoot(txCount, miner, nonce),
+		Timestamp: ts, Difficulty: defaultDifficulty, Nonce: nonce, Miner: miner,
+	}
+	b.Hash = computeBlockHash(b)
+	if _, exists := c.BlocksByHash[b.Hash]; exists {
+		return block{}, errors.New("hash 碰撞（请换 nonce）")
+	}
+	if len(c.BlocksByHash) >= maxBlocks {
+		return block{}, fmt.Errorf("区块数 ≥ %d", maxBlocks)
+	}
+	c.BlocksByHash[b.Hash] = b
+	c.BlocksByHeight[b.Height] = append(c.BlocksByHeight[b.Height], b.Hash)
+	return b, nil
 }
 
-// decodeSharedBlocks 从联动共享状态或内部状态中恢复区块列表。
-func decodeSharedBlocks(raw []any, fallback []blockState) []blockState {
-	result := make([]blockState, 0, len(raw))
-	for _, item := range raw {
-		entry, ok := item.(map[string]any)
+// totalDiff 从 tip 回溯到 genesis 累加难度。
+func (c chain) totalDiff(tipHash string) int {
+	td := 0
+	cur := tipHash
+	for {
+		b, ok := c.BlocksByHash[cur]
 		if !ok {
+			return td
+		}
+		td += b.Difficulty
+		if b.Height == 0 {
+			return td
+		}
+		cur = b.PrevHash
+	}
+}
+
+// chainFromTip 返回从 genesis 到 tip 的有序链。
+func (c chain) chainFromTip(tipHash string) []block {
+	out := []block{}
+	cur := tipHash
+	for {
+		b, ok := c.BlocksByHash[cur]
+		if !ok {
+			break
+		}
+		out = append([]block{b}, out...)
+		if b.Height == 0 {
+			break
+		}
+		cur = b.PrevHash
+	}
+	return out
+}
+
+// allTips 找出所有"非任何块的 prev"的块（即叶子）。
+func (c chain) allTips() []string {
+	parents := map[string]bool{}
+	for _, b := range c.BlocksByHash {
+		if b.Height > 0 {
+			parents[b.PrevHash] = true
+		}
+	}
+	out := []string{}
+	for h := range c.BlocksByHash {
+		if !parents[h] {
+			out = append(out, h)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// pickMainTip 选 totalDiff 最大的 tip 作为主链 tip。
+func (c *chain) pickMainTip() {
+	tips := c.allTips()
+	if len(tips) == 0 {
+		return
+	}
+	best := tips[0]
+	bestTD := c.totalDiff(best)
+	for _, t := range tips[1:] {
+		td := c.totalDiff(t)
+		if td > bestTD {
+			best = t
+			bestTD = td
+		}
+	}
+	c.MainTip = best
+}
+
+// verifyChain 从 tip 回溯，每对 (block, prev) 验证 prev_hash 与 hash 一致。
+func (c chain) verifyChain(tipHash string) (bool, []string) {
+	violations := []string{}
+	cur := tipHash
+	for {
+		b, ok := c.BlocksByHash[cur]
+		if !ok {
+			violations = append(violations, "block missing: "+cur)
+			return false, violations
+		}
+		// 重新计算 hash 验证未被篡改
+		if computeBlockHash(b) != b.Hash {
+			violations = append(violations, fmt.Sprintf("h=%d hash mismatch", b.Height))
+		}
+		if b.Height == 0 {
+			break
+		}
+		prev, ok := c.BlocksByHash[b.PrevHash]
+		if !ok {
+			violations = append(violations, fmt.Sprintf("h=%d prev missing", b.Height))
+			return false, violations
+		}
+		if prev.Height != b.Height-1 {
+			violations = append(violations, fmt.Sprintf("h=%d prev height mismatch", b.Height))
+		}
+		cur = b.PrevHash
+	}
+	return len(violations) == 0, violations
+}
+
+// =====================================================================
+// 场景内部状态
+// =====================================================================
+
+type snapState struct {
+	Chain      chain
+	NextNonce  uint64
+	Tampered   bool
+	TamperedAt int
+	LastError  string
+}
+
+func defaultSnapState() snapState {
+	return snapState{Chain: newChain()}
+}
+
+// =====================================================================
+// 持久化
+// =====================================================================
+
+func loadState(s *fw.SceneState) snapState {
+	if s == nil || s.Data == nil {
+		return defaultSnapState()
+	}
+	d := s.Data
+	st := snapState{
+		Chain: chain{
+			BlocksByHash:   map[string]block{},
+			BlocksByHeight: map[int][]string{},
+			MainTip:        fw.MapStr(d, "main_tip", ""),
+			GenesisHash:    fw.MapStr(d, "genesis_hash", ""),
+		},
+		NextNonce:  uint64(fw.MapInt(d, "next_nonce", 0)),
+		Tampered:   fw.MapBool(d, "tampered", false),
+		TamperedAt: fw.MapInt(d, "tampered_at", -1),
+		LastError:  fw.MapStr(d, "last_error", ""),
+	}
+	if bsAny, ok := d["blocks"].([]any); ok {
+		for _, bAny := range bsAny {
+			if bm, ok := bAny.(map[string]any); ok {
+				b := block{
+					Height:     fw.MapInt(bm, "height", 0),
+					PrevHash:   fw.MapStr(bm, "prev", ""),
+					TxRoot:     fw.MapStr(bm, "tx_root", ""),
+					Timestamp:  uint32(fw.MapInt(bm, "ts", 0)),
+					Difficulty: fw.MapInt(bm, "diff", defaultDifficulty),
+					Nonce:      uint64(fw.MapInt(bm, "nonce", 0)),
+					Miner:      fw.MapStr(bm, "miner", ""),
+					Hash:       fw.MapStr(bm, "hash", ""),
+				}
+				st.Chain.BlocksByHash[b.Hash] = b
+				st.Chain.BlocksByHeight[b.Height] = append(st.Chain.BlocksByHeight[b.Height], b.Hash)
+			}
+		}
+	}
+	if len(st.Chain.BlocksByHash) == 0 {
+		return defaultSnapState()
+	}
+	return st
+}
+
+func saveState(s *fw.SceneState, st snapState) {
+	if s.Data == nil {
+		s.Data = map[string]any{}
+	}
+	s.Data["main_tip"] = st.Chain.MainTip
+	s.Data["genesis_hash"] = st.Chain.GenesisHash
+	s.Data["next_nonce"] = st.NextNonce
+	s.Data["tampered"] = st.Tampered
+	s.Data["tampered_at"] = st.TamperedAt
+	s.Data["last_error"] = st.LastError
+	bs := make([]any, 0, len(st.Chain.BlocksByHash))
+	for _, b := range st.Chain.BlocksByHash {
+		bs = append(bs, map[string]any{
+			"height": b.Height, "prev": b.PrevHash, "tx_root": b.TxRoot,
+			"ts": int(b.Timestamp), "diff": b.Difficulty, "nonce": int(b.Nonce),
+			"miner": b.Miner, "hash": b.Hash,
+		})
+	}
+	s.Data["blocks"] = bs
+}
+
+// =====================================================================
+// 场景定义
+// =====================================================================
+
+func Definition() fw.Definition {
+	return fw.Definition{
+		Code: sceneCode, Name: "区块链结构",
+		Description:         "演示区块链 prev_hash 链 + 分叉 + 累计难度选主链 + 完整性验证 + 篡改检测",
+		Category:            fw.CategoryDataStructure,
+		AlgorithmType:       algorithmType,
+		Version:             schemaVersion,
+		TimeControlMode:     fw.TimeControlProcess,
+		DataSourceMode:      fw.DataSourceSimulation,
+		SupportedLinkGroups: []string{linkGroupBlockchainIntegr},
+
+		ExtensionLevel:     fw.ExtensionL1,
+		LinkGroupVersion:   "v0.5.0",
+		SupportsMultiActor: false,
+		OwnedFieldPaths: []string{
+			"chain.struct.tip_hash",
+			"chain.struct.height",
+		},
+
+		DefaultParams: func() map[string]any { return map[string]any{} },
+		DefaultState:  defaultStateFw,
+		Interaction:   interactionDefinition,
+		Init:                initScene,
+		Step:                stepScene,
+		HandleAction:        handleAction,
+	}
+}
+
+func defaultStateFw() fw.SceneState {
+	return fw.SceneState{SceneCode: sceneCode, Tick: 0, Phase: "ready", Data: map[string]any{}}
+}
+
+func interactionDefinition() fw.InteractionDefinition {
+	return fw.InteractionDefinition{
+		SceneCode:     sceneCode,
+		SchemaVersion: schemaVersion,
+		Actions: []fw.ActionDef{
+			{
+				ActionCode: "mine_block", Label: "挖新块（在主链尾）",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "alice"},
+					{Name: "tx_count", Type: fw.FieldNumber, Label: "交易数", Required: true, Default: 3, Min: 0, Max: 100, Step: 1},
+				},
+				WritesOwnedFields: []string{"chain.struct.tip_hash", "chain.struct.height"},
+				LinkOwnerFields:   []string{"chain.struct.tip_hash", "chain.struct.height"},
+			},
+			{
+				ActionCode: "mine_fork_block", Label: "在指定 height 分叉",
+				Description: "找 height 处的某块作为 prev，挖一个分叉块",
+				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "fork_at_height", Type: fw.FieldNumber, Label: "分叉 height", Required: true, Default: 1, Min: 0, Step: 1},
+					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "fork-miner"},
+				},
+				WritesOwnedFields: []string{"chain.struct.tip_hash"},
+				LinkOwnerFields:   []string{"chain.struct.tip_hash"},
+			},
+			{
+				ActionCode: "extend_fork", Label: "延伸分叉链",
+				Description: "选 totalDiff 第二大的 tip 延伸 1 块",
+				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "fork-miner"},
+				},
+			},
+			{
+				ActionCode: "reorg", Label: "重组主链",
+				Description: "重新选 totalDiff 最大的 tip 作为主链",
+				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				WritesOwnedFields: []string{"chain.struct.tip_hash", "chain.struct.height"},
+				LinkOwnerFields:   []string{"chain.struct.tip_hash", "chain.struct.height"},
+			},
+			{
+				ActionCode: "verify_chain", Label: "验证主链完整性",
+				Category: fw.ActionObserve, Trigger: fw.TriggerImmediate,
+				Roles:           []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				LinkOwnerFields: []string{"chain.struct.integrity"},
+			},
+			{
+				ActionCode: "tamper_block", Label: "篡改区块",
+				Description: "修改某块的 miner 字段（不重新计算 hash），演示完整性破坏",
+				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Fields: []fw.FieldDef{
+					{Name: "height", Type: fw.FieldNumber, Label: "目标 height", Required: true, Default: 1, Min: 0, Step: 1},
+				},
+			},
+			{
+				ActionCode: "reset", Label: "重置",
+				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+			},
+			{
+				ActionCode:    "teacher_inject_corruption",
+				Label:         "教师注入数据损坏",
+				Description:   "仅教师可用，注入数据损坏用于教学演示",
+				Category:      fw.ActionAttackInject,
+				Trigger:       fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleTeacher},
+				InterveneType: fw.InterveneFault,
+				Fields: []fw.FieldDef{
+					{Name: "description", Type: fw.FieldString, Label: "描述", Required: false, Default: "教师注入数据损坏"},
+				},
+			},
+			fw.BroadcastHintAction(),
+		},
+	}
+}
+
+// =====================================================================
+// 钩子
+// =====================================================================
+
+func initScene(state *fw.SceneState, in fw.InitInput) (fw.RenderEnvelope, error) {
+	st := loadState(state)
+	saveState(state, st)
+	state.Phase = "ready"
+	env := buildEnvelope(st, "init", "Blockchain 初始化（仅创世块）", true)
+	publishOwnerSubtree(&env, st)
+	return env, nil
+}
+
+func stepScene(state *fw.SceneState, in fw.StepInput) (fw.StepOutput, error) {
+	st := loadState(state)
+	state.Tick = in.Tick
+	env := buildEnvelope(st, "tick", "", false)
+	return fw.StepOutput{Render: env}, nil
+}
+
+func handleAction(state *fw.SceneState, in fw.ActionInput) (fw.ActionOutput, error) {
+	_ = fw.EnsureActorBucket(state, in.ActorID)
+	if out, ok := fw.HandleBroadcastHint(state, in); ok {
+		return out, nil
+	}
+
+	st := loadState(state)
+	out := fw.ActionOutput{Success: true}
+
+	switch in.ActionCode {
+	case "mine_block":
+		miner := fw.MapStr(in.Params, "miner", "alice")
+		tx := fw.MapInt(in.Params, "tx_count", 3)
+		st.NextNonce++
+		ts := uint32(1700000000 + len(st.Chain.BlocksByHash))
+		b, err := st.Chain.addBlockOnTop(st.Chain.MainTip, miner, tx, ts, st.NextNonce)
+		if err != nil {
+			return fw.ActionOutput{Success: false, ErrorMessage: err.Error()}, nil
+		}
+		st.Chain.MainTip = b.Hash
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "mine_block", fmt.Sprintf("挖出 #%d hash=%s...", b.Height, b.Hash[:12]), false)
+		appendMineMicroSteps(&out.Render, b.Height)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "mine_fork_block":
+		h := fw.MapInt(in.Params, "fork_at_height", 1)
+		miner := fw.MapStr(in.Params, "miner", "fork-miner")
+		hashes, ok := st.Chain.BlocksByHeight[h]
+		if !ok || len(hashes) == 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: fmt.Sprintf("height %d 不存在", h)}, nil
+		}
+		// 取该 height 的第一个块作为分叉 prev（应该用其 prev 实现真正分叉）
+		// 真正分叉：取 height-1 的某块作为 prev
+		if h == 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "无法在创世块分叉"}, nil
+		}
+		prevHashes, ok := st.Chain.BlocksByHeight[h-1]
+		if !ok || len(prevHashes) == 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "找不到 prev"}, nil
+		}
+		st.NextNonce++
+		ts := uint32(1700000000 + len(st.Chain.BlocksByHash) + 1000)
+		b, err := st.Chain.addBlockOnTop(prevHashes[0], miner, 0, ts, st.NextNonce)
+		if err != nil {
+			return fw.ActionOutput{Success: false, ErrorMessage: err.Error()}, nil
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "mine_fork_block",
+			fmt.Sprintf("分叉块 h=%d hash=%s...（未切换主链）", b.Height, b.Hash[:12]), false)
+		appendForkMicroSteps(&out.Render, b.Height)
+		return out, nil
+
+	case "extend_fork":
+		miner := fw.MapStr(in.Params, "miner", "fork-miner")
+		// 找非主链 tip 中 totalDiff 最大的
+		tips := st.Chain.allTips()
+		if len(tips) < 2 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "目前无分叉链"}, nil
+		}
+		var altTip string
+		altTD := -1
+		for _, t := range tips {
+			if t == st.Chain.MainTip {
+				continue
+			}
+			td := st.Chain.totalDiff(t)
+			if td > altTD {
+				altTD = td
+				altTip = t
+			}
+		}
+		if altTip == "" {
+			return fw.ActionOutput{Success: false, ErrorMessage: "无可延伸的分叉"}, nil
+		}
+		st.NextNonce++
+		ts := uint32(1700000000 + len(st.Chain.BlocksByHash) + 2000)
+		b, err := st.Chain.addBlockOnTop(altTip, miner, 1, ts, st.NextNonce)
+		if err != nil {
+			return fw.ActionOutput{Success: false, ErrorMessage: err.Error()}, nil
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "extend_fork", fmt.Sprintf("分叉链 +1 块（h=%d）", b.Height), false)
+		return out, nil
+
+	case "reorg":
+		oldTip := st.Chain.MainTip
+		st.Chain.pickMainTip()
+		saveState(state, st)
+		summary := "主链未变"
+		if st.Chain.MainTip != oldTip {
+			summary = fmt.Sprintf("⚠ 主链重组：%s... → %s...", oldTip[:12], st.Chain.MainTip[:12])
+		}
+		out.Render = buildEnvelope(st, "reorg", summary, false)
+		appendReorgMicroSteps(&out.Render, st.Chain.MainTip != oldTip)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "verify_chain":
+		ok, viol := st.Chain.verifyChain(st.Chain.MainTip)
+		summary := "✓ 链完整"
+		if !ok {
+			summary = fmt.Sprintf("✗ 完整性破坏：%d 个违规", len(viol))
+		}
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "verify_chain", summary, false)
+		appendVerifyMicroSteps(&out.Render, ok, viol)
+		out.SharedStateDiff = ownerDiff(st)
+		return out, nil
+
+	case "tamper_block":
+		h := fw.MapInt(in.Params, "height", 1)
+		hashes, ok := st.Chain.BlocksByHeight[h]
+		if !ok || len(hashes) == 0 {
+			return fw.ActionOutput{Success: false, ErrorMessage: "height 不存在"}, nil
+		}
+		// 篡改：改 miner 字段，不重算 hash
+		oldHash := hashes[0]
+		b := st.Chain.BlocksByHash[oldHash]
+		b.Miner = "TAMPERED-" + b.Miner
+		st.Chain.BlocksByHash[oldHash] = b
+		st.Tampered = true
+		st.TamperedAt = h
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "tamper_block",
+			fmt.Sprintf("⚠ 已篡改 #%d 的 miner（hash 未重算 → verify 会失败）", h), false)
+		appendTamperMicroSteps(&out.Render, h)
+		return out, nil
+
+	case "teacher_inject_corruption":
+		if in.UserRole != fw.RoleTeacher {
+			return fw.ActionOutput{Success: false, ErrorMessage: "仅教师可调用"}, nil
+		}
+		desc, _ := in.Params["description"].(string)
+		if desc == "" {
+			desc = "教师注入数据损坏"
+		}
+		annot := fw.PrimAnnotation(fmt.Sprintf("teacher-corrupt-%d", state.Tick), "text", "teacher", 5000, map[string]any{"x": 0.5, "y": 0.1}, nil, desc)
+		return fw.ActionOutput{
+			Success: true,
+			Render: fw.RenderEnvelope{
+				Primitives:  []fw.Primitive{annot},
+				ChangedKeys: []string{"teacher_action"},
+			},
+		}, nil
+
+	case "reset":
+		st = defaultSnapState()
+		saveState(state, st)
+		out.Render = buildEnvelope(st, "reset", "已重置", true)
+		return out, nil
+	}
+
+	return fw.ActionOutput{Success: false, ErrorMessage: "未知 ActionCode: " + in.ActionCode}, errors.New("unknown action")
+}
+
+// =====================================================================
+// RenderEnvelope 构造
+// =====================================================================
+
+func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.RenderEnvelope {
+	prims := make([]fw.Primitive, 0, 40)
+
+	// 1) 树形布局：从 genesis 展开
+	prims = append(prims, fw.PrimTreeLayout("chain-tree", "blk-"+st.Chain.GenesisHash, "top-down"))
+
+	// 2) 主链节点集合
+	mainChain := st.Chain.chainFromTip(st.Chain.MainTip)
+	mainSet := map[string]bool{}
+	for _, b := range mainChain {
+		mainSet[b.Hash] = true
+	}
+
+	// 3) 所有节点
+	for _, b := range st.Chain.BlocksByHash {
+		role := "block"
+		status := "normal"
+		if b.Hash == st.Chain.GenesisHash {
+			role = "genesis"
+			status = "active"
+		} else if b.Hash == st.Chain.MainTip {
+			role = "tip"
+			status = "active"
+		} else if mainSet[b.Hash] {
+			role = "main-block"
+		} else {
+			role = "fork-block"
+			status = "warning"
+		}
+		if st.Tampered && b.Height == st.TamperedAt {
+			status = "error"
+		}
+		label := fmt.Sprintf("h=%d\n%s\n%s", b.Height, b.Miner, b.Hash[:12])
+		prims = append(prims, fw.PrimNode("blk-"+b.Hash, label, status, role))
+	}
+
+	// 4) 边（child → parent）
+	for _, b := range st.Chain.BlocksByHash {
+		if b.Height == 0 {
 			continue
 		}
-		result = append(result, blockState{
-			ID:           framework.StringValue(entry["id"], ""),
-			Height:       int(framework.NumberValue(entry["height"], 0)),
-			Hash:         framework.StringValue(entry["hash"], ""),
-			PrevHash:     framework.StringValue(entry["prev_hash"], ""),
-			Transactions: framework.ToStringSlice(entry["transactions"]),
-			Branch:       framework.StringValue(entry["branch"], "main"),
-			IsLongest:    framework.BoolValue(entry["is_longest"], false),
-		})
-	}
-	if len(result) == 0 && len(fallback) > 0 {
-		return fallback
-	}
-	return result
-}
-
-// buildMessages 生成区块之间的哈希指针消息。
-func buildMessages(blocks []blockState, phase string) []framework.Message {
-	messages := make([]framework.Message, 0, len(blocks))
-	for _, block := range blocks {
-		if block.PrevHash == "" {
-			continue
+		anim := ""
+		if mainSet[b.Hash] {
+			anim = "flow"
 		}
-		parent := parentBlock(blocks, block.PrevHash)
-		messages = append(messages, framework.Message{
-			ID:       fmt.Sprintf("%s-pointer", block.ID),
-			Label:    "prev_hash",
-			Kind:     "pointer",
-			Status:   phase,
-			SourceID: block.ID,
-			TargetID: parent.ID,
-		})
-	}
-	return messages
-}
-
-// markLongestBranch 根据分支高度标记最长链。
-func markLongestBranch(blocks []blockState) {
-	branch := longestBranch(blocks)
-	for index := range blocks {
-		blocks[index].IsLongest = blocks[index].Branch == branch
-	}
-}
-
-// tipOfBranch 返回指定分支的最高区块。
-func tipOfBranch(blocks []blockState, branch string) blockState {
-	tip := blocks[0]
-	for _, block := range blocks {
-		if block.Branch == branch && block.Height >= tip.Height {
-			tip = block
+		style := "solid"
+		if !mainSet[b.Hash] {
+			style = "dashed"
 		}
+		prims = append(prims, fw.PrimEdge(
+			fmt.Sprintf("edge-%s-%s", b.Hash[:8], b.PrevHash[:8]),
+			"blk-"+b.PrevHash, "blk-"+b.Hash, style, anim))
 	}
-	return tip
-}
 
-// blockByHeight 返回主链上指定高度的区块。
-func blockByHeight(blocks []blockState, height int) blockState {
-	for _, block := range blocks {
-		if block.Height == height && block.Branch == "main" {
-			return block
+	// 5) 公式
+	prims = append(prims, fw.PrimMathFormula("formula-chain",
+		`B_i.\mathrm{prev\_hash} = H(B_{i-1});\quad \text{main} = \arg\max_t \sum_{B \in \text{path}(t)} \mathrm{diff}_B`, false))
+
+	// 6) 状态参数
+	mainTD := st.Chain.totalDiff(st.Chain.MainTip)
+	mainHeight := 0
+	if t, ok := st.Chain.BlocksByHash[st.Chain.MainTip]; ok {
+		mainHeight = t.Height
+	}
+	tips := st.Chain.allTips()
+	prims = append(prims, fw.PrimCodeBlock("cb-status",
+		fmt.Sprintf("总块数 = %d\n主链高度 = %d\n主链 tip = %s...\n主链 total_diff = %d\ntips 数 = %d (含主链)\n篡改 = %v",
+			len(st.Chain.BlocksByHash), mainHeight, truncStr(st.Chain.MainTip, 16),
+			mainTD, len(tips), st.Tampered),
+		"text", nil, 8))
+
+	// 7) 主链表
+	mainLines := []string{"主链区块列表："}
+	for _, b := range mainChain {
+		mainLines = append(mainLines, fmt.Sprintf("  h=%d  miner=%-12s  hash=%s",
+			b.Height, b.Miner, b.Hash[:24]))
+	}
+	prims = append(prims, fw.PrimCodeBlock("cb-main", strings.Join(mainLines, "\n"), "text", nil, 14))
+
+	// 8) tips 表
+	tipLines := []string{fmt.Sprintf("所有 tips（%d 个）：", len(tips))}
+	for _, t := range tips {
+		td := st.Chain.totalDiff(t)
+		role := "fork"
+		if t == st.Chain.MainTip {
+			role = "MAIN"
 		}
+		tipB := st.Chain.BlocksByHash[t]
+		tipLines = append(tipLines, fmt.Sprintf("  [%s] h=%d td=%d hash=%s",
+			role, tipB.Height, td, t[:24]))
 	}
-	return blocks[0]
-}
+	prims = append(prims, fw.PrimCodeBlock("cb-tips", strings.Join(tipLines, "\n"), "text", nil, 8))
 
-// parentBlock 根据前序哈希查找父区块。
-func parentBlock(blocks []blockState, prevHash string) blockState {
-	for _, block := range blocks {
-		if block.Hash == prevHash {
-			return block
-		}
+	// 9) 动效
+	prims = append(prims, fw.PrimGlow("glow-tip", "blk-"+st.Chain.MainTip, "success", 0.9))
+	prims = append(prims, fw.PrimGlow("glow-genesis", "blk-"+st.Chain.GenesisHash, "info", 0.6))
+	if st.Tampered {
+		prims = append(prims, fw.PrimShake("shake-tampered", "cb-status", 0.4, 600))
 	}
-	return blocks[0]
-}
+	prims = append(prims, fw.PrimPulse("pulse-tip", "blk-"+st.Chain.MainTip, "success", 1500))
 
-// longestBranch 返回当前最高分支名称。
-func longestBranch(blocks []blockState) string {
-	heights := map[string]int{}
-	for _, block := range blocks {
-		if block.Height > heights[block.Branch] {
-			heights[block.Branch] = block.Height
-		}
-	}
-	result := "main"
-	best := -1
-	for branch, height := range heights {
-		if height > best {
-			result = branch
-			best = height
-		}
-	}
-	return result
-}
+	// 10) 联动徽章
+	prims = append(prims, fw.PrimLinkIndicator("link-integ", linkGroupBlockchainIntegr, "idle", ""))
 
-// longestHeight 返回当前最长链高度。
-func longestHeight(blocks []blockState) int {
-	height := 0
-	for _, block := range blocks {
-		if block.IsLongest && block.Height > height {
-			height = block.Height
-		}
+	if st.LastError != "" {
+		prims = append(prims, fw.PrimErrorOverlay("err", "warning", "Chain 错误", st.LastError, "scene", "请检查参数", true))
 	}
-	return height
-}
 
-// forkCount 统计非主链区块数量。
-func forkCount(blocks []blockState) int {
-	total := 0
-	for _, block := range blocks {
-		if block.Branch != "main" {
-			total++
-		}
-	}
-	return total
-}
-
-// branchHeight 返回指定分支的最高高度。
-func branchHeight(blocks []blockState, branch string) int {
-	height := 0
-	for _, block := range blocks {
-		if block.Branch == branch && block.Height > height {
-			height = block.Height
-		}
-	}
-	return height
-}
-
-// transactionIndex 按区块索引交易列表，供联动组读取。
-func transactionIndex(blocks []blockState) map[string]any {
-	result := map[string]any{}
-	for _, block := range blocks {
-		result[block.ID] = block.Transactions
-	}
-	return result
-}
-
-// nextPhase 返回链结构演化的下一阶段。
-func nextPhase(phase string) string {
-	switch phase {
-	case "创世块":
-		return "追加区块"
-	case "追加区块":
-		return "产生分叉"
-	case "产生分叉":
-		return "最长链选择"
-	default:
-		return "追加区块"
+	return fw.RenderEnvelope{
+		Primitives:     prims,
+		IsFullSnapshot: fullSnapshot,
+		ChangedKeys:    []string{reason},
+		Data:           buildSidePanelData(st, summary),
 	}
 }
 
-// phaseIndex 将阶段名映射到时间线索引。
-func phaseIndex(phase string) int {
-	switch phase {
-	case "创世块":
-		return 0
-	case "追加区块":
-		return 1
-	case "产生分叉":
-		return 2
-	case "最长链选择":
-		return 3
-	default:
-		return 0
+func buildSidePanelData(st snapState, summary string) map[string]any {
+	mainTD := st.Chain.totalDiff(st.Chain.MainTip)
+	mainHeight := 0
+	if t, ok := st.Chain.BlocksByHash[st.Chain.MainTip]; ok {
+		mainHeight = t.Height
+	}
+	d := map[string]any{
+		"total_blocks":    len(st.Chain.BlocksByHash),
+		"main_height":     mainHeight,
+		"tip_hash":        st.Chain.MainTip,
+		"genesis_hash":    st.Chain.GenesisHash,
+		"main_total_diff": mainTD,
+		"tip_count":       len(st.Chain.allTips()),
+		"tampered":        st.Tampered,
+		"tampered_at":     st.TamperedAt,
+	}
+	if summary != "" {
+		d["summary"] = summary
+	}
+	return d
+}
+
+// =====================================================================
+// MicroStep
+// =====================================================================
+
+func appendMineMicroSteps(env *fw.RenderEnvelope, h int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "mn-1", Label: fmt.Sprintf("准备 #%d 区块头（prev_hash=tip）", h), DurationMs: 400, HighlightIDs: []string{"cb-main"}, ParentPhase: "append"},
+		{ID: "mn-2", Label: "计算 SHA-256 (header)", DurationMs: 400, HighlightIDs: []string{"formula-chain"}, FirePrimitives: []string{"pulse-tip"}},
+		{ID: "mn-3", Label: "追加到主链 → 更新 tip", DurationMs: 400, HighlightIDs: []string{"chain-tree", "glow-tip"}, IsLinkTrigger: true},
 	}
 }
 
-// buildSharedDiff 按联动组输出链结构场景允许共享的状态。
-func buildSharedDiff(linkGroup string, blocks []blockState) map[string]any {
-	switch linkGroup {
-	case "pow-attack-group":
-		return map[string]any{
-			"nodes": map[string]any{
-				"honest_height":   branchHeight(blocks, "main"),
-				"attacker_height": branchHeight(blocks, "fork"),
-			},
-			"blockchain": map[string]any{
-				"height":          longestHeight(blocks),
-				"fork_detected":   forkCount(blocks) > 0,
-				"reorganized":     longestBranch(blocks) == "fork",
-				"attacker_height": branchHeight(blocks, "fork"),
-				"honest_height":   branchHeight(blocks, "main"),
-			},
-			"network": map[string]any{
-				"fork_detected": forkCount(blocks) > 0,
-			},
-		}
-	case "blockchain-integrity-group":
-		return map[string]any{
-			"blocks":       blocksToShared(blocks),
-			"transactions": transactionIndex(blocks),
-			"merkle_root":  blocksMerkleRoot(blocks),
-		}
-	default:
-		return nil
+func appendForkMicroSteps(env *fw.RenderEnvelope, h int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "fk-1", Label: fmt.Sprintf("找 height %d-1 的某块作为 prev", h), DurationMs: 400, HighlightIDs: []string{"chain-tree"}},
+		{ID: "fk-2", Label: "构造分叉块（prev != 主链 tip）", DurationMs: 400, HighlightIDs: []string{"cb-tips"}},
+		{ID: "fk-3", Label: "存入 chain，主链不变（td 不够）", DurationMs: 400, HighlightIDs: []string{"cb-status"}, IsLinkTrigger: true},
 	}
 }
 
-// blocksToShared 将内部区块结构转换为共享状态中的数组对象。
-func blocksToShared(blocks []blockState) []map[string]any {
-	result := make([]map[string]any, 0, len(blocks))
-	for _, block := range blocks {
-		result = append(result, map[string]any{
-			"id":           block.ID,
-			"height":       block.Height,
-			"hash":         block.Hash,
-			"prev_hash":    block.PrevHash,
-			"transactions": block.Transactions,
-			"branch":       block.Branch,
-			"is_longest":   block.IsLongest,
-		})
+func appendReorgMicroSteps(env *fw.RenderEnvelope, changed bool) {
+	tail := "主链未变"
+	if changed {
+		tail = "⚠ 切换到 td 更大的 tip"
 	}
-	return result
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "rg-1", Label: "枚举所有 tips", DurationMs: 400, HighlightIDs: []string{"cb-tips"}},
+		{ID: "rg-2", Label: "计算每条链 totalDiff", DurationMs: 400, HighlightIDs: []string{"formula-chain"}},
+		{ID: "rg-3", Label: tail, DurationMs: 400, HighlightIDs: []string{"glow-tip"}, FirePrimitives: []string{"pulse-tip"}, IsLinkTrigger: true},
+	}
 }
 
-// blocksMerkleRoot 根据最长链顶端区块生成完整性组使用的 Merkle Root 语义。
-func blocksMerkleRoot(blocks []blockState) string {
-	tip := tipOfBranch(blocks, longestBranch(blocks))
-	if tip.Hash == "" {
-		return ""
-	}
-	return tip.Hash
-}
-
-// applySharedChainState 将当前联动组的共享状态映射回链结构场景。
-func applySharedChainState(blocks []blockState, sharedState map[string]any, linkGroup string) []blockState {
-	if len(sharedState) == 0 {
-		return blocks
-	}
-	if linkGroup == "blockchain-integrity-group" {
-		if sharedBlocks, ok := sharedState["blocks"].([]any); ok && len(sharedBlocks) > 0 {
-			return decodeSharedBlocks(sharedBlocks, blocks)
-		}
-		return blocks
-	}
-	if linkGroup != "pow-attack-group" {
-		return blocks
-	}
-	blockchain, ok := sharedState["blockchain"].(map[string]any)
+func appendVerifyMicroSteps(env *fw.RenderEnvelope, ok bool, viol []string) {
+	tail := "✓ 全部 prev_hash 一致"
 	if !ok {
-		return blocks
+		tail = fmt.Sprintf("✗ %d 个违规：%s", len(viol), strings.Join(viol, "; "))
 	}
-	honestHeight := int(framework.NumberValue(blockchain["honest_height"], float64(branchHeight(blocks, "main"))))
-	attackerHeight := int(framework.NumberValue(blockchain["attacker_height"], float64(branchHeight(blocks, "fork"))))
-	if linkedHeight := int(framework.NumberValue(blockchain["height"], float64(honestHeight))); linkedHeight > honestHeight {
-		honestHeight = linkedHeight
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "vf-1", Label: "从 tip 回溯到 genesis", DurationMs: 500, HighlightIDs: []string{"chain-tree", "cb-main"}},
+		{ID: "vf-2", Label: "每对 (B_i, B_{i-1}) 验证 prev_hash + 重算 hash", DurationMs: 500, HighlightIDs: []string{"formula-chain"}},
+		{ID: "vf-3", Label: tail, DurationMs: 500, HighlightIDs: []string{"cb-status"}, FirePrimitives: []string{"pulse-tip"}, IsLinkTrigger: true},
 	}
-	reorganized := framework.BoolValue(blockchain["reorganized"], false)
-	if honestHeight == 0 && attackerHeight == 0 {
-		return blocks
-	}
-	return rebuildBranchesFromHeights(honestHeight, attackerHeight, reorganized)
 }
 
-// rebuildBranchesFromHeights 按共享态中的主链和攻击链高度重建分叉结构。
-func rebuildBranchesFromHeights(honestHeight int, attackerHeight int, reorganized bool) []blockState {
-	if honestHeight < 0 {
-		honestHeight = 0
+func appendTamperMicroSteps(env *fw.RenderEnvelope, h int) {
+	env.MicroSteps = []fw.MicroStep{
+		{ID: "tm-1", Label: fmt.Sprintf("篡改 #%d 的 miner 字段", h), DurationMs: 400, HighlightIDs: []string{"chain-tree"}, FirePrimitives: []string{"shake-tampered"}},
+		{ID: "tm-2", Label: "未重算 hash → 当前 hash 与 SHA-256(header) 不一致", DurationMs: 500, HighlightIDs: []string{"cb-main"}},
+		{ID: "tm-3", Label: "verify_chain 时 → 检测出 hash mismatch", DurationMs: 500, HighlightIDs: []string{"cb-status"}, IsLinkTrigger: true},
 	}
-	if attackerHeight < 0 {
-		attackerHeight = 0
+}
+
+// =====================================================================
+// 联动
+// =====================================================================
+
+// chainTipHeight 取主链 tip 高度。
+func chainTipHeight(st snapState) int {
+	if t, ok := st.Chain.BlocksByHash[st.Chain.MainTip]; ok {
+		return t.Height
 	}
-	blocks := make([]blockState, 0, honestHeight+attackerHeight+1)
-	genesis := newBlock("block-0", 0, "", []string{"genesis"}, "main")
-	blocks = append(blocks, genesis)
-	parent := genesis
-	for height := 1; height <= honestHeight; height++ {
-		block := newBlock(fmt.Sprintf("block-%d", height), height, parent.Hash, []string{fmt.Sprintf("tx-%d", height)}, "main")
-		blocks = append(blocks, block)
-		parent = block
+	return 0
+}
+
+func publishOwnerSubtree(env *fw.RenderEnvelope, st snapState) {
+	if env.Data == nil {
+		env.Data = map[string]any{}
 	}
-	forkBase := genesis
-	if honestHeight >= 1 && len(blocks) > 1 {
-		forkBase = blocks[1]
+	env.LinkTriggers = append(env.LinkTriggers, fw.LinkTrigger{
+		ID:             "chain-publish",
+		SourceScene:    sceneCode,
+		SourceAction:   "publish_chain",
+		LinkGroup:      linkGroupBlockchainIntegr,
+		ChangedFields:  []string{"chain.struct.tip_hash", "chain.struct.height"},
+		Payload:        map[string]any{"height": chainTipHeight(st)},
+		SourceAnchorID: "chain-tip-anchor",
+		TargetAnchorID: "integrity-anchor",
+	})
+	env.ChangedKeys = append(env.ChangedKeys, "chain.struct.tip_hash", "chain.struct.height")
+	env.Data["link_owner_subtree"] = linkOwnerSubtree
+}
+
+func ownerDiff(st snapState) map[string]any {
+	mainHeight := 0
+	if t, ok := st.Chain.BlocksByHash[st.Chain.MainTip]; ok {
+		mainHeight = t.Height
 	}
-	forkParent := forkBase
-	for height := 2; height <= attackerHeight; height++ {
-		block := newBlock(fmt.Sprintf("fork-%d", height), height, forkParent.Hash, []string{fmt.Sprintf("fork-tx-%d", height)}, "fork")
-		blocks = append(blocks, block)
-		forkParent = block
+	return map[string]any{
+		"chain": map[string]any{
+			"struct": map[string]any{
+				"height":       mainHeight,
+				"tip_hash":     st.Chain.MainTip,
+				"genesis_hash": st.Chain.GenesisHash,
+				"total_blocks": len(st.Chain.BlocksByHash),
+				"tip_count":    len(st.Chain.allTips()),
+				"tampered":     st.Tampered,
+				"integrity":    !st.Tampered,
+			},
+		},
 	}
-	if reorganized && attackerHeight > honestHeight {
-		for index := range blocks {
-			blocks[index].IsLongest = blocks[index].Branch == "fork" || blocks[index].Height <= 1
-		}
-		return blocks
+}
+
+// =====================================================================
+// 工具
+// =====================================================================
+
+func truncStr(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	markLongestBranch(blocks)
-	return blocks
+	return s[:n]
 }

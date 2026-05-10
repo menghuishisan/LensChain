@@ -340,7 +340,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
         )}
         {canUseSimEngine && (
           <TabsContent value="sim" className="flex-1 overflow-auto p-2">
-            <SimEnginePanel sessionID={simSessionID} scenes={simScenes} />
+            <SimEnginePanel sessionID={simSessionID} instanceID={instanceID} scenes={simScenes} experimentType={experimentType} userRole={mode === "assist" ? "teacher" : "student"} />
           </TabsContent>
         )}
 
