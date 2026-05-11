@@ -391,8 +391,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置 DHT 参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "r", Type: fw.FieldNumber, Label: "复制因子 R", Required: true, Default: defaultR, Min: 1, Max: 8, Step: 1},
 					{Name: "ttl", Type: fw.FieldNumber, Label: "TTL (ticks)", Required: true, Default: defaultTTL, Min: 1, Max: 100, Step: 1},
@@ -400,9 +401,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "store", Label: "存储 (key, value)",
-				Description: "存到与 hash(key) 距离最近的 R 个节点",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "存到与 hash(key) 距离最近的 R 个节点",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "key", Type: fw.FieldString, Label: "key", Required: true, Default: "alice"},
 					{Name: "value", Type: fw.FieldString, Label: "value", Required: true, Default: "0xCAFE"},
@@ -412,8 +414,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "find_value", Label: "查询 key",
-				Category: fw.ActionObserve, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "key", Type: fw.FieldString, Label: "key", Required: true, Default: "alice"},
 				},
@@ -421,45 +424,51 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "step_tick", Label: "推进 1 tick",
-				Description: "tick++，过期副本自动清理",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "tick++，过期副本自动清理",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "step_n_ticks", Label: "推进 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 5, Min: 1, Max: 100, Step: 1},
 				},
 			},
 			{
 				ActionCode: "republish", Label: "重新发布所有 key",
-				Description: "对每个尚未全过期的 key 重新执行 STORE",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "对每个尚未全过期的 key 重新执行 STORE",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 			},
 			{
 				ActionCode: "crash_node", Label: "节点离线",
-				Description: "副本数 < R 时数据可能丢失",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "副本数 < R 时数据可能丢失",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n0"},
 				},
 			},
 			{
 				ActionCode: "recover_node", Label: "节点恢复",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 				Fields: []fw.FieldDef{
 					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n0"},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_corruption",

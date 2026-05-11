@@ -213,10 +213,12 @@ export class SceneView {
    */
   private createContext() {
     const theme = this.renderer.getTheme();
+    const canvas = this.surface.canvas;
+    const dpr = typeof window !== "undefined" ? (window.devicePixelRatio ?? 1) : 1;
     return {
       surface: this.surface,
-      width: this.surface.canvas.width,
-      height: this.surface.canvas.height,
+      width: canvas.clientWidth || Math.round(canvas.width / dpr),
+      height: canvas.clientHeight || Math.round(canvas.height / dpr),
       viewport: this.viewport.getState(),
       now: performance.now(),
       speed: 1 as const,

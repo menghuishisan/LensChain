@@ -597,8 +597,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "open", Label: "开通道",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "a", Type: fw.FieldEnum, Label: "Party A", Required: true, Default: "A", Options: []any{"A", "B"}},
 					{Name: "b", Type: fw.FieldEnum, Label: "Party B", Required: true, Default: "B", Options: []any{"A", "B"}},
@@ -611,9 +612,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "off_chain_pay", Label: "链下双签更新",
-				Description: "在通道内调整双方余额（守恒），nonce 自增，双签",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "在通道内调整双方余额（守恒），nonce 自增，双签",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "channel_id", Type: fw.FieldString, Label: "channel_id", Required: true, Default: "ch-1"},
 					{Name: "balance_a", Type: fw.FieldNumber, Label: "新 balance_a", Required: true, Default: 70, Min: 0, Step: 10},
@@ -622,9 +624,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "close_cooperative", Label: "协作关闭",
-				Description: "用最新双签状态直接结算",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用最新双签状态直接结算",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "channel_id", Type: fw.FieldString, Label: "channel_id", Required: true, Default: "ch-1"},
 				},
@@ -633,9 +636,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "close_unilateral", Label: "单方关闭",
-				Description: "提交已知状态进入 CHALLENGE 期；可选 use_nonce 模拟旧状态攻击",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "提交已知状态进入 CHALLENGE 期；可选 use_nonce 模拟旧状态攻击",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "channel_id", Type: fw.FieldString, Label: "channel_id", Required: true, Default: "ch-1"},
 					{Name: "submitter", Type: fw.FieldEnum, Label: "提交者", Required: true, Default: "A", Options: []any{"A", "B"}},
@@ -644,9 +648,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "challenge", Label: "挑战（更高 nonce）",
-				Description: "在挑战期内提交更高 nonce 的双签状态",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "在挑战期内提交更高 nonce 的双签状态",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "channel_id", Type: fw.FieldString, Label: "channel_id", Required: true, Default: "ch-1"},
 					{Name: "challenger", Type: fw.FieldEnum, Label: "挑战者", Required: true, Default: "B", Options: []any{"A", "B"}},
@@ -658,9 +663,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "fraud_proof", Label: "伪造签名攻击",
-				Description: "攻击者用自己的 private_key 伪造对方签名 → 验签失败、攻击者被罚 50%",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "攻击者用自己的 private_key 伪造对方签名 → 验签失败、攻击者被罚 50%",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "channel_id", Type: fw.FieldString, Label: "channel_id", Required: true, Default: "ch-1"},
 					{Name: "attacker", Type: fw.FieldEnum, Label: "attacker", Required: true, Default: "A", Options: []any{"A", "B"}},
@@ -672,22 +678,25 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "tick", Label: "推进 1 tick",
-				Description: "用于挑战期倒计时",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用于挑战期倒计时",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "tick_n", Label: "推进 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "N", Required: true, Default: 5, Min: 1, Step: 1},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_revert",

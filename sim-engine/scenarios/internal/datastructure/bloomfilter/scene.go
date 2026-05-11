@@ -295,9 +295,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置 (m, k)",
-				Description: "重置位数组并设置位数 m / hash 函数数 k",
-				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "重置位数组并设置位数 m / hash 函数数 k",
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "m", Type: fw.FieldNumber, Label: "位数 m", Required: true, Default: defaultM, Min: 8, Max: maxM, Step: 8},
 					{Name: "k", Type: fw.FieldNumber, Label: "hash 函数数 k", Required: true, Default: defaultK, Min: 1, Max: maxK, Step: 1},
@@ -305,8 +306,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "add", Label: "插入元素",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "item", Type: fw.FieldString, Label: "元素", Required: true, Default: "alice"},
 				},
@@ -315,18 +317,20 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "bulk_add", Label: "批量插入",
-				Description: "插入 N 个 item-0, item-1, ..., item-(N-1)",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "插入 N 个 item-0, item-1, ..., item-(N-1)",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "数量", Required: true, Default: 8, Min: 1, Max: 100, Step: 1},
 				},
 			},
 			{
 				ActionCode: "contains", Label: "查询元素",
-				Description: "返回 \"可能存在\"（k 位全 1）/ \"绝对不存在\"（≥1 位为 0）",
-				Category:    fw.ActionObserve, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "返回 \"可能存在\"（k 位全 1）/ \"绝对不存在\"（≥1 位为 0）",
+				Category:      fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "item", Type: fw.FieldString, Label: "查询元素", Required: true, Default: "bob"},
 				},
@@ -334,9 +338,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "measure_fpr", Label: "实测假阳率（FPR）",
-				Description: "用 N 个未插入样本统计假阳频率",
-				Category:    fw.ActionObserve, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用 N 个未插入样本统计假阳频率",
+				Category:      fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "samples", Type: fw.FieldNumber, Label: "样本数", Required: true, Default: 100, Min: 10, Max: 10000, Step: 10},
 				},
@@ -344,8 +349,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_corruption",

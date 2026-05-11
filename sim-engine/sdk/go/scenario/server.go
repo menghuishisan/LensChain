@@ -193,64 +193,6 @@ func toProtoDataSourceMode(m DataSourceMode) simscenariov1.DataSourceMode {
 	return simscenariov1.DataSourceMode_DATA_SOURCE_MODE_UNSPECIFIED
 }
 
-func toProtoActionCategory(c ActionCategory) simscenariov1.ActionCategory {
-	switch c {
-	case ActionParamTune:
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_PARAM_TUNE
-	case ActionAttackInject:
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_ATTACK_INJECT
-	case ActionPrimary:
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_PRIMARY
-	case ActionObserve:
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_OBSERVE
-	}
-	return simscenariov1.ActionCategory_ACTION_CATEGORY_UNSPECIFIED
-}
-
-func toProtoActionTrigger(t ActionTrigger) simscenariov1.ActionTrigger {
-	switch t {
-	case TriggerSubmit:
-		return simscenariov1.ActionTrigger_ACTION_TRIGGER_SUBMIT
-	case TriggerImmediate:
-		return simscenariov1.ActionTrigger_ACTION_TRIGGER_IMMEDIATE
-	case TriggerHold:
-		return simscenariov1.ActionTrigger_ACTION_TRIGGER_HOLD
-	}
-	return simscenariov1.ActionTrigger_ACTION_TRIGGER_UNSPECIFIED
-}
-
-func toProtoFieldType(t FieldType) simscenariov1.FieldType {
-	switch t {
-	case FieldString:
-		return simscenariov1.FieldType_FIELD_TYPE_STRING
-	case FieldNumber:
-		return simscenariov1.FieldType_FIELD_TYPE_NUMBER
-	case FieldBoolean:
-		return simscenariov1.FieldType_FIELD_TYPE_BOOLEAN
-	case FieldSelect:
-		return simscenariov1.FieldType_FIELD_TYPE_SELECT
-	case FieldEnum:
-		return simscenariov1.FieldType_FIELD_TYPE_ENUM
-	case FieldRange:
-		return simscenariov1.FieldType_FIELD_TYPE_RANGE
-	case FieldJSON:
-		return simscenariov1.FieldType_FIELD_TYPE_JSON
-	case FieldMultiSelect:
-		return simscenariov1.FieldType_FIELD_TYPE_MULTI_SELECT
-	}
-	return simscenariov1.FieldType_FIELD_TYPE_UNSPECIFIED
-}
-
-func toProtoHybridChannel(c HybridChannel) simscenariov1.HybridChannel {
-	switch c {
-	case HybridChannelSim:
-		return simscenariov1.HybridChannel_HYBRID_CHANNEL_SIM
-	case HybridChannelContainer:
-		return simscenariov1.HybridChannel_HYBRID_CHANNEL_CONTAINER
-	}
-	return simscenariov1.HybridChannel_HYBRID_CHANNEL_UNSPECIFIED
-}
-
 func toProtoInteractionDefinition(def InteractionDefinition) *simscenariov1.InteractionDefinition {
 	actions := make([]*simscenariov1.ActionDef, 0, len(def.Actions))
 	for _, action := range def.Actions {
@@ -258,7 +200,7 @@ func toProtoInteractionDefinition(def InteractionDefinition) *simscenariov1.Inte
 		for _, field := range action.Fields {
 			fields = append(fields, &simscenariov1.FieldDef{
 				Name:        field.Name,
-				Type:        toProtoFieldType(field.Type),
+				Type:        string(field.Type),
 				Label:       field.Label,
 				Required:    field.Required,
 				DefaultJson: marshalOrNil(field.Default),
@@ -277,8 +219,8 @@ func toProtoInteractionDefinition(def InteractionDefinition) *simscenariov1.Inte
 			ActionCode:        action.ActionCode,
 			Label:             action.Label,
 			Description:       action.Description,
-			Category:          toProtoActionCategory(action.Category),
-			Trigger:           toProtoActionTrigger(action.Trigger),
+			Category:          string(action.Category),
+			Trigger:           string(action.Trigger),
 			Fields:            fields,
 			Roles:             roles,
 			CooldownMs:        int32(action.CooldownMs),
@@ -286,7 +228,7 @@ func toProtoInteractionDefinition(def InteractionDefinition) *simscenariov1.Inte
 			WritesOwnedFields: append([]string(nil), action.WritesOwnedFields...),
 			Reversible:        action.Reversible,
 			InterveneType:     string(action.InterveneType),
-			HybridChannel:     toProtoHybridChannel(action.HybridChannel),
+			HybridChannel:     string(action.HybridChannel),
 			ContainerCmd:      action.ContainerCmd,
 		})
 	}

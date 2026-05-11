@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/lenschain/backend/internal/config"
+	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	simenginev1 "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_engine/v1"
 	simscenariov1 "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_scenario/v1"
@@ -211,7 +212,7 @@ func (c *simEngineClient) GetInteractionSchema(ctx context.Context, sessionID st
 		return &SimInteractionSchema{SceneCode: sceneCode}, nil
 	}
 
-	actionsJSON, err := json.Marshal(def.GetActions())
+	actionsJSON, err := json.Marshal(protoActionsToDTO(def.GetActions()))
 	if err != nil {
 		return nil, fmt.Errorf("序列化交互 schema 失败: %w", err)
 	}
@@ -220,6 +221,58 @@ func (c *simEngineClient) GetInteractionSchema(ctx context.Context, sessionID st
 		SceneCode: def.GetSceneCode(),
 		Actions:   actionsJSON,
 	}, nil
+}
+
+// ── proto → dto.SimActionDTO 转换（仅处理 bytes→RawJSON + nil→[]） ──
+
+func protoActionsToDTO(actions []*simscenariov1.ActionDef) []dto.SimActionDTO {
+	out := make([]dto.SimActionDTO, 0, len(actions))
+	for _, a := range actions {
+		fields := make([]dto.SimFieldDTO, 0, len(a.GetFields()))
+		for _, f := range a.GetFields() {
+			fields = append(fields, dto.SimFieldDTO{
+				Name:        f.GetName(),
+				Type:        f.GetType(),
+				Label:       f.GetLabel(),
+				Required:    f.GetRequired(),
+				Default:     bytesToRawJSON(f.GetDefaultJson()),
+				Min:         bytesToRawJSON(f.GetMinJson()),
+				Max:         bytesToRawJSON(f.GetMaxJson()),
+				Step:        bytesToRawJSON(f.GetStepJson()),
+				Options:     bytesToRawJSON(f.GetOptionsJson()),
+				OptionsFrom: f.GetOptionsFrom(),
+			})
+		}
+		roles := a.GetRoles()
+		if roles == nil {
+			roles = []string{}
+		}
+		out = append(out, dto.SimActionDTO{
+			ActionCode:        a.GetActionCode(),
+			Label:             a.GetLabel(),
+			Description:       a.GetDescription(),
+			Category:          a.GetCategory(),
+			Trigger:           a.GetTrigger(),
+			Fields:            fields,
+			Roles:             roles,
+			CooldownMs:        a.GetCooldownMs(),
+			LinkOwnerFields:   a.GetLinkOwnerFields(),
+			WritesOwnedFields: a.GetWritesOwnedFields(),
+			Reversible:        a.GetReversible(),
+			InterveneType:     a.GetInterveneType(),
+			HybridChannel:     a.GetHybridChannel(),
+			ContainerCmd:      a.GetContainerCmd(),
+		})
+	}
+	return out
+}
+
+// bytesToRawJSON 将 proto bytes（内含原始 JSON）转为 json.RawMessage；空则返回 nil（omitempty 生效）。
+func bytesToRawJSON(b []byte) json.RawMessage {
+	if len(b) == 0 {
+		return nil
+	}
+	return json.RawMessage(b)
 }
 
 // ControlTime 控制仿真时间

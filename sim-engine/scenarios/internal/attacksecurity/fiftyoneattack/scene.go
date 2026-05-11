@@ -487,8 +487,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_hashrate", Label: "设置算力分布",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "honest", Type: fw.FieldNumber, Label: "诚实算力", Required: true, Default: 60, Min: 0, Step: 5},
 					{Name: "attacker", Type: fw.FieldNumber, Label: "攻击者算力", Required: true, Default: 40, Min: 0, Step: 5},
@@ -496,9 +497,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "send_victim_tx", Label: "受害交易",
-				Description: "受害方付款给商家，进入 mempool",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "受害方付款给商家，进入 mempool",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "amount", Type: fw.FieldNumber, Label: "金额", Required: true, Default: 100, Min: 1, Step: 10},
 				},
@@ -508,12 +510,14 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "按算力比例随机选 miner，攻击者出块默认进 privateChain",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"attack.fifty_one.double_spends"},
 			},
 			{
 				ActionCode: "mine_n", Label: "出块 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 10, Min: 1, Step: 1},
 				},
@@ -523,13 +527,15 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "若 priv > pub → reorg → 双花",
 				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneAttack,
 				WritesOwnedFields: []string{"attack.fifty_one.double_spends"},
 				LinkOwnerFields:   []string{"attack.fifty_one.double_spends"},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_enable_attack",

@@ -375,8 +375,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_mode", Label: "设置 CAP 模式",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "mode", Type: fw.FieldEnum, Label: "CP=拒绝少数派写 / AP=接受所有写",
 						Required: true, Default: modeAP, Options: []any{modeCP, modeAP}},
@@ -384,9 +385,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "create_partition", Label: "创建网络分区",
-				Description: "把前 split_at 节点放到 P1，其余 P2",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "把前 split_at 节点放到 P1，其余 P2",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "split_at", Type: fw.FieldNumber, Label: "前 N 节点入 P1", Required: true,
 						Default: defaultNodeCount / 2, Min: 1, Max: maxNodeCount - 1, Step: 1},
@@ -396,8 +398,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "write_kv", Label: "在节点写入 KV",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "node_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "n0"},
 					{Name: "key", Type: fw.FieldString, Label: "key", Required: true, Default: "x"},
@@ -411,24 +414,28 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "LWW 合并所有分区 KV，记录 distinct value 冲突",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"network.partition.conflicts_count"},
 				LinkOwnerFields:   []string{"network.partition.conflicts_count"},
 			},
 			{
 				ActionCode: "step_tick", Label: "推进 1 tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "crash_node", Label: "节点离线",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles:  []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{{Name: "node_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "n2"}},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_partition_inject",

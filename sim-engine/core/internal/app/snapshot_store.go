@@ -150,6 +150,16 @@ func decodeSnapshotEncryptionKey(raw string) ([]byte, error) {
 	return nil, errors.New("snapshot encryption key 必须是 32 字节（ASCII/base64/hex 任一格式）")
 }
 
+// snapshotIOTimeout 是单次对象存储 I/O 的最大允许时间。
+//
+// 必须有限：CreateSnapshot 在前端 pause/auto-snapshot 等关键路径上同步调用 Save，
+// MinIO 一次网络抖动若没有超时就能让上层调用永久阻塞——从而把 sim-engine 的全局
+// engine.mu / runtime.opMu 一起拖死，前端 play/pause/step 完全失灵。
+//
+// 5s 足以容忍正常网络抖动；超时后调用方（CreateSnapshot 等）会得到明确错误，可走
+// 重试或告警分支，不再有"沉默死锁"。
+const snapshotIOTimeout = 5 * time.Second
+
 // Save 将加密后的快照写入对象存储并返回预签名对象地址。
 func (s *MinIOSnapshotStore) Save(snapshotID string, payload SnapshotPayload) (string, error) {
 	payloadJSON, err := json.Marshal(payload)
@@ -162,25 +172,29 @@ func (s *MinIOSnapshotStore) Save(snapshotID string, payload SnapshotPayload) (s
 	}
 
 	objectName := s.objectName(snapshotID)
+	putCtx, putCancel := context.WithTimeout(context.Background(), snapshotIOTimeout)
 	_, err = s.client.PutObject(
-		context.Background(),
+		putCtx,
 		s.bucket,
 		objectName,
 		bytes.NewReader(encryptedJSON),
 		int64(len(encryptedJSON)),
 		minio.PutObjectOptions{ContentType: "application/octet-stream"},
 	)
+	putCancel()
 	if err != nil {
 		return "", err
 	}
 
+	presignCtx, presignCancel := context.WithTimeout(context.Background(), snapshotIOTimeout)
 	signedURL, err := s.client.PresignedGetObject(
-		context.Background(),
+		presignCtx,
 		s.bucket,
 		objectName,
 		s.presignDuration,
 		url.Values{},
 	)
+	presignCancel()
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +203,9 @@ func (s *MinIOSnapshotStore) Save(snapshotID string, payload SnapshotPayload) (s
 
 // Load 从对象存储读取并解密快照。
 func (s *MinIOSnapshotStore) Load(snapshotID string) (SnapshotPayload, error) {
-	object, err := s.client.GetObject(context.Background(), s.bucket, s.objectName(snapshotID), minio.GetObjectOptions{})
+	getCtx, getCancel := context.WithTimeout(context.Background(), snapshotIOTimeout)
+	defer getCancel()
+	object, err := s.client.GetObject(getCtx, s.bucket, s.objectName(snapshotID), minio.GetObjectOptions{})
 	if err != nil {
 		return SnapshotPayload{}, err
 	}

@@ -490,9 +490,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "put", Label: "插入键值对",
-				Description: "key 必须是 hex 字符串（每字符 = 1 nibble，0-9 a-f）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "key 必须是 hex 字符串（每字符 = 1 nibble，0-9 a-f）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "key", Type: fw.FieldString, Label: "key (hex)", Required: true, Default: "a777"},
 					{Name: "value", Type: fw.FieldString, Label: "value", Required: true, Default: "eve"},
@@ -502,8 +503,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "get", Label: "查询键值",
-				Category: fw.ActionObserve, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "key", Type: fw.FieldString, Label: "key (hex)", Required: true, Default: "a711"},
 				},
@@ -511,14 +513,16 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "compute_root", Label: "重算 root hash",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "tamper_value", Label: "篡改 value",
-				Description: "改某 key 的 value，重建 trie → root 变化",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "改某 key 的 value，重建 trie → root 变化",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "key", Type: fw.FieldString, Label: "key", Required: true, Default: "a711"},
 					{Name: "new_value", Type: fw.FieldString, Label: "新 value", Required: true, Default: "tampered"},
@@ -528,8 +532,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_corruption",

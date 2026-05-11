@@ -85,7 +85,20 @@ export function SimEnginePanel({
   });
 
   const hasActiveLinkGroup = scenes.some((s) => s.link_group_id != null);
-  const firstTimeControlMode = scenes[0]?.scenario?.time_control_mode ?? 'reactive';
+  // 与 sim-engine 后端 `resolveSessionClockMode` 保持一致（engine_util.go:157）：
+  // 任一场景为 process → 会话 process；否则任一 continuous → continuous；否则 reactive。
+  // 仅取 scenes[0] 会在多模式混合模板（如 pow-mining=continuous + pbft=process）时
+  // 导致前端按 continuous 渲染、发送 `resume`，被后端按 process 拒绝（unsupported），
+  // 时钟永远无法启动、步数停在 0。
+  const sessionTimeControlMode: SimTimeControlMode = (() => {
+    let hasContinuous = false;
+    for (const s of scenes) {
+      const mode = s.scenario?.time_control_mode;
+      if (mode === 'process') return 'process';
+      if (mode === 'continuous') hasContinuous = true;
+    }
+    return hasContinuous ? 'continuous' : 'reactive';
+  })();
 
   const [viewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1440));
   const [layoutOverride, setLayoutOverride] = useState<SimLayoutMode | null>(null);
@@ -123,7 +136,7 @@ export function SimEnginePanel({
     sceneCount: sceneConfigs.length,
     hasActiveLinkGroup,
     viewportWidth,
-    timeControlMode: firstTimeControlMode,
+    timeControlMode: sessionTimeControlMode,
   });
 
   const activeLayout = layoutOverride ?? simMode.layout;
@@ -338,7 +351,7 @@ export function SimEnginePanel({
       {/* §四 ControlBar（reactive 模式不渲染） */}
       {simMode.showTimeControl && (
         <SimControlBar
-          timeControlMode={firstTimeControlMode}
+          timeControlMode={sessionTimeControlMode}
           mode={simMode.mode}
           tick={currentTick}
           playing={playing}

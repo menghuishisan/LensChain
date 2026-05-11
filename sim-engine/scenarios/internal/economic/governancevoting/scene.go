@@ -628,8 +628,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "治理参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "weight_mode", Type: fw.FieldEnum, Label: "权重模式", Required: true, Default: weightTokenWeighted,
 						Options: []any{weightTokenWeighted, weightQuadratic, weightOPOV}},
@@ -642,8 +643,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "submit", Label: "创建提案",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "proposer", Type: fw.FieldString, Label: "proposer", Required: true, Default: "alice"},
 					{Name: "title", Type: fw.FieldString, Label: "title", Required: true, Default: "Increase block reward"},
@@ -652,8 +654,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "cast", Label: "投票",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "prop_id", Type: fw.FieldNumber, Label: "提案 ID", Required: true, Default: 1, Min: 1, Step: 1},
 					{Name: "voter", Type: fw.FieldString, Label: "voter", Required: true, Default: "bob"},
@@ -664,8 +667,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "delegate", Label: "委托投票权",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "carol"},
 					{Name: "to", Type: fw.FieldString, Label: "to", Required: true, Default: "bob"},
@@ -673,38 +677,43 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "advance_epoch", Label: "推进 epoch",
-				Description: "处理 PENDING→ACTIVE / ACTIVE→SUCCEEDED·DEFEATED",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "处理 PENDING→ACTIVE / ACTIVE→SUCCEEDED·DEFEATED",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneEpoch,
 			},
 			{
 				ActionCode: "advance_n", Label: "推进 N epoch",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneEpoch,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "n", Required: true, Default: 5, Min: 1, Step: 1},
 				},
 			},
 			{
 				ActionCode: "queue", Label: "排入 timelock",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "prop_id", Type: fw.FieldNumber, Label: "提案 ID", Required: true, Default: 1, Min: 1, Step: 1},
 				},
 			},
 			{
 				ActionCode: "execute", Label: "执行",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "prop_id", Type: fw.FieldNumber, Label: "提案 ID", Required: true, Default: 1, Min: 1, Step: 1},
 				},
 			},
 			{
 				ActionCode: "cancel", Label: "撤销提案",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "prop_id", Type: fw.FieldNumber, Label: "提案 ID", Required: true, Default: 1, Min: 1, Step: 1},
 					{Name: "by", Type: fw.FieldString, Label: "proposer", Required: true, Default: "alice"},
@@ -712,8 +721,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "distribute_tokens", Label: "调整 token 余额",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "addr", Type: fw.FieldString, Label: "地址", Required: true, Default: "newbie"},
 					{Name: "amount", Type: fw.FieldNumber, Label: "amount", Required: true, Default: 100, Step: 50},
@@ -721,9 +731,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "sybil_attack", Label: "Sybil 攻击演示",
-				Description: "把 from 的 token 平分给 N 个 sybil 地址",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "把 from 的 token 平分给 N 个 sybil 地址",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "whale"},
 					{Name: "n", Type: fw.FieldNumber, Label: "sybil 数量", Required: true, Default: 50, Min: 1, Step: 1},
@@ -731,8 +742,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_epoch",

@@ -480,7 +480,7 @@ func toProtoActions(actions []scene.ActionDef) []*simscenariov1.ActionDef {
 		for _, field := range action.Fields {
 			fields = append(fields, &simscenariov1.FieldDef{
 				Name:        field.Name,
-				Type:        toProtoFieldType(field.Type),
+				Type:        field.Type,
 				Label:       field.Label,
 				Required:    field.Required,
 				DefaultJson: field.DefaultJSON,
@@ -495,81 +495,20 @@ func toProtoActions(actions []scene.ActionDef) []*simscenariov1.ActionDef {
 			ActionCode:         action.ActionCode,
 			Label:              action.Label,
 			Description:        action.Description,
-			Category:           toProtoActionCategory(action.Category),
-			Trigger:            toProtoActionTrigger(action.Trigger),
+			Category:           action.Category,
+			Trigger:            action.Trigger,
 			Fields:             fields,
 			Roles:              append([]string(nil), action.Roles...),
 			CooldownMs:         int32(action.CooldownMs),
 			WritesOwnedFields: append([]string(nil), action.WritesOwnedFields...),
 			LinkOwnerFields:    append([]string(nil), action.LinkOwnerFields...),
-			HybridChannel:      toProtoHybridChannel(action.HybridChannel),
+			HybridChannel:      action.HybridChannel,
 			ContainerCmd:       action.ContainerCmd,
 		})
 	}
 	return result
 }
 
-// toProtoFieldType 将 FieldDef.Type 字符串转换为 proto 枚举（含新增 enum / multi_select）。
-func toProtoFieldType(fieldType string) simscenariov1.FieldType {
-	switch fieldType {
-	case "string":
-		return simscenariov1.FieldType_FIELD_TYPE_STRING
-	case "number":
-		return simscenariov1.FieldType_FIELD_TYPE_NUMBER
-	case "boolean":
-		return simscenariov1.FieldType_FIELD_TYPE_BOOLEAN
-	case "select":
-		return simscenariov1.FieldType_FIELD_TYPE_SELECT
-	case "enum":
-		return simscenariov1.FieldType_FIELD_TYPE_ENUM
-	case "range":
-		return simscenariov1.FieldType_FIELD_TYPE_RANGE
-	case "json":
-		return simscenariov1.FieldType_FIELD_TYPE_JSON
-	case "multi_select":
-		return simscenariov1.FieldType_FIELD_TYPE_MULTI_SELECT
-	}
-	return simscenariov1.FieldType_FIELD_TYPE_UNSPECIFIED
-}
-
-// toProtoActionCategory 将 ActionDef.Category 字符串转换为 proto 枚举。
-func toProtoActionCategory(category string) simscenariov1.ActionCategory {
-	switch category {
-	case "param_tune":
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_PARAM_TUNE
-	case "attack_inject":
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_ATTACK_INJECT
-	case "primary":
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_PRIMARY
-	case "observe":
-		return simscenariov1.ActionCategory_ACTION_CATEGORY_OBSERVE
-	}
-	return simscenariov1.ActionCategory_ACTION_CATEGORY_UNSPECIFIED
-}
-
-// toProtoActionTrigger 将 ActionDef.Trigger 字符串转换为 proto 枚举。
-func toProtoActionTrigger(trigger string) simscenariov1.ActionTrigger {
-	switch trigger {
-	case "submit":
-		return simscenariov1.ActionTrigger_ACTION_TRIGGER_SUBMIT
-	case "immediate":
-		return simscenariov1.ActionTrigger_ACTION_TRIGGER_IMMEDIATE
-	case "hold":
-		return simscenariov1.ActionTrigger_ACTION_TRIGGER_HOLD
-	}
-	return simscenariov1.ActionTrigger_ACTION_TRIGGER_UNSPECIFIED
-}
-
-// toProtoHybridChannel 将 ActionDef.HybridChannel 字符串转换为 proto 枚举。
-func toProtoHybridChannel(channel string) simscenariov1.HybridChannel {
-	switch channel {
-	case "sim":
-		return simscenariov1.HybridChannel_HYBRID_CHANNEL_SIM
-	case "container":
-		return simscenariov1.HybridChannel_HYBRID_CHANNEL_CONTAINER
-	}
-	return simscenariov1.HybridChannel_HYBRID_CHANNEL_UNSPECIFIED
-}
 
 // =====================================================================
 // session_config_json → app.LinkGroupSpec 解析

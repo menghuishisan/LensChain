@@ -419,16 +419,18 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_validators", Label: "设置 validators",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "validator 数 (n=3f+1)", Required: true, Default: defaultValidators, Min: 4, Max: maxValidators, Step: 3},
 				},
 			},
 			{
 				ActionCode: "lock", Label: "Source 锁仓",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "user", Type: fw.FieldString, Label: "user", Required: true, Default: "alice"},
 					{Name: "amount", Type: fw.FieldNumber, Label: "amount", Required: true, Default: 100, Min: 1, Step: 1},
@@ -438,8 +440,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "burn", Label: "Target 销毁",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "user", Type: fw.FieldString, Label: "user", Required: true, Default: "alice"},
 					{Name: "amount", Type: fw.FieldNumber, Label: "amount", Required: true, Default: 50, Min: 1, Step: 1},
@@ -449,18 +452,20 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "sign_all", Label: "所有 validator 签名",
-				Description: "让所有非拜占庭、非 down 的 validator 给指定 nonce 签名",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "让所有非拜占庭、非 down 的 validator 给指定 nonce 签名",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "nonce", Type: fw.FieldNumber, Label: "nonce", Required: true, Default: 0, Min: 0, Step: 1},
 				},
 			},
 			{
 				ActionCode: "execute", Label: "执行（mint/release）",
-				Description: "若签名 ≥ quorum 则执行；若 nonce 已 processed 则拒绝",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "若签名 ≥ quorum 则执行；若 nonce 已 processed 则拒绝",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "nonce", Type: fw.FieldNumber, Label: "nonce", Required: true, Default: 0, Min: 0, Step: 1},
 				},
@@ -469,9 +474,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "replay_attack", Label: "重放攻击",
-				Description: "尝试再次执行已 processed 的消息（应被 nonce 拦截）",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "尝试再次执行已 processed 的消息（应被 nonce 拦截）",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "nonce", Type: fw.FieldNumber, Label: "nonce", Required: true, Default: 0, Min: 0, Step: 1},
 				},
@@ -480,25 +486,28 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "quorum_attack", Label: "Quorum 不足执行",
-				Description: "签名 < 2f+1 时强制执行（应被 quorum 拦截）",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "签名 < 2f+1 时强制执行（应被 quorum 拦截）",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "nonce", Type: fw.FieldNumber, Label: "nonce", Required: true, Default: 0, Min: 0, Step: 1},
 				},
 			},
 			{
 				ActionCode: "byzantine_validator", Label: "标记 validator 拜占庭",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "validator_id", Type: fw.FieldString, Label: "ID", Required: true, Default: "v0"},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_freeze_mempool",

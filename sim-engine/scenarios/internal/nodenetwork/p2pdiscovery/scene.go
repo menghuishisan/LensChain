@@ -534,9 +534,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置 DHT 参数",
-				Description: "调整 ID 位长 / bucket 容量 k / 并发度 α",
-				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "调整 ID 位长 / bucket 容量 k / 并发度 α",
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "id_bits", Type: fw.FieldNumber, Label: "ID 位长", Required: true, Default: defaultIDBits, Min: 8, Max: 64, Step: 8},
 					{Name: "k", Type: fw.FieldNumber, Label: "bucket 容量 k", Required: true, Default: defaultK, Min: 2, Max: 16, Step: 1},
@@ -545,9 +546,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "join_node", Label: "新节点加入",
-				Description: "新节点 PING bootstrap → 触发 FIND_NODE(self) 填充本地 buckets",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "新节点 PING bootstrap → 触发 FIND_NODE(self) 填充本地 buckets",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n8"},
 				},
@@ -556,9 +558,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "lookup_node", Label: "FIND_NODE 查找",
-				Description: "在 initiator 上发起 FIND_NODE(target_label)",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "在 initiator 上发起 FIND_NODE(target_label)",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "initiator", Type: fw.FieldString, Label: "发起节点 label", Required: true, Default: "n0"},
 					{Name: "target", Type: fw.FieldString, Label: "目标节点 label", Required: true, Default: "n7"},
@@ -568,32 +571,36 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "ping_node", Label: "PING 检测",
-				Description: "标记节点 down，演示 bucket 中失效节点逐出",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "标记节点 down，演示 bucket 中失效节点逐出",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n3"},
 				},
 			},
 			{
 				ActionCode: "recover_node", Label: "节点恢复",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "label", Type: fw.FieldString, Label: "节点 label", Required: true, Default: "n3"},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			// §0.7.4 混合实验：add_peer 走 geth admin_addPeer。
 			{
 				ActionCode: "add_peer", Label: "加入真链 peer（容器通道）",
 				Description: "调 geth admin_addPeer 接入真实节点",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles:        []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  "geth attach --exec 'admin.addPeer(\"{{enode_url}}\")' http://geth:8545",
 				Reversible:    false,

@@ -470,9 +470,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_private_key", Label: "设置私钥",
-				Description: "设置 256-bit 私钥 d（十进制或 0x 前缀 hex），自动派生公钥 Q=dG",
-				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "设置 256-bit 私钥 d（十进制或 0x 前缀 hex），自动派生公钥 Q=dG",
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "private_key", Type: fw.FieldString, Label: "私钥 d", Required: true, Default: defaultPrivateKey},
 				},
@@ -481,9 +482,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "sign_message", Label: "签名消息",
-				Description: "z = SHA-256(message)；选 nonce k；输出 (r, s)",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "z = SHA-256(message)；选 nonce k；输出 (r, s)",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "message", Type: fw.FieldString, Label: "消息", Required: true, Default: defaultMessage},
 					{Name: "nonce_k", Type: fw.FieldString, Label: "nonce k", Required: true, Default: defaultNonceK},
@@ -501,9 +503,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "verify", Label: "验证签名",
-				Description: "用公钥 Q 与 (r, s) 验证 message",
-				Category:    fw.ActionObserve, Trigger: fw.TriggerImmediate,
+				Description:     "用公钥 Q 与 (r, s) 验证 message",
+				Category:        fw.ActionObserve, Trigger: fw.TriggerImmediate,
 				Roles:           []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:   fw.InterveneHint,
 				LinkOwnerFields: []string{"signatures.ecdsa.verified"},
 			},
 			{
@@ -511,19 +514,22 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "对 r 加 1 mod n，演示验证失败",
 				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneAttack,
 				WritesOwnedFields: []string{"signatures.ecdsa.signature_r"},
 				LinkOwnerFields:   []string{"signatures.ecdsa.signature_r"},
 			},
 			{
 				ActionCode: "wrong_public_key", Label: "用错误公钥验证",
-				Description: "用 Q' = (d+1)·G 验证，演示密钥不匹配",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用 Q' = (d+1)·G 验证，演示密钥不匹配",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_set_demo_input",

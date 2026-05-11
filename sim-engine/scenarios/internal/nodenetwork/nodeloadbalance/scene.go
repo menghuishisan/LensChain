@@ -418,8 +418,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置 LB 参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "strategy", Type: fw.FieldEnum, Label: "策略", Required: true, Default: strategyLeast,
 						Options: []any{strategyRandom, strategyRR, strategyLeast, strategyConsistent}},
@@ -431,21 +432,24 @@ func interactionDefinition() fw.InteractionDefinition {
 				ActionCode: "step_tick", Label: "推进 1 tick",
 				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"network.lb.dispatched"},
 				LinkOwnerFields:   []string{"network.lb.dispatched"},
 			},
 			{
 				ActionCode: "step_n_ticks", Label: "推进 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 5, Min: 1, Max: 100, Step: 1},
 				},
 			},
 			{
 				ActionCode: "set_capacity", Label: "设置节点容量",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "backend_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "b0"},
 					{Name: "capacity", Type: fw.FieldNumber, Label: "容量", Required: true, Default: 4, Min: 1, Max: 32, Step: 1},
@@ -453,20 +457,23 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "crash_backend", Label: "节点崩溃",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles:  []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{{Name: "backend_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "b1"}},
 			},
 			{
 				ActionCode: "recover_backend", Label: "节点恢复",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles:  []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{{Name: "backend_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "b1"}},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_partition_inject",

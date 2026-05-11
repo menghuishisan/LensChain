@@ -322,8 +322,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置同步参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "network_tip", Type: fw.FieldNumber, Label: "网络 tip 高度", Required: true,
 						Default: defaultNetworkTip, Min: 8, Max: maxNetworkTip, Step: 8},
@@ -337,30 +338,34 @@ func interactionDefinition() fw.InteractionDefinition {
 				ActionCode: "step_tick", Label: "推进 1 tick",
 				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"network.block_sync.local_height"},
 				LinkOwnerFields:   []string{"network.block_sync.local_height"},
 			},
 			{
 				ActionCode: "step_n_ticks", Label: "推进 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 5, Min: 1, Max: 100, Step: 1},
 				},
 			},
 			{
 				ActionCode: "extend_network", Label: "网络出新块",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "blocks", Type: fw.FieldNumber, Label: "新增块数", Required: true, Default: 8, Min: 1, Max: 64, Step: 1},
 				},
 			},
 			{
 				ActionCode: "trigger_reorg", Label: "触发分叉重组",
-				Description: "回滚到 fork_point，切换到难度 new_total_diff 的新链",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "回滚到 fork_point，切换到难度 new_total_diff 的新链",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "fork_point", Type: fw.FieldNumber, Label: "分叉点高度", Required: true, Default: 30, Min: 0, Step: 1},
 					{Name: "new_total_diff", Type: fw.FieldNumber, Label: "新链总难度", Required: true, Default: 7000, Min: 100, Step: 100},
@@ -370,21 +375,24 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "crash_peer", Label: "Peer 离线",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles:  []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{{Name: "peer_id", Type: fw.FieldString, Label: "Peer ID", Required: true, Default: "p0"}},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			// §0.7.4 混合实验：fetch_block 走 geth eth_getBlockByNumber。
 			{
 				ActionCode:  "fetch_block", Label: "拉取真链区块（容器通道）",
 				Description: "调 geth eth_getBlockByNumber 获取真实链上区块",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles:        []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["{{block_tag}}",false],"id":1}' http://geth:8545`,
 				Reversible:    false,

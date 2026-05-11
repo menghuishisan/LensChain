@@ -523,8 +523,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置 α / γ",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "alpha", Type: fw.FieldNumber, Label: "α (attacker share)", Required: true, Default: 0.33, Min: 0, Max: 1, Step: 0.01},
 					{Name: "gamma", Type: fw.FieldNumber, Label: "γ (network split)", Required: true, Default: 0.5, Min: 0, Max: 1, Step: 0.05},
@@ -534,12 +535,14 @@ func interactionDefinition() fw.InteractionDefinition {
 				ActionCode: "step", Label: "出块 1 次",
 				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"attack.selfish_mining.attacker_revenue_share"},
 			},
 			{
 				ActionCode: "step_n", Label: "出块 N 次",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "块数", Required: true, Default: 100, Min: 1, Step: 10},
 				},
@@ -548,8 +551,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_enable_attack",

@@ -19,6 +19,7 @@ import {
   type InteractionInputMap,
 } from '@lenschain/sim-engine-renderers';
 import { useAuthStore } from '@/stores/authStore';
+import { apiClient } from '@/lib/api-client';
 import type { JsonObject, SimControlCommand, SimWSMessage } from '@/types/experiment';
 
 export interface SimSceneConfig {
@@ -83,19 +84,32 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
 
   useEffect(() => {
     if (!sessionId) return;
+    // accessToken 仅作为"是否已登录"的 gate；URL 里实际使用的 token 由 urlProvider 通过
+    // apiClient.ensureFreshAccessToken() 每次拨号前拿最新值（HTTP 双 token 同源刷新）。
+    if (!accessToken) return;
 
     // 项目规约：所有实时连接必须基于 NEXT_PUBLIC_WS_BASE_URL（指向后端 :8080），见 src/lib/ws-url.ts。
-    // SimPanel 内部会自动拼接 `/${sessionId}?token=${token}`（renderers/shared/simPanel.ts），
-    // 因此 endpoint 必须只传到 `/ws/sim-engine`（不含 sessionId、不含 token）。
     const rawBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? '';
     if (rawBase.length === 0) return;
     const wsBase = rawBase.replace(/^https?:/, (proto) => (proto === 'https:' ? 'wss:' : 'ws:')).replace(/\/$/, '');
     const endpoint = `${wsBase}/ws/sim-engine`;
 
+    // urlProvider 在每次 WS 拨号 / 重连前被 SimPanel 调用：
+    //   - 先走 apiClient.ensureFreshAccessToken()——若 access_token 距过期 < 5min
+    //     会复用 HTTP 同款双 token 无感刷新拿新 token；
+    //   - 再用最新 token 拼 URL。
+    //
+    // 直接读 Zustand 的 accessToken 是错的：组件渲染时绑定的 accessToken 会随时间
+    // 过期，重连仍会带过期 token 触发 401 死循环（之前 sim-engine WS 死循环 401 即此因）。
+    const urlProvider = async () => {
+      const token = await apiClient.ensureFreshAccessToken();
+      if (!token) return '';
+      return `${endpoint}/${sessionId}?token=${token}`;
+    };
+
     const instance = createDefaultSimPanel({
       sessionId,
-      token: accessToken ?? '',
-      endpoint,
+      urlProvider,
       initialLayout: initialLayout ?? [],
       layoutStorageKey: layoutStorageKey ?? `sim-layout-${sessionId}`,
     });

@@ -321,9 +321,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "mint", Label: "mint（铸造）",
-				Description: "owner 铸造 amount 给 to（增加 totalSupply）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "owner 铸造 amount 给 to（增加 totalSupply）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "to", Type: fw.FieldString, Label: "to", Required: true, Default: "alice"},
 					{Name: "amount", Type: fw.FieldNumber, Label: "amount", Required: true, Default: 1000, Min: 1, Step: 1},
@@ -333,9 +334,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "transfer", Label: "transfer",
-				Description: "from 直接把 amount 转给 to",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "from 直接把 amount 转给 to",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "alice"},
 					{Name: "to", Type: fw.FieldString, Label: "to", Required: true, Default: "bob"},
@@ -346,9 +348,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "approve", Label: "approve（授权）",
-				Description: "owner 授权 spender 一定额度",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "owner 授权 spender 一定额度",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "owner", Type: fw.FieldString, Label: "owner", Required: true, Default: "alice"},
 					{Name: "spender", Type: fw.FieldString, Label: "spender", Required: true, Default: "bob"},
@@ -357,9 +360,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "transfer_from", Label: "transferFrom（用授权）",
-				Description: "spender 调用，把 owner 的 token 转给 to（消耗 allowance + owner 余额）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "spender 调用，把 owner 的 token 转给 to（消耗 allowance + owner 余额）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "spender", Type: fw.FieldString, Label: "spender", Required: true, Default: "bob"},
 					{Name: "owner", Type: fw.FieldString, Label: "owner", Required: true, Default: "alice"},
@@ -369,9 +373,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "burn", Label: "burn（销毁）",
-				Description: "持有者销毁自己的 token",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "持有者销毁自己的 token",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "holder", Type: fw.FieldString, Label: "holder", Required: true, Default: "alice"},
 					{Name: "amount", Type: fw.FieldNumber, Label: "amount", Required: true, Default: 10, Min: 1, Step: 1},
@@ -381,8 +386,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_freeze_mempool",

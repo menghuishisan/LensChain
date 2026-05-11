@@ -46,6 +46,9 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
   const pingTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectCountRef = useRef(0);
+  // connectGenerationRef：每次进入 connect() 自增，async URL 构造完成后比对，避免
+  // 拨号期间被 closeSocket / 新一轮 connect 抢占后仍开出僵尸 socket。
+  const connectGenerationRef = useRef(0);
   const stableCompetitionID = useMemo(() => competitionID, [competitionID]);
 
   const clearTimers = useCallback(() => {
@@ -62,12 +65,13 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
   // 设计参见 useExperimentRealtime：身份校验取代 manual-close 标志位，避免 StrictMode 下竞态。
   const closeSocket = useCallback(() => {
     clearTimers();
+    connectGenerationRef.current += 1;
     const socket = socketRef.current;
     socketRef.current = null;
     socket?.close();
   }, [clearTimers]);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!enabled || stableCompetitionID.length === 0 || typeof window === "undefined") {
       setStatus("idle");
       return;
@@ -76,7 +80,23 @@ export function useCtfRealtime(competitionID: ID, enabled = true): UseCtfRealtim
     setStatus(reconnectCountRef.current > 0 ? "reconnecting" : "connecting");
     setError(null);
 
-    const socket = new WebSocket(buildWebSocketURL("/ctf/ws", { competition_id: stableCompetitionID }));
+    const generation = ++connectGenerationRef.current;
+    let url: string;
+    try {
+      url = await buildWebSocketURL("/ctf/ws", { competition_id: stableCompetitionID });
+    } catch (err) {
+      if (connectGenerationRef.current !== generation) return;
+      setStatus("error");
+      setError(err instanceof Error ? err.message : "WebSocket URL 构造失败");
+      return;
+    }
+    if (connectGenerationRef.current !== generation) return;
+    if (url.length === 0) {
+      setStatus("closed");
+      return;
+    }
+
+    const socket = new WebSocket(url);
     socketRef.current = socket;
 
     socket.onopen = () => {

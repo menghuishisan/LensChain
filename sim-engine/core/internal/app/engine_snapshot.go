@@ -16,16 +16,32 @@ import (
 // =====================================================================
 
 // CreateSnapshot 为会话创建持久化快照记录。
+//
+// 锁策略（生产事故复盘后的固化做法）：
+//
+//   - **绝不**在持 e.mu.Lock 时调用 e.store.Save。MinIO/S3 I/O 一次抖动就能让锁
+//     永久不释放，导致 ControlTime / advanceRunnableSessions 全部排队，前端
+//     pause/step/reset 像被吞。
+//
+//   - **绝不**在持 e.mu 任何级别时调用 e.publishEvent / e.currentTick 等会再次拿
+//     e.mu 的方法。Go 的 sync.RWMutex 不可重入，自家持锁再 RLock = 同 goroutine
+//     死锁。本函数早期版本就是这么把 sim-engine 卡死的。
+//
+// 实际流程：① 短时持 RLock 读快照元数据；② 锁外做 I/O；③ 短时持 Lock 写
+// updatedAt；④ 锁外发布事件。
 func (e *Engine) CreateSnapshot(sessionID string, description string) (Snapshot, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	// ① 读取运行时元数据（尽量短）。
+	e.mu.RLock()
 	runtime, ok := e.runtimes[sessionID]
+	store := e.store
+	e.mu.RUnlock()
 	if !ok {
 		return Snapshot{}, errors.New("session runtime not found")
 	}
-	if e.store == nil {
+	if store == nil {
 		return Snapshot{}, errors.New("snapshot store is not configured")
 	}
+
 	snapshotID, err := newSnapshotID()
 	if err != nil {
 		return Snapshot{}, err
@@ -40,14 +56,25 @@ func (e *Engine) CreateSnapshot(sessionID string, description string) (Snapshot,
 	payload := SnapshotPayload{
 		SessionID: sessionID,
 		Tick:      snapshot.Tick,
-		Scenes:    e.buildSnapshotScenes(sessionID),
+		// buildSnapshotScenes 走 scene.Manager，自带 mu；不需要 e.mu 保护。
+		Scenes: e.buildSnapshotScenes(sessionID),
 	}
-	objectURL, err := e.store.Save(snapshotID, payload)
+
+	// ② I/O 必须在锁外——store.Save 内部已带 ctx 超时（snapshot_store.go）。
+	objectURL, err := store.Save(snapshotID, payload)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	snapshot.ObjectURL = objectURL
-	runtime.updatedAt = time.Now().UTC()
+
+	// ③ 短时持 Lock 写元数据。
+	e.mu.Lock()
+	if rt, ok := e.runtimes[sessionID]; ok {
+		rt.updatedAt = time.Now().UTC()
+	}
+	e.mu.Unlock()
+
+	// ④ publishEvent 走 hub.Publish + currentTick(自带 RLock)，必须在锁外。
 	e.publishEvent(sessionID, "snapshot_created", map[string]any{
 		"snapshot_id":   snapshot.SnapshotID,
 		"snapshot_type": "manual",

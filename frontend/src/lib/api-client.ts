@@ -376,6 +376,20 @@ export class ApiClient {
     return this.unwrapResponse<TData>(response);
   }
 
+  /**
+   * 确保 access token 未过期（双 token 无感刷新）。
+   *
+   * 与 HTTP 请求里 `refreshTokenIfNeeded` 共用同一套并发去重的 refresh 单例（refreshPromise），
+   * 因此 WebSocket 子系统在 open 前调用本方法，与 HTTP 调用任意先后都不会重复触发刷新。
+   *
+   * 返回值：最新的 access token；若没有有效 refresh token 或刷新失败，返回 `null`，
+   * 上层应让连接失败（不要带过期 token 死循环重连）。
+   */
+  async ensureFreshAccessToken(): Promise<string | null> {
+    await this.refreshTokenIfNeeded("/ws");
+    return getStoredAuthSession().accessToken;
+  }
+
   private async refreshTokenIfNeeded(path: string) {
     if (path === "/auth/token/refresh") {
       return;

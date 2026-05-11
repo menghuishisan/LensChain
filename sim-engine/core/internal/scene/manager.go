@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -264,7 +265,7 @@ func (m *Manager) Start(ctx context.Context, config Config, instanceID string, s
 	}
 	meta, err := client.Meta(ctx)
 	if err != nil {
-		return Runtime{}, err
+		return Runtime{}, fmt.Errorf("scene=%s Meta failed: %w", config.SceneCode, err)
 	}
 	result, err := client.Init(ctx, InitRequest{
 		SessionID:       config.SessionID,
@@ -276,7 +277,7 @@ func (m *Manager) Start(ctx context.Context, config Config, instanceID string, s
 		SharedStateJSON: cloneBytes(config.SharedStateJSON),
 	})
 	if err != nil {
-		return Runtime{}, err
+		return Runtime{}, fmt.Errorf("scene=%s Init failed: %w", config.SceneCode, err)
 	}
 
 	runtime := Runtime{

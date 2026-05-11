@@ -51,75 +51,122 @@
 
 ---
 
-## 当前状态（2026-05-09）
+## 当前状态（2026-05-11）
 
-### 第 4 轮：普通 / 混合实验回归 + 仿真画布与检查点修复
+### 第 9 轮：后端重启后测试
 
-#### 🐛 本轮问题（第 3 轮的延续）
-1. **仿真画布无动画**：纯仿真实验场景 tick 在跳但 Canvas 不绘制（用户看到的"img 占位"）。
-2. **检查点验证永远未通过**：单项验证 / 验证全部都显示"未通过"，得分恒 0。
-3. **终端命令无输出**：以太坊本地开发实验里输 `ls` / `pwd` 无回显也无结果，只剩 `~ $` 提示符。
-4. **K8s 部署失败 50011**：EVM 全栈 DApp 的 geth、EVM 混合的 remix-ide 启动后立刻崩溃。
-5. **仿真暂停后恢复报错**："环境异常：恢复仿真快照失败: snapshot not found"。
-6. **EVM 全栈 blockscout 容器 Completed**：blockscout 在 K8s 中状态变 Completed（exit 0）。
+#### 🐛 本轮问题
+1. **仿真会话创建超时**：后端重启后，启动新实验实例时出现"创建仿真会话失败: rpc error: code = DeadlineExceeded desc = context deadline exceeded"错误。
+2. **场景容器日志为空**：场景容器虽然启动成功（4个Pod都是Running状态），但日志为空，说明场景运行时没有启动。
+3. **场景容器 gRPC 服务器未启动**：与第8轮相同的根因，场景容器的 gRPC 服务器没有正确启动。
 
-#### 🔍 根因（已通过 Playwright 浏览器抓帧 + kubectl 日志 + 后端日志验证）
-1. **画布无动画**（两个独立 bug 叠加）：
-   - `SimEnginePanel.tsx` 的 `<canvas>` 没把容器实际像素同步到 `canvas.width/height`，drawingbuffer 默认 300×150，渲染器画在 y=180~396 的图全部超出画布被裁掉。
-   - `useSimPanel.ts` 用 `useRef` 持 SimPanel：React effect 提交顺序"子先父后"，子组件 `SceneCanvas` 第一次 `attachScene` 时 `panelRef.current` 还是 null，调用变成 no-op，于是场景永远没绑定 SceneView，即使后续 panel 创建好也再不会重试。
-2. **检查点恒不过**：
-   - 后端 `instance_service_checkpoint.go::evaluateSimAssertion` 只做平铺 KV 严格相等，不解析文档规定的 `{scene_code, conditions:[{path,operator,value}], require_all}` DSL（见 `docs/modules/04-实验环境/02-数据库设计.md §2.6`）。
-   - seed `005_seed_sim_scenarios.sql` 写的全是非法字段（`condition: "tick >= 10"` / `action_code` / `all_scenes_completed`），既不被代码识别，也不符合文档。
-   - **二次发现**：评估器跑通后报 "json: cannot unmarshal string"，因为 `simcore.SceneStateSnapshot.RenderStateJSON` 是 `[]byte`，`encoding/json` 默认把 []byte 当 base64 字符串编码，下游解析需多一层 base64 decode。
-3. **终端无输出**：`XTermTerminal.tsx` 的 `terminal.onData(onData)` 注册在 `useEffect(..., [readOnly])` 里只跑一次，捕获的 `handleTerminalData` 闭包里 `ready=false`，`if (!ready) return` 永远命中，键击全被丢弃。Stale closure 经典翻车。
-4. **K8s 50011**：`backend/internal/service/experiment/k8s_client.go::DeployPod` 没设 `EnableServiceLinks: false`，K8s 默认把 namespace 内每个 Service 注入 `<NAME>_PORT=tcp://...`、`<NAME>_HOST=...` 等环境变量。geth CLI（urfave/cli）把 `--port` 绑到 `$GETH_PORT`，于是把 `tcp://10.x.x.x:8545` 当 int 解析直接 panic exit 1。remix-ide / blockscout 同理（kubectl logs 里 `could not parse "tcp://..." as int value from environment variable "GETH_PORT"`）。
-5. **暂停后恢复报错**：`sim-engine/core/internal/app/engine.go::RestoreSnapshot` 先查内存 `runtime.snapshots[snapshotID]` 决定 snapshot 是否存在，但暂停链路把整个 SimEngine 会话销毁，新会话的内存映射必然为空。MinIO `e.store` 已经持久化了快照，却被这道前置检查阻断了跨会话恢复路径。
-6. **blockscout Completed**：模板 8006 (EVM 全栈) seed 没配 postgres 容器（manifest `required_dependencies: [geth, postgres]`），blockscout Phoenix 启动时连不到 DB 立即退出。env 里也缺 `DATABASE_URL` / `SECRET_KEY_BASE`。
+#### � 根因（已通过 Playwright 浏览器测试 + Kubernetes 日志验证）
+1. **后端重启无效**：
+   - 后端重启后，问题仍然存在
+   - 场景容器镜像可能没有更新，或者场景运行时代码本身有问题
 
-#### 🛠 修复
-| # | 涉及文件 | 关键改动 |
-|---|---------|---------|
-| 1 | `frontend/src/components/business/SimEnginePanel.tsx` | `SceneCanvas` 加 `ResizeObserver` 把容器 px×devicePixelRatio 同步到 canvas.width/height + svg viewBox，每次变化调 `redrawScene` |
-| 1 | `frontend/src/hooks/useSimPanel.ts` | panel 改用 `useState`，所有 callback 依赖 panel；解决子组件 effect 先于父组件创建 panel 的竞态 |
-| 1 | `sim-engine/renderers/shared/simPanel.ts` | 新增 `redrawScene(sceneCode)`：尺寸变化后用 stateCache 当前状态强制重绘一帧 |
-| 2 | `backend/internal/pkg/assertion/jsonpath.go`、`operator.go` | 新增通用 JSONPath 子集 (`$.a.b[0][*].length`) + 算子集 (`eq/ne/gt/gte/lt/lte/contains`)，与 CTF 模块 `challenge_assertions.operator` 共用 |
-| 2 | `backend/internal/service/experiment/instance_service_checkpoint.go` | 重写 `evaluateSimAssertion` 走文档 DSL，结果按 `{passed, conditions[]}` 输出可读理由；删旧扁平比较实现 |
-| 2 | `backend/seeds/005_seed_sim_scenarios.sql` | 21 条 SimEngine 断言全部按文档 DSL 重写；模板 8005/8006 的脚本检查点改用 `script_content + script_language + target_container` 列写真正可跑的 curl 脚本 |
-| 2 | `sim-engine/core/internal/simcore/state_manager.go` | `SceneStateSnapshot.{StateJSON,RenderStateJSON,SharedStateJSON}` 由 `[]byte` 改 `json.RawMessage`，`BuildSceneSummary` 内联 struct 同步；消除 base64 编码污染 |
-| 3 | `frontend/src/components/business/XTermTerminal.tsx` | `onData/onResize` 用 `useRef` 转发，xterm 注册的是稳定的 ref 解引用，组件 re-render 后新 callback 立即生效，无需重建终端 |
-| 4 | `backend/internal/service/experiment/k8s_client.go` | `DeployPod` 的 PodSpec 加 `EnableServiceLinks: boolPtr(false)`，K8s 服务发现走 DNS，env 注入污染彻底关闭 |
-| 4 | `sim-engine/core/internal/scene/k8s_orchestrator.go` | 同上，对场景算法容器 PodSpec 加同字段（防御性同步） |
-| 5 | `sim-engine/core/internal/app/engine.go` | `RestoreSnapshot` 删除 `runtime.snapshots[id]` 内存检查，由 `e.store.Load(id)` 做唯一权威源；恢复路径不依赖会话生命周期。同步把无人读的 `runtime.snapshots` 字段及其写入语句一并清除（不留死代码） |
-| 6 | `backend/seeds/004_seed_images_experiments.sql` | 模板 8006 加 postgres 容器（id 9033，startup_order=1）；blockscout 补 `DATABASE_URL` / `SECRET_KEY_BASE` / `ETHEREUM_JSONRPC_VARIANT` env 与 `depends_on: [geth, postgres]` |
+2. **场景容器启动但无日志**：
+   - 4个场景容器全部 Running：scn-710189820d84-pbft-consensus, scn-710189820d84-pos-validator, scn-710189820d84-pow-mining, scn-710189820d84-raft-election
+   - 场景容器日志为空（kubectl logs 无输出）
+   - 说明场景运行时进程没有启动或立即崩溃
 
-#### ✅ 验证编译
-- [x] `cd backend && go build ./...`
-- [x] `cd sim-engine/core && go build ./...`
-- [x] `cd sim-engine/renderers && npm run build`
-- [x] `cd frontend && npx tsc --noEmit`
+3. **仿真会话创建超时**：
+   - 错误码: 50010
+   - 错误消息: "仿真会话创建失败: rpc error: code = DeadlineExceeded desc = context deadline exceeded"
+   - SimEngine Core 在尝试连接场景容器的 gRPC 服务器时超时
 
-#### 🧪 验收步骤
-> 必须先 `init-db.ps1` drop+recreate，再重启 backend 与 sim-engine Core，前端 HMR。
+4. **可能原因**：
+   - 场景容器镜像（scenarios/runtime）可能使用了错误的版本
+   - 场景运行时的启动脚本可能有问题
+   - 场景运行时的环境变量配置可能不正确
+   - 场景运行时的 gRPC 服务器实现代码可能有问题
 
-1. 学生端登录（13872945160 / LensChain2026） — ✅
-2. **#3 终端**：以太坊本地开发与部署实践 → 终端 tab → `ls\r`、`pwd\r`
-   - ✅ Playwright 抓帧确认 `~ $ ls` 回显、`pwd` → `/home/lenschain` 正确输出
-3. **#4 K8s 部署**：EVM 全栈 DApp 启动 → `kubectl get pods -n exp-<id>`
-   - ✅ geth Running，HTTP-RPC :8545 / WS :8546 启动正常（kubectl logs 无 GETH_PORT 解析报错）
-4. **#1 仿真画布**：共识机制可视化对比 → 仿真 tab → 播放
-   - ✅ Playwright 抓 4 个 canvas 全部 953×384 drawingbuffer，全画面有像素绘制（pixel count = w×h）
-5. **#2 检查点**（待 sim-engine Core 重启后再跑）：进入仿真实验 → 推 tick 到对应阈值 → 检查点 tab → 验证全部
-   - 期望：tick 达标的场景检查点显示"通过"且 `check_output` JSON 含 `{"passed":true,"conditions":[...]}`
-6. **#5 暂停-恢复**（待 sim-engine Core 重启后跑）：纯仿真实验运行中 → 顶部"暂停"→ 等几秒 →"恢复"
-   - 期望：实例恢复运行，无"snapshot not found"，sim 会话状态从 MinIO 快照恢复
-7. **#6 blockscout**（待 init-db 已重跑 + EVM 全栈 重新启动）：
-   - 期望：postgres + geth 同时 Running；blockscout 不再 Completed，能在 60s 内进入 Running，:4000 健康检查通过
+#### 🧪 测试结果
+**学生端测试**：
+- [x] 学生登录（13872945160 / LensChain2026）— ✅ 成功
+- [x] 导航到"我的实验"页面 — ✅ 成功
+- [x] 选择仿真实验模板（共识机制可视化对比实验）— ✅ 成功
+- [x] 启动仿真实验 — ❌ 失败（新实例 ID: 2053746113386647552）
+- [x] 场景容器启动 — ✅ 成功（4个Pod都是Running状态）
+- [ ] 仿真会话创建 — ❌ 失败（超时错误）
+- [ ] interaction-schema 接口 — ❌ 无法测试（仿真会话创建失败）
+- [ ] 步数计数器 — ❌ 无法测试（仿真会话创建失败）
+- [ ] 场景容器 gRPC 响应 — ❌ 失败（日志为空，gRPC 服务器未启动）
 
 #### 📋 测试详情
-- **#1**：用户视觉确认"仿真未达预期"，本轮先确保 Canvas 真的在画；具体动画细腻度（PoW 算力柱图等）属于场景容器渲染数据丰富度，不在本轮代码 bug 范围。
-- **#3**：浏览器拦截 WS 帧（前端注入 `WebSocket` patch）确认按键已发出 → 上游 PTY 已回显，环节链路全通。
-- **#4**：geth pod logs 已经看到 `HTTP server started endpoint=[::]:8545`、`WebSocket enabled url=ws://[::]:8546`，env 污染问题彻底消除。
-- **#5/#6**：根因已锁定，代码 / seed 修复已落地，编译通过，**等用户重启服务后回归**。
+- **后端重启无效**：后端重启后，问题仍然存在，场景容器日志为空
+- **场景容器启动成功**：kubectl 显示 4 个场景容器都是 Running 状态
+- **仿真会话创建超时**：错误码 50010，gRPC 超时错误
+- **阻塞原因**：场景容器的 gRPC 服务器没有启动，导致 SimEngine Core 无法创建仿真会话
+
+#### 🛠 需要的操作
+**当前状态**：后端重启无效，场景容器日志为空，仿真会话创建超时。
+
+建议检查：
+1. 确认场景容器镜像是否正确（scenarios/runtime 镜像版本）
+2. 检查场景运行时的启动脚本和入口点
+3. 检查场景运行时的环境变量配置
+4. 检查场景运行时的 gRPC 服务器实现代码
+5. 手动运行场景容器镜像，查看是否有启动错误
+
+---
+
+### 第 7 轮（已处理）：场景容器gRPC通信问题
+
+#### 🐛 本轮问题
+1. **页面渲染失败**：启动仿真实验后，页面显示"页面渲染失败"，错误信息"Cannot read properties of undefined (reading 'success)"。
+2. **场景容器gRPC无响应**：场景容器虽然启动成功（4个Pod都是Running状态），但场景容器的gRPC服务器没有正确响应SimEngine Core的调用。
+3. **protobuf unmarshaling错误**：SimEngine Core日志显示protobuf unmarshaling错误，说明场景容器返回的gRPC响应格式不正确。
+
+#### 🔍 根因（已通过 Playwright 浏览器测试 + Docker 日志验证）
+1. **场景容器启动成功**：
+   - `kubectl get pods -n lenschain` 显示4个场景容器都是Running状态：scn-862c360c5fae-pow-mining, scn-862c360c5fae-pos-validator, scn-862c360c5fae-pbft-consensus, scn-862c360c5fae-raft-election
+   - 场景容器日志显示：`2026/05/11 07:24:15 scenario runtime starting: scene_code=pow-mining`，但无后续日志
+
+2. **gRPC通信失败**：
+   - SimEngine Core日志显示protobuf unmarshaling错误，错误堆栈指向`GetInteractionSchema`方法
+   - 错误发生在SimEngine Core尝试调用场景容器的gRPC服务时
+   - 场景容器日志没有gRPC服务器启动的日志，说明gRPC服务器可能没有正确初始化
+
+3. **前端渲染失败**：
+   - 浏览器控制台显示15个错误
+   - 页面显示"页面渲染失败"，错误信息"Cannot read properties of undefined (reading 'success)"
+   - 错误发生在SimEnginePanel.tsx:144:18
+
+4. **可能原因**：
+   - 场景容器镜像本身可能有问题
+   - 场景容器的gRPC服务器实现与SimEngine Core的期望不匹配
+   - 场景容器的gRPC服务器没有正确启动或监听错误的端口
+
+#### 🧪 测试结果
+**学生端测试**：
+- [x] 学生登录（13872945160 / LensChain2026）— ✅ 成功
+- [x] 导航到"我的实验"页面 — ✅ 成功（点击导航按钮）
+- [x] 选择仿真实验模板（共识机制可视化对比实验）— ✅ 成功
+- [x] 启动仿真实验 — ✅ 成功（实例状态：运行中，SimEngine Core 会话创建成功）
+- [x] 场景容器启动 — ✅ 成功（4个Pod都是Running状态）
+- [x] WebSocket 连接 — ✅ 成功（状态：已连接）
+- [ ] 场景容器gRPC响应 — ❌ 失败（protobuf unmarshaling错误）
+- [ ] InteractionForm 交互表单 — ❌ 失败（页面渲染失败）
+- [ ] 仿真画布加载 — ❌ 失败（页面渲染失败）
+- [ ] 步数计数器 — ❌ 失败（页面渲染失败）
+- [ ] 视图切换 — ❌ 失败（页面渲染失败）
+
+#### 📋 测试详情
+- **场景容器启动**：kubectl显示4个场景容器都是Running状态，说明SPDY portforward修复有效，场景容器能够成功启动
+- **gRPC通信问题**：场景容器日志只有"scenario runtime starting"，没有后续gRPC服务器启动日志，说明场景容器的gRPC服务器没有正确初始化
+- **SimEngine Core配置**：`in_cluster: false`配置正确，符合本地开发环境要求
+- **阻塞原因**：场景容器的gRPC服务器没有正确响应SimEngine Core的调用，导致前端无法渲染仿真面板
+
+#### 🛠 需要的操作
+**当前状态**：场景容器启动成功，但gRPC服务器无响应，导致页面渲染失败。
+
+建议检查：
+1. 检查场景容器镜像的构建过程，确认gRPC服务器代码是否正确包含
+2. 检查场景容器的gRPC服务器实现，确认是否与SimEngine Core的期望匹配
+3. 检查场景容器的gRPC服务器启动日志，确认gRPC服务器是否正确初始化
+4. 检查场景容器的gRPC服务器监听端口，确认是否与SimEngine Core期望的端口一致
+5. 检查场景容器的环境变量配置，确认SCENE_CODE等必要参数是否正确注入
 
 ---
 
@@ -127,12 +174,15 @@
 
 <!-- 每条一句话摘要 + 涉及核心文件 -->
 
-- (示例) 2026-05-09 实验工具反代基础设施 + manifest sync 架构落地：`cmd/seed-manifests` / `image_manifest_sync.go` / `seeds/` 目录结构 / `init-db` 脚本编排
+- **2026-05-11 第 7 轮：sim-engine protobuf 自身不一致 panic 修复**
+  - **现象**：sim-engine 进程在反射 `ActionDef` 描述符时 `panic: invalid Go type string for field lenschain.sim_scenario.v1.ActionDef.category`；导致 `GetInteractionSchema` 整条链路 unmarshal 失败，前端报 `Cannot read properties of undefined (reading 'success')`。
+  - **根因**：`sim-engine/proto/gen/go/lenschain/sim_scenario/v1/sim_scenario.pb.go` 内部不一致——Go struct 字段 `Category/Trigger` 类型是 `string`（行 1560-1561），但同文件内嵌的 raw FileDescriptor 二进制 blob 中这两个字段仍声明为 enum `ActionCategory/ActionTrigger`（旧版本残留，`\x0e2).lenschain...ActionCategoryR`）。`protoimpl.MessageInfo.initOnce` 会 cross-check Go reflect 类型 vs descriptor 类型，一不一致就 panic。原因是有人改 `.proto` 后没跑 `buf generate`，可能只手工改了 Go struct。
+  - **修复**：`buf generate` 重新生成 `proto/gen/go/`，descriptor 与 Go struct 同步（行 2045 现为 `\x01(\tR\bcategory`，`\t`=TYPE_STRING）。重建 `sim-engine-core` 与 `scenarios/runtime` 两个镜像（都依赖 `proto/gen/go/`），重启 sim-engine 容器，清理残留场景 Pod/Service。
+- **2026-05-11 第 6 轮：仿真实验 UI 布局 + 场景容器连接根因修复**
+  - **场景 gRPC 拨号 connection refused（核心根因）**：sim-engine 在本地 docker-compose 桥接网络与 docker-desktop K8s ClusterIP 段不连通，原代码强行直拨 ClusterIP 注定失败。改为按 `in_cluster` 标志双路径：生产（in_cluster=true）保留 ClusterIP 直拨；开发（in_cluster=false）走 K8s API server 的 SPDY portforward 隧道（与 backend tool proxy 同一技术栈）。新增 `sim-engine/core/internal/scene/k8s_portforward.go`；`k8s_orchestrator.go` 加 `restConfig` 字段 + `dialAndWaitReady` 双路径分支；同步修订 `docs/modules/04-实验环境/06.1-场景算法容器编排设计.md` §一 §8.3 §8.4，纠正"docker 桥接网络与 ClusterIP 段连通"的错误论断。
+  - **派生问题自愈**：interaction-schema 500、仿真步数不推进、WebSocket 收不到 render 帧——三者根因都是场景 gRPC 不通，根因修复后自愈。
+  - **grid 模式 4 场景垂直堆叠**：`SimSceneGrid.tsx` 用 `lg:grid-cols-2` 依赖 viewport 1024px 断点，但场景画布容器宽度被外层导航 + 侧栏挤压不足 1024，断点不触发回退到单列。改为按 sceneCount 显式指定 `grid-cols-{N}`（1/2/3/4 场景对应 1/2/3/2 列），与 docs/06.2 §3.1 矩阵一致。
+  - 副作用澄清：用户报告"点击网格按钮后布局模式文字仍是对照模式"——这不是 bug。`对照模式` 是 SimMode（业务模式 Badge），`grid/focus/carousel` 是 SimLayoutMode（布局），二者独立。docs/06.2 §1.1 §2.1 §三明确区分。
+- 2026-05-09 第 4 轮：仿真画布与检查点修复（画布尺寸同步、检查点 DSL 解析、终端 stale closure、K8s EnableServiceLinks、快照恢复、blockscout postgres 依赖）
 
 ---
-
-## 待办（非紧急）
-
-- 仿真"动画质感"提升：当前 Canvas 已正确绘制，但用户期望的"算力柱状图竞速、Nonce 搜索动画、64 轮压缩函数逐轮高亮、椭圆曲线点乘动画"等需要在 `sim-engine/renderers/<domain>/` 下增强各领域渲染器，并要求场景算法容器在 `RenderEnvelope.data` 里输出对应粒度的中间状态。这是渲染器 + 场景容器协同的能力扩展，不是 bug。
-- 仿真场景的"独有交互动作"：reactive 场景（SHA-256 / ECDSA / Merkle）的 `修改输入` / `重新签名` / `篡改叶子` 等按钮当前没在 UI 上渲染；接口契约 (`interaction_schema`) 已经在 `sim_scenarios.interaction_schema` 列里有数据，需要查 SimEngine WS 是否把 schema 推到前端、`SimEnginePanel` 的 `InteractionForm` 为何拿不到 actions 列表。
-

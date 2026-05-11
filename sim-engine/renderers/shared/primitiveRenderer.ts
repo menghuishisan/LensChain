@@ -145,15 +145,11 @@ export abstract class PrimitiveBasedRenderer {
     if (!ctx) {
       throw new Error("画布上下文不可用");
     }
+    // canvas drawingbuffer 与 CSS 尺寸由 SimSceneCanvas（ResizeObserver）统一管理，
+    // 渲染器不修改 canvas.width / canvas.height / canvas.style.*，仅做 DPR 变换 + 清除 + 绘制。
     const dpr = typeof window !== "undefined" ? (window.devicePixelRatio ?? 1) : 1;
     const cssWidth = context.width;
     const cssHeight = context.height;
-    if (canvas.width !== Math.round(cssWidth * dpr) || canvas.height !== Math.round(cssHeight * dpr)) {
-      canvas.width = Math.round(cssWidth * dpr);
-      canvas.height = Math.round(cssHeight * dpr);
-      canvas.style.width = `${cssWidth}px`;
-      canvas.style.height = `${cssHeight}px`;
-    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
 

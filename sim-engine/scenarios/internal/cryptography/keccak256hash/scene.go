@@ -354,8 +354,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_input", Label: "设置输入消息",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "message", Type: fw.FieldString, Label: "消息（UTF-8）", Required: true, Default: defaultMessage},
 				},
@@ -364,23 +365,26 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "step_round", Label: "推进 1 轮置换",
-				Description: "执行下一轮 Keccak-f[1600]（共 24 轮 5 步）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "执行下一轮 Keccak-f[1600]（共 24 轮 5 步）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "step_to_round", Label: "跳到指定轮",
-				Category: fw.ActionObserve, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "target_round", Type: fw.FieldNumber, Label: "目标轮次", Required: true, Default: 0, Min: 0, Max: totalRounds, Step: 1},
 				},
 			},
 			{
 				ActionCode: "mutate_input_bit", Label: "翻转输入位",
-				Description: "演示 Keccak-256 的雪崩效应",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "演示 Keccak-256 的雪崩效应",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "bit_index", Type: fw.FieldNumber, Label: "Bit 位号", Required: true, Default: 0, Min: 0, Step: 1},
 				},
@@ -395,8 +399,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_set_demo_input",

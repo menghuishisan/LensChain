@@ -338,8 +338,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置费用参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "base_fee", Type: fw.FieldNumber, Label: "初始 base_fee", Required: true, Default: defaultBaseFee, Min: 1, Step: 1},
 					{Name: "gas_target", Type: fw.FieldNumber, Label: "目标 gas/块", Required: true, Default: defaultGasTarget, Min: 10, Step: 10},
@@ -349,8 +350,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "submit_tx", Label: "提交交易（EIP-1559 字段）",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "alice"},
 					{Name: "gas_limit", Type: fw.FieldNumber, Label: "gas_limit", Required: true, Default: 100, Min: 1, Step: 1},
@@ -365,21 +367,24 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "选 priority 最高的 tx，更新 base_fee",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"tx.gas.base_fee", "tx.gas.block_height"},
 				LinkOwnerFields:   []string{"tx.gas.base_fee", "tx.gas.block_height"},
 			},
 			{
 				ActionCode: "mine_n_blocks", Label: "连续出 N 块",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "块数", Required: true, Default: 5, Min: 1, Max: 50, Step: 1},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_freeze_mempool",
@@ -400,6 +405,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Category:      fw.ActionPrimary,
 				Trigger:       fw.TriggerSubmit,
 				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_estimateGas","params":[{"from":"{{from}}","to":"{{to}}","data":"{{data}}"}],"id":1}' http://geth:8545`,
 				Reversible:    false,

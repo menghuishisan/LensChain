@@ -664,8 +664,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "经济参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "total_supply", Type: fw.FieldNumber, Label: "TotalSupply", Required: true, Default: defaultTotalSupply, Min: 1000, Step: 1000},
 					{Name: "base_inflation", Type: fw.FieldNumber, Label: "BaseInflation", Required: true, Default: defaultBaseInflation, Min: 0, Max: 1, Step: 0.01},
@@ -678,8 +679,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "register_validator", Label: "注册 validator",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "id", Type: fw.FieldString, Label: "validator id", Required: true, Default: "v4"},
 					{Name: "self_stake", Type: fw.FieldNumber, Label: "selfStake", Required: true, Default: 5000, Min: 1, Step: 100},
@@ -688,8 +690,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "delegate", Label: "委托",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "delegator", Type: fw.FieldString, Label: "delegator", Required: true, Default: "alice"},
 					{Name: "validator", Type: fw.FieldString, Label: "validator", Required: true, Default: "v1"},
@@ -698,9 +701,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "undelegate", Label: "解委托",
-				Description: "进入 unbonding queue，到期才返还",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "进入 unbonding queue，到期才返还",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "delegator", Type: fw.FieldString, Label: "delegator", Required: true, Default: "alice"},
 					{Name: "validator", Type: fw.FieldString, Label: "validator", Required: true, Default: "v1"},
@@ -712,21 +716,24 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "分发 reward + 处理 unbonding 到期 + 自动 unjail",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneEpoch,
 				WritesOwnedFields: []string{"economic.staking.staking_rate"},
 				LinkOwnerFields:   []string{"economic.staking.staking_rate"},
 			},
 			{
 				ActionCode: "advance_n", Label: "推进 N epoch",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneEpoch,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "epoch 数", Required: true, Default: 12, Min: 1, Step: 1},
 				},
 			},
 			{
 				ActionCode: "slash_double_sign", Label: "切罚（double-sign）",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "validator", Type: fw.FieldString, Label: "validator", Required: true, Default: "v1"},
 				},
@@ -734,8 +741,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "slash_downtime", Label: "切罚（downtime）",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "validator", Type: fw.FieldString, Label: "validator", Required: true, Default: "v2"},
 				},
@@ -743,8 +751,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "withdraw_rewards", Label: "提取奖励",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "delegator", Type: fw.FieldString, Label: "delegator", Required: true, Default: "alice"},
 					{Name: "validator", Type: fw.FieldString, Label: "validator", Required: true, Default: "v1"},
@@ -752,8 +761,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "restake", Label: "复利重新质押",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "delegator", Type: fw.FieldString, Label: "delegator", Required: true, Default: "alice"},
 					{Name: "validator", Type: fw.FieldString, Label: "validator", Required: true, Default: "v1"},
@@ -761,8 +771,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_epoch",

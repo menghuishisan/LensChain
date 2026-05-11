@@ -635,8 +635,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "configure", Label: "配置网络（N、节点故障）",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "节点数 (3f+1)", Required: true, Default: 4, Min: 4, Max: 13, Step: 3},
 					{Name: "primary_fault", Type: fw.FieldEnum, Label: "primary 故障", Required: true, Default: faultHonest,
@@ -645,8 +646,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "set_node_fault", Label: "设置节点 fault",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "node_id", Type: fw.FieldNumber, Label: "节点 ID", Required: true, Default: 1, Min: 0, Step: 1},
 					{Name: "fault", Type: fw.FieldEnum, Label: "故障类型", Required: true, Default: faultEquivocating,
@@ -656,9 +658,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "send_request", Label: "客户端请求",
-				Description: "primary 启动一个 PBFT 实例（PRE-PREPARE）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "primary 启动一个 PBFT 实例（PRE-PREPARE）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "op", Type: fw.FieldString, Label: "请求内容", Required: true, Default: "transfer 100"},
 				},
@@ -669,21 +672,24 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "所有节点处理 inbox 中的 PREPARE / COMMIT / VC",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{},
 			},
 			{
 				ActionCode: "trigger_view_change", Label: "强制 view-change",
-				Description: "演示 view-change",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "演示 view-change",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "reason", Type: fw.FieldString, Label: "原因", Required: true, Default: "primary 超时"},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_enable_attack",

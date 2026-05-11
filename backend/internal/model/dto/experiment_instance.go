@@ -996,6 +996,41 @@ type SimInteractionSchemaResp struct {
 	Actions   json.RawMessage `json:"actions"`
 }
 
+// SimActionDTO 与前端 SimActionDef 类型完全对齐的 JSON 序列化结构。
+// proto ActionDef 中 category / trigger / hybrid_channel 已改为 string，
+// 仅 FieldDef 的 bytes 字段（default_json 等）需要转为 json.RawMessage。
+type SimActionDTO struct {
+	ActionCode        string        `json:"action_code"`
+	Label             string        `json:"label"`
+	Description       string        `json:"description,omitempty"`
+	Category          string        `json:"category"`
+	Trigger           string        `json:"trigger"`
+	Fields            []SimFieldDTO `json:"fields"`
+	Roles             []string      `json:"roles"`
+	CooldownMs        int32         `json:"cooldown_ms,omitempty"`
+	LinkOwnerFields   []string      `json:"link_owner_fields,omitempty"`
+	WritesOwnedFields []string      `json:"writes_owned_fields,omitempty"`
+	Reversible        bool          `json:"reversible,omitempty"`
+	InterveneType     string        `json:"intervene_type,omitempty"`
+	HybridChannel     string        `json:"hybrid_channel,omitempty"`
+	ContainerCmd      string        `json:"container_cmd,omitempty"`
+}
+
+// SimFieldDTO 与前端 SimFieldDef 类型完全对齐。
+// proto bytes 字段映射为 json.RawMessage，直接嵌入原始 JSON 值（非 base64）。
+type SimFieldDTO struct {
+	Name        string          `json:"name"`
+	Type        string          `json:"type"`
+	Label       string          `json:"label"`
+	Required    bool            `json:"required,omitempty"`
+	Default     json.RawMessage `json:"default,omitempty"`
+	Min         json.RawMessage `json:"min,omitempty"`
+	Max         json.RawMessage `json:"max,omitempty"`
+	Step        json.RawMessage `json:"step,omitempty"`
+	Options     json.RawMessage `json:"options,omitempty"`
+	OptionsFrom string          `json:"options_from,omitempty"`
+}
+
 // ========== 教师干预 DTO ==========
 
 // TeacherInterveneReq 教师干预请求

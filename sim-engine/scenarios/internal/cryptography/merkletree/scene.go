@@ -258,9 +258,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_leaves", Label: "设置叶子",
-				Description: "用逗号分隔的字符串作为叶子重建 Merkle 树",
-				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用逗号分隔的字符串作为叶子重建 Merkle 树",
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "leaves_csv", Type: fw.FieldString, Label: "逗号分隔叶子列表", Required: true,
 						Default: strings.Join(defaultLeaves, ",")},
@@ -270,8 +271,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "select_leaf", Label: "选择叶子查看证明",
-				Category: fw.ActionObserve, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionObserve, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "leaf_index", Type: fw.FieldNumber, Label: "叶子索引", Required: true, Default: 0, Min: 0, Step: 1},
 				},
@@ -280,18 +282,20 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "add_leaf", Label: "追加叶子",
-				Description: "追加一个新叶子并重建树（≤ 32）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "追加一个新叶子并重建树（≤ 32）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "leaf", Type: fw.FieldString, Label: "新叶子内容", Required: true, Default: "tx-new"},
 				},
 			},
 			{
 				ActionCode: "tamper_leaf", Label: "篡改叶子",
-				Description: "修改某叶子内容，演示完整性破坏",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "修改某叶子内容，演示完整性破坏",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "leaf_index", Type: fw.FieldNumber, Label: "目标叶子索引", Required: true, Default: 0, Min: 0, Step: 1},
 					{Name: "new_value", Type: fw.FieldString, Label: "新内容", Required: true, Default: "tampered"},
@@ -301,8 +305,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_set_demo_input",

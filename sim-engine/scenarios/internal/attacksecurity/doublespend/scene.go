@@ -686,17 +686,19 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_confirmations", Label: "设置商家所需确认数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "confs", Type: fw.FieldNumber, Label: "ConfirmationsReq", Required: true, Default: 0, Min: 0, Max: 6, Step: 1},
 				},
 			},
 			{
 				ActionCode: "race_attack", Label: "Race attack",
-				Description: "0-confirm 商家场景：mempool 双花竞速",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "0-confirm 商家场景：mempool 双花竞速",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "value", Type: fw.FieldNumber, Label: "支付金额", Required: true, Default: 200, Min: 1, Step: 50},
 				},
@@ -704,9 +706,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "finney_attack", Label: "Finney attack",
-				Description: "攻击者预挖 hidden block，0-confirm 商家收 tA → 发布 hidden 回滚",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "攻击者预挖 hidden block，0-confirm 商家收 tA → 发布 hidden 回滚",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "value", Type: fw.FieldNumber, Label: "支付金额", Required: true, Default: 200, Min: 1, Step: 50},
 				},
@@ -715,9 +718,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "vector76_attack", Label: "Vector76 attack",
-				Description: "1-confirm 商家场景：分叉 race",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "1-confirm 商家场景：分叉 race",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "value", Type: fw.FieldNumber, Label: "支付金额", Required: true, Default: 200, Min: 1, Step: 50},
 				},
@@ -726,8 +730,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_enable_attack",

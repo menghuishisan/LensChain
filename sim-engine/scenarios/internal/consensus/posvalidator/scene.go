@@ -312,7 +312,8 @@ func interactionDefinition() fw.InteractionDefinition {
 				ActionCode: "set_validators", Label: "设置验证者集",
 				Description: "格式: id1:stake1,id2:stake2,...（≤ 16 个）",
 				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "validators_csv", Type: fw.FieldString, Label: "验证者 CSV", Required: true,
 						Default: "alice:100,bob:200,carol:300,dave:400"},
@@ -324,13 +325,15 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "按 stake 加权选出 producer，分发奖励",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneEpoch,
 				WritesOwnedFields: []string{"validators.pos.current_producer", "validators.pos.epoch"},
 				LinkOwnerFields:   []string{"validators.pos.current_producer", "validators.pos.epoch"},
 			},
 			{
 				ActionCode: "run_n_epochs", Label: "推进 N 个 Epoch",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneEpoch,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "Epoch 数", Required: true, Default: 10, Min: 1, Max: 1000, Step: 1},
 				},
@@ -339,9 +342,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "slash_validator", Label: "扣押恶意验证者",
-				Description: "对指定验证者执行 slash（按 slash_pct 扣 stake，移出选举）",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "对指定验证者执行 slash（按 slash_pct 扣 stake，移出选举）",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "validator_id", Type: fw.FieldString, Label: "验证者 ID", Required: true, Default: "dave"},
 				},
@@ -350,9 +354,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "delegate_stake", Label: "委托质押（LSD）",
-				Description: "用户把 stake 委托给某验证者",
-				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用户把 stake 委托给某验证者",
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "user_id", Type: fw.FieldString, Label: "用户 ID", Required: true, Default: "user-1"},
 					{Name: "validator_id", Type: fw.FieldString, Label: "验证者 ID", Required: true, Default: "alice"},
@@ -361,8 +366,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_fault",

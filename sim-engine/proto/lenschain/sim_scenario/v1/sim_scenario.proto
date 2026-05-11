@@ -257,13 +257,13 @@ message ActionDef {
   string action_code = 1;                          // 全局唯一标识（小写下划线）
   string label = 2;                                // 学生看到的按钮文字
   string description = 3;
-  ActionCategory category = 4;
-  ActionTrigger trigger = 5;
+  string category = 4;                               // "param_tune" | "attack_inject" | "primary" | "observe"
+  string trigger = 5;                                // "submit" | "immediate" | "hold"
   repeated FieldDef fields = 6;
   repeated string roles = 7;                       // ["student"] / ["teacher"] / 两者
   int32 cooldown_ms = 8;
   repeated string link_owner_fields = 10;          // 该 action 写入的 owner 字段（详 §8.3）
-  HybridChannel hybrid_channel = 11;
+  string hybrid_channel = 11;                         // "sim" | "container"（空串视为 sim）
   string container_cmd = 12;                       // 容器通道命令模板（含 {{field}} 占位符）
 
   // ===== v0.5 新增字段（详 AGENTS.md §0.7.6 / §0.7.7 / §0.7.8） =====
@@ -282,7 +282,7 @@ message ActionDef {
 // default / min / max / step / options 因可能是任意类型，统一以 JSON 字节传输。
 message FieldDef {
   string name = 1;
-  FieldType type = 2;
+  string type = 2;                                    // "string" | "number" | "boolean" | "select" | "enum" | "range" | "json" | "multi_select"
   string label = 3;
   bool required = 4;
   bytes default_json = 5;

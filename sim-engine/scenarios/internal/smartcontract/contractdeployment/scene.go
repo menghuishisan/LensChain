@@ -602,9 +602,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "deploy_create", Label: "CREATE 部署",
-				Description: "用 sender + nonce 推导地址；部署后 nonce++",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用 sender + nonce 推导地址；部署后 nonce++",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "creator", Type: fw.FieldString, Label: "creator", Required: true,
 						Default: "0x1111111111111111111111111111111111111111"},
@@ -621,9 +622,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "deploy_create2", Label: "CREATE2 部署",
-				Description: "用 0xff ++ sender ++ salt ++ keccak(init_code) 推导地址；不依赖 nonce",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用 0xff ++ sender ++ salt ++ keccak(init_code) 推导地址；不依赖 nonce",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "creator", Type: fw.FieldString, Label: "creator", Required: true,
 						Default: "0x1111111111111111111111111111111111111111"},
@@ -642,9 +644,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "predict_address", Label: "预测地址（不部署）",
-				Description: "仅推导 CREATE / CREATE2 地址，验证可预测性",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "仅推导 CREATE / CREATE2 地址，验证可预测性",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "creator", Type: fw.FieldString, Label: "creator", Required: true,
 						Default: "0x1111111111111111111111111111111111111111"},
@@ -660,9 +663,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "selfdestruct", Label: "selfdestruct 销毁合约",
-				Description: "销毁后腾出地址；演示 CREATE2 可重新占用",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "销毁后腾出地址；演示 CREATE2 可重新占用",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "address", Type: fw.FieldString, Label: "目标合约", Required: true, Default: ""},
 					{Name: "beneficiary", Type: fw.FieldString, Label: "余额接收者", Required: true,
@@ -671,15 +675,17 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "demo_replay_create2", Label: "演示：CREATE2 重放部署",
-				Description: "对同一 (sender, salt, init_code) 部署两次，第二次应被 collision 拦截",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Description:     "对同一 (sender, salt, init_code) 部署两次，第二次应被 collision 拦截",
+				Category:        fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
 				Roles:           []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:   fw.InterveneAttack,
 				LinkOwnerFields: []string{"contract.deploy.collision_blocks"},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_revert",
@@ -700,6 +706,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Category:      fw.ActionPrimary,
 				Trigger:       fw.TriggerSubmit,
 				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_sendTransaction","params":[{"from":"{{from}}","data":"{{bytecode}}","gas":"0x1000000"}],"id":1}' http://geth:8545`,
 				Reversible:    false,

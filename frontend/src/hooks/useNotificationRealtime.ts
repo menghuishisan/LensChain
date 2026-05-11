@@ -41,6 +41,9 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
   const socketRef = useRef<WebSocket | null>(null);
   const pingTimerRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
+  // connectGenerationRef：每次进入 connect() 自增，async URL 构造完成后比对，避免
+  // 拨号期间被 closeSocket / 新一轮 connect 抢占后仍开出僵尸 socket。
+  const connectGenerationRef = useRef(0);
 
   const clearTimers = useCallback(() => {
     if (pingTimerRef.current !== null) {
@@ -56,12 +59,13 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
   // 设计参见 useExperimentRealtime：身份校验取代 manual-close 标志位，避免 StrictMode 下竞态。
   const closeSocket = useCallback(() => {
     clearTimers();
+    connectGenerationRef.current += 1;
     const socket = socketRef.current;
     socketRef.current = null;
     socket?.close();
   }, [clearTimers]);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!enabled || typeof window === "undefined") {
       setStatus("idle");
       return;
@@ -69,7 +73,25 @@ export function useNotificationRealtime(enabled = true): UseNotificationRealtime
     closeSocket();
     setStatus("connecting");
     setError(null);
-    const socket = new WebSocket(buildWebSocketURL("/ws/notifications"));
+
+    const generation = ++connectGenerationRef.current;
+    let url: string;
+    try {
+      url = await buildWebSocketURL("/ws/notifications");
+    } catch (err) {
+      if (connectGenerationRef.current !== generation) return;
+      setStatus("error");
+      setError(err instanceof Error ? err.message : "WebSocket URL 构造失败");
+      return;
+    }
+    if (connectGenerationRef.current !== generation) return;
+    if (url.length === 0) {
+      // 未登录 / refresh 失败：等下次组件重置触发新一轮 connect。
+      setStatus("closed");
+      return;
+    }
+
+    const socket = new WebSocket(url);
     socketRef.current = socket;
 
     socket.onopen = () => {

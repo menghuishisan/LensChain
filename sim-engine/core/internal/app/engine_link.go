@@ -27,8 +27,15 @@ func (e *Engine) stepScenes(ctx context.Context, sessionID string, tick int64) e
 		}
 		sharedStateJSON := e.sharedStateForScene(sessionID, runtimeRef.Config.SceneCode)
 		incoming := e.popPendingLinkTriggers(sessionID, runtimeRef.Config.SceneCode)
+		// 不在此处对 Step 单独加 ctx timeout：
+		//   - 连接级健康由 gRPC keepalive (k8s_orchestrator.dialAndWaitReady) 监测
+		//   - I/O 级超时由 portForwardConn.SetDeadline 真实兑现
+		// 这两条机制确保了即使场景容器或 portforward 隧道死亡，Step 也会在有限时间内
+		// 失败（而不是无限阻塞 runtime.opMu）。再额外加 WithTimeout 等于回到防御性补丁，
+		// 应当抵制。
 		result, err := e.scenes.Step(ctx, sessionID, runtimeRef.Config.SceneCode, tick, sharedStateJSON, incoming)
 		if err != nil {
+			log.Printf("[stepScenes] session=%s scene=%s tick=%d FAILED: %v", sessionID, runtimeRef.Config.SceneCode, tick, err)
 			e.handleSceneRuntimeFailure(sessionID, runtimeRef.Config.SceneCode, err)
 			return err
 		}

@@ -1557,14 +1557,14 @@ type ActionDef struct {
 	ActionCode      string                 `protobuf:"bytes,1,opt,name=action_code,json=actionCode,proto3" json:"action_code,omitempty"` // 全局唯一标识（小写下划线）
 	Label           string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`                             // 学生看到的按钮文字
 	Description     string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	Category        ActionCategory         `protobuf:"varint,4,opt,name=category,proto3,enum=lenschain.sim_scenario.v1.ActionCategory" json:"category,omitempty"`
-	Trigger         ActionTrigger          `protobuf:"varint,5,opt,name=trigger,proto3,enum=lenschain.sim_scenario.v1.ActionTrigger" json:"trigger,omitempty"`
+	Category        string                 `protobuf:"bytes,4,opt,name=category,proto3" json:"category,omitempty"` // "param_tune" | "attack_inject" | "primary" | "observe"
+	Trigger         string                 `protobuf:"bytes,5,opt,name=trigger,proto3" json:"trigger,omitempty"`   // "submit" | "immediate" | "hold"
 	Fields          []*FieldDef            `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
 	Roles           []string               `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"` // ["student"] / ["teacher"] / 两者
 	CooldownMs      int32                  `protobuf:"varint,8,opt,name=cooldown_ms,json=cooldownMs,proto3" json:"cooldown_ms,omitempty"`
 	LinkOwnerFields []string               `protobuf:"bytes,10,rep,name=link_owner_fields,json=linkOwnerFields,proto3" json:"link_owner_fields,omitempty"` // 该 action 写入的 owner 字段（详 §8.3）
-	HybridChannel   HybridChannel          `protobuf:"varint,11,opt,name=hybrid_channel,json=hybridChannel,proto3,enum=lenschain.sim_scenario.v1.HybridChannel" json:"hybrid_channel,omitempty"`
-	ContainerCmd    string                 `protobuf:"bytes,12,opt,name=container_cmd,json=containerCmd,proto3" json:"container_cmd,omitempty"` // 容器通道命令模板（含 {{field}} 占位符）
+	HybridChannel   string                 `protobuf:"bytes,11,opt,name=hybrid_channel,json=hybridChannel,proto3" json:"hybrid_channel,omitempty"`         // "sim" | "container"（空串视为 sim）
+	ContainerCmd    string                 `protobuf:"bytes,12,opt,name=container_cmd,json=containerCmd,proto3" json:"container_cmd,omitempty"`            // 容器通道命令模板（含 {{field}} 占位符）
 	// writes_owned_fields 列出本动作会修改的 owner 字段路径（必须 ⊆ ScenarioMeta.owned_field_paths）。
 	// Core 按本字段反查路由表自动 fan-out 联动；新增联动无需重编译镜像。
 	WritesOwnedFields []string `protobuf:"bytes,13,rep,name=writes_owned_fields,json=writesOwnedFields,proto3" json:"writes_owned_fields,omitempty"`
@@ -1628,18 +1628,18 @@ func (x *ActionDef) GetDescription() string {
 	return ""
 }
 
-func (x *ActionDef) GetCategory() ActionCategory {
+func (x *ActionDef) GetCategory() string {
 	if x != nil {
 		return x.Category
 	}
-	return ActionCategory_ACTION_CATEGORY_UNSPECIFIED
+	return ""
 }
 
-func (x *ActionDef) GetTrigger() ActionTrigger {
+func (x *ActionDef) GetTrigger() string {
 	if x != nil {
 		return x.Trigger
 	}
-	return ActionTrigger_ACTION_TRIGGER_UNSPECIFIED
+	return ""
 }
 
 func (x *ActionDef) GetFields() []*FieldDef {
@@ -1670,11 +1670,11 @@ func (x *ActionDef) GetLinkOwnerFields() []string {
 	return nil
 }
 
-func (x *ActionDef) GetHybridChannel() HybridChannel {
+func (x *ActionDef) GetHybridChannel() string {
 	if x != nil {
 		return x.HybridChannel
 	}
-	return HybridChannel_HYBRID_CHANNEL_UNSPECIFIED
+	return ""
 }
 
 func (x *ActionDef) GetContainerCmd() string {
@@ -1710,7 +1710,7 @@ func (x *ActionDef) GetInterveneType() string {
 type FieldDef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Type          FieldType              `protobuf:"varint,2,opt,name=type,proto3,enum=lenschain.sim_scenario.v1.FieldType" json:"type,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // "string" | "number" | "boolean" | "select" | "enum" | "range" | "json" | "multi_select"
 	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
 	Required      bool                   `protobuf:"varint,4,opt,name=required,proto3" json:"required,omitempty"`
 	DefaultJson   []byte                 `protobuf:"bytes,5,opt,name=default_json,json=defaultJson,proto3" json:"default_json,omitempty"`
@@ -1760,11 +1760,11 @@ func (x *FieldDef) GetName() string {
 	return ""
 }
 
-func (x *FieldDef) GetType() FieldType {
+func (x *FieldDef) GetType() string {
 	if x != nil {
 		return x.Type
 	}
-	return FieldType_FIELD_TYPE_UNSPECIFIED
+	return ""
 }
 
 func (x *FieldDef) GetLabel() string {
@@ -2036,31 +2036,31 @@ const file_lenschain_sim_scenario_v1_sim_scenario_proto_rawDesc = "" +
 	"\n" +
 	"scene_code\x18\x01 \x01(\tR\tsceneCode\x12%\n" +
 	"\x0eschema_version\x18\x02 \x01(\tR\rschemaVersion\x12>\n" +
-	"\aactions\x18\x03 \x03(\v2$.lenschain.sim_scenario.v1.ActionDefR\aactions\"\x98\x05\n" +
+	"\aactions\x18\x03 \x03(\v2$.lenschain.sim_scenario.v1.ActionDefR\aactions\"\x99\x04\n" +
 	"\tActionDef\x12\x1f\n" +
 	"\vaction_code\x18\x01 \x01(\tR\n" +
 	"actionCode\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\x12E\n" +
-	"\bcategory\x18\x04 \x01(\x0e2).lenschain.sim_scenario.v1.ActionCategoryR\bcategory\x12B\n" +
-	"\atrigger\x18\x05 \x01(\x0e2(.lenschain.sim_scenario.v1.ActionTriggerR\atrigger\x12;\n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1a\n" +
+	"\bcategory\x18\x04 \x01(\tR\bcategory\x12\x18\n" +
+	"\atrigger\x18\x05 \x01(\tR\atrigger\x12;\n" +
 	"\x06fields\x18\x06 \x03(\v2#.lenschain.sim_scenario.v1.FieldDefR\x06fields\x12\x14\n" +
 	"\x05roles\x18\a \x03(\tR\x05roles\x12\x1f\n" +
 	"\vcooldown_ms\x18\b \x01(\x05R\n" +
 	"cooldownMs\x12*\n" +
 	"\x11link_owner_fields\x18\n" +
-	" \x03(\tR\x0flinkOwnerFields\x12O\n" +
-	"\x0ehybrid_channel\x18\v \x01(\x0e2(.lenschain.sim_scenario.v1.HybridChannelR\rhybridChannel\x12#\n" +
+	" \x03(\tR\x0flinkOwnerFields\x12%\n" +
+	"\x0ehybrid_channel\x18\v \x01(\tR\rhybridChannel\x12#\n" +
 	"\rcontainer_cmd\x18\f \x01(\tR\fcontainerCmd\x12.\n" +
 	"\x13writes_owned_fields\x18\r \x03(\tR\x11writesOwnedFields\x12\x1e\n" +
 	"\n" +
 	"reversible\x18\x0e \x01(\bR\n" +
 	"reversible\x12%\n" +
 	"\x0eintervene_type\x18\x0f \x01(\tR\rinterveneTypeJ\x04\b\t\x10\n" +
-	"R\x14triggers_link_groups\"\xc6\x02\n" +
+	"R\x14triggers_link_groups\"\xa0\x02\n" +
 	"\bFieldDef\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x128\n" +
-	"\x04type\x18\x02 \x01(\x0e2$.lenschain.sim_scenario.v1.FieldTypeR\x04type\x12\x14\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x14\n" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x1a\n" +
 	"\brequired\x18\x04 \x01(\bR\brequired\x12!\n" +
 	"\fdefault_json\x18\x05 \x01(\fR\vdefaultJson\x12\x19\n" +
@@ -2172,29 +2172,25 @@ var file_lenschain_sim_scenario_v1_sim_scenario_proto_depIdxs = []int32{
 	7,  // 4: lenschain.sim_scenario.v1.GetMetaResponse.meta:type_name -> lenschain.sim_scenario.v1.ScenarioMeta
 	20, // 5: lenschain.sim_scenario.v1.GetInteractionSchemaResponse.definition:type_name -> lenschain.sim_scenario.v1.InteractionDefinition
 	21, // 6: lenschain.sim_scenario.v1.InteractionDefinition.actions:type_name -> lenschain.sim_scenario.v1.ActionDef
-	3,  // 7: lenschain.sim_scenario.v1.ActionDef.category:type_name -> lenschain.sim_scenario.v1.ActionCategory
-	4,  // 8: lenschain.sim_scenario.v1.ActionDef.trigger:type_name -> lenschain.sim_scenario.v1.ActionTrigger
-	22, // 9: lenschain.sim_scenario.v1.ActionDef.fields:type_name -> lenschain.sim_scenario.v1.FieldDef
-	6,  // 10: lenschain.sim_scenario.v1.ActionDef.hybrid_channel:type_name -> lenschain.sim_scenario.v1.HybridChannel
-	5,  // 11: lenschain.sim_scenario.v1.FieldDef.type:type_name -> lenschain.sim_scenario.v1.FieldType
-	2,  // 12: lenschain.sim_scenario.v1.HealthCheckResponse.status:type_name -> lenschain.sim_scenario.v1.HealthStatus
-	16, // 13: lenschain.sim_scenario.v1.SimScenarioService.GetMeta:input_type -> lenschain.sim_scenario.v1.GetMetaRequest
-	18, // 14: lenschain.sim_scenario.v1.SimScenarioService.GetInteractionSchema:input_type -> lenschain.sim_scenario.v1.GetInteractionSchemaRequest
-	8,  // 15: lenschain.sim_scenario.v1.SimScenarioService.Init:input_type -> lenschain.sim_scenario.v1.InitRequest
-	10, // 16: lenschain.sim_scenario.v1.SimScenarioService.Step:input_type -> lenschain.sim_scenario.v1.StepRequest
-	13, // 17: lenschain.sim_scenario.v1.SimScenarioService.HandleAction:input_type -> lenschain.sim_scenario.v1.HandleActionRequest
-	23, // 18: lenschain.sim_scenario.v1.SimScenarioService.HealthCheck:input_type -> lenschain.sim_scenario.v1.HealthCheckRequest
-	17, // 19: lenschain.sim_scenario.v1.SimScenarioService.GetMeta:output_type -> lenschain.sim_scenario.v1.GetMetaResponse
-	19, // 20: lenschain.sim_scenario.v1.SimScenarioService.GetInteractionSchema:output_type -> lenschain.sim_scenario.v1.GetInteractionSchemaResponse
-	9,  // 21: lenschain.sim_scenario.v1.SimScenarioService.Init:output_type -> lenschain.sim_scenario.v1.InitResponse
-	12, // 22: lenschain.sim_scenario.v1.SimScenarioService.Step:output_type -> lenschain.sim_scenario.v1.StepResponse
-	14, // 23: lenschain.sim_scenario.v1.SimScenarioService.HandleAction:output_type -> lenschain.sim_scenario.v1.HandleActionResponse
-	24, // 24: lenschain.sim_scenario.v1.SimScenarioService.HealthCheck:output_type -> lenschain.sim_scenario.v1.HealthCheckResponse
-	19, // [19:25] is the sub-list for method output_type
-	13, // [13:19] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	22, // 7: lenschain.sim_scenario.v1.ActionDef.fields:type_name -> lenschain.sim_scenario.v1.FieldDef
+	2,  // 8: lenschain.sim_scenario.v1.HealthCheckResponse.status:type_name -> lenschain.sim_scenario.v1.HealthStatus
+	16, // 9: lenschain.sim_scenario.v1.SimScenarioService.GetMeta:input_type -> lenschain.sim_scenario.v1.GetMetaRequest
+	18, // 10: lenschain.sim_scenario.v1.SimScenarioService.GetInteractionSchema:input_type -> lenschain.sim_scenario.v1.GetInteractionSchemaRequest
+	8,  // 11: lenschain.sim_scenario.v1.SimScenarioService.Init:input_type -> lenschain.sim_scenario.v1.InitRequest
+	10, // 12: lenschain.sim_scenario.v1.SimScenarioService.Step:input_type -> lenschain.sim_scenario.v1.StepRequest
+	13, // 13: lenschain.sim_scenario.v1.SimScenarioService.HandleAction:input_type -> lenschain.sim_scenario.v1.HandleActionRequest
+	23, // 14: lenschain.sim_scenario.v1.SimScenarioService.HealthCheck:input_type -> lenschain.sim_scenario.v1.HealthCheckRequest
+	17, // 15: lenschain.sim_scenario.v1.SimScenarioService.GetMeta:output_type -> lenschain.sim_scenario.v1.GetMetaResponse
+	19, // 16: lenschain.sim_scenario.v1.SimScenarioService.GetInteractionSchema:output_type -> lenschain.sim_scenario.v1.GetInteractionSchemaResponse
+	9,  // 17: lenschain.sim_scenario.v1.SimScenarioService.Init:output_type -> lenschain.sim_scenario.v1.InitResponse
+	12, // 18: lenschain.sim_scenario.v1.SimScenarioService.Step:output_type -> lenschain.sim_scenario.v1.StepResponse
+	14, // 19: lenschain.sim_scenario.v1.SimScenarioService.HandleAction:output_type -> lenschain.sim_scenario.v1.HandleActionResponse
+	24, // 20: lenschain.sim_scenario.v1.SimScenarioService.HealthCheck:output_type -> lenschain.sim_scenario.v1.HealthCheckResponse
+	15, // [15:21] is the sub-list for method output_type
+	9,  // [9:15] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_lenschain_sim_scenario_v1_sim_scenario_proto_init() }

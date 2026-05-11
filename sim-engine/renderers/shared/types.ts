@@ -528,8 +528,14 @@ export interface TeacherSummaryPayload {
 /** SimPanel 启动配置。 */
 export interface SimPanelOptions {
   sessionId: string;
-  token: string;
-  endpoint: string;
+  /**
+   * urlProvider 在每次 WS 拨号 / 重连前被调用，应返回带未过期 token 的完整 ws:// URL。
+   * 由上层（useSimPanel）实现：通常先走 ApiClient.ensureFreshAccessToken() 拿活 token，
+   * 再拼 `${endpoint}/${sessionId}?token=${token}`。
+   *
+   * 这样 access_token 过期不会导致 WS 死循环 401——重连自带 refresh。
+   */
+  urlProvider: () => string | Promise<string>;
   initialLayout?: PanelLayoutItem[];
   layoutStorageKey?: string;
   actorId?: string;

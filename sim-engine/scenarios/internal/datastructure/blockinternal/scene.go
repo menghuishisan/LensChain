@@ -468,8 +468,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_header", Label: "设置区块头字段",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "alice"},
 					{Name: "difficulty", Type: fw.FieldNumber, Label: "难度", Required: true, Default: 100, Min: 1, Step: 1},
@@ -478,9 +479,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "add_tx", Label: "添加交易",
-				Description: "把 tx 加入 body 并应用到 state，更新 receipt + 三 root",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "把 tx 加入 body 并应用到 state，更新 receipt + 三 root",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "alice"},
 					{Name: "to", Type: fw.FieldString, Label: "to", Required: true, Default: "bob"},
@@ -492,21 +494,24 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "compute_roots", Label: "重算所有 root",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "verify_integrity", Label: "验证完整性",
-				Description: "重算 root 与存储字段比较",
-				Category:    fw.ActionObserve, Trigger: fw.TriggerImmediate,
+				Description:     "重算 root 与存储字段比较",
+				Category:        fw.ActionObserve, Trigger: fw.TriggerImmediate,
 				Roles:           []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:   fw.InterveneHint,
 				LinkOwnerFields: []string{"chain.block_internal.integrity"},
 			},
 			{
 				ActionCode: "tamper_tx", Label: "篡改交易",
-				Description: "把指定 tx 的 value 改成新值（不重算 root），演示完整性破坏",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "把指定 tx 的 value 改成新值（不重算 root），演示完整性破坏",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "tx_id", Type: fw.FieldString, Label: "tx ID", Required: true, Default: "tx0"},
 					{Name: "new_value", Type: fw.FieldNumber, Label: "新 value", Required: true, Default: 99999, Min: 0, Step: 1},
@@ -514,8 +519,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_corruption",

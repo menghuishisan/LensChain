@@ -514,8 +514,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_block_params", Label: "区块参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "gas_target", Type: fw.FieldNumber, Label: "GasTarget", Required: true, Default: defaultGasTarget, Min: 1000, Step: 1000000},
 					{Name: "gas_limit", Type: fw.FieldNumber, Label: "GasLimit", Required: true, Default: defaultGasLimit, Min: 1000, Step: 1000000},
@@ -524,8 +525,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "set_user_class", Label: "新增/修改用户群体",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "name", Type: fw.FieldString, Label: "类别名称", Required: true, Default: "newbie"},
 					{Name: "rate", Type: fw.FieldNumber, Label: "ArrivalRate", Required: true, Default: 5, Min: 0, Step: 1},
@@ -539,13 +541,15 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "生成到达 → 排序 → 打包 → 调整 base_fee",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"economic.gas_market.base_fee"},
 				LinkOwnerFields:   []string{"economic.gas_market.base_fee"},
 			},
 			{
 				ActionCode: "mine_n", Label: "出 N 块",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "块数", Required: true, Default: 50, Min: 1, Step: 5},
 				},
@@ -553,17 +557,19 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "demand_shock", Label: "需求冲击（×N）",
-				Description: "把所有 user class 的 ArrivalRate × multiplier",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "把所有 user class 的 ArrivalRate × multiplier",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "multiplier", Type: fw.FieldNumber, Label: "倍数", Required: true, Default: 3, Min: 0.1, Max: 100, Step: 0.5},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_epoch",

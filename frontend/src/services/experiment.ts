@@ -1,7 +1,7 @@
 // experiment.ts
 // 模块04实验环境 service：HTTP 接口仅通过统一 apiClient 调用，WebSocket 另由 hook 管理。
 
-import { apiClient, ApiClientError } from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
 import type { ID, PaginatedData, QueryParams } from "@/types/api";
 import type {
   AssetStatus,
@@ -570,19 +570,11 @@ export function listExperimentOperationLogs(instanceID: ID, params: QueryParams 
 /**
  * getExperimentReport 对应 GET /api/v1/experiment-instances/:id/report，用于读取报告。
  *
- * 后端在报告不存在时返回 errcode 40424（HTTP 404），这是 RESTful 正确语义。
- * 但 "学生还没提交报告" 在业务上是合法初态，不应被 React Query 视为接口故障。
- * 这里把 40424 显式转换为 null，让 hook 的消费方按"暂无报告"渲染。
+ * 报告尚未创建时后端返回 200 + data:null（单数子资源的合法初态），
+ * apiClient 直接解包为 null，消费方按"暂无报告"渲染。
  */
-export async function getExperimentReport(instanceID: ID): Promise<ExperimentReport | null> {
-  try {
-    return await apiClient.get<ExperimentReport>(`/experiment-instances/${instanceID}/report`);
-  } catch (err) {
-    if (err instanceof ApiClientError && (err.code === 40424 || err.status === 404)) {
-      return null;
-    }
-    throw err;
-  }
+export function getExperimentReport(instanceID: ID): Promise<ExperimentReport | null> {
+  return apiClient.get<ExperimentReport | null>(`/experiment-instances/${instanceID}/report`);
 }
 
 /**

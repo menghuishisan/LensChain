@@ -49,9 +49,8 @@ export class SimPanel {
    * constructor 初始化仿真面板控制器。
    */
   public constructor(private readonly options: SimPanelOptions) {
-    this.wsClient = new WSClient(
-      `${options.endpoint.replace(/\/$/, "")}/${options.sessionId}?token=${options.token}`
-    );
+    // urlProvider 必须在每次 connect / 重连前被调用，让上层有机会刷新 token。
+    this.wsClient = new WSClient(options.urlProvider);
     this.layoutStore = new PanelLayoutStore(
       options.layoutStorageKey ?? `sim-engine-layout:${options.sessionId}`
     );
@@ -139,9 +138,10 @@ export class SimPanel {
    */
   public connect(stateResolver: (message: WebSocketMessage) => RenderState): void {
     this.unsubscribeWS = this.wsClient.subscribe((message) => {
-      for (const listener of this.messageListeners) {
-        listener(message);
-      }
+      // 必须**先**写入 stateCache + view，再触发外部 listener。
+      // 顺序倒过来会让 React 订阅者通过 getSceneState() 拿到旧 tick——
+      // 复现案例：reset 命令把 tick 倒回 0，render 帧 scene_code 正确、tick=0，
+      // 但 SimEnginePanel 仍显示之前的 tick=N。
       try {
         const baseState = stateResolver(message);
         const state = this.stateCache.applyMessage(baseState, message);
@@ -154,6 +154,9 @@ export class SimPanel {
             this.views.get(message.scene_code)?.render(state);
           }
         }
+      }
+      for (const listener of this.messageListeners) {
+        listener(message);
       }
     });
     this.wsClient.connect();

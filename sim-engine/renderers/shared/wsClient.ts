@@ -11,20 +11,37 @@ import type { SimAction, TimeControlCommand, WebSocketMessage } from "./types.js
  * 已经成功建立的新 socket（之前症状："WebSocket is closed before the connection is
  * established"无限循环，DevTools WS 列表看似为空）。
  */
+/**
+ * WSUrlProvider 在每次 connect/reconnect 前由 WSClient 调用以拿到最新 URL。
+ *
+ * 关键设计意图：access_token 是 URL query 的一部分，过期窗口（默认 30 分钟）远短于
+ * 一次实验/会话。如果 URL 在构造时被锁死，连接断后重连仍会带着过期 token 401 死循环。
+ * 通过 provider 让上层（hook 层）在每次拨号时先走 ApiClient.ensureFreshAccessToken
+ * 拿到当前活跃 token 再拼 URL，复用 HTTP 同一套双 token 无感刷新机制。
+ */
+export type WSUrlProvider = () => string | Promise<string>;
+
 export class WSClient {
   private socket: WebSocket | undefined;
   private readonly listeners = new Set<(message: WebSocketMessage) => void>();
   private readonly statusListeners = new Set<(connected: boolean) => void>();
   private reconnectTimer: number | undefined;
   private reconnectAttempts = 0;
+  private readonly urlProvider: WSUrlProvider;
 
   /**
-   * constructor 初始化数据通道客户端。
+   * constructor 初始化数据通道客户端。每次拨号 / 重连前会调用 urlProvider 拿最新 URL，
+   * 上层负责保证返回的 URL 带未过期 token（双 token 无感刷新）。
    */
-  public constructor(private readonly url: string) {}
+  public constructor(urlProvider: WSUrlProvider) {
+    this.urlProvider = urlProvider;
+  }
 
   /**
    * connect 建立数据通道连接，并在断开后自动重连。
+   *
+   * 拨号是异步的（urlProvider 可能要走 refresh），用 socketRequestId 防止并发拨号
+   * 的旧请求误把新 socket 顶掉（React StrictMode 双调用、重连交叠都会出现）。
    */
   public connect(): void {
     this.cancelReconnect();
@@ -32,7 +49,27 @@ export class WSClient {
     this.socket = undefined;
     previous?.close();
 
-    const localSocket = new WebSocket(this.url);
+    void this.dial();
+  }
+
+  private async dial(): Promise<void> {
+    let url: string;
+    try {
+      url = await this.urlProvider();
+    } catch {
+      // urlProvider 失败（refresh 失败、网络断等）：不开新 socket，转入退避重试。
+      this.notifyStatus(false);
+      this.scheduleReconnect();
+      return;
+    }
+    if (!url) {
+      // 没有有效 token / URL：避免空 URL 拨号（会抛 SyntaxError）。
+      this.notifyStatus(false);
+      this.scheduleReconnect();
+      return;
+    }
+
+    const localSocket = new WebSocket(url);
     this.socket = localSocket;
 
     localSocket.addEventListener("message", (event) => {

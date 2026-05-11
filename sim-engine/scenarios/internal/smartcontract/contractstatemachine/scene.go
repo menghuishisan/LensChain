@@ -468,9 +468,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "transfer_ownership", Label: "转移 Owner",
-				Description: "onlyOwner",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "onlyOwner",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "alice"},
 					{Name: "new_owner", Type: fw.FieldString, Label: "new_owner", Required: true, Default: "bob"},
@@ -478,8 +479,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "set_paused", Label: "暂停 / 恢复",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "alice"},
 					{Name: "paused", Type: fw.FieldBoolean, Label: "暂停？", Required: true, Default: true},
@@ -487,9 +489,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "propose", Label: "创建提案",
-				Description: "Idle/Executed/Rejected → Proposed",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "Idle/Executed/Rejected → Proposed",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "alice"},
 					{Name: "description", Type: fw.FieldString, Label: "描述", Required: true, Default: "升级合约逻辑 V2"},
@@ -499,17 +502,19 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "start_voting", Label: "开启投票",
-				Description: "Proposed → Voting (onlyOwner)",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "Proposed → Voting (onlyOwner)",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "alice"},
 				},
 			},
 			{
 				ActionCode: "vote", Label: "投票",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "bob"},
 					{Name: "support", Type: fw.FieldBoolean, Label: "support？", Required: true, Default: true},
@@ -517,9 +522,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "execute", Label: "执行结果",
-				Description: "Voting → Executed/Rejected (onlyOwner + nonReentrant)",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "Voting → Executed/Rejected (onlyOwner + nonReentrant)",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "alice"},
 				},
@@ -528,9 +534,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reentrant_attack", Label: "重入攻击",
-				Description: "嵌套 nonReentrant 调用，应被拦截",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "嵌套 nonReentrant 调用，应被拦截",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "caller", Type: fw.FieldString, Label: "caller", Required: true, Default: "attacker"},
 				},
@@ -539,8 +546,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_revert",
@@ -561,6 +569,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Category:      fw.ActionPrimary,
 				Trigger:       fw.TriggerSubmit,
 				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getStorageAt","params":["{{contract}}","{{slot}}","latest"],"id":1}' http://geth:8545`,
 				Reversible:    false,

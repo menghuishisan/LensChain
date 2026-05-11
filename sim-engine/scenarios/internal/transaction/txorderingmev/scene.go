@@ -415,8 +415,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_pool", Label: "设置流动性池",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "x", Type: fw.FieldNumber, Label: "X 储备", Required: true, Default: defaultPoolX, Min: 100, Step: 100},
 					{Name: "y", Type: fw.FieldNumber, Label: "Y 储备", Required: true, Default: defaultPoolY, Min: 100, Step: 100},
@@ -424,9 +425,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "submit_user_swap", Label: "用户提交 swap",
-				Description: "正常用户提交 swap，进 mempool 等待打包",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "正常用户提交 swap，进 mempool 等待打包",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "direction", Type: fw.FieldEnum, Label: "方向", Required: true, Default: dirBuyY,
 						Options: []any{dirBuyY, dirSellY}},
@@ -437,9 +439,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "inject_frontrun", Label: "注入 front-run 攻击",
-				Description: "攻击者用更高 gas 复制 user 同向 swap",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "攻击者用更高 gas 复制 user 同向 swap",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "direction", Type: fw.FieldEnum, Label: "方向", Required: true, Default: dirBuyY,
 						Options: []any{dirBuyY, dirSellY}},
@@ -451,9 +454,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "inject_sandwich", Label: "注入三明治攻击",
-				Description: "攻击者前后包夹 user tx：pre buy + post sell",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "攻击者前后包夹 user tx：pre buy + post sell",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "amount_in", Type: fw.FieldNumber, Label: "pre buy 数量", Required: true, Default: 200, Min: 1, Step: 1},
 					{Name: "high_gas", Type: fw.FieldNumber, Label: "pre 高 gas", Required: true, Default: 250, Min: 1, Step: 1},
@@ -466,12 +470,14 @@ func interactionDefinition() fw.InteractionDefinition {
 				ActionCode: "mine_block", Label: "出块（按 gas 排序）",
 				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"tx.mev.attacker_profit"},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_freeze_mempool",

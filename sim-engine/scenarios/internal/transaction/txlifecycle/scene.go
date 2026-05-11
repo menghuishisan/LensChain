@@ -382,8 +382,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置生命周期参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "block_interval", Type: fw.FieldNumber, Label: "出块间隔 (tick)", Required: true, Default: defaultBlockInterval, Min: 1, Max: 10, Step: 1},
 					{Name: "conf_th", Type: fw.FieldNumber, Label: "确认门槛", Required: true, Default: defaultConfirmationThreshold, Min: 1, Max: 30, Step: 1},
@@ -393,8 +394,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "submit_tx", Label: "提交交易",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "alice"},
 					{Name: "to", Type: fw.FieldString, Label: "to", Required: true, Default: "bob"},
@@ -409,35 +411,40 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "把 mempool 按 gas 降序前 N 笔打包",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"tx.lifecycle.block_height"},
 				LinkOwnerFields:   []string{"tx.lifecycle.block_height"},
 			},
 			{
 				ActionCode: "step_tick", Label: "推进 1 tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 			},
 			{
 				ActionCode: "step_n_ticks", Label: "推进 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 12, Min: 1, Max: 100, Step: 1},
 				},
 			},
 			{
 				ActionCode: "drop_tx", Label: "丢弃 mempool 中的 tx",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "tx_id", Type: fw.FieldString, Label: "tx ID", Required: true, Default: "tx0"},
 				},
 			},
 			{
 				ActionCode: "replace_tx", Label: "RBF 替换交易",
-				Description: "用相同 (from, nonce) 但更高 gas 替换",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "用相同 (from, nonce) 但更高 gas 替换",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldString, Label: "from", Required: true, Default: "alice"},
 					{Name: "nonce", Type: fw.FieldNumber, Label: "nonce", Required: true, Default: 0, Min: 0, Step: 1},
@@ -446,8 +453,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_freeze_mempool",
@@ -468,6 +476,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Category:      fw.ActionPrimary,
 				Trigger:       fw.TriggerSubmit,
 				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_sendRawTransaction","params":["{{raw_tx}}"],"id":1}' http://geth:8545`,
 				Reversible:    false,

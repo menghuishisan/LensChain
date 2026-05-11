@@ -416,8 +416,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置广播参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "mempool_limit", Type: fw.FieldNumber, Label: "mempool 容量", Required: true,
 						Default: defaultMempoolLimit, Min: 4, Max: 256, Step: 4},
@@ -425,8 +426,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "submit_tx", Label: "提交交易",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "node_id", Type: fw.FieldString, Label: "提交节点", Required: true, Default: "n0"},
 					{Name: "gas_price", Type: fw.FieldNumber, Label: "Gas Price", Required: true, Default: 100, Min: 0, Step: 1},
@@ -438,22 +440,25 @@ func interactionDefinition() fw.InteractionDefinition {
 				ActionCode: "step_tick", Label: "推进 1 tick",
 				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"network.tx_broadcast.tick"},
 				LinkOwnerFields:   []string{"network.tx_broadcast.tick"},
 			},
 			{
 				ActionCode: "step_n_ticks", Label: "推进 N tick",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "tick 数", Required: true, Default: 5, Min: 1, Max: 50, Step: 1},
 				},
 			},
 			{
 				ActionCode: "spam_attack", Label: "Spam 攻击（注入垃圾交易）",
-				Description: "在指定节点上一次性提交 N 个 0-gas tx",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "在指定节点上一次性提交 N 个 0-gas tx",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "node_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "n0"},
 					{Name: "count", Type: fw.FieldNumber, Label: "垃圾 tx 数", Required: true, Default: 16, Min: 1, Max: 100, Step: 1},
@@ -461,14 +466,16 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "crash_node", Label: "节点离线",
-				Category: fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles:  []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{{Name: "node_id", Type: fw.FieldString, Label: "节点 ID", Required: true, Default: "n2"}},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_partition_inject",

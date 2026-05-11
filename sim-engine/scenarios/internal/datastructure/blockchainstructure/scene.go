@@ -365,8 +365,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "mine_block", Label: "挖新块（在主链尾）",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "alice"},
 					{Name: "tx_count", Type: fw.FieldNumber, Label: "交易数", Required: true, Default: 3, Min: 0, Max: 100, Step: 1},
@@ -376,9 +377,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "mine_fork_block", Label: "在指定 height 分叉",
-				Description: "找 height 处的某块作为 prev，挖一个分叉块",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "找 height 处的某块作为 prev，挖一个分叉块",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "fork_at_height", Type: fw.FieldNumber, Label: "分叉 height", Required: true, Default: 1, Min: 0, Step: 1},
 					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "fork-miner"},
@@ -388,9 +390,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "extend_fork", Label: "延伸分叉链",
-				Description: "选 totalDiff 第二大的 tip 延伸 1 块",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "选 totalDiff 第二大的 tip 延伸 1 块",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "miner", Type: fw.FieldString, Label: "矿工", Required: true, Default: "fork-miner"},
 				},
@@ -400,28 +403,32 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "重新选 totalDiff 最大的 tip 作为主链",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"chain.struct.tip_hash", "chain.struct.height"},
 				LinkOwnerFields:   []string{"chain.struct.tip_hash", "chain.struct.height"},
 			},
 			{
 				ActionCode: "verify_chain", Label: "验证主链完整性",
-				Category: fw.ActionObserve, Trigger: fw.TriggerImmediate,
+				Category:        fw.ActionObserve, Trigger: fw.TriggerImmediate,
 				Roles:           []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:   fw.InterveneHint,
 				LinkOwnerFields: []string{"chain.struct.integrity"},
 			},
 			{
 				ActionCode: "tamper_block", Label: "篡改区块",
-				Description: "修改某块的 miner 字段（不重新计算 hash），演示完整性破坏",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "修改某块的 miner 字段（不重新计算 hash），演示完整性破坏",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "height", Type: fw.FieldNumber, Label: "目标 height", Required: true, Default: 1, Min: 0, Step: 1},
 				},
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_corruption",

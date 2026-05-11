@@ -611,8 +611,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_mode", Label: "设置位宽与模式",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "bits", Type: fw.FieldEnum, Label: "位宽", Required: true, Default: bitsU8,
 						Options: []any{bitsU8, bitsU16, bitsU32, bitsU64, bitsU256}},
@@ -622,8 +623,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "compute", Label: "算一次（add/sub/mul/div/pow）",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "a", Type: fw.FieldString, Label: "a (hex)", Required: true, Default: "0xff"},
 					{Name: "b", Type: fw.FieldString, Label: "b (hex)", Required: true, Default: "0x01"},
@@ -633,9 +635,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "erc20_transfer", Label: "ERC-20 转账",
-				Description: "演示 amount > balance → 下溢漏洞",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "演示 amount > balance → 下溢漏洞",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "from", Type: fw.FieldEnum, Label: "from", Required: true, Default: "alice",
 						Options: []any{"alice", "attacker", "victim"}},
@@ -646,9 +649,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "erc20_mint", Label: "ERC-20 增发",
-				Description: "演示 totalSupply 上溢",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "演示 totalSupply 上溢",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "to", Type: fw.FieldString, Label: "to", Required: true, Default: "attacker"},
 					{Name: "amount", Type: fw.FieldString, Label: "amount (hex)", Required: true, Default: "0xff"},
@@ -659,18 +663,21 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "attacker 在 legacy/unchecked 模式下 transfer 100，但余额=0 → 下溢得到 max_uint",
 				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneAttack,
 				WritesOwnedFields: []string{"attack.overflow.stolen_via_overflow"},
 				LinkOwnerFields:   []string{"attack.overflow.stolen_via_overflow"},
 			},
 			{
 				ActionCode: "reset_erc20", Label: "重置 ERC-20",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode: "reset", Label: "重置全部",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_enable_attack",
@@ -691,6 +698,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Category:      fw.ActionPrimary,
 				Trigger:       fw.TriggerSubmit,
 				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"contract":"{{contract}}","patch":"{{patch}}"}' http://patch-verifier:8091/api/v1/patches/verify`,
 				Reversible:    false,

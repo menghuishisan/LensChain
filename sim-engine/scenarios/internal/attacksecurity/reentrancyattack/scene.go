@@ -573,8 +573,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "deposit", Label: "EOA → Vault 存款",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "eoa", Type: fw.FieldEnum, Label: "from", Required: true, Default: "alice",
 						Options: []any{"alice", "attacker"}},
@@ -588,6 +589,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "DAO 风格 reentrancy → 抽干 vault",
 				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneAttack,
 				WritesOwnedFields: []string{"attack.reentrancy.stolen_total"},
 				LinkOwnerFields:   []string{"attack.reentrancy.stolen_total"},
 			},
@@ -596,6 +598,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "checks-effects-interactions 顺序正确 → 重入失败",
 				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneAttack,
 				WritesOwnedFields: []string{"attack.reentrancy.stolen_total"},
 			},
 			{
@@ -603,14 +606,16 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "ReentrancyGuard 锁 → 重入被拦截",
 				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.InterveneAttack,
 				WritesOwnedFields: []string{"attack.reentrancy.guard_blocks"},
 				LinkOwnerFields:   []string{"attack.reentrancy.guard_blocks"},
 			},
 			{
 				ActionCode: "run_no_reenter", Label: "对照：单次 withdraw（无重入）",
-				Description: "attacker fallback 不重入；展示正常单次提现",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "attacker fallback 不重入；展示正常单次提现",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				Fields: []fw.FieldDef{
 					{Name: "vault", Type: fw.FieldEnum, Label: "vault", Required: true, Default: vaultVulnerable,
 						Options: []any{vaultVulnerable, vaultSecureCEI, vaultWithGuard}},
@@ -618,8 +623,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_enable_attack",
@@ -640,6 +646,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Category:      fw.ActionPrimary,
 				Trigger:       fw.TriggerSubmit,
 				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneHint,
 				HybridChannel: fw.HybridChannelContainer,
 				ContainerCmd:  `curl -s -X POST -H "Content-Type: application/json" --data '{"contract":"{{contract}}","patch":"{{patch}}"}' http://patch-verifier:8091/api/v1/patches/verify`,
 				Reversible:    false,

@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { Pause, Play, RotateCcw, SkipBack, SkipForward } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/Tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 import { cn } from '@/lib/utils';
 import { SPEED_OPTIONS } from '@/hooks/useSimMode';
 import type { SimControlCommand, SimMode, SimTimeControlMode } from '@/types/experiment';
@@ -51,6 +51,7 @@ export function SimControlBar({
   };
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className={cn('flex items-center gap-2 h-10 px-4 border-t bg-muted/30', className)}>
       {timeControlMode === 'process' && (
         <>
@@ -137,5 +138,6 @@ export function SimControlBar({
         <span className="text-xs text-muted-foreground">第 {tick} 步</span>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

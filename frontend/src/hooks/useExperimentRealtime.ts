@@ -72,6 +72,9 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectCounterRef = useRef(0);
+  // connectGenerationRef：每次进入 connect() 自增，async URL 构造完成后比对，避免
+  // 拨号期间被 closeSocket / 新一轮 connect 抢占后仍开出僵尸 socket。
+  const connectGenerationRef = useRef(0);
   // WebSocket 连接不应因调用方传入的新对象字面量而反复重连，这里按 query 内容稳定依赖。
   const queryKey = JSON.stringify(query);
   const stableQuery = useMemo(() => JSON.parse(queryKey) as QueryParams, [queryKey]);
@@ -86,12 +89,14 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
       window.clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
+    // 失效任何 in-flight 的 buildWebSocketURL：拨号回来时 generation 已变，会被丢弃。
+    connectGenerationRef.current += 1;
     const socket = socketRef.current;
     socketRef.current = null;
     socket?.close();
   }, []);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!enabled || typeof window === "undefined" || path.length === 0) {
       setStatus("idle");
       return;
@@ -101,7 +106,27 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
     setError(null);
     setStatus(reconnectCounterRef.current > 0 ? "reconnecting" : "connecting");
 
-    const socket = new WebSocket(buildWebSocketURL(path, stableQuery));
+    // 拿 URL 是异步的（要先刷新 access_token），期间组件可能已卸载或重新调 connect。
+    // 取一次"自家身份"，拨号完成后比对：不一致就说明已被新 connect / closeSocket 抢占，
+    // 必须放弃本次拨号，否则会泄漏 socket、产生重复连接。
+    const generation = ++connectGenerationRef.current;
+    let url: string;
+    try {
+      url = await buildWebSocketURL(path, stableQuery);
+    } catch (err) {
+      if (connectGenerationRef.current !== generation) return;
+      setError(err instanceof Error ? err.message : "WebSocket URL 构造失败");
+      setStatus("error");
+      return;
+    }
+    if (connectGenerationRef.current !== generation) return;
+    if (url.length === 0) {
+      // 未登录 / refresh 失败：进入"等待"，外层登录后会重置组件触发新一轮 connect。
+      setStatus("closed");
+      return;
+    }
+
+    const socket = new WebSocket(url);
     socketRef.current = socket;
 
     // 所有事件回调先做身份校验：若 socketRef 已被 closeSocket / 新一轮 connect 覆盖，

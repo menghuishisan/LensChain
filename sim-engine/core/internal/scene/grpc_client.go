@@ -71,7 +71,7 @@ func (c *grpcScenarioClient) InteractionSchema(ctx context.Context) (Interaction
 		for _, field := range action.GetFields() {
 			fields = append(fields, FieldDef{
 				Name:        field.GetName(),
-				Type:        fieldTypeString(field.GetType()),
+				Type:        field.GetType(),
 				Label:       field.GetLabel(),
 				Required:    field.GetRequired(),
 				DefaultJSON: cloneBytes(field.GetDefaultJson()),
@@ -86,14 +86,14 @@ func (c *grpcScenarioClient) InteractionSchema(ctx context.Context) (Interaction
 			ActionCode:         action.GetActionCode(),
 			Label:              action.GetLabel(),
 			Description:        action.GetDescription(),
-			Category:           actionCategoryString(action.GetCategory()),
-			Trigger:            actionTriggerString(action.GetTrigger()),
+			Category:           action.GetCategory(),
+			Trigger:            action.GetTrigger(),
 			Fields:             fields,
 			Roles:              append([]string(nil), action.GetRoles()...),
 			CooldownMs:         int(action.GetCooldownMs()),
 			WritesOwnedFields: append([]string(nil), action.GetWritesOwnedFields()...),
 			LinkOwnerFields:    append([]string(nil), action.GetLinkOwnerFields()...),
-			HybridChannel:      hybridChannelString(action.GetHybridChannel()),
+			HybridChannel:      action.GetHybridChannel(),
 			ContainerCmd:       action.GetContainerCmd(),
 		})
 	}
@@ -238,63 +238,6 @@ func dataSourceModeString(mode simscenariov1.DataSourceMode) string {
 	return ""
 }
 
-func actionCategoryString(c simscenariov1.ActionCategory) string {
-	switch c {
-	case simscenariov1.ActionCategory_ACTION_CATEGORY_PARAM_TUNE:
-		return "param_tune"
-	case simscenariov1.ActionCategory_ACTION_CATEGORY_ATTACK_INJECT:
-		return "attack_inject"
-	case simscenariov1.ActionCategory_ACTION_CATEGORY_PRIMARY:
-		return "primary"
-	case simscenariov1.ActionCategory_ACTION_CATEGORY_OBSERVE:
-		return "observe"
-	}
-	return ""
-}
-
-func actionTriggerString(t simscenariov1.ActionTrigger) string {
-	switch t {
-	case simscenariov1.ActionTrigger_ACTION_TRIGGER_SUBMIT:
-		return "submit"
-	case simscenariov1.ActionTrigger_ACTION_TRIGGER_IMMEDIATE:
-		return "immediate"
-	case simscenariov1.ActionTrigger_ACTION_TRIGGER_HOLD:
-		return "hold"
-	}
-	return ""
-}
-
-func fieldTypeString(t simscenariov1.FieldType) string {
-	switch t {
-	case simscenariov1.FieldType_FIELD_TYPE_STRING:
-		return "string"
-	case simscenariov1.FieldType_FIELD_TYPE_NUMBER:
-		return "number"
-	case simscenariov1.FieldType_FIELD_TYPE_BOOLEAN:
-		return "boolean"
-	case simscenariov1.FieldType_FIELD_TYPE_SELECT:
-		return "select"
-	case simscenariov1.FieldType_FIELD_TYPE_ENUM:
-		return "enum"
-	case simscenariov1.FieldType_FIELD_TYPE_RANGE:
-		return "range"
-	case simscenariov1.FieldType_FIELD_TYPE_JSON:
-		return "json"
-	case simscenariov1.FieldType_FIELD_TYPE_MULTI_SELECT:
-		return "multi_select"
-	}
-	return ""
-}
-
-func hybridChannelString(c simscenariov1.HybridChannel) string {
-	switch c {
-	case simscenariov1.HybridChannel_HYBRID_CHANNEL_SIM:
-		return "sim"
-	case simscenariov1.HybridChannel_HYBRID_CHANNEL_CONTAINER:
-		return "container"
-	}
-	return ""
-}
 
 func healthStatusString(status simscenariov1.HealthStatus) string {
 	switch status {

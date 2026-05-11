@@ -421,8 +421,9 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_params", Label: "设置参数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "max_supply", Type: fw.FieldNumber, Label: "MaxSupply (0=∞)", Required: true, Default: defaultMaxSupply, Min: 0, Step: 1000000},
 					{Name: "halving", Type: fw.FieldNumber, Label: "Halving Interval (块)", Required: true, Default: defaultHalvingInterval, Min: 1, Step: 100},
@@ -434,45 +435,51 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "mine_blocks", Label: "出块（铸造）",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "块数", Required: true, Default: 100, Min: 1, Step: 10},
 				},
 			},
 			{
 				ActionCode: "burn_fees", Label: "burn 一笔费用",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "fees", Type: fw.FieldNumber, Label: "总 fees", Required: true, Default: 100, Min: 0, Step: 10},
 				},
 			},
 			{
 				ActionCode: "halving_now", Label: "立即 halving",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 			},
 			{
 				ActionCode: "lock_tokens", Label: "锁仓",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "amount", Type: fw.FieldNumber, Label: "数量", Required: true, Default: 1000, Min: 1, Step: 100},
 				},
 			},
 			{
 				ActionCode: "unlock_tokens", Label: "解锁",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "amount", Type: fw.FieldNumber, Label: "数量", Required: true, Default: 500, Min: 1, Step: 50},
 				},
 			},
 			{
 				ActionCode: "manual_burn", Label: "协议销毁",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "amount", Type: fw.FieldNumber, Label: "数量", Required: true, Default: 100, Min: 1, Step: 10},
 					{Name: "reason", Type: fw.FieldString, Label: "原因", Required: false, Default: "buyback"},
@@ -480,8 +487,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_force_epoch",

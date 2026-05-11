@@ -112,9 +112,20 @@ export function SimSceneGrid({
   };
 
   // ─── grid 模式 ─────────────────────────────────────
+  // 文档 06.2 §3.1：1 场景全宽、2 场景 1×2、3 场景 1×3、4 场景 2×2。
+  // 注意：grid 容器宽度由父级（已扣除外层导航 + 侧栏）决定，与 window 宽度不一致，
+  // 所以这里不能用 `lg:` 这种 viewport 断点（会因为内层容器达不到 1024px 而退回单列堆叠）。
+  // 直接给出场景数对应的列数即可。
   if (layout === 'grid') {
-    const cols = scenes.length <= 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-2';
-    return <div className={cn('grid gap-4', cols, className)}>{scenes.map((s) => renderSceneSlot(s, ''))}</div>;
+    const colsClass =
+      scenes.length === 1
+        ? 'grid-cols-1'
+        : scenes.length === 2
+          ? 'grid-cols-2'
+          : scenes.length === 3
+            ? 'grid-cols-3'
+            : 'grid-cols-2'; // 4 场景 → 2×2（行由 grid 自动换行）
+    return <div className={cn('grid gap-4', colsClass, className)}>{scenes.map((s) => renderSceneSlot(s, ''))}</div>;
   }
 
   // ─── focus 模式 ────────────────────────────────────

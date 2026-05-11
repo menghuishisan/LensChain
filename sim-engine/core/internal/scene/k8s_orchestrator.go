@@ -14,6 +14,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +33,7 @@ import (
 	simscenariov1 "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_scenario/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 const (
@@ -87,8 +90,9 @@ type podConnection struct {
 // K8sOrchestrator 通过 K8s API 按需启停场景算法容器。
 // 实现 scene.Orchestrator 接口。
 type K8sOrchestrator struct {
-	clientset *kubernetes.Clientset
-	cfg       OrchestratorConfig
+	clientset  *kubernetes.Clientset
+	restConfig *rest.Config // SPDY portforward 需要原始 RESTConfig（开发态拨号用）
+	cfg        OrchestratorConfig
 
 	mu   sync.Mutex
 	pool map[string]*podConnection // key: sessionID + "::" + sceneCode
@@ -128,9 +132,10 @@ func NewK8sOrchestrator(cfg OrchestratorConfig) (*K8sOrchestrator, error) {
 		return nil, fmt.Errorf("创建 K8s clientset 失败: %w", err)
 	}
 	return &K8sOrchestrator{
-		clientset: clientset,
-		cfg:       cfg,
-		pool:      make(map[string]*podConnection),
+		clientset:  clientset,
+		restConfig: restCfg,
+		cfg:        cfg,
+		pool:       make(map[string]*podConnection),
 	}, nil
 }
 
@@ -171,23 +176,30 @@ func (o *K8sOrchestrator) StartScene(ctx context.Context, config Config) (Scenar
 	startCtx, cancel := context.WithTimeout(ctx, o.cfg.ReadyTimeout)
 	defer cancel()
 
+	t0 := time.Now()
+	log.Printf("[StartScene] scene=%s pod=%s begin (ready_timeout=%s)", config.SceneCode, resourceName, o.cfg.ReadyTimeout)
+
 	clusterIP, err := o.ensureService(startCtx, resourceName, labels)
 	if err != nil {
 		return nil, fmt.Errorf("创建场景 Service 失败: %w", err)
 	}
+	tSvc := time.Now()
+	log.Printf("[StartScene] scene=%s ensureService done in %s (clusterIP=%s)", config.SceneCode, tSvc.Sub(t0), clusterIP)
+
 	if err := o.ensurePod(startCtx, resourceName, labels, config); err != nil {
-		// Service 已创建但 Pod 创建失败 → 回滚 Service 避免悬挂资源
 		_ = o.deleteService(context.Background(), resourceName)
 		return nil, fmt.Errorf("创建场景 Pod 失败: %w", err)
 	}
+	tPod := time.Now()
+	log.Printf("[StartScene] scene=%s ensurePod done in %s", config.SceneCode, tPod.Sub(tSvc))
 
-	conn, err := o.dialAndWaitReady(startCtx, clusterIP)
+	conn, err := o.dialAndWaitReady(startCtx, resourceName, clusterIP)
 	if err != nil {
-		// Pod 起来但 gRPC 不通 → 整体清理
 		_ = o.deletePod(context.Background(), resourceName)
 		_ = o.deleteService(context.Background(), resourceName)
 		return nil, fmt.Errorf("等待场景 %s 就绪失败: %w", config.SceneCode, err)
 	}
+	log.Printf("[StartScene] scene=%s dialAndWaitReady done in %s; total=%s", config.SceneCode, time.Since(tPod), time.Since(t0))
 
 	pc := &podConnection{
 		podName:     resourceName,
@@ -340,10 +352,50 @@ func (o *K8sOrchestrator) ensurePod(ctx context.Context, name string, labels map
 }
 
 // dialAndWaitReady 主动拨号 + 重试 HealthCheck，直到通过或超时。
-// 使用 Service 的 ClusterIP 直接拨号：集群内与集群外（docker-desktop 桥接）均可达。
-func (o *K8sOrchestrator) dialAndWaitReady(ctx context.Context, clusterIP string) (*grpc.ClientConn, error) {
-	target := fmt.Sprintf("%s:%d", clusterIP, scenarioContainerPort)
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+//
+// 拨号通道按部署形态分两路：
+//   - 集群内 (in_cluster=true)：sim-engine 跑在 K8s Pod 内，节点 kube-proxy 路由
+//     ClusterIP，直拨 clusterIP:50100 性能最佳（生产路径）。
+//   - 集群外 (in_cluster=false)：sim-engine 跑在 docker-compose 桥接网络，与
+//     docker-desktop K8s 的 ClusterIP 段不连通；改走 K8s API server 的 SPDY
+//     portforward 隧道（与 backend tool proxy 同一技术栈）。
+//
+// 两条路径都共用同一个 HealthCheck 重试循环；portforward 路径在拨号前会显式等待
+// Pod phase=Running，因为 SPDY 子资源拒绝 Pending 状态的 Pod。
+func (o *K8sOrchestrator) dialAndWaitReady(ctx context.Context, podName, clusterIP string) (*grpc.ClientConn, error) {
+	dialStart := time.Now()
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// gRPC 客户端 keepalive：周期性发送 HTTP/2 PING 探测对端是否仍可达。
+		// 这是发现 portforward SPDY 隧道死亡（kubelet 重启 / API server 关闭 stream）的
+		// 关键机制——没有它，连接死亡只能通过下次实际 RPC 失败发现，期间所有 in-flight
+		// 调用会一直阻塞在 Read，把 runtime.opMu 拖死。
+		//
+		// Time=30s：闲置 30s 后开始发 PING；Timeout=10s：PING 后 10s 内无 ACK 即判死。
+		// PermitWithoutStream=true：即使没有活跃 RPC 也定期 PING，让长闲连接不致沉默腐烂。
+		// 即在 40s 内可探测连接死亡，这是平衡探测灵敏度与不必要 PING 开销的合理点。
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
+	var target string
+	if o.cfg.InCluster {
+		target = fmt.Sprintf("%s:%d", clusterIP, scenarioContainerPort)
+	} else {
+		// SPDY 隧道前置：等 Pod Running，否则 portforward 子资源直接 4xx。
+		if err := o.waitPodRunning(ctx, podName); err != nil {
+			return nil, fmt.Errorf("等待场景 Pod Running 失败: %w", err)
+		}
+		log.Printf("[dialAndWaitReady] pod=%s waitPodRunning done in %s", podName, time.Since(dialStart))
+		target = fmt.Sprintf("passthrough:///%s:%d", podName, scenarioContainerPort)
+		dialOpts = append(dialOpts, grpc.WithContextDialer(func(dialCtx context.Context, _ string) (net.Conn, error) {
+			return o.dialPodPortViaSPDY(dialCtx, podName, scenarioContainerPort)
+		}))
+	}
+
+	conn, err := grpc.NewClient(target, dialOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -351,14 +403,19 @@ func (o *K8sOrchestrator) dialAndWaitReady(ctx context.Context, clusterIP string
 	healthClient := simscenariov1.NewSimScenarioServiceClient(conn)
 	ticker := time.NewTicker(healthCheckRetryInterval)
 	defer ticker.Stop()
+	healthStart := time.Now()
+	attempt := 0
 
 	for {
+		attempt++
 		probeCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		resp, healthErr := healthClient.HealthCheck(probeCtx, &simscenariov1.HealthCheckRequest{})
 		cancel()
 		if healthErr == nil && resp.GetStatus() == simscenariov1.HealthStatus_HEALTH_STATUS_SERVING {
+			log.Printf("[dialAndWaitReady] pod=%s HealthCheck OK on attempt %d (%s since first probe)", podName, attempt, time.Since(healthStart))
 			return conn, nil
 		}
+		log.Printf("[dialAndWaitReady] pod=%s HealthCheck attempt %d err=%v resp=%v", podName, attempt, healthErr, resp.GetStatus())
 
 		select {
 		case <-ctx.Done():

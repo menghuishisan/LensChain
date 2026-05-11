@@ -19,6 +19,7 @@ import (
 	svcctx "github.com/lenschain/backend/internal/pkg/context"
 	"github.com/lenschain/backend/internal/pkg/errcode"
 	"github.com/lenschain/backend/internal/pkg/handlerctx"
+	"github.com/lenschain/backend/internal/pkg/logger"
 	"github.com/lenschain/backend/internal/pkg/response"
 	"github.com/lenschain/backend/internal/pkg/validator"
 	wsmanager "github.com/lenschain/backend/internal/pkg/ws"
@@ -305,11 +306,14 @@ func (h *InstanceHandler) ServeSimEngineWS(c *gin.Context) {
 	// validateJWTClaims（详见 sim-engine/core/internal/server/jwt_validator.go）。
 	// 共享密钥见 sim-engine/core/configs/config.yaml::auth.ws_jwt_secret，与 backend.jwt.access_secret 一致。
 	upstreamURL := appendTokenQueryParam(normalizeWebSocketURL(target.TargetURL), target.UpstreamToken)
+	logger.S.Infow("[ServeSimEngineWS] entered", "session", sessionID, "upstream", target.TargetURL, "instance", target.InstanceID)
 	clientConn, err := wsmanager.Upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		logger.S.Errorw("[ServeSimEngineWS] upgrade client failed", "session", sessionID, "err", err)
 		c.Error(err)
 		return
 	}
+	logger.S.Infow("[ServeSimEngineWS] client upgraded; dialing upstream", "session", sessionID)
 
 	// 同终端代理一样，拨号 SimEngine Core 必须有超时，否则上游不可达时连接挂死。
 	simDialCtx, simDialCancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
@@ -328,6 +332,7 @@ func (h *InstanceHandler) ServeSimEngineWS(c *gin.Context) {
 			upstreamStatus = upstreamResp.StatusCode
 			_ = upstreamResp.Body.Close()
 		}
+		logger.S.Errorw("[ServeSimEngineWS] upstream dial failed", "session", sessionID, "upstreamStatus", upstreamStatus, "err", err)
 		c.Error(err)
 		_ = clientConn.WriteJSON(gin.H{
 			"type": "control_ack",
@@ -341,19 +346,27 @@ func (h *InstanceHandler) ServeSimEngineWS(c *gin.Context) {
 		_ = clientConn.Close()
 		return
 	}
+	logger.S.Infow("[ServeSimEngineWS] upstream connected, starting bidir proxy", "session", sessionID)
 
 	proxyDone := make(chan struct{}, 2)
 	callCtx := websocketServiceContext(c)
-	go proxyWebSocket(upstreamConn, clientConn, proxyDone, nil, nil)
+	// 这两条 Debug 级日志只在 LOG_LEVEL=debug 时打印；生产环境关闭，避免每秒数十帧
+	// 渲染消息淹没日志（一次会话每 tick 4 个场景 ≈ 4-8 条/s）。开发环境调试 WS 代理
+	// 链路时再开启。
+	go proxyWebSocket(upstreamConn, clientConn, proxyDone, nil, func(mt int, payload []byte) {
+		logger.S.Debugw("[SimWS] upstream->client", "session", sessionID, "mt", mt, "size", len(payload), "head", safeHeadString(payload))
+	})
 	go proxyWebSocket(clientConn, upstreamConn, proxyDone, func() {
 		h.instanceService.TouchActivity(callCtx, target.InstanceID)
 	}, func(messageType int, payload []byte) {
+		logger.S.Debugw("[SimWS] client->upstream", "session", sessionID, "mt", messageType, "size", len(payload), "head", safeHeadString(payload))
 		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
 			return
 		}
 		h.instanceService.RecordSimEngineOperation(callCtx, sc, target.InstanceID, payload)
 	})
 	<-proxyDone
+	logger.S.Infow("[ServeSimEngineWS] proxy ended", "session", sessionID)
 	_ = clientConn.Close()
 	_ = upstreamConn.Close()
 }
@@ -548,6 +561,15 @@ func appendTokenQueryParam(rawURL, token string) string {
 		separator = "&"
 	}
 	return rawURL + separator + "token=" + token
+}
+
+// safeHeadString 截取 payload 头部用于日志，避免长消息撑爆日志。
+func safeHeadString(b []byte) string {
+	const maxLen = 200
+	if len(b) <= maxLen {
+		return string(b)
+	}
+	return string(b[:maxLen]) + "..."
 }
 
 // proxyWebSocket 负责单向转发 WebSocket 消息。

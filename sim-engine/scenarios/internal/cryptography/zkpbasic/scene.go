@@ -357,9 +357,10 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "generate_params", Label: "生成公开参数",
-				Description: "Miller-Rabin 生成安全素数 p=2q+1 与阶为 q 的生成元 g",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "Miller-Rabin 生成安全素数 p=2q+1 与阶为 q 的生成元 g",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "bits", Type: fw.FieldNumber, Label: "p 位长", Required: true, Default: defaultBits, Min: minBits, Max: maxBits, Step: 8},
 					{Name: "seed", Type: fw.FieldNumber, Label: "随机种子", Required: true, Default: 1, Min: 0, Step: 1},
@@ -367,9 +368,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "set_secret", Label: "设置秘密 x",
-				Description: "派生 y = g^x mod p（公开给 Verifier）",
-				Category:    fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "派生 y = g^x mod p（公开给 Verifier）",
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "x", Type: fw.FieldString, Label: "秘密 x（十进制）", Required: true, Default: defaultSecretX},
 				},
@@ -378,9 +380,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "prove_interactive", Label: "交互式证明（3 步）",
-				Description: "Prover 选 r 计算 t；Verifier 给 c；Prover 给 s",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "Prover 选 r 计算 t；Verifier 给 c；Prover 给 s",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "r", Type: fw.FieldString, Label: "Prover 随机 r", Required: true, Default: defaultR},
 					{Name: "c", Type: fw.FieldString, Label: "Verifier 挑战 c", Required: true, Default: "3"},
@@ -399,9 +402,10 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "prove_fiat_shamir", Label: "Fiat-Shamir 非交互证明",
-				Description: "c = SHA-256(g||y||t) mod q；自动一次性生成完整证明",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "c = SHA-256(g||y||t) mod q；自动一次性生成完整证明",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "r", Type: fw.FieldString, Label: "Prover 随机 r", Required: true, Default: defaultR},
 				},
@@ -409,14 +413,16 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "forge_attempt", Label: "伪造证明（不知 x）",
-				Description: "随机猜 s 与 c → 验证必失败（演示 ZKP 健全性 soundness）",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "随机猜 s 与 c → 验证必失败（演示 ZKP 健全性 soundness）",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_set_demo_input",

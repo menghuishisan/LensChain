@@ -326,17 +326,19 @@ func interactionDefinition() fw.InteractionDefinition {
 		Actions: []fw.ActionDef{
 			{
 				ActionCode: "set_active_slots", Label: "设置活跃代表数",
-				Category: fw.ActionParamTune, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionParamTune, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "前 N 名当选", Required: true, Default: defaultActiveSlots, Min: 1, Max: 9, Step: 1},
 				},
 			},
 			{
 				ActionCode: "vote", Label: "投票",
-				Description: "选民投票（旧票自动撤销）",
-				Category:    fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "选民投票（旧票自动撤销）",
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "voter_id", Type: fw.FieldString, Label: "选民 ID", Required: true, Default: "v1"},
 					{Name: "candidate_id", Type: fw.FieldString, Label: "候选人 ID", Required: true, Default: "alice"},
@@ -346,8 +348,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "withdraw_vote", Label: "撤销投票",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneState,
 				Fields: []fw.FieldDef{
 					{Name: "voter_id", Type: fw.FieldString, Label: "选民 ID", Required: true, Default: "v1"},
 				},
@@ -357,6 +360,7 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "按票数选出前 N 名为活跃代表",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"consensus.dpos.active_delegates"},
 				LinkOwnerFields:   []string{"consensus.dpos.active_delegates"},
 			},
@@ -365,22 +369,25 @@ func interactionDefinition() fw.InteractionDefinition {
 				Description: "当前轮代表出 1 块",
 				Category:    fw.ActionPrimary, Trigger: fw.TriggerImmediate,
 				Roles:              []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType:     fw.IntervenePhase,
 				WritesOwnedFields: []string{"consensus.dpos.current_producer", "consensus.dpos.block_height"},
 				LinkOwnerFields:   []string{"consensus.dpos.current_producer", "consensus.dpos.block_height"},
 			},
 			{
 				ActionCode: "produce_n_blocks", Label: "出 N 块",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.IntervenePhase,
 				Fields: []fw.FieldDef{
 					{Name: "n", Type: fw.FieldNumber, Label: "区块数", Required: true, Default: 6, Min: 1, Max: 100, Step: 1},
 				},
 			},
 			{
 				ActionCode: "impeach", Label: "弹劾代表",
-				Description: "把指定代表标记为弹劾，不再出块",
-				Category:    fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Description:   "把指定代表标记为弹劾，不再出块",
+				Category:      fw.ActionAttackInject, Trigger: fw.TriggerSubmit,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneAttack,
 				Fields: []fw.FieldDef{
 					{Name: "candidate_id", Type: fw.FieldString, Label: "代表 ID", Required: true, Default: "eve"},
 				},
@@ -389,8 +396,9 @@ func interactionDefinition() fw.InteractionDefinition {
 			},
 			{
 				ActionCode: "reset", Label: "重置",
-				Category: fw.ActionPrimary, Trigger: fw.TriggerImmediate,
-				Roles: []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				Category:      fw.ActionPrimary, Trigger: fw.TriggerImmediate,
+				Roles:         []fw.UserRole{fw.RoleStudent, fw.RoleTeacher},
+				InterveneType: fw.InterveneReset,
 			},
 			{
 				ActionCode:    "teacher_inject_fault",

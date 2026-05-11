@@ -23,9 +23,11 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	simscenariov1 "github.com/lenschain/sim-engine/proto/gen/go/lenschain/sim_scenario/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 // 默认监听地址 — 与 deploy/docker/scenario-base.Dockerfile 的 ENV / EXPOSE 50100 一致。
@@ -87,7 +89,25 @@ func Serve(ctx context.Context, scenario Scenario, config ServeConfig) error {
 	}
 	defer listener.Close()
 
-	server := grpc.NewServer()
+	// 服务端 keepalive 策略：
+	//   - EnforcementPolicy.MinTime=10s 必须 <= sim-engine Core 客户端 keepalive.Time(30s)，
+	//     否则客户端 PING 会被服务端视为 too_many_pings，回 GoAway(ENHANCE_YOUR_CALM)
+	//     强制断开连接（gRPC 默认 MinTime=5min 太严格，Core 30s PING 一定踩雷）。
+	//   - PermitWithoutStream=true：与客户端配置一致，闲置无活跃 RPC 时也允许 PING，
+	//     这是 SPDY portforward 隧道死亡探测得以工作的前提。
+	//   - 服务端自身 keepalive (Time=2h, Timeout=20s) 用 gRPC 默认即可：客户端会主动 PING，
+	//     服务端无需积极探测；这里仅为完整性显式声明，避免后人误改 EnforcementPolicy 时
+	//     遗漏配对的 KeepaliveParams 一致性。
+	server := grpc.NewServer(
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    2 * time.Hour,
+			Timeout: 20 * time.Second,
+		}),
+	)
 	simscenariov1.RegisterSimScenarioServiceServer(server, NewServer(scenario))
 
 	// gRPC 监听绑定成功 → 标记 ready（K8s readinessProbe 立刻通过）。

@@ -612,7 +612,7 @@ func (s *instanceService) GetReport(ctx context.Context, sc *svcctx.ServiceConte
 	report, err := s.reportRepo.GetByInstanceID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errcode.ErrReportNotFound
+			return nil, nil // 报告尚未创建是合法初态，返回 nil 由 handler 返回 200 + null
 		}
 		return nil, err
 	}
