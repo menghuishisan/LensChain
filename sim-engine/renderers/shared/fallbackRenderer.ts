@@ -32,7 +32,7 @@ export class FallbackRenderer extends PrimitiveBasedRenderer {
   }
 
   public override render(state: RenderState, context: RenderContext): void {
-    const ctx = this.beginFrame(context, state.title, "场景加载失败");
+    const ctx = this.beginFrame(context, state.title);
     ctx.fillStyle = "rgba(55, 22, 28, 0.96)";
     ctx.strokeStyle = "#ff5d73";
     ctx.beginPath();

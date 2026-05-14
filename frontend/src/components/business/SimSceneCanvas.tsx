@@ -15,6 +15,8 @@ export interface SimSceneCanvasProps {
   detachScene: (code: string) => void;
   redrawScene: (code: string) => void;
   hasState: boolean;
+  /** 容器最小高度（px）。文档 §3.5：单/2/3 场景 480，2×2 网格 360，focus 主区 480。 */
+  minHeight?: number;
   className?: string;
 }
 
@@ -30,6 +32,7 @@ export function SimSceneCanvas({
   detachScene,
   redrawScene,
   hasState,
+  minHeight = 360,
   className,
 }: SimSceneCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,7 +80,11 @@ export function SimSceneCanvas({
   }, [sceneCode, category, attachScene, detachScene, redrawScene]);
 
   return (
-    <div ref={containerRef} className={cn('relative w-full h-full min-h-[360px]', className)}>
+    <div
+      ref={containerRef}
+      className={cn('relative w-full h-full', className)}
+      style={{ minHeight: `${minHeight}px` }}
+    >
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
       <svg ref={svgRef} className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg" />
       {!hasState && (

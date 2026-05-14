@@ -2,120 +2,126 @@
 
 // SimSceneGrid.tsx
 // 多场景响应式布局（06.2 §三）。
-// 支持三种布局模式：grid（网格平铺）、focus（焦点+侧边缩略图）、carousel（轮播）。
-// 每个场景 slot 内部挂载 SimSceneCanvas + 场景头部信息栏。
+// 三种布局：
+//   - grid：1=单列全宽；2=横排 2 列；3=横排 3 列；4=2×2；≥5 强制降级 focus；
+//   - focus：左主右缩略图列表（width 200px），缩略图 100×60；主区 ≥ 720×480；
+//   - carousel：单画布 + 左右切换 + 底部指示器。
+// 每个 slot 委托给 SimSceneSlot 组件渲染（场景头 + Canvas + 可选 InteractionForm）。
+// 文档 §3.5 尺寸约束在本组件统一控制：min-h（480/360）、min-w（800/600/500）。
 
-import { useCallback, useState } from 'react';
-import { Camera, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
-import { SimSceneCanvas } from '@/components/business/SimSceneCanvas';
-import type { SimLayoutMode } from '@/types/experiment';
+import { SimSceneSlot, type SceneSlotConfig } from '@/components/business/SimSceneSlot';
+import type { JsonObject, SimLayoutMode } from '@/types/experiment';
 
-/** 场景配置项。 */
-export interface SceneSlotConfig {
-  sceneCode: string;
-  category: string;
-  title: string;
-  hasState: boolean;
-}
+export type { SceneSlotConfig };
 
 export interface SimSceneGridProps {
   scenes: SceneSlotConfig[];
   layout: SimLayoutMode;
-  onLayoutChange?: (layout: SimLayoutMode) => void;
+  instanceID?: string;
+  userRole?: string;
+  connected: boolean;
+  /**
+   * 是否启用每场景独立的 InteractionForm（文档 §5.6）。
+   * 单场景模式由 SimEnginePanel 显式控制（A 单仿真：在画布下方折叠面板，本组件渲染）。
+   */
+  enableInteractionForm?: boolean;
   attachScene: (code: string, cat: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => void;
   detachScene: (code: string) => void;
   redrawScene: (code: string) => void;
   captureScene: (code: string) => string | null;
+  onSubmitInteraction: (sceneCode: string, actionCode: string, params: JsonObject) => void;
+  /** 父级请求强制切换布局（用于 focus 模式"返回 grid"按钮触发外部状态更新）。 */
+  onLayoutChange?: (layout: SimLayoutMode) => void;
   className?: string;
 }
 
 /**
- * SimSceneGrid 管理多场景画布的排列（06.2 §3.1-3.3）。
- * grid: sceneCount≤4 时 2-col 网格
- * focus: 一主一副，侧边缩略图列表切换焦点
- * carousel: 单场景轮播，左右箭头切换
+ * 按场景数返回 grid 模式下单元格的最小高度（文档 §3.5）。
+ * 1/2/3 场景：480；2×2 网格（4 场景）：360。
+ */
+function gridCellMinHeight(sceneCount: number): number {
+  return sceneCount <= 3 ? 480 : 360;
+}
+
+/**
+ * 按场景数返回 grid 模式下单元格的最小宽度（文档 §3.5）。
+ * 1 场景：800；2 场景：600；3 场景：500；4 场景（2×2）：500。
+ */
+function gridCellMinWidth(sceneCount: number): number {
+  if (sceneCount <= 1) return 800;
+  if (sceneCount === 2) return 600;
+  return 500;
+}
+
+/**
+ * SimSceneGrid 管理多场景画布的排列（06.2 §3.1-3.5）。
  */
 export function SimSceneGrid({
   scenes,
   layout,
+  instanceID,
+  userRole,
+  connected,
+  enableInteractionForm = true,
   attachScene,
   detachScene,
   redrawScene,
   captureScene,
+  onSubmitInteraction,
+  onLayoutChange,
   className,
 }: SimSceneGridProps) {
   const [focusIndex, setFocusIndex] = useState(0);
-  const [fullscreenCode, setFullscreenCode] = useState<string | null>(null);
 
-  const handleScreenshot = useCallback(
-    (code: string) => {
-      const dataUrl = captureScene(code);
-      if (dataUrl) {
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `${code}-screenshot.png`;
-        a.click();
-      }
-    },
-    [captureScene],
+  // 当场景数量变化导致索引越界时重置。
+  useEffect(() => {
+    if (focusIndex >= scenes.length) setFocusIndex(0);
+  }, [scenes.length, focusIndex]);
+
+  const renderSlot = useCallback(
+    (
+      scene: SceneSlotConfig,
+      opts: { minHeight: number; minWidth?: number; showForm: boolean; className?: string },
+    ) => (
+      <SimSceneSlot
+        key={scene.sceneCode}
+        scene={scene}
+        instanceID={instanceID}
+        userRole={userRole}
+        connected={connected}
+        minHeight={opts.minHeight}
+        showInteractionForm={enableInteractionForm && opts.showForm}
+        attachScene={attachScene}
+        detachScene={detachScene}
+        redrawScene={redrawScene}
+        captureScene={captureScene}
+        onSubmitInteraction={onSubmitInteraction}
+        className={opts.className}
+        style={opts.minWidth ? { minWidth: `${opts.minWidth}px` } : undefined}
+      />
+    ),
+    [
+      instanceID,
+      userRole,
+      connected,
+      enableInteractionForm,
+      attachScene,
+      detachScene,
+      redrawScene,
+      captureScene,
+      onSubmitInteraction,
+    ],
   );
 
   if (scenes.length === 0) return null;
 
-  const renderSceneSlot = (scene: SceneSlotConfig, sizing: string) => {
-    const isFullscreen = fullscreenCode === scene.sceneCode;
-    return (
-      <div
-        key={scene.sceneCode}
-        className={cn(
-          'rounded-xl border bg-card overflow-hidden flex flex-col',
-          isFullscreen && 'fixed inset-4 z-50 bg-background',
-          sizing,
-        )}
-      >
-        {/* 场景头部 */}
-        <div className="flex items-center justify-between px-3 py-2 border-b">
-          <div className="min-w-0">
-            <p className="text-sm font-medium truncate">{scene.title}</p>
-            <p className="text-xs text-muted-foreground">{scene.category}</p>
-          </div>
-          <div className="flex gap-1 shrink-0">
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleScreenshot(scene.sceneCode)}>
-              <Camera className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setFullscreenCode(isFullscreen ? null : scene.sceneCode)}
-            >
-              {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            </Button>
-          </div>
-        </div>
-
-        {/* Canvas 区域 */}
-        <SimSceneCanvas
-          sceneCode={scene.sceneCode}
-          category={scene.category}
-          attachScene={attachScene}
-          detachScene={detachScene}
-          redrawScene={redrawScene}
-          hasState={scene.hasState}
-          className="flex-1"
-        />
-      </div>
-    );
-  };
-
   // ─── grid 模式 ─────────────────────────────────────
-  // 文档 06.2 §3.1：1 场景全宽、2 场景 1×2、3 场景 1×3、4 场景 2×2。
-  // 注意：grid 容器宽度由父级（已扣除外层导航 + 侧栏）决定，与 window 宽度不一致，
-  // 所以这里不能用 `lg:` 这种 viewport 断点（会因为内层容器达不到 1024px 而退回单列堆叠）。
-  // 直接给出场景数对应的列数即可。
+  // 文档 §3.1：1 全宽 / 2 横排 / 3 横排 / 4 → 2×2；≥5 由 SimEnginePanel 在 defaultLayout 降级 focus。
   if (layout === 'grid') {
     const colsClass =
       scenes.length === 1
@@ -124,36 +130,79 @@ export function SimSceneGrid({
           ? 'grid-cols-2'
           : scenes.length === 3
             ? 'grid-cols-3'
-            : 'grid-cols-2'; // 4 场景 → 2×2（行由 grid 自动换行）
-    return <div className={cn('grid gap-4', colsClass, className)}>{scenes.map((s) => renderSceneSlot(s, ''))}</div>;
+            : 'grid-cols-2'; // 4 场景 → 2×2
+    const cellMinH = gridCellMinHeight(scenes.length);
+    const cellMinW = gridCellMinWidth(scenes.length);
+    // 文档 §3.5 规定每单元格的最小高度（480 / 360）是硬性下限，而不是"等分父高度后的妥协值"。
+    // 因此显式使用 auto-rows-[Npx] 让行高按 cell 最小高度起算；当父容器高度不足时由外层
+    // overflow-auto 接管纵向滚动，而不是把画布压扁导致内容裁剪。
+    // arbitrary value 必须是字面量字符串，Tailwind JIT 才能识别，所以用静态映射表。
+    const autoRowsClass = scenes.length === 4 ? 'auto-rows-[360px]' : 'auto-rows-[480px]';
+    return (
+      <div className={cn('grid gap-4 w-full', colsClass, autoRowsClass, className)}>
+        {scenes.map((s) =>
+          renderSlot(s, {
+            minHeight: cellMinH,
+            minWidth: cellMinW,
+            showForm: true,
+            // min-h-0 解除 flex 子项的默认 min-content；min-w 通过 inline style 传入。
+            className: 'min-h-0',
+          }),
+        )}
+      </div>
+    );
   }
 
   // ─── focus 模式 ────────────────────────────────────
+  // 文档 §3.2：主区 ≥ 720×480；缩略图列宽 200px、单个缩略图 100×60；
+  // 触发跨画布弧线 M8 时缩略图仍保持因果连线（视觉简化，本组件用文字 + 状态点表示）。
   if (layout === 'focus') {
     const focused = scenes[focusIndex] ?? scenes[0];
     return (
-      <div className={cn('flex gap-3', className)}>
-        {/* 主画布 */}
-        <div className="flex-1">{renderSceneSlot(focused, 'h-full')}</div>
+      <div className={cn('flex gap-3 h-full', className)}>
+        {/* 主聚焦区 */}
+        <div className="flex-1 min-w-[720px]">
+          {renderSlot(focused, {
+            minHeight: 480,
+            showForm: true,
+            className: 'h-full',
+          })}
+        </div>
 
-        {/* 侧边缩略图列表 */}
+        {/* 右侧缩略图列表 */}
         {scenes.length > 1 && (
-          <div className="w-40 flex flex-col gap-2 shrink-0">
-            {scenes.map((s, i) => (
-              <button
-                key={s.sceneCode}
-                className={cn(
-                  'rounded-lg border p-2 text-left transition-colors hover:bg-accent',
-                  i === focusIndex && 'border-primary bg-primary/5',
-                )}
-                onClick={() => setFocusIndex(i)}
+          <div className="w-[200px] shrink-0 flex flex-col gap-2">
+            {/* 返回 grid 按钮（文档 §3.2：顶部 [返回 grid] 按钮） */}
+            {onLayoutChange && scenes.length <= 4 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1 justify-start"
+                onClick={() => onLayoutChange('grid')}
               >
-                <p className="text-xs font-medium truncate">{s.title}</p>
-                <Badge variant="outline" className="mt-1 text-[10px]">
-                  {s.category}
-                </Badge>
-              </button>
-            ))}
+                <LayoutGrid className="h-3.5 w-3.5" />返回 grid
+              </Button>
+            )}
+            <div className="flex-1 overflow-y-auto flex flex-col gap-2">
+              {scenes.map((s, i) => (
+                <button
+                  key={s.sceneCode}
+                  type="button"
+                  className={cn(
+                    'rounded-lg border p-2 text-left transition-colors hover:bg-accent shrink-0',
+                    // 缩略图尺寸 100×60（文档 §3.2 / §3.5）
+                    'w-full min-h-[60px]',
+                    i === focusIndex && 'border-primary bg-primary/5',
+                  )}
+                  onClick={() => setFocusIndex(i)}
+                >
+                  <p className="text-xs font-medium truncate">{s.title}</p>
+                  <Badge variant="outline" className="mt-1 text-[10px]">
+                    {s.category}
+                  </Badge>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -161,17 +210,22 @@ export function SimSceneGrid({
   }
 
   // ─── carousel 模式 ─────────────────────────────────
+  // 文档 §3.3：当前展示场景下方显示 InteractionForm；左右箭头切换。
   const current = scenes[focusIndex] ?? scenes[0];
   return (
-    <div className={cn('relative', className)}>
-      {renderSceneSlot(current, 'w-full')}
+    <div className={cn('relative h-full', className)}>
+      {renderSlot(current, {
+        minHeight: 480,
+        showForm: true,
+        className: 'h-full w-full',
+      })}
 
       {scenes.length > 1 && (
         <>
           <Button
             variant="outline"
             size="sm"
-            className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 rounded-full opacity-80 hover:opacity-100"
+            className="absolute left-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 rounded-full opacity-80 hover:opacity-100 z-10"
             onClick={() => setFocusIndex((focusIndex - 1 + scenes.length) % scenes.length)}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -179,16 +233,21 @@ export function SimSceneGrid({
           <Button
             variant="outline"
             size="sm"
-            className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 rounded-full opacity-80 hover:opacity-100"
+            className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 rounded-full opacity-80 hover:opacity-100 z-10"
             onClick={() => setFocusIndex((focusIndex + 1) % scenes.length)}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1 z-10">
             {scenes.map((s, i) => (
               <button
                 key={s.sceneCode}
-                className={cn('h-1.5 w-6 rounded-full transition-colors', i === focusIndex ? 'bg-primary' : 'bg-muted-foreground/30')}
+                type="button"
+                aria-label={`切换到 ${s.title}`}
+                className={cn(
+                  'h-1.5 w-6 rounded-full transition-colors',
+                  i === focusIndex ? 'bg-primary' : 'bg-muted-foreground/30',
+                )}
                 onClick={() => setFocusIndex(i)}
               />
             ))}

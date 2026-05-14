@@ -51,7 +51,106 @@
 
 ---
 
-## 当前状态（2026-05-11）
+## 当前状态（2026-05-12）
+
+### 第 10 轮：SimEngine 画布布局完整重构 — 待测试
+
+#### 📋 本轮修复总览
+
+按 `docs/modules/04-实验环境/06.2-SimEngine前端设计.md` 完整对齐画布布局实现，**彻底删除旧实现无新旧共存**。目标：消除"画布堆叠 / 右侧空白 / InteractionForm 需滚动 / 无面板级全屏"四类 UX 问题。
+
+#### 🔍 问题根因
+
+1. **InteractionForm 要滚动才能点**：`ExperimentInstancePanel` sim tab 用 `overflow-auto` 且未给 `SimEnginePanel` `className="h-full"`，导致 Card 不填充视口，整页可滚，底部交互表单被推出视口。
+2. **右侧空白**：`SimSidebar` 无数据时仍保持 `w-56` 展开，空 section 全收起后容器仍占 224px。
+3. **多场景画布堆叠/压扁**：`SimSceneCanvas` 写死 `min-h-[360px]` 不区分场景数；`SimSceneGrid` grid 容器没有 `h-full`、没有 `grid-rows-*`、无 `min-width` 约束；单元格仅靠 min-h 撑起，宽度不足时压缩到不可读。
+4. **无单仿真/多仿真全屏**：`SimTopBar` 缺 `📷` 和 `⛶` 按钮（文档 §1.1 明确要求）；只有场景级 `Maximize2`（`fixed inset-4`），没有面板级浏览器 Fullscreen API 集成。
+5. **多场景交互表单丢失**：旧实现只渲染 `firstInteraction.actions` 一份全局 form，违反文档 §5.6"每场景画布下方各自独立"。
+
+#### 🛠 修复清单（7 个文件）
+
+| 文件 | 改动 |
+|---|---|
+| `frontend/src/components/business/SimSceneCanvas.tsx` | `min-h-[360px]` 写死 → `minHeight` prop + inline style |
+| `frontend/src/components/business/SimSceneSlot.tsx` | **新建**。自包含场景插槽：头部（标题 + 📷 + Maximize2）+ Canvas + 本场景独立 InteractionForm；内部自调 `useSimInteraction` |
+| `frontend/src/components/business/SimSceneGrid.tsx` | 重写。grid 加 `h-full` + `grid-rows-2`（4 场景）；按场景数配 min-w（800/600/500/500）+ min-h（480/480/480/360）；focus 侧栏 `w-[200px]` + "返回 grid" 按钮；主区 `min-w-[720px]` + minHeight 480；用 SimSceneSlot 统一 3 布局的 slot 渲染 |
+| `frontend/src/components/business/SimSidebar.tsx` | 无数据（所有 section 为空）或 hybrid 模式时自动折叠为 `w-10` 窄条 |
+| `frontend/src/components/business/SimTopBar.tsx` | 新增 `📷 onScreenshot` + `⛶ onFullscreenToggle` + 受控 `isFullscreen` |
+| `frontend/src/components/business/SimEnginePanel.tsx` | Card 加 `h-full` + `cardRef` + Fullscreen API（`fullscreenchange` 事件双向绑定）；**删除** `firstInteraction` / 全局 `<SimInteractionForm>` / 对 `useSimInteraction` 的直接依赖；向 TopBar/SceneGrid 透传新 props |
+| `frontend/src/components/business/ExperimentInstancePanel.tsx` | sim tab `overflow-auto` → `overflow-hidden`，并向 `SimEnginePanel` 传 `className="h-full"`（与其他工具 tab 一致） |
+
+#### 🧪 测试结果（2026-05-12）
+
+**前置条件**：
+- 登录学生端（13872945160 / LensChain2026）✅
+- 启动"共识机制可视化对比"实验（4 场景，实例 ID: 2054065229783896064）✅
+- 场景容器启动成功（4 个 Pod Running）✅
+- 后端仿真会话超时问题仍存在（第 9 轮遗留问题），但布局可正常验证 ✅
+
+##### A. 单场景实验（`experiment_type=1` + 1 场景）
+- **状态**：未测试
+- **原因**：当前环境中无单场景实验模板，需教师端创建或修改模板
+
+##### B. 多场景对照模式（`experiment_type=1` + ≥2 场景）
+- [ ] 4 个画布以 **2×2 网格** 排列，**不是垂直堆叠** ❌（实际为垂直堆叠，未形成网格布局）
+- [ ] 每个画布最小高度 360px，最小宽度 500px；不被压扁到不可读 ❌（因垂直堆叠导致宽度受限）
+- [x] **每个画布下方各自有独立的 InteractionForm**（§5.6 要求）✅
+- [x] TopBar 模式 Badge 显示"对照模式"，布局按钮选中"网格" ✅
+
+##### C. 布局切换
+- [x] 左侧主画布 ≥ 720×480，右侧 200px 宽的缩略图列 ✅
+- [x] 列顶部出现"**返回 grid**"按钮 ✅
+- [x] 单击缩略图切换聚焦场景 ✅
+- [x] 点"返回 grid"恢复 2×2 网格 ✅
+- [x] 单画布 + 左右 `◀ ▶` 圆形按钮 + 底部指示条 ✅
+- [x] 左右切换正常 ✅
+
+##### D. 全屏
+- [ ] 整个 SimEnginePanel 进入浏览器全屏（覆盖整个屏幕）❌（仅CSS fixed定位，未使用浏览器Fullscreen API，未隐藏地址栏/标签栏）
+- [x] 图标切换为 `Minimize2` ✅
+- [ ] 按 `ESC` 退出全屏，图标切回 `Maximize2`（事件双向同步）❌（ESC 键无效，需点击按钮退出）
+- [x] 单个画布放大到 `fixed inset-4`（留 16px 边距）✅
+- [x] 时间控件和交互表单随之放大（仍在 slot 内）✅
+- [x] 再点一次恢复 ✅
+
+##### E. 截图
+- [ ] 点 TopBar 的 `📷` 下载 `<scene-code>-screenshot.png` ❌（指针事件被拦截，无法点击）
+- [ ] 点场景头部的 `📷` 下载当前场景的 PNG ⚠️（未测试，但按钮存在）
+
+**说明**：截图按钮已正确显示在 TopBar 和场景头部，但 TopBar 截图按钮因指针事件被拦截无法点击。这可能是因为其他 UI 元素（如通知按钮）遮挡了点击区域。
+
+##### F. 侧栏自适应
+- [x] 右侧侧栏自动折叠为 `w-10` 窄条 ✅
+- [ ] 侧栏自动展开到 `w-56` ⚠️（未测试，因后端仿真会话超时，无 metrics 数据推送）
+
+##### 容器清理
+- [x] 点击"销毁"按钮成功销毁实验实例 ✅
+- [x] 场景容器自动清理（kubectl get pods -n lenschain -l app.kubernetes.io/managed-by=sim-engine 无资源）✅
+
+#### 📊 测试总结
+
+**通过项目**：
+- 每场景独立 InteractionForm ✅
+- 布局切换（grid/focus/carousel）✅
+- 场景全屏功能（CSS fixed定位）✅
+- 面板全屏功能（CSS fixed定位）✅
+- 侧栏自动折叠 ✅
+- 容器清理 ✅
+
+**核心问题（需修复）**：
+- **多场景网格布局失败** ❌（实际为垂直堆叠，未形成2×2网格，违反文档§3.1要求）
+- **全屏功能非真正全屏** ❌（仅CSS fixed定位，未使用浏览器Fullscreen API，未隐藏地址栏/标签栏）
+- ESC 键退出面板全屏无效 ❌（需修复 fullscreenchange 事件监听）
+- TopBar 截图按钮指针事件拦截 ❌（需调整 z-index 或布局）
+
+**未测试**：
+- 单场景实验布局（需单场景模板）
+- 侧栏自动展开（需 metrics 数据推送）
+
+**已知依赖**：
+- 后端仿真会话超时问题（第 9 轮）仍存在，但不影响布局验证
+
+---
 
 ### 第 9 轮：后端重启后测试
 

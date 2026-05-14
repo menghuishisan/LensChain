@@ -4,7 +4,7 @@
 // SimEngine 顶部工具栏（06.2 §1.1 TopBar 区域）。
 // 包含场景标题、连接状态、模式 Badge、布局切换和全局操作按钮。
 
-import { Grid2X2, Layers, LayoutGrid, Pencil, Settings2, Wifi, WifiOff } from 'lucide-react';
+import { Camera, Grid2X2, Layers, LayoutGrid, Maximize2, Minimize2, Pencil, Settings2, Wifi, WifiOff } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -31,7 +31,13 @@ export interface SimTopBarProps {
   layout: SimLayoutMode;
   connected: boolean;
   sceneCount: number;
+  /** 当前是否处于浏览器全屏态（外部受控）。 */
+  isFullscreen?: boolean;
   onLayoutChange: (layout: SimLayoutMode) => void;
+  /** 顶部 📷：截图当前主场景。文档 §1.1。 */
+  onScreenshot?: () => void;
+  /** 顶部 ⛶：整个 SimEnginePanel 进入/退出浏览器全屏。文档 §1.1。 */
+  onFullscreenToggle?: () => void;
   onIntervene?: () => void;
   onAnnotationToggle?: () => void;
   annotationActive?: boolean;
@@ -47,7 +53,10 @@ export function SimTopBar({
   layout,
   connected,
   sceneCount,
+  isFullscreen = false,
   onLayoutChange,
+  onScreenshot,
+  onFullscreenToggle,
   onIntervene,
   onAnnotationToggle,
   annotationActive,
@@ -87,6 +96,26 @@ export function SimTopBar({
         {onAnnotationToggle && (
           <Button variant={annotationActive ? 'secondary' : 'outline'} size="sm" className="h-6 text-xs gap-1" onClick={onAnnotationToggle}>
             <Pencil className="h-3 w-3" />标注
+          </Button>
+        )}
+
+        {/* §1.1 📷 截图主场景 */}
+        {onScreenshot && (
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" title="截图主场景" onClick={onScreenshot}>
+            <Camera className="h-3.5 w-3.5" />
+          </Button>
+        )}
+
+        {/* §1.1 ⛶ 面板级全屏 */}
+        {onFullscreenToggle && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            title={isFullscreen ? '退出全屏' : '面板全屏'}
+            onClick={onFullscreenToggle}
+          >
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </Button>
         )}
 

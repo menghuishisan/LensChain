@@ -1,8 +1,10 @@
 import type { Primitive, PrimitiveType, RenderContext, RendererTheme } from "./types.js";
+import type { ResolvedLayout } from "./layoutSolver.js";
 import { asNumber, asString, clamp } from "./utils.js";
 
 /**
  * DrawEnvironment 渲染器绘制原语时可访问的环境。
+ * resolvedLayout 由 layoutSolver 在 dispatch 之前算好，drawer 通过 p_num 自动读取。
  */
 export interface DrawEnvironment {
   ctx: CanvasRenderingContext2D;
@@ -11,6 +13,52 @@ export interface DrawEnvironment {
   highlightIds: Set<string>;
   fireIds: Set<string>;
   now: number;
+  resolvedLayout: Map<string, ResolvedLayout>;
+}
+
+// ============================================================
+// 布局感知坐标查表：drawer 直接调用 p_num 即可读到最终像素坐标
+// ============================================================
+
+/**
+ * currentEnv：dispatch 期间由 PrimitiveBasedRenderer 设置，使 p_num 能就近读取
+ * resolvedLayout 与 0~1 逻辑坐标的画布尺寸。dispatch 结束后必须 setCurrentEnv(null) 释放。
+ */
+let currentEnv: DrawEnvironment | null = null;
+
+export function setCurrentEnv(env: DrawEnvironment | null): void {
+  currentEnv = env;
+}
+
+const POSITION_X_KEYS = new Set<string>(["x", "x1", "x2", "cx", "center_x", "from_x", "to_x"]);
+const POSITION_Y_KEYS = new Set<string>(["y", "y1", "y2", "cy", "center_y", "from_y", "to_y"]);
+const SIZE_W_KEYS = new Set<string>(["width", "cell_w"]);
+const SIZE_H_KEYS = new Set<string>(["height", "cell_h"]);
+const RADIUS_KEYS = new Set<string>(["radius"]);
+
+/** 读取 resolvedLayout 中对应轴 / 维度的值；未命中返回 undefined。 */
+function readResolved(p: Primitive, key: string): number | undefined {
+  if (!currentEnv) return undefined;
+  const r = currentEnv.resolvedLayout.get(p.id);
+  if (!r) return undefined;
+  if (POSITION_X_KEYS.has(key)) return r.x;
+  if (POSITION_Y_KEYS.has(key)) return r.y;
+  if (RADIUS_KEYS.has(key)) return r.radius;
+  if (SIZE_W_KEYS.has(key)) return r.width;
+  if (SIZE_H_KEYS.has(key)) return r.height;
+  return undefined;
+}
+
+/** 把 raw 参数（可能是 0~1 逻辑值）放大到对应轴的像素；> 1 视为像素直传。 */
+function scaleLogical(raw: number, key: string): number {
+  if (!currentEnv) return raw;
+  if (raw < 0 || raw > 1) return raw;
+  const w = currentEnv.context.width;
+  const h = currentEnv.context.height;
+  if (POSITION_X_KEYS.has(key) || SIZE_W_KEYS.has(key)) return raw * w;
+  if (POSITION_Y_KEYS.has(key) || SIZE_H_KEYS.has(key)) return raw * h;
+  if (RADIUS_KEYS.has(key)) return raw * Math.min(w, h);
+  return raw;
 }
 
 /**
@@ -23,8 +71,13 @@ export type PrimitiveDrawFn = (p: Primitive, env: DrawEnvironment) => void;
 // ============================================================
 
 function p_num(p: Primitive, key: string, fallback = 0): number {
+  // 1) 优先取 layoutSolver 算好的最终像素坐标
+  const resolved = readResolved(p, key);
+  if (resolved !== undefined) return resolved;
+  // 2) 否则读取原始 params；若是已知坐标 / 尺寸字段，自动把 0~1 逻辑值放大到像素
   const v = p.params[key];
-  return typeof v === "number" ? v : fallback;
+  if (typeof v === "number") return scaleLogical(v, key);
+  return fallback;
 }
 
 function p_str(p: Primitive, key: string, fallback = ""): string {
@@ -128,10 +181,24 @@ function drawNode(p: Primitive, env: DrawEnvironment): void {
 
 function drawEdge(p: Primitive, env: DrawEnvironment): void {
   const { ctx, theme, now } = env;
-  const x1 = p_num(p, "x1");
-  const y1 = p_num(p, "y1");
-  const x2 = p_num(p, "x2");
-  const y2 = p_num(p, "y2");
+  // 文档 framework/primitive.go:52-54：edge 不带坐标，通过 from_id/to_id 引用节点。
+  // 优先按节点 ID 查 resolvedLayout；fallback 才用 x1/y1/x2/y2（少数 EdgeAt 场景）。
+  const fromId = p_str(p, "from_id");
+  const toId = p_str(p, "to_id");
+  let x1 = p_num(p, "x1");
+  let y1 = p_num(p, "y1");
+  let x2 = p_num(p, "x2");
+  let y2 = p_num(p, "y2");
+  if (fromId && toId) {
+    const a = env.resolvedLayout.get(fromId);
+    const b = env.resolvedLayout.get(toId);
+    if (a && b) {
+      x1 = a.x; y1 = a.y;
+      x2 = b.x; y2 = b.y;
+    }
+  }
+  // 仍未拿到合法端点（fallback 全 0），跳过绘制避免在画布左上角画一条隐线。
+  if (x1 === 0 && y1 === 0 && x2 === 0 && y2 === 0) return;
   const width = p_num(p, "width", 2);
   const dashed = p.params["dashed"] === true;
   const color = p_color(p, "color", env);
@@ -613,135 +680,88 @@ function drawShiftAnimation(p: Primitive, env: DrawEnvironment): void {
 }
 
 // ============================================================
-// 布局类（6）
+// 布局类（6）：仅画极淡的辅助引导线，子节点坐标由 layoutSolver 注入 resolvedLayout。
+// 这些 drawer 不再自行排列 items / 画占位框，避免和子原语视觉重复。
 // ============================================================
 
 function drawHorizontalLane(p: Primitive, env: DrawEnvironment): void {
   const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 600);
-  const height = p_num(p, "height", 48);
+  const r = env.resolvedLayout.get(p.id);
+  if (!r || !r.width || !r.height) return;
+  ctx.save();
+  ctx.strokeStyle = "rgba(143, 163, 191, 0.12)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.moveTo(r.x, r.y);
+  ctx.lineTo(r.x + r.width, r.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
   const label = p_str(p, "label");
-
-  ctx.fillStyle = "rgba(18, 29, 48, 0.4)";
-  ctx.fillRect(x, y, width, height);
-  ctx.strokeStyle = theme.grid;
-  ctx.strokeRect(x, y, width, height);
-
   if (label) {
     ctx.fillStyle = theme.muted;
-    ctx.font = "11px sans-serif";
-    ctx.fillText(label, x + 8, y + height / 2 + 4);
+    ctx.font = "10px sans-serif";
+    ctx.fillText(label, r.x + 8, r.y - 4);
   }
+  ctx.restore();
 }
 
 function drawStack(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 120);
-  const items = p_arr(p, "items");
-  const itemHeight = p_num(p, "item_height", 28);
-
-  items.forEach((item, i) => {
-    const iy = y + i * (itemHeight + 2);
-    const label = typeof item === "string" ? item : asString((item as Record<string, unknown>)?.label);
-    ctx.fillStyle = "rgba(18, 29, 48, 0.7)";
-    ctx.fillRect(x, iy, width, itemHeight);
-    ctx.strokeStyle = theme.grid;
-    ctx.strokeRect(x, iy, width, itemHeight);
-    if (label) {
-      ctx.fillStyle = theme.foreground;
-      ctx.font = "11px sans-serif";
-      ctx.fillText(label, x + 6, iy + itemHeight / 2 + 4);
-    }
-  });
+  // 布局原语：仅画一条极淡的中线作为参考；items 的坐标已由 layoutSolver 写入对应子原语。
+  const r = env.resolvedLayout.get(p.id);
+  if (!r || !r.width) return;
+  const { ctx } = env;
+  ctx.save();
+  ctx.strokeStyle = "rgba(143, 163, 191, 0.08)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if ((p.params["direction"] ?? "horizontal") === "horizontal") {
+    ctx.moveTo(r.x, r.y);
+    ctx.lineTo(r.x + r.width, r.y);
+  } else {
+    const h = r.height ?? 0;
+    ctx.moveTo(r.x, r.y);
+    ctx.lineTo(r.x, r.y + h);
+  }
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawRingLayout(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const cx = p_num(p, "cx", 300);
-  const cy = p_num(p, "cy", 300);
-  const radius = p_num(p, "radius", 100);
-  const count = p_num(p, "count", 6);
-
-  ctx.strokeStyle = theme.grid;
+  // 布局原语：画一条极淡的环形参考线；环上 node 已由 layoutSolver 解算。
+  const r = env.resolvedLayout.get(p.id);
+  if (!r || !r.radius) return;
+  const { ctx } = env;
+  ctx.save();
+  ctx.strokeStyle = "rgba(143, 163, 191, 0.10)";
   ctx.lineWidth = 1;
+  ctx.setLineDash([3, 6]);
   ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
   ctx.stroke();
-
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    const nx = cx + radius * Math.cos(angle);
-    const ny = cy + radius * Math.sin(angle);
-    ctx.fillStyle = theme.accent;
-    ctx.beginPath();
-    ctx.arc(nx, ny, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.setLineDash([]);
+  ctx.restore();
 }
 
-function drawTreeLayout(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x", 100);
-  const y = p_num(p, "y", 60);
-  const levels = p_num(p, "levels", 3);
-  const hGap = p_num(p, "h_gap", 80);
-  const vGap = p_num(p, "v_gap", 60);
-
-  for (let level = 0; level < levels; level++) {
-    const nodesInLevel = Math.pow(2, level);
-    const levelWidth = (nodesInLevel - 1) * hGap;
-    const startX = x - levelWidth / 2;
-    for (let n = 0; n < nodesInLevel; n++) {
-      const nx = startX + n * hGap;
-      const ny = y + level * vGap;
-      ctx.fillStyle = level === 0 ? theme.accent : theme.muted;
-      ctx.beginPath();
-      ctx.arc(nx, ny, 8, 0, Math.PI * 2);
-      ctx.fill();
-      if (level > 0) {
-        const parentIdx = Math.floor(n / 2);
-        const parentNodesInLevel = Math.pow(2, level - 1);
-        const parentWidth = (parentNodesInLevel - 1) * hGap;
-        const parentStartX = x - parentWidth / 2;
-        const px = parentStartX + parentIdx * hGap;
-        const py = y + (level - 1) * vGap;
-        ctx.strokeStyle = theme.grid;
-        ctx.beginPath();
-        ctx.moveTo(px, py + 8);
-        ctx.lineTo(nx, ny - 8);
-        ctx.stroke();
-      }
-    }
-  }
+function drawTreeLayout(_p: Primitive, _env: DrawEnvironment): void {
+  // 布局原语：层次坐标已由 layoutSolver 写入各 node，本身不绘制额外背景。
 }
 
 function drawGraphLayout(p: Primitive, env: DrawEnvironment): void {
+  // 布局原语：节点坐标已由 layoutSolver 注入；不画 algorithm 占位框。
   drawRingLayout(p, env);
 }
 
 function drawMatrixLayout(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const rows = p_num(p, "rows", 4);
-  const cols = p_num(p, "cols", 4);
-  const cellSize = p_num(p, "cell_size", 32);
-  const gap = p_num(p, "gap", 2);
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cx = x + c * (cellSize + gap);
-      const cy = y + r * (cellSize + gap);
-      ctx.fillStyle = "rgba(18, 29, 48, 0.5)";
-      ctx.fillRect(cx, cy, cellSize, cellSize);
-      ctx.strokeStyle = theme.grid;
-      ctx.strokeRect(cx, cy, cellSize, cellSize);
-    }
-  }
+  // 布局原语：grid_cell 坐标已由 layoutSolver 写入，仅画极淡边框示意网格区域。
+  const r = env.resolvedLayout.get(p.id);
+  if (!r || !r.width || !r.height) return;
+  const { ctx } = env;
+  ctx.save();
+  ctx.strokeStyle = "rgba(143, 163, 191, 0.10)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(r.x, r.y, r.width, r.height);
+  ctx.restore();
 }
 
 // ============================================================
@@ -1132,6 +1152,12 @@ function drawTargetZone(p: Primitive, env: DrawEnvironment): void {
 }
 
 function drawLinkIndicator(p: Primitive, env: DrawEnvironment): void {
+  // 契约（framework/primitive.go:499-507）：PrimLinkIndicator 无 x/y 时由 DOM Sidebar 统一布局，
+  // canvas 内不再复刻该徽章；只有 PrimLinkIndicatorAt（带显式坐标的 M8 多场景对照）才落到 canvas。
+  // 否则会在 (0,0) 与场景内容（如 phase 标签）重叠，违反文档 §6.2 单一信息源原则。
+  if (typeof p.params["x"] !== "number" || typeof p.params["y"] !== "number") {
+    return;
+  }
   const { ctx, theme } = env;
   const x = p_num(p, "x");
   const y = p_num(p, "y");

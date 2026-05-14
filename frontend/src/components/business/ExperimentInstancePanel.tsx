@@ -212,8 +212,11 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
     ? "sim"
     : terminalTool ? "terminal" : ideTool ? "ide" : canUseSimEngine ? "sim" : "instructions";
 
+  // 实验实例页是"工作区"型页面：必须铺满 main 的高度（由 AuthenticatedLayout 提供 flex-1 + 内部
+  // overflow-y-auto），并由本面板自己控制内部纵向滚动。h-full 直接拿到 main 的确定高度，
+  // 不再依赖 calc(100vh-...) 这类需要硬编码父级 padding 的脆弱写法。
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
       {/* 精简状态栏：标题 + 状态 + 分数 + 操作按钮 */}
       <div className="rounded-xl border border-cyan-500/20 bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950 px-5 py-3 text-white">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -276,7 +279,8 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
       ) : null}
 
       {/* 全宽扁平 Tab 工作区 */}
-      <Tabs defaultValue={defaultTab} className="flex min-h-[600px] flex-col rounded-xl border border-border">
+      {/* Tabs 面板填满剩余高度；min-h-0 是必要的，否则 flex-1 子会被 Tabs 的 intrinsic min-content 擑大。 */}
+      <Tabs defaultValue={defaultTab} className="flex flex-1 min-h-0 flex-col rounded-xl border border-border">
         <div className="flex items-center border-b">
           <TabsList className="flex flex-1 flex-wrap justify-start rounded-none border-b-0">
             {/* 工具 Tab — 按实验类型动态显隐 */}
@@ -339,8 +343,8 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
           </TabsContent>
         )}
         {canUseSimEngine && (
-          <TabsContent value="sim" className="flex-1 overflow-auto p-2">
-            <SimEnginePanel sessionID={simSessionID} instanceID={instanceID} scenes={simScenes} experimentType={experimentType} userRole={mode === "assist" ? "teacher" : "student"} />
+          <TabsContent value="sim" className="flex-1 overflow-hidden p-2">
+            <SimEnginePanel sessionID={simSessionID} instanceID={instanceID} scenes={simScenes} experimentType={experimentType} userRole={mode === "assist" ? "teacher" : "student"} className="h-full" />
           </TabsContent>
         )}
 

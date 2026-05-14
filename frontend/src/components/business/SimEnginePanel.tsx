@@ -2,20 +2,20 @@
 
 // SimEnginePanel.tsx
 // SimEngine 仿真面板主编排组件（06.2 §一）。
-// 三段式布局：TopBar / MainCanvas+Sidebar / ControlBar + InteractionForm。
-// 编排 useSimPanel、useSimMode、useSimInteraction、useSimSchemaInvalidation hook。
-// 按模式（single/comparison/linkage/hybrid）和布局（grid/focus/carousel）渲染场景画布。
+// 三段式布局：TopBar / MainCanvas+Sidebar / ControlBar。
+// InteractionForm 由 SimSceneGrid 内每个 SimSceneSlot 自管（§5.6 文档要求每场景独立）。
+// 编排 useSimPanel、useSimMode、useSimSchemaInvalidation hook；
+// schema 拉取下沉到 SimSceneSlot 内的 useSimInteraction，本组件不再聚合。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { cn } from '@/lib/utils';
 import { useSimPanel, type SimSceneConfig } from '@/hooks/useSimPanel';
 import { useSimMode } from '@/hooks/useSimMode';
-import { useSimInteraction, useSimSchemaInvalidation } from '@/hooks/useSimInteraction';
+import { useSimSchemaInvalidation } from '@/hooks/useSimInteraction';
 import { SimTopBar } from '@/components/business/SimTopBar';
 import { SimSceneGrid, type SceneSlotConfig } from '@/components/business/SimSceneGrid';
 import { SimControlBar } from '@/components/business/SimControlBar';
-import { SimInteractionForm } from '@/components/business/SimInteractionForm';
 import { SimSidebar, type MetricItem, type LinkIndicatorItem } from '@/components/business/SimSidebar';
 import { SimSharedStatePanel } from '@/components/business/SimSharedStatePanel';
 import { SimTeacherInterventionPanel } from '@/components/business/SimTeacherInterventionPanel';
@@ -100,12 +100,67 @@ export function SimEnginePanel({
     return hasContinuous ? 'continuous' : 'reactive';
   })();
 
-  const [viewportWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1440));
+  // 文档 §3.4：viewport < 1280 → 自动降级为 focus；必须随窗口缩放联动，
+  // 因此挂载后绑定 resize（rAF 节流），而不是 useState 一次性快照。
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1440,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let raf = 0;
+    const onResize = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        setViewportWidth(window.innerWidth);
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, []);
   const [layoutOverride, setLayoutOverride] = useState<SimLayoutMode | null>(null);
   const [interventionOpen, setInterventionOpen] = useState(false);
   const [annotationVisible, setAnnotationVisible] = useState(false);
   const [, setActiveAnnotationTool] = useState<AnnotationTool | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
   const isTeacher = userRole === 'teacher';
+
+  // 单一场景引用（仅用于 ControlBar 的 stepBack/Reset、Sidebar 的 micro_steps 等“面板全局级”读取）。
+  // 交互表单 schema 由每个 SimSceneSlot 内部 useSimInteraction 自己拉，本处不再需要。
+  const firstScene = sceneConfigs[0];
+
+  // 面板级全屏（§1.1 ⬛）：调用浏览器 Fullscreen API，与场景级全屏（SimSceneSlot 内 fixed）不交叉。
+  const handleFullscreenToggle = useCallback(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void el.requestFullscreen();
+    }
+  }, []);
+
+  // 跟踪浏览器全屏状态变化（ESC 退出也能反映）。
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === cardRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  // 顶部 📷 截图：截主场景画布（多场景时取第一个，focus/carousel 也应由 slot 内部 📷 处理）。
+  const handleTopScreenshot = useCallback(() => {
+    if (!firstScene) return;
+    const dataUrl = sim.captureScene(firstScene.sceneCode);
+    if (!dataUrl) return;
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${firstScene.sceneCode}-screenshot.png`;
+    a.click();
+  }, [firstScene, sim]);
 
   // 标注工具切换：通过 SimPanel 下发 annotation 原语设置当前绘制模式
   const handleAnnotationToolChange = useCallback((tool: AnnotationTool | null) => {
@@ -143,15 +198,6 @@ export function SimEnginePanel({
 
   // schema_invalidated 信号处理
   useSimSchemaInvalidation(instanceID ?? '', sim.latestMessage);
-
-  // 第一个场景的交互 schema（单场景时直接渲染，多场景时各场景分别获取）
-  const firstScene = sceneConfigs[0];
-  const firstInteraction = useSimInteraction({
-    instanceID: instanceID ?? '',
-    sceneCode: firstScene?.sceneCode ?? '',
-    enabled: !!instanceID && !!firstScene,
-    userRole,
-  });
 
   // ─── 状态派生 ─────────────────────────────────────
   const firstState = firstScene ? sim.sceneStates.get(firstScene.sceneCode) : undefined;
@@ -283,10 +329,10 @@ export function SimEnginePanel({
     setLinkArcs((prev) => [...prev, ...newArcs]);
   }, [sim.latestMessage, simMode.mode, sceneConfigs.length]);
 
-  // ─── 空态 ─────────────────────────────────────────
+  // ─── 空态 ──────────────────────────────────────
   if (!sessionID) {
     return (
-      <Card className={cn('border-dashed', className)}>
+      <Card className={cn('border-dashed h-full', className)}>
         <CardContent className="flex items-center justify-center py-12">
           <p className="text-sm text-muted-foreground">可视化内容还在准备中，请稍后刷新查看。</p>
         </CardContent>
@@ -294,16 +340,21 @@ export function SimEnginePanel({
     );
   }
 
-  // ─── 三段式布局 ───────────────────────────────────
+  // ─── 三段式布局 ──────────────────────────────────
+  // h-full 是关键：Card 填满父容器高度，使内部 flex-1 画布区拿到明确高度，避免
+  // “画布薗充、ControlBar/InteractionForm 被推出视口”问题。选 bg-background 避免全屏时透明背景。
   return (
-    <Card className={cn('overflow-hidden flex flex-col', className)}>
+    <Card ref={cardRef} className={cn('overflow-hidden flex flex-col h-full bg-background', className)}>
       {/* §1.1 TopBar */}
       <SimTopBar
         mode={simMode.mode}
         layout={activeLayout}
         connected={sim.connected}
         sceneCount={sceneConfigs.length}
+        isFullscreen={isFullscreen}
         onLayoutChange={setLayoutOverride}
+        onScreenshot={handleTopScreenshot}
+        onFullscreenToggle={handleFullscreenToggle}
         onIntervene={isTeacher ? () => setInterventionOpen(true) : undefined}
         onAnnotationToggle={isTeacher ? () => setAnnotationVisible((v) => !v) : undefined}
         annotationActive={annotationVisible}
@@ -324,14 +375,21 @@ export function SimEnginePanel({
           <SimCrossCanvasOverlay arcs={linkArcs} />
         )}
 
-        <div className="flex-1 p-4 overflow-auto">
+        {/* 画布区：只该区域内部 overflow-auto，InteractionForm 以外的外层保持 overflow-hidden，
+            这样 ControlBar 依然钉在底部，交互表单随 slot 在各场景下方不需页面滚动。 */}
+        <div className="flex-1 p-4 overflow-auto min-w-0">
           <SimSceneGrid
             scenes={sceneSlots}
             layout={activeLayout}
+            instanceID={instanceID}
+            userRole={userRole}
+            connected={sim.connected}
             attachScene={sim.attachScene}
             detachScene={sim.detachScene}
             redrawScene={sim.redrawScene}
             captureScene={sim.captureScene}
+            onSubmitInteraction={(code, action, params) => sim.submitInteraction(code, action, params)}
+            onLayoutChange={setLayoutOverride}
           />
         </div>
 
@@ -364,14 +422,7 @@ export function SimEnginePanel({
         />
       )}
 
-      {/* §五 InteractionForm */}
-      <SimInteractionForm
-        actions={firstInteraction.actions}
-        connected={sim.connected}
-        onSubmit={(actionCode, params) =>
-          firstScene && sim.submitInteraction(firstScene.sceneCode, actionCode, params)
-        }
-      />
+      {/* §五 InteractionForm 已下沉到 SimSceneSlot 内部，本处不再渲染全局 form。 */}
 
       {/* §七.2 教师干预抽屉面板 */}
       {isTeacher && instanceID && (

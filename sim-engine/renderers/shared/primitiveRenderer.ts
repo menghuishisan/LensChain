@@ -4,14 +4,13 @@ import type {
   PrimitiveLayer,
   RenderConfig,
   RenderContext,
-  RenderMetric,
   RenderState,
   SceneCategory,
-  SimAction,
-  TimelineEvent
+  SimAction
 } from "./types.js";
 import { DEFAULT_THEME } from "./utils.js";
-import { type DrawEnvironment, type PrimitiveDrawFn, FALLBACK_DRAWER, PRIMITIVE_DRAWER_MAP } from "./primitiveDrawers.js";
+import { type DrawEnvironment, type PrimitiveDrawFn, FALLBACK_DRAWER, PRIMITIVE_DRAWER_MAP, setCurrentEnv } from "./primitiveDrawers.js";
+import { resolveLayout } from "./layoutSolver.js";
 
 /** 层级绘制顺序。 */
 const LAYER_ORDER: PrimitiveLayer[] = ["background", "content", "effect", "overlay"];
@@ -55,26 +54,31 @@ export abstract class PrimitiveBasedRenderer {
       }
     }
 
-    const env: DrawEnvironment = { ctx, context, theme, highlightIds, fireIds, now: context.now };
+    // 文档 framework/primitive.go:7-13：后端 push "布局原语 + 无坐标内容原语"，
+    // 前端必须在 dispatch 之前用 layoutSolver 推导每个内容原语的像素坐标，写入 resolvedLayout。
+    // p_num 通过 setCurrentEnv 拿到 env 后，自动从 resolvedLayout 取最终坐标，
+    // 并把任何 0~1 逻辑值自动放大到画布像素（*At 变体的统一约定）。
+    const resolvedLayout = resolveLayout(primitives, context.width, context.height);
+    const env: DrawEnvironment = { ctx, context, theme, highlightIds, fireIds, now: context.now, resolvedLayout };
 
-    for (const layer of LAYER_ORDER) {
-      const layerPrimitives = primitives.filter((p) => p.layer === layer);
-      for (const p of layerPrimitives) {
-        ctx.save();
-        const drawer = this.drawerOverrides[p.type] ?? PRIMITIVE_DRAWER_MAP[p.type] ?? FALLBACK_DRAWER;
-        drawer(p, env);
-        ctx.restore();
+    setCurrentEnv(env);
+    try {
+      for (const layer of LAYER_ORDER) {
+        const layerPrimitives = primitives.filter((p) => p.layer === layer);
+        for (const p of layerPrimitives) {
+          ctx.save();
+          const drawer = this.drawerOverrides[p.type] ?? PRIMITIVE_DRAWER_MAP[p.type] ?? FALLBACK_DRAWER;
+          drawer(p, env);
+          ctx.restore();
+        }
       }
-    }
 
-    this.drawMetricCards(ctx, state.metrics ?? [], theme);
-    this.drawAnnotations(ctx, state);
-    if ((state.timeline?.length ?? 0) > 0) {
-      this.drawTimeline(ctx, context.width, context.height, state.timeline ?? [], theme);
-    }
-    this.drawChangedKeys(ctx, state.changedKeys ?? [], context.width, theme);
-    if (state.linked && state.linkGroupName) {
-      this.drawBadge(ctx, `联动: ${state.linkGroupName}`, "success", theme);
+      // overlay 之后再绘制教师标注，确保始终位于顶层。
+      // metrics / timeline / changed_keys / 联动徽标按文档 §1.1 / §6.2 由 DOM 侧（Sidebar/TopBar/CrossCanvasOverlay）渲染，
+      // 不再在 canvas 内复刻 HUD。
+      this.drawAnnotations(ctx, state);
+    } finally {
+      setCurrentEnv(null);
     }
   }
 
@@ -138,8 +142,10 @@ export abstract class PrimitiveBasedRenderer {
 
   /**
    * beginFrame 初始化当前帧画布（含 DPR 修复）。
+   * 仅做：DPR 变换、清屏、铺底色、绘制背景网格。
+   * 场景标题由 SimSceneSlot（DOM 场景头）渲染，不再在 canvas 内复刻。
    */
-  protected beginFrame(context: RenderContext, title: string, subtitle?: string): CanvasRenderingContext2D {
+  protected beginFrame(context: RenderContext, _title: string): CanvasRenderingContext2D {
     const canvas = context.surface.canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
@@ -157,19 +163,7 @@ export abstract class PrimitiveBasedRenderer {
     ctx.fillStyle = theme.background;
     ctx.fillRect(0, 0, cssWidth, cssHeight);
     this.drawGrid(ctx, cssWidth, cssHeight, theme);
-    this.drawTitle(ctx, title, theme, subtitle);
     return ctx;
-  }
-
-  private drawTitle(ctx: CanvasRenderingContext2D, title: string, theme: typeof DEFAULT_THEME, subtitle?: string): void {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 18px sans-serif";
-    ctx.fillText(title, 20, 28);
-    if (subtitle) {
-      ctx.fillStyle = theme.muted;
-      ctx.font = "12px sans-serif";
-      ctx.fillText(subtitle, 20, 48);
-    }
   }
 
   private drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number, theme: typeof DEFAULT_THEME): void {
@@ -191,42 +185,6 @@ export abstract class PrimitiveBasedRenderer {
     ctx.restore();
   }
 
-  private drawMetricCards(ctx: CanvasRenderingContext2D, metrics: RenderMetric[], theme: typeof DEFAULT_THEME): void {
-    metrics.slice(0, 4).forEach((metric, index) => {
-      const x = 20 + index * 150;
-      ctx.fillStyle = "rgba(18, 29, 48, 0.92)";
-      ctx.strokeStyle = this.resolveTone(metric.tone, theme);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(x, 62, 136, 54, 12);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = theme.muted;
-      ctx.font = "11px sans-serif";
-      ctx.fillText(metric.label, x + 12, 82);
-      ctx.fillStyle = theme.foreground;
-      ctx.font = "600 16px sans-serif";
-      ctx.fillText(metric.value, x + 12, 102);
-    });
-  }
-
-  private drawChangedKeys(ctx: CanvasRenderingContext2D, changedKeys: string[], width: number, theme: typeof DEFAULT_THEME): void {
-    if (changedKeys.length === 0) return;
-    ctx.fillStyle = "rgba(18, 29, 48, 0.94)";
-    ctx.strokeStyle = theme.warning;
-    ctx.beginPath();
-    ctx.roundRect(width - 260, 206, 240, 96, 16);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 13px sans-serif";
-    ctx.fillText("状态变化高亮", width - 244, 230);
-    ctx.font = "11px sans-serif";
-    changedKeys.slice(0, 4).forEach((item, index) => {
-      ctx.fillText(item, width - 244, 252 + index * 16);
-    });
-  }
-
   private drawAnnotations(ctx: CanvasRenderingContext2D, state: RenderState): void {
     const theme = DEFAULT_THEME;
     (state.annotations ?? []).forEach((annotation) => {
@@ -238,38 +196,6 @@ export abstract class PrimitiveBasedRenderer {
       ctx.font = "12px sans-serif";
       ctx.fillText(annotation.text, annotation.x + 10, annotation.y + 16);
     });
-  }
-
-  private drawTimeline(ctx: CanvasRenderingContext2D, width: number, height: number, events: TimelineEvent[], theme: typeof DEFAULT_THEME): void {
-    const baseY = height - 48;
-    ctx.strokeStyle = theme.grid;
-    ctx.beginPath();
-    ctx.moveTo(20, baseY);
-    ctx.lineTo(width - 20, baseY);
-    ctx.stroke();
-    events.slice(-6).forEach((event, index) => {
-      const x = 40 + index * ((width - 80) / 5);
-      ctx.fillStyle = this.resolveTone(event.tone, theme);
-      ctx.beginPath();
-      ctx.arc(x, baseY, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = theme.foreground;
-      ctx.font = "11px sans-serif";
-      ctx.fillText(event.title, x - 18, baseY + 22);
-    });
-  }
-
-  private drawBadge(ctx: CanvasRenderingContext2D, text: string, tone: string, theme: typeof DEFAULT_THEME): void {
-    const width = Math.max(72, text.length * 14);
-    ctx.fillStyle = "rgba(18, 29, 48, 0.92)";
-    ctx.strokeStyle = this.resolveTone(tone, theme);
-    ctx.beginPath();
-    ctx.roundRect(20, 126, width, 28, 999);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "12px sans-serif";
-    ctx.fillText(text, 32, 145);
   }
 
   private static readonly CIRCULAR_HIT_TYPES = new Set([
@@ -315,12 +241,4 @@ export abstract class PrimitiveBasedRenderer {
     return typeof v === "number" ? v : fallback;
   }
 
-  private resolveTone(tone: string | undefined, theme: typeof DEFAULT_THEME): string {
-    switch (tone) {
-      case "success": return theme.success;
-      case "warning": return theme.warning;
-      case "danger": return theme.danger;
-      default: return theme.accent;
-    }
-  }
 }

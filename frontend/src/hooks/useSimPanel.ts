@@ -3,7 +3,8 @@
 // useSimPanel.ts
 // SimEngine 仿真面板 Hook（06.2 §一 / API v3.1 §4.1）。
 // 管理 SimPanel 渲染器实例的生命周期，桥接 sim-engine-renderers 包与 React 业务组件。
-// 消费者：SimTopBar / SimSceneGrid / SimControlBar / SimInteractionForm / SimSidebar 等。
+// 消费者：SimTopBar / SimSceneGrid / SimSceneSlot / SimControlBar / SimSidebar 等。
+// 注：InteractionForm 的 schema 拉取已下沉到 SimSceneSlot 内的 useSimInteraction，本 hook 不再聚合。
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import {

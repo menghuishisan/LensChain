@@ -36,6 +36,7 @@ export interface SimSidebarProps {
   containerHealth: ContainerHealthItem[];
   microSteps: SimMicroStep[];
   activeMicroStepId?: string;
+  /** 受控折叠态；未传时按内容自动决定（无任何 section 显示时折叠）。 */
   collapsed?: boolean;
   onToggle?: () => void;
   className?: string;
@@ -65,11 +66,21 @@ export function SimSidebar({
   containerHealth,
   microSteps,
   activeMicroStepId,
-  collapsed = false,
+  collapsed,
   onToggle,
   className,
 }: SimSidebarProps) {
-  if (collapsed) {
+  // 计算每个 section 在当前模式下是否会渲染（与下方 JSX 条件保持一致）。
+  const showMetrics = metrics.length > 0;
+  const showLinks = (mode === 'linkage' || mode === 'hybrid') && linkIndicators.length > 0;
+  const showContainers = mode === 'hybrid' && containerHealth.length > 0;
+  const showMicroSteps = microSteps.length > 0;
+  const anyVisible = showMetrics || showLinks || showContainers || showMicroSteps;
+  // 文档 §1.2：A/B/C 默认展开；D 默认收起。
+  // 但当所有 section 都无数据时强制折叠，避免右侧出现空白占位。
+  const isCollapsed = collapsed ?? (!anyVisible || mode === 'hybrid');
+
+  if (isCollapsed) {
     return (
       <div className={cn('w-10 border-l flex flex-col items-center gap-3 py-3 cursor-pointer', className)} onClick={onToggle}>
         <Activity className="h-4 w-4 text-muted-foreground" />
