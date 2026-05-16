@@ -1,206 +1,112 @@
-import type { SimAction, TimeControlCommand, WebSocketMessage } from "./types.js";
+/**
+ * wsClient.ts — SimEngine WebSocket 客户端。
+ *
+ * 职责：
+ *   • 维护单条 WS 连接；urlProvider 在每次 (重)连之前调用以确保 token 新鲜。
+ *   • 收到消息 → JSON.parse → 派发到 onMessage。
+ *   • send() 序列化 WebSocketMessage 发送。
+ *   • 断线自动重连（指数退避，上限 30s）。
+ *
+ * 不写兑底：解析失败 / 未知 type → 通过 onError 上抛，不静默丢弃。
+ */
 
-/**
- * WSClient 封装 SimEngine 数据通道的连接与消息收发。
- *
- * 设计要点（与 frontend/src/hooks/useExperimentRealtime.ts 同构）：
- * 每个 socket 的事件监听器通过闭包捕获自身引用（localSocket），所有回调首行做
- * `this.socket !== localSocket` 的身份校验。`this.socket` 即活跃 socket，其余皆死。
- * 不再使用 closedManually 共享标志位，从根上消除 React StrictMode 双调用 / 任意
- * connect() 重连路径下的状态竞态：旧 socket 的异步 close 事件无法误触发重连去杀掉
- * 已经成功建立的新 socket（之前症状："WebSocket is closed before the connection is
- * established"无限循环，DevTools WS 列表看似为空）。
- */
-/**
- * WSUrlProvider 在每次 connect/reconnect 前由 WSClient 调用以拿到最新 URL。
- *
- * 关键设计意图：access_token 是 URL query 的一部分，过期窗口（默认 30 分钟）远短于
- * 一次实验/会话。如果 URL 在构造时被锁死，连接断后重连仍会带着过期 token 401 死循环。
- * 通过 provider 让上层（hook 层）在每次拨号时先走 ApiClient.ensureFreshAccessToken
- * 拿到当前活跃 token 再拼 URL，复用 HTTP 同一套双 token 无感刷新机制。
- */
-export type WSUrlProvider = () => string | Promise<string>;
+import type { WebSocketMessage } from "./types.js";
+
+export interface WSClientOptions {
+  /** 每次 (重)连前调用，返回完整 ws:// URL（含 token）。 */
+  urlProvider: () => string | Promise<string>;
+  onOpen?: () => void;
+  onMessage: (msg: WebSocketMessage) => void;
+  onClose?: (code: number, reason: string) => void;
+  onError: (err: Error) => void;
+  /** 最大重连次数；0 = 不重连。默认无限。 */
+  maxReconnects?: number;
+}
 
 export class WSClient {
-  private socket: WebSocket | undefined;
-  private readonly listeners = new Set<(message: WebSocketMessage) => void>();
-  private readonly statusListeners = new Set<(connected: boolean) => void>();
-  private reconnectTimer: number | undefined;
-  private reconnectAttempts = 0;
-  private readonly urlProvider: WSUrlProvider;
+  private socket: WebSocket | null = null;
+  private opts: WSClientOptions;
+  private reconnectCount = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private closedByUser = false;
 
-  /**
-   * constructor 初始化数据通道客户端。每次拨号 / 重连前会调用 urlProvider 拿最新 URL，
-   * 上层负责保证返回的 URL 带未过期 token（双 token 无感刷新）。
-   */
-  public constructor(urlProvider: WSUrlProvider) {
-    this.urlProvider = urlProvider;
+  constructor(opts: WSClientOptions) {
+    this.opts = opts;
   }
 
-  /**
-   * connect 建立数据通道连接，并在断开后自动重连。
-   *
-   * 拨号是异步的（urlProvider 可能要走 refresh），用 socketRequestId 防止并发拨号
-   * 的旧请求误把新 socket 顶掉（React StrictMode 双调用、重连交叠都会出现）。
-   */
-  public connect(): void {
-    this.cancelReconnect();
-    const previous = this.socket;
-    this.socket = undefined;
-    previous?.close();
-
-    void this.dial();
-  }
-
-  private async dial(): Promise<void> {
-    let url: string;
-    try {
-      url = await this.urlProvider();
-    } catch {
-      // urlProvider 失败（refresh 失败、网络断等）：不开新 socket，转入退避重试。
-      this.notifyStatus(false);
-      this.scheduleReconnect();
-      return;
+  async connect(): Promise<void> {
+    this.closedByUser = false;
+    const url = await this.opts.urlProvider();
+    if (!url || typeof url !== "string") {
+      throw new Error("WSClient.connect: urlProvider 必须返回非空 URL 字符串");
     }
-    if (!url) {
-      // 没有有效 token / URL：避免空 URL 拨号（会抛 SyntaxError）。
-      this.notifyStatus(false);
-      this.scheduleReconnect();
-      return;
-    }
-
-    const localSocket = new WebSocket(url);
-    this.socket = localSocket;
-
-    localSocket.addEventListener("message", (event) => {
-      if (this.socket !== localSocket) return;
-      const message = JSON.parse(String(event.data)) as WebSocketMessage;
-      for (const listener of this.listeners) {
-        listener(message);
+    const ws = new WebSocket(url);
+    this.socket = ws;
+    ws.addEventListener("open", () => {
+      this.reconnectCount = 0;
+      this.opts.onOpen?.();
+    });
+    ws.addEventListener("message", (ev) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+      } catch (e) {
+        this.opts.onError(new Error(`WSClient: JSON 解析失败 ${(e as Error).message}`));
+        return;
       }
-    });
-    localSocket.addEventListener("open", () => {
-      if (this.socket !== localSocket) return;
-      this.reconnectAttempts = 0;
-      this.notifyStatus(true);
-    });
-    localSocket.addEventListener("close", () => {
-      if (this.socket !== localSocket) return;
-      this.socket = undefined;
-      this.notifyStatus(false);
-      this.scheduleReconnect();
-    });
-  }
-
-  /**
-   * disconnect 主动关闭数据通道连接。
-   * 通过先清空 this.socket 再关闭，使被弃 socket 的异步 close 事件因身份校验失败而失效，
-   * 不会触发自动重连。
-   */
-  public disconnect(): void {
-    this.cancelReconnect();
-    const previous = this.socket;
-    this.socket = undefined;
-    previous?.close();
-  }
-
-  /**
-   * subscribe 订阅来自 Core 的消息。
-   */
-  public subscribe(listener: (message: WebSocketMessage) => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  /**
-   * subscribeStatus 订阅连接状态变化。
-   */
-  public subscribeStatus(listener: (connected: boolean) => void): () => void {
-    this.statusListeners.add(listener);
-    return () => {
-      this.statusListeners.delete(listener);
-    };
-  }
-
-  /**
-   * sendAction 发送场景交互操作。
-   */
-  public sendAction(action: SimAction): void {
-    this.send({
-      type: "action",
-      tick: 0,
-      timestamp: Date.now(),
-      scene_code: action.sceneCode,
-      payload: {
-        action_code: action.actionCode,
-        actor_id: action.actorId ?? "",
-        user_role: action.userRole ?? "",
-        params: action.params
+      if (!isWebSocketMessage(parsed)) {
+        this.opts.onError(new Error(`WSClient: 消息格式不符合 WebSocketMessage`));
+        return;
       }
+      this.opts.onMessage(parsed);
+    });
+    ws.addEventListener("close", (ev) => {
+      this.socket = null;
+      this.opts.onClose?.(ev.code, ev.reason);
+      if (!this.closedByUser) this.scheduleReconnect();
+    });
+    ws.addEventListener("error", () => {
+      // 浏览器 WS error 事件不带具体信息；关闭事件会随后到来。
+      this.opts.onError(new Error("WSClient: WebSocket 错误（详见 close 事件）"));
     });
   }
 
-  /**
-   * sendControl 发送时间控制命令。
-   */
-  public sendControl(command: TimeControlCommand, value?: number): void {
-    this.send({
-      type: "control",
-      tick: 0,
-      timestamp: Date.now(),
-      payload: value === undefined ? { command } : { command, value }
-    });
-  }
-
-  /**
-   * sendRewind 发送定点回退指令。
-   */
-  public sendRewind(targetTick: number): void {
-    this.send({
-      type: "step_back",
-      tick: 0,
-      timestamp: Date.now(),
-      payload: { target_tick: targetTick }
-    });
-  }
-
-  /**
-   * send 执行底层消息发送。
-   */
-  private send(message: WebSocketMessage): void {
+  send(msg: WebSocketMessage): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      throw new Error("SimEngine 数据通道尚未连接");
+      throw new Error("WSClient.send: 连接未就绪");
     }
-    this.socket.send(JSON.stringify(message));
+    this.socket.send(JSON.stringify(msg));
   }
 
-  /**
-   * scheduleReconnect 按指数退避安排下一次重连，最大间隔 30 秒。
-   */
+  close(): void {
+    this.closedByUser = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+    }
+  }
+
+  isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
+
   private scheduleReconnect(): void {
-    const delay = Math.min(30000, 1500 * Math.pow(2, this.reconnectAttempts));
-    this.reconnectAttempts += 1;
-    this.reconnectTimer = window.setTimeout(() => this.connect(), delay);
+    const max = this.opts.maxReconnects ?? Number.POSITIVE_INFINITY;
+    if (this.reconnectCount >= max) return;
+    const delay = Math.min(30_000, 500 * 2 ** Math.min(6, this.reconnectCount));
+    this.reconnectCount++;
+    this.reconnectTimer = setTimeout(() => {
+      this.connect().catch(err => this.opts.onError(err as Error));
+    }, delay);
   }
+}
 
-  /**
-   * cancelReconnect 清理尚未执行的重连定时器。
-   */
-  private cancelReconnect(): void {
-    if (this.reconnectTimer !== undefined) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = undefined;
-    }
-  }
-
-  /**
-   * notifyStatus 广播连接状态变化。
-   */
-  private notifyStatus(connected: boolean): void {
-    for (const listener of this.statusListeners) {
-      listener(connected);
-    }
-  }
+function isWebSocketMessage(v: unknown): v is WebSocketMessage {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.type === "string"
+    && typeof o.tick === "number"
+    && typeof o.timestamp === "number"
+    && typeof o.payload === "object" && o.payload !== null;
 }

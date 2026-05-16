@@ -1,82 +1,89 @@
-// useSimMode.ts
-// SimEngine 模式判定与布局计算 Hook（06.2 §二 / §三）。
-// 纯计算逻辑，不发起 API 请求，不渲染 JSX。
+/**
+ * useSimMode.ts — SimEngine 4 模式判定与配速常量（06.2 §2.1 / §四 / §3.4）。
+ *
+ * 不带任何渲染状态；纯派生函数 + 一个 hook 包装。
+ */
 
-import { useMemo } from "react";
+import { useMemo } from 'react';
+import type { ExperimentType, SimLayoutMode, SimMode, SimTimeControlMode } from '@/types/experiment';
 
-import type { ExperimentType, SimLayoutMode, SimMode, SimTimeControlMode } from "@/types/experiment";
+/** 速率选项（06.2 §4.3）。 */
+export const SPEED_OPTIONS: readonly { value: number; label: string }[] = [
+  { value: 0.5, label: '0.5×' },
+  { value: 1, label: '1×' },
+  { value: 1.5, label: '1.5×' },
+  { value: 2, label: '2×' },
+];
 
-/** detectMode 根据三字段组合判定 SimEngine 模式（06.2 §2.2）。 */
+/** 默认速率值（1×）。 */
+export const DEFAULT_SPEED = 1;
+
+/** 单步回退最大次数（06.2 §4.2 协议要求）。 */
+export const STEP_BACK_BUFFER_LIMIT = 20;
+
+/**
+ * 判定 SimEngine 4 模式（06.2 §2.2）。
+ *
+ * 优先级：experiment_type=3 → hybrid（不论场景数 / 联动）；否则按场景数与联动组组合。
+ */
 export function detectMode(
   experimentType: ExperimentType,
   sceneCount: number,
   hasActiveLinkGroup: boolean,
 ): SimMode {
-  if (experimentType === 3) return "hybrid";
-  if (sceneCount === 1) return "single";
-  if (hasActiveLinkGroup) return "linkage";
-  return "comparison";
-}
-
-/** defaultLayout 根据场景数与视口宽度判定默认布局（06.2 §3.4）。 */
-export function defaultLayout(sceneCount: number, viewportWidth: number): SimLayoutMode {
-  if (sceneCount <= 4 && viewportWidth >= 1280) return "grid";
-  return "focus";
-}
-
-/** 回退按钮是否可用（06.2 §4.2）。 */
-export function isStepBackEnabled(mode: SimMode, timeControlMode: SimTimeControlMode): boolean {
-  return mode === "single" && timeControlMode === "process";
-}
-
-/** 回退按钮 tooltip 文本（06.2 §4.2）。 */
-export function stepBackDisabledReason(mode: SimMode, timeControlMode: SimTimeControlMode): string | null {
-  if (mode === "single" && timeControlMode === "process") return null;
-  if (mode === "comparison") return "对照模式不支持单步回退";
-  if (mode === "linkage") return "联动模式不支持单步回退，请重置";
-  if (mode === "hybrid") return "混合实验不支持单步回退";
-  return null;
-}
-
-/** 速度档位（06.2 §4.3）。 */
-export const SPEED_OPTIONS = [0.5, 1, 1.5, 2] as const;
-
-/** useSimMode 参数。 */
-export interface UseSimModeOptions {
-  experimentType: ExperimentType;
-  sceneCount: number;
-  hasActiveLinkGroup: boolean;
-  viewportWidth: number;
-  timeControlMode: SimTimeControlMode;
-}
-
-/** useSimMode 返回值。 */
-export interface UseSimModeReturn {
-  mode: SimMode;
-  layout: SimLayoutMode;
-  canStepBack: boolean;
-  stepBackTooltip: string | null;
-  showTimeControl: boolean;
-  showSharedStatePanel: boolean;
-  forceSyncClock: boolean;
+  if (experimentType === 3) return 'hybrid';
+  if (sceneCount === 1) return 'single';
+  if (hasActiveLinkGroup) return 'linkage';
+  return 'comparison';
 }
 
 /**
- * useSimMode 组合计算 SimEngine 模式、布局和控件显隐。
- * 页面和组件从本 hook 获取当前 SimEngine 的显示规则，不自行判断。
+ * 默认主区布局（06.2 §3.4）：场景数 ≤4 且视口 ≥1280 才用 grid，否则降级 focus。
+ * carousel 由学生在 ≥5 场景时显式选择。
  */
-export function useSimMode(options: UseSimModeOptions): UseSimModeReturn {
-  const { experimentType, sceneCount, hasActiveLinkGroup, viewportWidth, timeControlMode } = options;
+export function defaultLayout(sceneCount: number, viewportWidth: number): SimLayoutMode {
+  if (sceneCount <= 4 && viewportWidth >= 1280) return 'grid';
+  return 'focus';
+}
 
-  return useMemo(() => {
-    const mode = detectMode(experimentType, sceneCount, hasActiveLinkGroup);
-    const layout = defaultLayout(sceneCount, viewportWidth);
-    const canStepBack = isStepBackEnabled(mode, timeControlMode);
-    const stepBackTooltip = stepBackDisabledReason(mode, timeControlMode);
-    const showTimeControl = timeControlMode !== "reactive";
-    const showSharedStatePanel = mode === "linkage";
-    const forceSyncClock = mode === "linkage";
+/**
+ * 判定 ⏮ 单步回退按钮在当前模式下的可用性（06.2 §4.2）。
+ *
+ * 仅 A 单仿真 + process 时间模式启用；B/C/D 全部置灰；reactive/continuous 不显示。
+ */
+export interface StepBackVisibility {
+  /** 是否在 UI 上呈现按钮（false 表示直接不渲染）。 */
+  visible: boolean;
+  /** 是否可点击（visible=true 但 enabled=false 表示置灰）。 */
+  enabled: boolean;
+  /** 置灰 / 隐藏原因（用于 tooltip）。 */
+  reason?: string;
+}
 
-    return { mode, layout, canStepBack, stepBackTooltip, showTimeControl, showSharedStatePanel, forceSyncClock };
-  }, [experimentType, sceneCount, hasActiveLinkGroup, viewportWidth, timeControlMode]);
+export function stepBackVisibility(mode: SimMode, timeMode: SimTimeControlMode): StepBackVisibility {
+  if (timeMode !== 'process') return { visible: false, enabled: false };
+  switch (mode) {
+    case 'single':
+      return { visible: true, enabled: true };
+    case 'comparison':
+      return { visible: true, enabled: false, reason: '对照模式不支持单步回退' };
+    case 'linkage':
+      return { visible: true, enabled: false, reason: '联动模式不支持单步回退，请重置' };
+    case 'hybrid':
+      return { visible: true, enabled: false, reason: '混合实验不支持单步回退' };
+  }
+}
+
+/**
+ * useSimMode 把判定逻辑包装为 React hook，结果随输入变化记忆化。
+ */
+export function useSimMode(input: {
+  experimentType: ExperimentType;
+  sceneCount: number;
+  hasActiveLinkGroup: boolean;
+}): SimMode {
+  return useMemo(
+    () => detectMode(input.experimentType, input.sceneCount, input.hasActiveLinkGroup),
+    [input.experimentType, input.sceneCount, input.hasActiveLinkGroup],
+  );
 }

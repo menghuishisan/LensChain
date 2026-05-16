@@ -1,50 +1,41 @@
 /**
- * AnimationScheduler 负责管理场景过渡动画调度。
+ * animationScheduler.ts — RAF 帧循环调度。
+ *
+ * 职责：
+ *   • start(tick) 启动 requestAnimationFrame 循环，每帧调 tick(now)。
+ *   • stop() 取消。
+ *   • 不持有任何渲染状态——状态由调用方（SceneView）管理。
  */
+
+export type FrameTick = (now: number) => void;
+
 export class AnimationScheduler {
-  private readonly handles = new Map<string, number>();
+  private rafId: number | null = null;
+  private tick: FrameTick | null = null;
 
-  /**
-   * start 启动一次补间动画。
-   */
-  public start(
-    key: string,
-    durationMS: number,
-    onFrame: (progress: number) => void,
-    onDone?: () => void
-  ): void {
-    this.stop(key);
-    const startedAt = performance.now();
-    const step = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / durationMS);
-      onFrame(progress);
-      if (progress >= 1) {
-        this.handles.delete(key);
-        onDone?.();
-        return;
+  start(tick: FrameTick): void {
+    if (this.rafId !== null) {
+      throw new Error("AnimationScheduler.start: 已在运行，先 stop()");
+    }
+    this.tick = tick;
+    const loop = (now: number): void => {
+      if (this.tick) {
+        this.tick(now);
+        this.rafId = requestAnimationFrame(loop);
       }
-      this.handles.set(key, requestAnimationFrame(step));
     };
-    this.handles.set(key, requestAnimationFrame(step));
+    this.rafId = requestAnimationFrame(loop);
   }
 
-  /**
-   * stop 停止指定动画。
-   */
-  public stop(key: string): void {
-    const handle = this.handles.get(key);
-    if (handle !== undefined) {
-      cancelAnimationFrame(handle);
-      this.handles.delete(key);
+  stop(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
     }
+    this.tick = null;
   }
 
-  /**
-   * clear 停止全部动画。
-   */
-  public clear(): void {
-    for (const key of this.handles.keys()) {
-      this.stop(key);
-    }
+  isRunning(): boolean {
+    return this.rafId !== null;
   }
 }

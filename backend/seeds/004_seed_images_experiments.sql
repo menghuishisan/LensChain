@@ -875,3 +875,708 @@ VALUES
     (910000000000031014, 910000000000008007, 910000000000030004, NOW()),
     (910000000000031015, 910000000000008007, 910000000000030007, NOW())
 ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- 11. 补充工具类实验模板（使用各种工具镜像）
+-- =====================================================================
+
+INSERT INTO experiment_templates (
+    id, school_id, teacher_id, title, description, objectives, instructions,
+    experiment_type, topology_mode, judge_mode, total_score, max_duration, idle_timeout,
+    score_strategy, status, created_at, updated_at
+)
+VALUES
+    -- 模板 8：Code-Server 在线开发实验
+    (
+        910000000000008008,
+        910000000000000001,
+        910000000000001001,
+        'Code-Server 在线开发实验',
+        '使用 Code-Server 在线 IDE 完成 Go 语言区块链节点开发。',
+        '掌握在线 IDE 的使用，理解区块链节点的基本开发流程。',
+        E'1. 启动 Code-Server 容器\n2. 创建 Go 项目并初始化\n3. 编写简单的 P2P 节点代码\n4. 编译并运行测试',
+        2,
+        1,
+        1,
+        100,
+        60,
+        30,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 9：Remix-IDE 合约开发实验
+    (
+        910000000000008009,
+        910000000000000001,
+        910000000000001001,
+        'Remix-IDE 合约开发实验',
+        '使用 Remix-IDE 完成 ERC-20 代币合约的开发与测试。',
+        '熟悉 Remix-IDE 的各项功能，掌握 Solidity 合约开发基础。',
+        E'1. 启动 Remix-IDE 容器\n2. 编写 ERC-20 代币合约\n3. 使用 Remix 编译器编译\n4. 部署到测试网络并测试',
+        2,
+        1,
+        1,
+        100,
+        45,
+        30,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 10：Fabric-Explorer 区块链浏览器实验
+    (
+        910000000000008010,
+        910000000000000001,
+        910000000000001001,
+        'Fabric-Explorer 区块链浏览器实验',
+        '部署并配置 Fabric 区块链浏览器，观察 Fabric 网络的交易和区块。',
+        '理解 Fabric 网络的数据结构，掌握区块链浏览器的部署与使用。',
+        E'1. 启动 Fabric 网络节点\n2. 部署 Fabric-Explorer\n3. 配置 Explorer 连接网络\n4. 观察区块和交易数据',
+        2,
+        1,
+        1,
+        100,
+        75,
+        30,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 11：Xterm-Server 终端操作实验
+    (
+        910000000000008011,
+        910000000000000001,
+        910000000000001001,
+        'Xterm-Server 终端操作实验',
+        '通过 Web 终端完成区块链节点的命令行操作。',
+        '掌握区块链节点的命令行工具，熟悉常用 CLI 命令。',
+        E'1. 启动 xterm-server 容器\n2. 连接到区块链节点\n3. 使用 CLI 查询节点状态\n4. 发送测试交易',
+        2,
+        1,
+        1,
+        100,
+        30,
+        30,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 12：Redis 缓存实验
+    (
+        910000000000008012,
+        910000000000000001,
+        910000000000001001,
+        'Redis 缓存实验',
+        '使用 Redis 作为区块链节点的缓存层，提升查询性能。',
+        '理解 Redis 在区块链系统中的应用，掌握缓存策略设计。',
+        E'1. 启动 Redis 容器\n2. 配置节点连接 Redis\n3. 实现区块数据缓存\n4. 测试缓存命中率',
+        2,
+        1,
+        1,
+        100,
+        45,
+        30,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 13：Postgres 数据持久化实验
+    (
+        910000000000008013,
+        910000000000000001,
+        910000000000001001,
+        'Postgres 数据持久化实验',
+        '使用 PostgreSQL 存储区块链交易和状态数据。',
+        '理解区块链数据的持久化方案，掌握数据库设计。',
+        E'1. 启动 Postgres 容器\n2. 设计数据库表结构\n3. 实现交易数据同步\n4. 查询并分析链上数据',
+        2,
+        1,
+        1,
+        100,
+        60,
+        30,
+        1,
+        2,
+        NOW(),
+        NOW()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- 12. 新增模板的容器配置
+-- =====================================================================
+
+INSERT INTO template_containers (
+    id, template_id, image_version_id, container_name, deployment_scope, role_id,
+    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on, startup_order,
+    is_primary, sort_order, created_at, updated_at
+)
+VALUES
+    -- 模板 8：Code-Server
+    (
+        910000000000009034,
+        910000000000008008,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'code-server' AND iv.version = '4.89'),
+        'code-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":8080,"service_port":8080,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '1Gi',
+        '[]'::jsonb,
+        1,
+        TRUE,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009035,
+        910000000000008008,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m',
+        '128Mi',
+        '[]'::jsonb,
+        99,
+        FALSE,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 9：Remix-IDE
+    (
+        910000000000009036,
+        910000000000008009,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'remix-ide' AND iv.version = 'latest'),
+        'remix-ide',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":8080,"service_port":8080,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '512Mi',
+        '[]'::jsonb,
+        1,
+        TRUE,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009037,
+        910000000000008009,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m',
+        '128Mi',
+        '[]'::jsonb,
+        99,
+        FALSE,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 10：Fabric-Explorer（需要先启动 Fabric 网络）
+    (
+        910000000000009038,
+        910000000000008010,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-ca' AND iv.version = '1.5'),
+        'fabric-ca',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":7054,"service_port":7054,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '250m',
+        '256Mi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009039,
+        910000000000008010,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-orderer' AND iv.version = '2.5'),
+        'fabric-orderer',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":7050,"service_port":7050,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '512Mi',
+        '[{"container_name":"fabric-ca"}]'::jsonb,
+        2,
+        FALSE,
+        2,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009040,
+        910000000000008010,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'couchdb' AND iv.version = '3.3'),
+        'couchdb',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":5984,"service_port":5984,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '250m',
+        '256Mi',
+        '[]'::jsonb,
+        2,
+        FALSE,
+        3,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009041,
+        910000000000008010,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-peer' AND iv.version = '2.5'),
+        'fabric-peer',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":7051,"service_port":7051,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '512Mi',
+        '[{"container_name":"fabric-orderer"},{"container_name":"couchdb"}]'::jsonb,
+        3,
+        FALSE,
+        4,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009042,
+        910000000000008010,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'fabric-explorer' AND iv.version = '1.1'),
+        'fabric-explorer',
+        1,
+        NULL,
+        '[{"key":"DISCOVERY_AS_LOCALHOST","value":"false","desc":"使用容器网络","conditions":[]},{"key":"LOG_LEVEL_APP","value":"info","desc":"日志级别","conditions":[]}]'::jsonb,
+        '[{"container_port":8080,"service_port":8080,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '1Gi',
+        '[{"container_name":"fabric-peer"}]'::jsonb,
+        4,
+        TRUE,
+        5,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009043,
+        910000000000008010,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m',
+        '128Mi',
+        '[]'::jsonb,
+        99,
+        FALSE,
+        6,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 11：Xterm-Server（单容器）
+    (
+        910000000000009044,
+        910000000000008011,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
+        'geth',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":8545,"service_port":8545,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '1Gi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009045,
+        910000000000008011,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m',
+        '128Mi',
+        '[{"container_name":"geth"}]'::jsonb,
+        2,
+        TRUE,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 12：Redis 缓存
+    (
+        910000000000009046,
+        910000000000008012,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
+        'geth',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":8545,"service_port":8545,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '1Gi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009047,
+        910000000000008012,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'redis' AND iv.version = '7'),
+        'redis',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":6379,"service_port":6379,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '250m',
+        '256Mi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        2,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009048,
+        910000000000008012,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m',
+        '128Mi',
+        '[{"container_name":"geth"},{"container_name":"redis"}]'::jsonb,
+        2,
+        TRUE,
+        3,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 13：Postgres 数据持久化
+    (
+        910000000000009049,
+        910000000000008013,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
+        'geth',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":8545,"service_port":8545,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '1Gi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009050,
+        910000000000008013,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'postgres' AND iv.version = '15'),
+        'postgres',
+        1,
+        NULL,
+        '[{"key":"POSTGRES_PASSWORD","value":"postgres","desc":"Postgres 超级用户密码","conditions":[]},{"key":"POSTGRES_DB","value":"blockchain","desc":"区块链数据库","conditions":[]},{"key":"POSTGRES_USER","value":"postgres","desc":"Postgres 超级用户","conditions":[]}]'::jsonb,
+        '[{"container_port":5432,"service_port":5432,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '500m',
+        '512Mi',
+        '[]'::jsonb,
+        1,
+        FALSE,
+        2,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000009051,
+        910000000000008013,
+        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
+        'xterm-server',
+        1,
+        NULL,
+        '[]'::jsonb,
+        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
+        '[]'::jsonb,
+        '100m',
+        '128Mi',
+        '[{"container_name":"geth"},{"container_name":"postgres"}]'::jsonb,
+        2,
+        TRUE,
+        3,
+        NOW(),
+        NOW()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- 13. 新增模板的检查点
+-- =====================================================================
+
+INSERT INTO template_checkpoints (
+    id, template_id, title, description, check_type, script_content, script_language,
+    target_container, assertion_config, score, scope, sort_order, created_at, updated_at
+)
+VALUES
+    -- 模板 8 检查点
+    (
+        910000000000010012,
+        910000000000008008,
+        'Code-Server 环境验证',
+        '验证 Code-Server 正常启动并可访问。',
+        2,
+        NULL, NULL, NULL, NULL,
+        30,
+        1,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000010013,
+        910000000000008008,
+        'Go 项目编译测试',
+        '验证 Go 项目能够正常编译运行。',
+        2,
+        NULL, NULL, NULL, NULL,
+        70,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 9 检查点
+    (
+        910000000000010014,
+        910000000000008009,
+        'Remix-IDE 环境验证',
+        '验证 Remix-IDE 正常启动并可访问。',
+        2,
+        NULL, NULL, NULL, NULL,
+        40,
+        1,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000010015,
+        910000000000008009,
+        'ERC-20 合约编译部署',
+        '验证 ERC-20 合约能够成功编译并部署。',
+        2,
+        NULL, NULL, NULL, NULL,
+        60,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 10 检查点
+    (
+        910000000000010016,
+        910000000000008010,
+        'Fabric 网络启动验证',
+        '验证 Fabric 网络节点正常启动并连接。',
+        2,
+        NULL, NULL, NULL, NULL,
+        40,
+        1,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000010017,
+        910000000000008010,
+        'Fabric-Explorer 数据展示',
+        '验证 Explorer 能够正常显示 Fabric 网络数据。',
+        2,
+        NULL, NULL, NULL, NULL,
+        60,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 11 检查点
+    (
+        910000000000010018,
+        910000000000008011,
+        '终端连接验证',
+        '验证能够通过 Web 终端连接到节点。',
+        2,
+        NULL, NULL, NULL, NULL,
+        50,
+        1,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000010019,
+        910000000000008011,
+        'CLI 命令执行验证',
+        '验证能够通过 CLI 查询节点状态并发送交易。',
+        2,
+        NULL, NULL, NULL, NULL,
+        50,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 12 检查点
+    (
+        910000000000010020,
+        910000000000008012,
+        'Redis 连接验证',
+        '验证节点能够正常连接到 Redis。',
+        2,
+        NULL, NULL, NULL, NULL,
+        50,
+        1,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000010021,
+        910000000000008012,
+        '缓存功能验证',
+        '验证区块数据能够正常缓存并命中。',
+        2,
+        NULL, NULL, NULL, NULL,
+        50,
+        1,
+        2,
+        NOW(),
+        NOW()
+    ),
+    -- 模板 13 检查点
+    (
+        910000000000010022,
+        910000000000008013,
+        'Postgres 连接验证',
+        '验证节点能够正常连接到 PostgreSQL。',
+        2,
+        NULL, NULL, NULL, NULL,
+        50,
+        1,
+        1,
+        NOW(),
+        NOW()
+    ),
+    (
+        910000000000010023,
+        910000000000008013,
+        '数据持久化验证',
+        '验证交易数据能够正常同步到数据库。',
+        2,
+        NULL, NULL, NULL, NULL,
+        50,
+        1,
+        2,
+        NOW(),
+        NOW()
+    )
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- 14. 新增标签
+-- =====================================================================
+
+INSERT INTO tags (id, name, category, color, is_system, created_at)
+VALUES
+    (910000000000030009, '在线开发', 'topic', '#8B5CF6', TRUE, NOW()),
+    (910000000000030010, 'IDE', 'tool', '#EC4899', TRUE, NOW()),
+    (910000000000030011, '缓存', 'topic', '#F59E0B', TRUE, NOW()),
+    (910000000000030012, '数据库', 'topic', '#10B981', TRUE, NOW()),
+    (910000000000030013, '终端', 'tool', '#6366F1', TRUE, NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- 15. 新增模板的标签关联
+-- =====================================================================
+
+INSERT INTO template_tags (id, template_id, tag_id, created_at)
+VALUES
+    -- 模板 8（Code-Server）
+    (910000000000031016, 910000000000008008, 910000000000030009, NOW()),
+    (910000000000031017, 910000000000008008, 910000000000030010, NOW()),
+    -- 模板 9（Remix-IDE）
+    (910000000000031018, 910000000000008009, 910000000000030009, NOW()),
+    (910000000000031019, 910000000000008009, 910000000000030010, NOW()),
+    (910000000000031020, 910000000000008009, 910000000000030001, NOW()),
+    -- 模板 10（Fabric-Explorer）
+    (910000000000031021, 910000000000008010, 910000000000030002, NOW()),
+    (910000000000031022, 910000000000008010, 910000000000030007, NOW()),
+    -- 模板 11（Xterm-Server）
+    (910000000000031023, 910000000000008011, 910000000000030013, NOW()),
+    (910000000000031024, 910000000000008011, 910000000000030001, NOW()),
+    -- 模板 12（Redis）
+    (910000000000031025, 910000000000008012, 910000000000030011, NOW()),
+    (910000000000031026, 910000000000008012, 910000000000030001, NOW()),
+    -- 模板 13（Postgres）
+    (910000000000031027, 910000000000008013, 910000000000030012, NOW()),
+    (910000000000031028, 910000000000008013, 910000000000030001, NOW())
+ON CONFLICT (id) DO NOTHING;

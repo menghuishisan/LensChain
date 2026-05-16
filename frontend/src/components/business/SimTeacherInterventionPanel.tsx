@@ -1,206 +1,197 @@
 'use client';
 
-// SimTeacherInterventionPanel.tsx
-// 教师实时干预面板（06.2 §七.2）。
-// TopBar [干预] 按钮触发右侧抽屉 slide-in（width 360px）。
-// 包含：广播消息、强制暂停/恢复、推送 step、强制重置、解锁联动时钟、调试共享状态、踢出学生。
+/**
+ * SimTeacherInterventionPanel — 教师实时干预抽屉（06.2 §7.2）。
+ *
+ * TopBar Settings2 按钮触发右侧抽屉（width 360px）。
+ * 10 个干预按钮，与 backend internal/model/enum/experiment.go::InterveneType* 严格同名。
+ * 按 redesign-proposal.html §①-B 重分 4 组：参数注入 / 事件触发 / 容器干预 / 会话管理。
+ *
+ * 本组件只发出“干预意图”事件；具体 HTTP 请求由父组件（SimEnginePanel）走 services 层完成。
+ */
 
-import { useCallback, useState } from 'react';
-import {
-  LogOut,
-  Megaphone,
-  Pause,
-  Play,
-  RotateCcw,
-  SkipForward,
-  Unlock,
-  Bug,
-  X,
-} from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
+import { useState } from 'react';
+import { Bug, ClipboardEdit, FastForward, LogOut, Megaphone, Pause, Play, RotateCcw, Settings2, SkipForward, Unlock } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/Sheet';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { cn } from '@/lib/utils';
-import { teacherIntervene } from '@/services/experiment';
-import type { ID } from '@/types/api';
-import type { TeacherInterveneAction, TeacherInterveneRequest } from '@/types/experiment';
-
-export interface SimTeacherInterventionPanelProps {
-  experimentID: ID;
-  open: boolean;
-  onClose: () => void;
-  className?: string;
-}
 
 /**
- * SimTeacherInterventionPanel 教师干预右侧抽屉面板（06.2 §七.2）。
+ * 与 backend internal/model/enum/experiment.go::InterveneType* 严格同名的 10 个动作。
  */
-export function SimTeacherInterventionPanel({
-  experimentID,
-  open,
-  onClose,
-  className,
-}: SimTeacherInterventionPanelProps) {
-  const [broadcastMsg, setBroadcastMsg] = useState('');
-  const [targetStudentId, setTargetStudentId] = useState('');
-  const [targetSceneCode, setTargetSceneCode] = useState('');
-  const [targetLinkGroup, setTargetLinkGroup] = useState('');
-  const [debugField, setDebugField] = useState('');
-  const [debugValue, setDebugValue] = useState('');
-  const [loading, setLoading] = useState<TeacherInterveneAction | null>(null);
+export type InterventionType =
+  | 'broadcast'
+  | 'pause_all'
+  | 'resume_all'
+  | 'force_step'
+  | 'force_reset'
+  | 'push_step'
+  | 'debug_shared_state'
+  | 'unlock_link_clock'
+  | 'kick_student'
+  | 'annotation';
 
-  const intervene = useCallback(
-    async (action: TeacherInterveneAction, extra?: Partial<TeacherInterveneRequest>) => {
-      setLoading(action);
-      try {
-        const req: TeacherInterveneRequest = {
-          action,
-          target_student_ids: targetStudentId ? [targetStudentId] : undefined,
-          target_scene_code: targetSceneCode || undefined,
-          ...extra,
-        };
-        await teacherIntervene(experimentID, req);
-      } finally {
-        setLoading(null);
-      }
-    },
-    [experimentID, targetStudentId, targetSceneCode],
-  );
+export interface InterventionPayload {
+  type: InterventionType;
+  /** broadcast 文字 / push_step 步骤 ID 等附加参数。 */
+  data?: Record<string, unknown>;
+}
 
-  if (!open) return null;
+export interface SimTeacherInterventionPanelProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onIntervene: (payload: InterventionPayload) => void;
+}
+
+export function SimTeacherInterventionPanel(props: SimTeacherInterventionPanelProps) {
+  const { open, onOpenChange, onIntervene } = props;
+  const [broadcastText, setBroadcastText] = useState('');
+  const [confirmType, setConfirmType] = useState<InterventionType | null>(null);
+
+  const requestConfirm = (type: InterventionType) => setConfirmType(type);
+  const handleConfirm = () => {
+    if (!confirmType) return;
+    onIntervene({ type: confirmType });
+    setConfirmType(null);
+  };
 
   return (
-    <div
-      className={cn(
-        'fixed right-0 top-0 z-50 h-full w-[360px] border-l bg-background shadow-2xl transition-transform',
-        open ? 'translate-x-0' : 'translate-x-full',
-        className,
-      )}
-    >
-      {/* 头部 */}
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <p className="text-sm font-semibold">教师干预面板</p>
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent width="w-[360px]" className="p-0">
+        <SheetHeader className="border-b border-border px-4 py-3">
+          <SheetTitle className="flex items-center gap-1.5 text-sm">
+            <Settings2 className="h-3.5 w-3.5" /> 教师干预
+          </SheetTitle>
+        </SheetHeader>
+        <div className="flex flex-col gap-3 p-3">
 
-      <div className="overflow-auto p-4 space-y-5" style={{ height: 'calc(100% - 49px)' }}>
-        {/* 目标选择 */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">目标（可选）</p>
-          <Input className="h-7 text-xs" placeholder="指定学生（留空则对全体生效）" value={targetStudentId} onChange={(e) => setTargetStudentId(e.target.value)} />
-          <Input className="h-7 text-xs" placeholder="指定场景（留空则对所有场景生效）" value={targetSceneCode} onChange={(e) => setTargetSceneCode(e.target.value)} />
-        </div>
-
-        {/* §7.2 广播消息 */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><Megaphone className="h-3 w-3" />广播消息</p>
-          <div className="flex gap-2">
-            <Input className="h-8 text-xs flex-1" placeholder="输入广播内容..." value={broadcastMsg} onChange={(e) => setBroadcastMsg(e.target.value)} />
+          {/* 1． 参数注入：向全班/个人注入文字 / 内容 / 参数 */}
+          <Section title="参数注入" icon={<Megaphone className="h-3.5 w-3.5" />}>
+            <Textarea
+              value={broadcastText}
+              onChange={e => setBroadcastText(e.target.value)}
+              placeholder="向全班学生广播一条文字"
+              className="h-16 text-xs"
+            />
             <Button
               size="sm"
-              className="h-8 text-xs gap-1"
-              disabled={!broadcastMsg.trim()}
-              isLoading={loading === 'broadcast_message'}
+              variant="primary"
+              disabled={!broadcastText.trim()}
               onClick={() => {
-                void intervene('broadcast_message', { message: broadcastMsg });
-                setBroadcastMsg('');
+                onIntervene({ type: 'broadcast', data: { text: broadcastText.trim() } });
+                setBroadcastText('');
               }}
+              className="h-7 self-end text-xs"
             >
-              <Megaphone className="h-3 w-3" />发送
+              <Megaphone className="mr-1 h-3.5 w-3.5" /> 广播发送
             </Button>
-          </div>
-        </div>
+          </Section>
 
-        {/* 控制类操作 */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">控制操作</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 text-xs gap-1 justify-start"
-              isLoading={loading === 'force_pause_all'}
-              onClick={() => void intervene('force_pause_all')}
-            >
-              <Pause className="h-3.5 w-3.5" />强制暂停所有
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 text-xs gap-1 justify-start"
-              isLoading={loading === 'force_resume_all'}
-              onClick={() => void intervene('force_resume_all')}
-            >
-              <Play className="h-3.5 w-3.5" />强制恢复所有
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 text-xs gap-1 justify-start"
-              isLoading={loading === 'force_step'}
-              onClick={() => void intervene('force_step')}
-            >
-              <SkipForward className="h-3.5 w-3.5" />推进一步
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 text-xs gap-1 justify-start"
-              isLoading={loading === 'force_reset'}
-              onClick={() => void intervene('force_reset')}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />强制重置
-            </Button>
-          </div>
-        </div>
+          {/* 2． 事件触发：强制推进 / 重置 / 推送指定步骤 / 老师标注 */}
+          <Section title="事件触发" icon={<FastForward className="h-3.5 w-3.5" />}>
+            <div className="grid grid-cols-2 gap-2">
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('force_step')} className="h-7 text-xs">
+                <FastForward className="mr-1 h-3.5 w-3.5" /> 强制步进
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('force_reset')} className="h-7 text-xs">
+                <RotateCcw className="mr-1 h-3.5 w-3.5" /> 强制重置
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('push_step')} className="h-7 text-xs">
+                <SkipForward className="mr-1 h-3.5 w-3.5" /> 推送步骤
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('annotation')} className="h-7 text-xs">
+                <ClipboardEdit className="mr-1 h-3.5 w-3.5" /> 推送标注
+              </Button>
+            </div>
+          </Section>
 
-        {/* 联动操作 */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">联动操作</p>
-          <Input className="h-7 text-xs" placeholder="选择联动组" value={targetLinkGroup} onChange={(e) => setTargetLinkGroup(e.target.value)} />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 w-full text-xs gap-1 justify-start"
-            isLoading={loading === 'unlock_link_clock'}
-            onClick={() => void intervene('unlock_link_clock', { target_link_group_id: targetLinkGroup })}
-          >
-            <Unlock className="h-3.5 w-3.5" />解锁联动时钟同步
-          </Button>
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-            <Input className="h-7 text-xs" placeholder="字段名" value={debugField} onChange={(e) => setDebugField(e.target.value)} />
-            <Input className="h-7 text-xs" placeholder="值" value={debugValue} onChange={(e) => setDebugValue(e.target.value)} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1"
-              isLoading={loading === 'debug_shared_state'}
-              onClick={() => void intervene('debug_shared_state', { target_link_group_id: targetLinkGroup, field_name: debugField, field_value: debugValue })}
-            >
-              <Bug className="h-3 w-3" />写入
-            </Button>
-          </div>
-        </div>
+          {/* 3． 容器干预：全体启停与联动状态调试 */}
+          <Section title="容器干预" icon={<Pause className="h-3.5 w-3.5" />}>
+            <div className="grid grid-cols-2 gap-2">
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('pause_all')} className="h-7 text-xs">
+                <Pause className="mr-1 h-3.5 w-3.5" /> 全部暂停
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('resume_all')} className="h-7 text-xs">
+                <Play className="mr-1 h-3.5 w-3.5" /> 全部恢复
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('unlock_link_clock')} className="h-7 text-xs">
+                <Unlock className="mr-1 h-3.5 w-3.5" /> 解锁同步
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => requestConfirm('debug_shared_state')} className="h-7 text-xs">
+                <Bug className="mr-1 h-3.5 w-3.5" /> 调试状态
+              </Button>
+            </div>
+          </Section>
 
-        {/* 踢出学生 */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">违规处理</p>
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-9 w-full text-xs gap-1"
-            disabled={!targetStudentId}
-            isLoading={loading === 'kick_student'}
-            onClick={() => void intervene('kick_student')}
-          >
-            <LogOut className="h-3.5 w-3.5" />踢出学生
-          </Button>
-          {!targetStudentId && <p className="text-[10px] text-muted-foreground">请先在上方填写目标学生 ID。</p>}
+          {/* 4． 会话管理：踢出、后续可扩充“结束会话 / 转移” */}
+          <Section title="会话管理" icon={<LogOut className="h-3.5 w-3.5" />}>
+            <KickStudentRow onKick={(studentId) => onIntervene({ type: 'kick_student', data: { student_id: studentId } })} />
+          </Section>
         </div>
-      </div>
+      </SheetContent>
+
+      <ConfirmDialog
+        open={confirmType !== null}
+        onOpenChange={(o) => { if (!o) setConfirmType(null); }}
+        title={`确认 ${interventionLabel(confirmType)}？`}
+        description="该操作会影响所选学生 / 全班，无法直接撤销。"
+        confirmText="确认执行"
+        confirmVariant="destructive"
+        onConfirm={handleConfirm}
+      />
+    </Sheet>
+  );
+}
+
+function Section(props: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2 rounded border border-border/60 p-2">
+      <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        {props.icon} {props.title}
+      </p>
+      <div className={cn('flex flex-col gap-1.5')}>{props.children}</div>
     </div>
   );
+}
+
+function KickStudentRow(props: { onKick: (studentID: string) => void }) {
+  const [studentId, setStudentId] = useState('');
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        value={studentId}
+        onChange={e => setStudentId(e.target.value)}
+        placeholder="学生 ID"
+        className="h-7 flex-1 text-xs"
+      />
+      <Button
+        size="sm"
+        variant="destructive"
+        disabled={!studentId.trim()}
+        onClick={() => { props.onKick(studentId.trim()); setStudentId(''); }}
+        className="h-7 text-xs"
+      >
+        <LogOut className="mr-1 h-3.5 w-3.5" /> 踢出
+      </Button>
+    </div>
+  );
+}
+
+function interventionLabel(t: InterventionType | null): string {
+  if (!t) return '';
+  switch (t) {
+    case 'broadcast': return '广播消息';
+    case 'pause_all': return '全部暂停';
+    case 'resume_all': return '全部恢复';
+    case 'force_step': return '强制步进';
+    case 'force_reset': return '强制重置';
+    case 'push_step': return '推送指定步骤';
+    case 'debug_shared_state': return '调试 SharedState';
+    case 'unlock_link_clock': return '解锁联动时钟';
+    case 'kick_student': return '踢出学生';
+    case 'annotation': return '推送老师标注';
+  }
 }

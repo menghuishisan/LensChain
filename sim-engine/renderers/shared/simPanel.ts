@@ -1,472 +1,372 @@
-// simPanel.ts 负责多场景仿真面板的数据通道、布局与交互协调。
-import type { DomainRenderer } from "./domainRenderer.js";
+/**
+ * simPanel.ts — SimEngine 顶层门面：编排 WS + 多场景 SceneView + 状态。
+ *
+ * 设计原则（不向 UI 妥协）：
+ *   • API 由后端协议（06.md）驱动：sceneCode + RenderState 是核心模型。
+ *   • SimPanel 不关心 UI 网格 / localStorage / 教师标注图层 —— 上层关切。
+ *   • 用注册 (registerScene) 而非回调注入 (factory) 完成场景元信息接入。
+ *   • 用类型化事件 (onSchemaInvalidated / onLinkTrigger / onSceneStateChange) 代替
+ *     原始 WS 帧订阅 —— 不泄漏传输层抽象。
+ *   • 不写兑底：未注册的场景收到 render 抛错；未连接发送 action 抛错。
+ */
+
+import { SceneView } from "./sceneView.js";
+import { WSClient } from "./wsClient.js";
+import { applyEnvelope, appendTimelineEvent, createRenderState, eventPayloadToTimeline } from "./stateCache.js";
+import { mapInteractionDefinition } from "./interactionManager.js";
+import type { ResolvedLayout } from "./layoutSolver.js";
 import type {
-  InteractionAction,
-  InteractionInputMap,
-  InteractionSchema,
+  ActionMessagePayload,
+  ControlAckPayload,
+  ControlMessagePayload,
+  EventMessagePayload,
+  InteractionDefinition,
   JsonObject,
-  PanelLayoutItem,
+  LinkTrigger,
+  RenderEnvelope,
   RenderState,
-  SceneSummary,
+  SceneCategory,
   SimAction,
   SimPanelOptions,
-  TeacherSummaryPayload,
-  WebSocketMessage
+  TimeControlCommand,
+  TimeControlMode,
+  WebSocketMessage,
 } from "./types.js";
-import { InteractionManager } from "./interactionManager.js";
-import { InteractionPanelModel } from "./interactionPanel.js";
-import { LayoutController } from "./layoutController.js";
-import { PanelLayoutStore } from "./panelLayout.js";
-import { DomainRendererRegistry } from "./registry.js";
-import { StateCache } from "./stateCache.js";
-import { extractTeacherSummaryPayload } from "./teacherSummary.js";
-import { TimelineControl } from "./timelineControl.js";
-import { WSClient } from "./wsClient.js";
-import { SceneView } from "./sceneView.js";
-import { FallbackRenderer } from "./fallbackRenderer.js";
 
-/**
- * SimPanel 管理仿真面板内的多场景视图、布局和数据通道。
- */
+/** 场景元信息：在 connect 前必须 registerScene 注册。 */
+export interface SceneConfig {
+  sceneCode: string;
+  title: string;
+  category: SceneCategory;
+  timeControlMode: TimeControlMode;
+}
+
+export type Unsubscribe = () => void;
+
 export class SimPanel {
-  private static readonly MAX_SCENES_PER_PAGE = 6;
+  private opts: SimPanelOptions;
+  private ws: WSClient | null = null;
+  private configs = new Map<string, SceneConfig>();
+  private states = new Map<string, RenderState>();
+  private views = new Map<string, SceneView>();
 
-  private readonly registry = new DomainRendererRegistry();
-  private readonly stateCache = new StateCache();
-  private readonly messageListeners = new Set<(message: WebSocketMessage) => void>();
-  private readonly views = new Map<string, SceneView>();
-  private readonly wsClient: WSClient;
-  private readonly interactionManager = new InteractionManager();
-  private readonly interactionPanel = new InteractionPanelModel();
-  private readonly timelineControl = new TimelineControl();
-  private readonly layoutStore: PanelLayoutStore;
-  private readonly layoutController: LayoutController;
-  private unsubscribeWS?: () => void;
-  private readonly sceneUnsubscribes = new Map<string, () => void>();
-  private scenePage = 1;
+  private connectionListeners = new Set<(connected: boolean) => void>();
+  private stateListeners = new Set<(sceneCode: string, state: RenderState) => void>();
+  private schemaInvalidatedListeners = new Set<(sceneCode: string) => void>();
+  private linkTriggerListeners = new Set<(trigger: LinkTrigger) => void>();
+  private sceneEventListeners = new Set<(sceneCode: string, payload: EventMessagePayload, tick: number) => void>();
+  private controlAckListeners = new Set<(ack: ControlAckPayload) => void>();
 
-  /**
-   * constructor 初始化仿真面板控制器。
-   */
-  public constructor(private readonly options: SimPanelOptions) {
-    // urlProvider 必须在每次 connect / 重连前被调用，让上层有机会刷新 token。
-    this.wsClient = new WSClient(options.urlProvider);
-    this.layoutStore = new PanelLayoutStore(
-      options.layoutStorageKey ?? `sim-engine-layout:${options.sessionId}`
-    );
-    this.layoutController = new LayoutController(
-      this.mergeInitialLayout(options.initialLayout ?? [], this.layoutStore.load())
-    );
+  /** event 消息计数器 (用于 TimelineEvent.id seq)。 */
+  private eventSeq = 0;
+
+  constructor(opts: SimPanelOptions) {
+    this.opts = opts;
   }
 
-  /**
-   * registerRenderer 注册一个领域渲染器。
-   */
-  public registerRenderer(renderer: DomainRenderer): void {
-    this.registry.register(renderer);
-  }
+  // ============================================================
+  // 场景注册（必须在 connect 之前 / attachScene 之前）
+  // ============================================================
 
-  /**
-   * registerAll 批量注册多个领域渲染器。
-   */
-  public registerAll(renderers: Iterable<DomainRenderer>): void {
-    for (const renderer of renderers) {
-      this.registerRenderer(renderer);
+  registerScene(config: SceneConfig): void {
+    if (this.configs.has(config.sceneCode)) {
+      throw new Error(`SimPanel.registerScene: scene "${config.sceneCode}" 已注册`);
     }
+    this.configs.set(config.sceneCode, config);
+    // 立即创建空 state（便于 attachScene 在 connect 前就能挂上 canvas）
+    this.states.set(config.sceneCode, createRenderState(config));
   }
 
-  /**
-   * attachScene 将场景画布挂到面板控制器中。
-   */
-  public attachScene(
-    sceneCode: string,
-    category: RenderState["category"],
-    canvas: HTMLCanvasElement,
-    overlay?: HTMLElement
-  ): void {
+  unregisterScene(sceneCode: string): void {
     this.detachScene(sceneCode);
-    const layout = this.findLayout(sceneCode);
-    const renderer = this.registry.has(category)
-      ? this.registry.get(category)
-      : new FallbackRenderer(category, "当前领域未注册对应渲染器");
-    const surface = overlay === undefined ? { canvas } : { canvas, overlay };
-    const view = new SceneView(surface, renderer, layout);
-    const unsubscribe = this.interactionManager.bind(
-      canvas,
-      renderer,
-      () => {
-        const state = this.stateCache.get(sceneCode);
-        if (!state) {
-          throw new Error(`场景状态不存在: ${sceneCode}`);
-        }
-        return state;
-      },
-      (action) => this.sendAction(action)
-    );
+    this.configs.delete(sceneCode);
+    this.states.delete(sceneCode);
+  }
+
+  // ============================================================
+  // 连接生命周期
+  // ============================================================
+
+  async connect(): Promise<void> {
+    if (this.ws) {
+      throw new Error("SimPanel.connect: 已连接，先 disconnect()");
+    }
+    const ws = new WSClient({
+      urlProvider: this.opts.urlProvider,
+      onOpen: () => this.notifyConnection(true),
+      onClose: () => this.notifyConnection(false),
+      onError: (err) => { console.error("[SimPanel] WS error", err); },
+      onMessage: (msg) => this.handleMessage(msg),
+    });
+    this.ws = ws;
+    await ws.connect();
+  }
+
+  disconnect(): void {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    for (const v of this.views.values()) v.dispose();
+    this.views.clear();
+    this.notifyConnection(false);
+  }
+
+  isConnected(): boolean {
+    return this.ws?.isConnected() ?? false;
+  }
+
+  // ============================================================
+  // 订阅（类型化事件，不暴露原始 WS 帧）
+  // ============================================================
+
+  onConnectionChange(cb: (connected: boolean) => void): Unsubscribe {
+    this.connectionListeners.add(cb);
+    return () => { this.connectionListeners.delete(cb); };
+  }
+
+  onSceneStateChange(cb: (sceneCode: string, state: RenderState) => void): Unsubscribe {
+    this.stateListeners.add(cb);
+    return () => { this.stateListeners.delete(cb); };
+  }
+
+  onSchemaInvalidated(cb: (sceneCode: string) => void): Unsubscribe {
+    this.schemaInvalidatedListeners.add(cb);
+    return () => { this.schemaInvalidatedListeners.delete(cb); };
+  }
+
+  onLinkTrigger(cb: (trigger: LinkTrigger) => void): Unsubscribe {
+    this.linkTriggerListeners.add(cb);
+    return () => { this.linkTriggerListeners.delete(cb); };
+  }
+
+  onSceneEvent(cb: (sceneCode: string, payload: EventMessagePayload, tick: number) => void): Unsubscribe {
+    this.sceneEventListeners.add(cb);
+    return () => { this.sceneEventListeners.delete(cb); };
+  }
+
+  onControlAck(cb: (ack: ControlAckPayload) => void): Unsubscribe {
+    this.controlAckListeners.add(cb);
+    return () => { this.controlAckListeners.delete(cb); };
+  }
+
+  // ============================================================
+  // Canvas 绑定（UI mount 后调用）
+  // ============================================================
+
+  attachScene(sceneCode: string, canvas: HTMLCanvasElement): void {
+    if (!this.configs.has(sceneCode)) {
+      throw new Error(`SimPanel.attachScene: scene "${sceneCode}" 未注册`);
+    }
+    if (this.views.has(sceneCode)) {
+      throw new Error(`SimPanel.attachScene: scene "${sceneCode}" 已绑定，先 detachScene`);
+    }
+    const view = new SceneView({ canvas });
     this.views.set(sceneCode, view);
-    this.sceneUnsubscribes.set(sceneCode, unsubscribe);
-    const state = this.stateCache.get(sceneCode);
-    if (state) {
-      view.render(state);
+    const state = this.states.get(sceneCode);
+    if (state && state.envelope.primitives.length > 0) {
+      view.setState(state);
+      view.requestRender();
     }
   }
 
-  /**
-   * detachScene 卸载单个场景视图和交互监听。
-   */
-  public detachScene(sceneCode: string): void {
-    this.sceneUnsubscribes.get(sceneCode)?.();
-    this.sceneUnsubscribes.delete(sceneCode);
-    this.views.delete(sceneCode);
+  detachScene(sceneCode: string): void {
+    const view = this.views.get(sceneCode);
+    if (view) {
+      view.dispose();
+      this.views.delete(sceneCode);
+    }
+  }
+
+  // ============================================================
+  // 查询
+  // ============================================================
+
+  getSceneState(sceneCode: string): RenderState | null {
+    return this.states.get(sceneCode) ?? null;
+  }
+
+  /** 输出指定场景画布的 PNG dataURL（截图）。未绑定 canvas 返回 null。 */
+  captureScene(sceneCode: string): string | null {
+    const view = this.views.get(sceneCode);
+    return view ? view.toDataURL() : null;
   }
 
   /**
-   * redrawScene 以当前缓存状态强制重绘一帧。
+   * 返回指定场景最近一次解算的 ResolvedLayout。
    *
-   * 用于画布尺寸变化（窗口缩放 / 全屏切换 / 拖拽布局）后，让渲染器在新的
-   * canvas drawingbuffer 尺寸下重新走一次绘制管线。不修改 stateCache。
-   * 若场景尚未挂载或尚无缓存状态，则静默忽略。
+   * 供前端 React 层定位 DOM 浮层（tooltip / label / annotation / math_pipeline /
+   * code_block / math_formula / register_row / error_overlay）使用：可从 positions 查
+   * 到 anchor primitive 的画布像素位，再把浮层钉在旁边。
+   *
+   * 返回 null 表示该场景还没绑 canvas 或尚未绘制过一帧。
    */
-  public redrawScene(sceneCode: string): void {
-    const state = this.stateCache.get(sceneCode);
-    if (!state) return;
-    this.views.get(sceneCode)?.render(state);
+  getResolvedLayout(sceneCode: string): ResolvedLayout | null {
+    return this.views.get(sceneCode)?.getResolvedLayout() ?? null;
   }
 
-  /**
-   * connect 建立与 Core 的 WebSocket 数据通道。
-   */
-  public connect(stateResolver: (message: WebSocketMessage) => RenderState): void {
-    this.unsubscribeWS = this.wsClient.subscribe((message) => {
-      // 必须**先**写入 stateCache + view，再触发外部 listener。
-      // 顺序倒过来会让 React 订阅者通过 getSceneState() 拿到旧 tick——
-      // 复现案例：reset 命令把 tick 倒回 0，render 帧 scene_code 正确、tick=0，
-      // 但 SimEnginePanel 仍显示之前的 tick=N。
-      try {
-        const baseState = stateResolver(message);
-        const state = this.stateCache.applyMessage(baseState, message);
-        const view = this.views.get(state.sceneCode);
-        view?.setState(state);
-      } catch {
-        if (message.scene_code) {
-          const state = this.stateCache.get(message.scene_code);
-          if (state) {
-            this.views.get(message.scene_code)?.render(state);
-          }
-        }
-      }
-      for (const listener of this.messageListeners) {
-        listener(message);
-      }
-    });
-    this.wsClient.connect();
-  }
+  // ============================================================
+  // 发送：Action / 时间控制
+  // ============================================================
 
-  /**
-   * subscribeMessages 订阅来自 Core 的原始协议消息。
-   */
-  public subscribeMessages(listener: (message: WebSocketMessage) => void): () => void {
-    this.messageListeners.add(listener);
-    return () => {
-      this.messageListeners.delete(listener);
+  dispatchAction(action: SimAction): void {
+    this.requireConnected();
+    if (!this.configs.has(action.sceneCode)) {
+      throw new Error(`SimPanel.dispatchAction: scene "${action.sceneCode}" 未注册`);
+    }
+    const payload: ActionMessagePayload = {
+      action_code: action.actionCode,
+      params: action.params,
     };
-  }
-
-  /**
-   * subscribeConnectionStatus 订阅数据通道连接状态变化。
-   */
-  public subscribeConnectionStatus(listener: (connected: boolean) => void): () => void {
-    return this.wsClient.subscribeStatus(listener);
-  }
-
-  /**
-   * disconnect 关闭面板数据通道。
-   */
-  public disconnect(): void {
-    this.unsubscribeWS?.();
-    delete this.unsubscribeWS;
-    this.wsClient.disconnect();
-  }
-
-  /**
-   * setState 手动写入一个场景状态。
-   */
-  public setState(state: RenderState): void {
-    this.stateCache.applyMessage(state, {
-      type: "render",
-      scene_code: state.sceneCode,
-      tick: state.tick,
+    if (action.actorId ?? this.opts.actorId) payload.actor_id = action.actorId ?? this.opts.actorId!;
+    if (action.userRole ?? this.opts.userRole) payload.user_role = action.userRole ?? this.opts.userRole!;
+    this.ws!.send({
+      type: "action",
+      scene_code: action.sceneCode,
+      tick: this.states.get(action.sceneCode)?.tick ?? 0,
       timestamp: Date.now(),
-      payload: { primitives: state.envelope.primitives, micro_steps: state.envelope.micro_steps ?? [] } as unknown as JsonObject
-    });
-    this.views.get(state.sceneCode)?.setState(state);
-  }
-
-  /**
-   * saveLayout 保存当前布局配置。
-   */
-  public saveLayout(layout: PanelLayoutItem[]): void {
-    layout.forEach((item) => this.layoutController.upsert(item));
-    this.layoutStore.save(this.layoutController.list());
-  }
-
-  /**
-   * moveScene 调整场景面板位置并持久化。
-   */
-  public moveScene(sceneCode: string, x: number, y: number): void {
-    this.layoutController.move(sceneCode, x, y);
-    this.layoutStore.save(this.layoutController.list());
-  }
-
-  /**
-   * resizeScene 调整场景面板尺寸并持久化。
-   */
-  public resizeScene(sceneCode: string, w: number, h: number): void {
-    this.layoutController.resize(sceneCode, w, h);
-    this.layoutStore.save(this.layoutController.list());
-  }
-
-  /**
-   * toggleSceneFullscreen 切换单个场景的全屏状态。
-   */
-  public toggleSceneFullscreen(sceneCode: string): void {
-    this.layoutController.toggleFullscreen(sceneCode);
-    this.layoutStore.save(this.layoutController.list());
-  }
-
-  /**
-   * annotateScene 为指定场景增加文本标注。
-   */
-  public annotateScene(sceneCode: string, text: string, x: number, y: number): void {
-    const view = this.views.get(sceneCode);
-    view?.addAnnotation(text, x, y);
-  }
-
-  /**
-   * removeAnnotation 删除指定场景中的单个标注。
-   */
-  public removeAnnotation(sceneCode: string, annotationID: string): void {
-    this.views.get(sceneCode)?.removeAnnotation(annotationID);
-  }
-
-  /**
-   * clearAnnotations 清空指定场景中的全部标注。
-   */
-  public clearAnnotations(sceneCode: string): void {
-    this.views.get(sceneCode)?.clearAnnotations();
-  }
-
-  /**
-   * captureScene 导出指定场景截图。
-   */
-  public captureScene(sceneCode: string): string {
-    const view = this.views.get(sceneCode);
-    if (!view) {
-      throw new Error(`场景视图不存在: ${sceneCode}`);
-    }
-    return view.capture();
-  }
-
-  /**
-   * recordScene 启动指定场景录制。
-   */
-  public recordScene(sceneCode: string): MediaRecorder {
-    const view = this.views.get(sceneCode);
-    if (!view) {
-      throw new Error(`场景视图不存在: ${sceneCode}`);
-    }
-    return view.record();
-  }
-
-  /**
-   * getInteractionSchema 返回场景当前交互 schema。
-   */
-  public getInteractionSchema(sceneCode: string): InteractionSchema | undefined {
-    return this.stateCache.get(sceneCode)?.schema;
-  }
-
-  /**
-   * setInteractionSchema 将控制面返回的场景交互 schema 注入缓存并刷新视图。
-   */
-  public setInteractionSchema(sceneCode: string, schema: InteractionSchema): void {
-    const state = this.stateCache.hydrateSchema(sceneCode, schema);
-    if (state) {
-      this.views.get(sceneCode)?.setState(state);
-    }
-  }
-
-  /**
-   * listInteractionActions 返回场景的动态交互动作定义。
-   */
-  public listInteractionActions(sceneCode: string): InteractionAction[] {
-    return this.interactionPanel.listActions(this.getInteractionSchema(sceneCode));
-  }
-
-  /**
-   * createInteractionDefaults 生成某个动作的默认表单值。
-   */
-  public createInteractionDefaults(sceneCode: string, actionCode: string): InteractionInputMap {
-    const action = this.findInteractionAction(sceneCode, actionCode);
-    return this.interactionPanel.createDefaults(action);
-  }
-
-  /**
-   * submitInteraction 根据 schema 动态构造并发送操作请求。
-   */
-  public submitInteraction(sceneCode: string, actionCode: string, input: InteractionInputMap): void {
-    const action = this.findInteractionAction(sceneCode, actionCode);
-    this.sendAction(this.interactionPanel.buildAction(sceneCode, action, input));
-  }
-
-  /**
-   * getTimeControlMode 返回场景当前时间控制模式。
-   */
-  public getTimeControlMode(sceneCode: string): RenderState["timeControlMode"] | undefined {
-    return this.stateCache.get(sceneCode)?.timeControlMode;
-  }
-
-  /**
-   * getAvailableControls 返回场景当前可展示的时间控制项。
-   */
-  public getAvailableControls(sceneCode: string) {
-    const mode = this.getTimeControlMode(sceneCode);
-    return mode ? this.timelineControl.getControls(mode) : [];
-  }
-
-  /**
-   * getSceneState 返回当前场景状态快照。
-   */
-  public getSceneState(sceneCode: string): RenderState | undefined {
-    return this.views.get(sceneCode)?.getState() ?? this.stateCache.get(sceneCode);
-  }
-
-  /**
-   * captureSceneThumbnail 导出教师监控缩略图。
-   */
-  public captureSceneThumbnail(sceneCode: string, maxWidth = 320, maxHeight = 180): string {
-    const view = this.views.get(sceneCode);
-    if (!view) {
-      throw new Error(`场景视图不存在: ${sceneCode}`);
-    }
-    return view.captureThumbnail(maxWidth, maxHeight);
-  }
-
-  /**
-   * getTeacherSummary 从摘要消息中读取教师监控载荷。
-   */
-  public getTeacherSummary(message: WebSocketMessage): TeacherSummaryPayload | undefined {
-    return extractTeacherSummaryPayload(message);
-  }
-
-  public listSceneSummaries(includeThumbnail = false): SceneSummary[] {
-    return this.stateCache.list().map((state) => {
-      const summary: SceneSummary = {
-        sceneCode: state.sceneCode,
-        title: state.title,
-        timeControlMode: state.timeControlMode,
-        tick: state.tick,
-        linked: state.linked ?? false,
-        metricCount: state.metrics?.length ?? 0,
-        eventCount: state.timeline?.length ?? 0,
-        changedKeyCount: state.changedKeys?.length ?? 0
-      };
-      if (state.linkGroupName !== undefined) {
-        summary.linkGroupName = state.linkGroupName;
-      }
-      if (includeThumbnail && this.views.has(state.sceneCode)) {
-        summary.thumbnail = this.captureSceneThumbnail(state.sceneCode);
-      }
-      return summary;
+      payload: payload as unknown as JsonObject,
     });
   }
 
   /**
-   * setScenePage 设置超过 6 个场景时的分页页码。
+   * 发送协议 §7.4 的 step_back 消息。仅 single-scene process 模式场景有效。
+   * 该消息类型独立于 action，不用魔术 actionCode 绕走。
    */
-  public setScenePage(page: number): void {
-    this.scenePage = Math.max(1, Math.floor(page));
-  }
-
-  /**
-   * getVisibleSceneCodes 返回当前页应展示的场景编码。
-   */
-  public getVisibleSceneCodes(): string[] {
-    const sceneCodes = this.stateCache.list().map((state) => state.sceneCode);
-    const start = (this.scenePage - 1) * SimPanel.MAX_SCENES_PER_PAGE;
-    return sceneCodes.slice(start, start + SimPanel.MAX_SCENES_PER_PAGE);
-  }
-
-  /**
-   * getScenePageCount 返回当前状态下的场景分页总数。
-   */
-  public getScenePageCount(): number {
-    return Math.max(1, Math.ceil(this.stateCache.list().length / SimPanel.MAX_SCENES_PER_PAGE));
-  }
-
-  /**
-   * getLayout 返回当前面板布局快照。
-   */
-  public getLayout(): PanelLayoutItem[] {
-    return this.layoutController.list();
-  }
-
-  /**
-   * sendAction 发送场景交互。
-   */
-  public sendAction(action: SimAction): void {
-    const payload: SimAction = { ...action };
-    if (this.options.actorId !== undefined) {
-      payload.actorId = this.options.actorId;
+  sendStepBack(sceneCode: string): void {
+    this.requireConnected();
+    if (!this.configs.has(sceneCode)) {
+      throw new Error(`SimPanel.sendStepBack: scene "${sceneCode}" 未注册`);
     }
-    if (this.options.roleKey !== undefined) {
-      payload.roleKey = this.options.roleKey;
+    this.ws!.send({
+      type: "step_back",
+      scene_code: sceneCode,
+      tick: this.states.get(sceneCode)?.tick ?? 0,
+      timestamp: Date.now(),
+      payload: {},
+    });
+  }
+
+  sendTimeControl(command: TimeControlCommand, value?: number): void {
+    this.requireConnected();
+    const payload: ControlMessagePayload = { command };
+    if (typeof value === "number") payload.value = value;
+    this.ws!.send({
+      type: "control",
+      tick: 0,
+      timestamp: Date.now(),
+      payload: payload as unknown as JsonObject,
+    });
+    // 本地 SceneView 跟随：play/pause/reset 驱动 RAF 与 microStep
+    if (command === "play") for (const v of this.views.values()) v.play();
+    else if (command === "pause") for (const v of this.views.values()) v.pause(performance.now());
+    else if (command === "reset") for (const v of this.views.values()) v.reset();
+    else if (command === "set_speed" && typeof value === "number") {
+      for (const v of this.views.values()) v.setSpeed(value);
     }
-    if (this.options.userRole !== undefined) {
-      payload.userRole = this.options.userRole;
+  }
+
+  // ============================================================
+  // 内部：WS 消息分派
+  // ============================================================
+
+  private handleMessage(msg: WebSocketMessage): void {
+    switch (msg.type) {
+      case "render": return this.handleRender(msg);
+      case "schema_invalidated": return this.handleSchemaInvalidated(msg);
+      case "event": return this.handleSceneEvent(msg);
+      case "control_ack": return this.handleControlAck(msg);
+      // 客户端 → 后端 (action/control/step_back) 不会出现在入站消息；走到 default 即协议违规。
+      default:
+        throw new Error(`SimPanel: 非法入站消息类型 "${msg.type}"`);
     }
-    this.wsClient.sendAction(payload);
   }
 
-  /**
-   * sendControl 发送时间控制指令。
-   */
-  public sendControl(command: Parameters<WSClient["sendControl"]>[0], value?: number): void {
-    this.wsClient.sendControl(command, value);
-  }
-
-  /**
-   * rewindTo 发送指定 tick 回退指令。
-   */
-  public rewindTo(targetTick: number): void {
-    this.wsClient.sendRewind(targetTick);
-  }
-
-  /**
-   * findLayout 读取指定场景的布局，如未配置则给出默认值。
-   */
-  private findLayout(sceneCode: string): PanelLayoutItem {
-    const hit = this.layoutController.list().find((item) => item.sceneCode === sceneCode);
-    return hit ?? { sceneCode, x: 0, y: 0, w: 6, h: 4 };
-  }
-
-  /**
-   * mergeInitialLayout 合并模板初始布局和用户本地持久化布局。
-   */
-  private mergeInitialLayout(initialLayout: PanelLayoutItem[], storedLayout: PanelLayoutItem[]): PanelLayoutItem[] {
-    const merged = new Map<string, PanelLayoutItem>();
-    initialLayout.forEach((item) => merged.set(item.sceneCode, { ...item }));
-    storedLayout.forEach((item) => merged.set(item.sceneCode, { ...item }));
-    return Array.from(merged.values());
-  }
-
-  /**
-   * findInteractionAction 按动作编码读取场景交互定义。
-   */
-  private findInteractionAction(sceneCode: string, actionCode: string): InteractionAction {
-    const action = this.listInteractionActions(sceneCode).find((item) => item.actionCode === actionCode);
-    if (!action) {
-      throw new Error(`场景未声明交互动作: ${sceneCode}/${actionCode}`);
+  private handleRender(msg: WebSocketMessage): void {
+    const sceneCode = msg.scene_code;
+    if (!sceneCode) {
+      throw new Error(`SimPanel.handleRender: render 消息缺 scene_code (tick=${msg.tick})`);
     }
-    return action;
+    const config = this.configs.get(sceneCode);
+    if (!config) {
+      throw new Error(`SimPanel.handleRender: 收到未注册场景 "${sceneCode}" 的 render`);
+    }
+    const envelope = msg.payload as unknown as RenderEnvelope;
+    const prev = this.states.get(sceneCode) ?? createRenderState(config);
+    const next = applyEnvelope(prev, envelope, msg.tick);
+    this.states.set(sceneCode, next);
+    const view = this.views.get(sceneCode);
+    if (view) {
+      view.setState(next);
+      view.requestRender(); // rAF 节流：连续 render 消息合并为单帧
+    }
+    for (const cb of this.stateListeners) cb(sceneCode, next);
+
+    // link_triggers 内嵌于 envelope；逐个派发给订阅者
+    const triggers = envelope.link_triggers ?? [];
+    for (const trigger of triggers) {
+      for (const cb of this.linkTriggerListeners) cb(trigger);
+    }
+  }
+
+  private handleSchemaInvalidated(msg: WebSocketMessage): void {
+    const sceneCode = msg.scene_code;
+    if (!sceneCode) {
+      throw new Error("SimPanel.handleSchemaInvalidated: 缺 scene_code");
+    }
+    for (const cb of this.schemaInvalidatedListeners) cb(sceneCode);
+  }
+
+  private handleSceneEvent(msg: WebSocketMessage): void {
+    const sceneCode = msg.scene_code;
+    if (!sceneCode) {
+      throw new Error("SimPanel.handleSceneEvent: 缺 scene_code");
+    }
+    const config = this.configs.get(sceneCode);
+    if (!config) {
+      throw new Error(`SimPanel.handleSceneEvent: 未注册场景 "${sceneCode}"`);
+    }
+    const payload = msg.payload as unknown as EventMessagePayload;
+    if (typeof payload.event !== "string") {
+      throw new Error(`SimPanel.handleSceneEvent: payload 缺 event 字段`);
+    }
+    const prev = this.states.get(sceneCode) ?? createRenderState(config);
+    const timeline = eventPayloadToTimeline(payload, msg.tick, this.eventSeq++);
+    const next = appendTimelineEvent(prev, timeline);
+    this.states.set(sceneCode, next);
+    for (const cb of this.stateListeners) cb(sceneCode, next);
+    for (const cb of this.sceneEventListeners) cb(sceneCode, payload, msg.tick);
+  }
+
+  private handleControlAck(msg: WebSocketMessage): void {
+    const payload = msg.payload as unknown as ControlAckPayload;
+    if (typeof payload.command !== "string" || typeof payload.success !== "boolean") {
+      throw new Error(`SimPanel.handleControlAck: payload 形式不符 ControlAckPayload`);
+    }
+    for (const cb of this.controlAckListeners) cb(payload);
+  }
+
+  private notifyConnection(connected: boolean): void {
+    for (const cb of this.connectionListeners) cb(connected);
+  }
+
+  private requireConnected(): void {
+    if (!this.ws || !this.ws.isConnected()) {
+      throw new Error("SimPanel: WebSocket 未连接");
+    }
   }
 }
+
+// ============================================================
+// 工厂 + 重导出
+// ============================================================
+
+/** 默认 SimPanel 工厂。重构后无需 domain registry 注入。 */
+export function createDefaultSimPanel(options: SimPanelOptions): SimPanel {
+  return new SimPanel(options);
+}
+
+export { createRenderState } from "./stateCache.js";
+export { mapInteractionDefinition };
+export type { InteractionDefinition };
+export type { ResolvedLayout, ResolvedLane, ResolvedPosition } from "./layoutSolver.js";

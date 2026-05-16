@@ -1,235 +1,163 @@
-import type { DomainRenderer } from "./domainRenderer.js";
-import type { PanelLayoutItem, RenderState, RenderSurface, SpeedMultiplier } from "./types.js";
-import { AnimationScheduler } from "./animationScheduler.js";
-import { AnnotationStore, captureCanvas, startCanvasRecording } from "./mediaToolkit.js";
-import { FallbackRenderer } from "./fallbackRenderer.js";
-import { MicroStepScheduler } from "./microStepScheduler.js";
-import { ViewportController } from "./viewportController.js";
-
 /**
- * SceneView 管理单个场景面板的渲染生命周期。
+ * sceneView.ts — 单场景画布视图。
+ *
+ * 职责：
+ *   • 绑定 canvas + RenderState；驱动 RAF；每帧调用 renderFrame。
+ *   • 持有 MicroStepScheduler 提供 highlight / fire 集合。
+ *   • setState() 接收外部 (SimPanel) 推送的新 RenderState。
+ *   • 自装 ResizeObserver：canvas 尺寸变化自动 setSize + 重绘。
+ *   • requestRender() RAF 节流：多次连续 setState 合并为单帧绘制。
+ *   • getResolvedLayout() 暴露最近一次解算结果，供前端 DOM 浮层定位。
+ *
+ * 不写兑底：画布无 2d 上下文 / state 未设置 → 抛错。
  */
-export class SceneView {
-  private readonly viewport = new ViewportController();
-  private readonly scheduler = new AnimationScheduler();
-  private readonly microScheduler = new MicroStepScheduler();
-  private readonly annotations = new AnnotationStore();
-  private currentState?: RenderState;
-  private readonly fallbackRenderer: FallbackRenderer;
-  private speed: SpeedMultiplier = 1;
-  private rafId = 0;
 
-  /**
-   * constructor 初始化场景视图。
-   */
-  public constructor(
-    public readonly surface: RenderSurface,
-    public readonly renderer: DomainRenderer,
-    public readonly layout: PanelLayoutItem
-  ) {
-    this.fallbackRenderer = new FallbackRenderer(renderer.domain, "当前场景渲染异常，已切换到失败提示视图");
+import { AnimationScheduler } from "./animationScheduler.js";
+import { MicroStepScheduler } from "./microStepScheduler.js";
+import { renderFrame } from "./primitiveRenderer.js";
+import type { ResolvedLayout } from "./layoutSolver.js";
+import { themeForCategory } from "./theme.js";
+import type { RenderState } from "./types.js";
+
+export interface SceneViewOptions {
+  canvas: HTMLCanvasElement;
+}
+
+export class SceneView {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private state: RenderState | null = null;
+  private microSteps = new MicroStepScheduler();
+  private scheduler = new AnimationScheduler();
+  private width = 0;
+  private height = 0;
+  private dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  private lastLayout: ResolvedLayout | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+  private rafPending: number | null = null;
+
+  constructor(opts: SceneViewOptions) {
+    this.canvas = opts.canvas;
+    const ctx = opts.canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("SceneView: canvas.getContext('2d') 返回 null");
+    }
+    this.ctx = ctx;
+    this.setSize(opts.canvas.clientWidth, opts.canvas.clientHeight);
+    this.installResizeObserver();
   }
 
-  /**
-   * setState 设置场景状态并触发渲染。
-   */
-  public setState(state: RenderState): void {
-    const previous = this.currentState;
-    this.currentState = state;
-
-    const steps = state.envelope.micro_steps ?? [];
-    if (steps.length > 0) {
-      this.microScheduler.schedule(steps, state.timeControlMode, this.speed);
-      this.startMicroLoop();
+  setState(state: RenderState): void {
+    const prevSteps = this.state?.envelope.micro_steps ?? [];
+    const nextSteps = state.envelope.micro_steps ?? [];
+    if (prevSteps !== nextSteps) {
+      this.microSteps.load(nextSteps);
     }
+    this.state = state;
+  }
 
-    if (!previous) {
-      this.render(state);
-      return;
-    }
-    this.scheduler.start(`scene-${state.sceneCode}`, 240, (progress) => {
-      try {
-        const frame = this.renderer.interpolate(previous, state, progress);
-        this.render(frame);
-      } catch {
-        this.renderFailure(state);
-      }
+  setSize(cssWidth: number, cssHeight: number): void {
+    if (cssWidth <= 0 || cssHeight <= 0) return;
+    if (cssWidth === this.width && cssHeight === this.height) return;
+    this.width = cssWidth;
+    this.height = cssHeight;
+    this.canvas.width = Math.floor(cssWidth * this.dpr);
+    this.canvas.height = Math.floor(cssHeight * this.dpr);
+    this.canvas.style.width = `${cssWidth}px`;
+    this.canvas.style.height = `${cssHeight}px`;
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.lastLayout = null; // 失效旧布局缓存
+  }
+
+  play(): void {
+    if (this.scheduler.isRunning()) return;
+    this.scheduler.start((now) => {
+      this.microSteps.play(now);
+      this.renderOnce(now);
     });
   }
 
-  /**
-   * setSpeed 设置播放速率。
-   */
-  public setSpeed(speed: SpeedMultiplier): void {
-    this.speed = speed;
-    this.microScheduler.setSpeed(speed);
+  pause(now: number): void {
+    this.microSteps.pause(now);
+    this.scheduler.stop();
+    this.renderOnce(now);
+  }
+
+  reset(): void {
+    this.microSteps.reset();
+    if (this.state) this.renderOnce(performance.now());
+  }
+
+  setSpeed(multiplier: number): void {
+    this.microSteps.setSpeed(multiplier);
   }
 
   /**
-   * advanceMicroStep 手动推进一步（process 模式）。
+   * 请求一次合并渲染。多次 requestRender 在同一 rAF 内只触发一次实际绘制。
+   *
+   * 适用：外部（SimPanel）连续 setState 后调用，避免每次都跑 layoutSolver。
+   * 注意：play 模式下 RAF 循环已驱动重绘，此函数仍安全（合并为下一帧首次）。
    */
-  public advanceMicroStep(): boolean {
-    const advanced = this.microScheduler.advance();
-    if (this.currentState) {
-      const nextState = { ...this.currentState };
-      const activeId = this.microScheduler.getState().activeId;
-      if (activeId) {
-        nextState.activeMicroStepId = activeId;
-      } else {
-        delete nextState.activeMicroStepId;
+  requestRender(): void {
+    if (this.rafPending !== null) return;
+    this.rafPending = requestAnimationFrame((now) => {
+      this.rafPending = null;
+      if (this.state) this.renderOnce(now);
+    });
+  }
+
+  /** 同步渲染一帧（不节流）。外部更建议使用 requestRender。 */
+  renderOnce(now: number): void {
+    if (!this.state) {
+      throw new Error("SceneView.renderOnce: state 未设置");
+    }
+    const status = this.microSteps.advance(now);
+    this.lastLayout = renderFrame({
+      ctx: this.ctx,
+      width: this.width,
+      height: this.height,
+      theme: themeForCategory(this.state.category),
+      primitives: this.state.envelope.primitives,
+      highlightIds: status.activeHighlightIds,
+      fireIds: status.activeFireIds,
+      now,
+      tick: this.state.tick,
+    });
+  }
+
+  /** 返回最近一次解算的 ResolvedLayout（供前端 React DOM 浮层定位用）。 */
+  getResolvedLayout(): ResolvedLayout | null {
+    return this.lastLayout;
+  }
+
+  /** 输出当前画布的 PNG dataURL（截图）。 */
+  toDataURL(): string {
+    return this.canvas.toDataURL("image/png");
+  }
+
+  dispose(): void {
+    this.scheduler.stop();
+    if (this.rafPending !== null) {
+      cancelAnimationFrame(this.rafPending);
+      this.rafPending = null;
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    this.state = null;
+    this.lastLayout = null;
+  }
+
+  private installResizeObserver(): void {
+    if (typeof ResizeObserver === "undefined") return;
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const cr = entry.contentRect;
+        this.setSize(cr.width, cr.height);
+        this.requestRender();
       }
-      this.currentState = nextState;
-      this.render(nextState);
-    }
-    return advanced;
-  }
-
-  /**
-   * getMicroStepState 返回当前微步骤调度快照。
-   */
-  public getMicroStepState() {
-    return this.microScheduler.getState();
-  }
-
-  private startMicroLoop(): void {
-    if (this.rafId) return;
-    const loop = (now: number) => {
-      const switched = this.microScheduler.tick(now);
-      if (switched && this.currentState) {
-        const nextState = { ...this.currentState };
-        const activeId = this.microScheduler.getState().activeId;
-        if (activeId) {
-          nextState.activeMicroStepId = activeId;
-        } else {
-          delete nextState.activeMicroStepId;
-        }
-        this.currentState = nextState;
-        this.render(nextState);
-      }
-      if (!this.microScheduler.getState().finished) {
-        this.rafId = requestAnimationFrame(loop);
-      } else {
-        this.rafId = 0;
-      }
-    };
-    this.rafId = requestAnimationFrame(loop);
-  }
-
-  /**
-   * render 使用当前渲染器执行绘制。
-   */
-  public render(state: RenderState): void {
-    this.currentState = {
-      ...state,
-      annotations: this.annotations.list()
-    };
-    try {
-      this.renderer.render(this.currentState, this.createContext());
-    } catch {
-      this.renderFailure(this.currentState);
-    }
-  }
-
-  /**
-   * zoom 调整视图缩放。
-   */
-  public zoom(delta: number): void {
-    this.viewport.zoom(delta);
-    if (this.currentState) {
-      this.render(this.currentState);
-    }
-  }
-
-  /**
-   * capture 导出当前画面截图。
-   */
-  public capture(): string {
-    return captureCanvas(this.surface.canvas);
-  }
-
-  /**
-   * captureThumbnail 导出教师监控卡片使用的缩略图。
-   */
-  public captureThumbnail(maxWidth = 320, maxHeight = 180): string {
-    const source = this.surface.canvas;
-    const ratio = Math.min(maxWidth / source.width, maxHeight / source.height, 1);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(source.width * ratio));
-    canvas.height = Math.max(1, Math.round(source.height * ratio));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("缩略图画布上下文不可用");
-    }
-    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/png");
-  }
-
-  /**
-   * record 启动画布录制。
-   */
-  public record(): MediaRecorder {
-    return startCanvasRecording(this.surface.canvas);
-  }
-
-  /**
-   * addAnnotation 为当前场景增加文本标注。
-   */
-  public addAnnotation(text: string, x: number, y: number): void {
-    this.annotations.add(text, x, y);
-    if (this.currentState) {
-      this.render(this.currentState);
-    }
-  }
-
-  /**
-   * removeAnnotation 删除指定标注。
-   */
-  public removeAnnotation(id: string): void {
-    this.annotations.remove(id);
-    if (this.currentState) {
-      this.render(this.currentState);
-    }
-  }
-
-  /**
-   * clearAnnotations 清空当前场景全部标注。
-   */
-  public clearAnnotations(): void {
-    this.annotations.clear();
-    if (this.currentState) {
-      this.render(this.currentState);
-    }
-  }
-
-  /**
-   * getState 返回当前场景状态快照。
-   */
-  public getState(): RenderState | undefined {
-    return this.currentState ? { ...this.currentState } : undefined;
-  }
-
-  /**
-   * createContext 生成渲染器执行上下文。
-   */
-  private createContext() {
-    const theme = this.renderer.getTheme();
-    const canvas = this.surface.canvas;
-    const dpr = typeof window !== "undefined" ? (window.devicePixelRatio ?? 1) : 1;
-    return {
-      surface: this.surface,
-      width: canvas.clientWidth || Math.round(canvas.width / dpr),
-      height: canvas.clientHeight || Math.round(canvas.height / dpr),
-      viewport: this.viewport.getState(),
-      now: performance.now(),
-      speed: 1 as const,
-      theme: theme.theme
-    };
-  }
-
-  /**
-   * renderFailure 将单场景渲染故障隔离到失败提示视图。
-   */
-  private renderFailure(state: RenderState): void {
-    this.fallbackRenderer.render(state, this.createContext());
+    });
+    this.resizeObserver.observe(this.canvas);
   }
 }

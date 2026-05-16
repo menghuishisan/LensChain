@@ -1,272 +1,209 @@
-import type { JsonObject, MicroStep, Primitive, RenderState, SceneSnapshot, TimelineEvent, WebSocketMessage } from "./types.js";
-import { asArray, asObject, asString, deepClone } from "./utils.js";
+/**
+ * stateCache.ts — 单场景 RenderState 的累积与查询。
+ *
+ * 职责：
+ *   • createRenderState(input) 构造初始 RenderState（前端启动 / 切场景调用）。
+ *   • applyEnvelope(state, envelope) 将后端推送的 RenderEnvelope 累积到 state 上。
+ *     - 全量快照：替换 primitives / micro_steps / link_triggers。
+ *     - 增量：按 changed_keys 合并；primitives 按 id 合并新增/更新。
+ *   • applyMetricsAndTimeline 由 EventMessage 写侧栏数据时调用。
+ *
+ * 不写兑底：未声明 is_full_snapshot=true 时必须给 changed_keys，否则报错。
+ */
+
+import type {
+  Annotation,
+  ContainerMetric,
+  EventMessagePayload,
+  InteractionSchema,
+  JsonValue,
+  Primitive,
+  RenderEnvelope,
+  RenderMetric,
+  RenderState,
+  SceneCategory,
+  TimelineEvent,
+  TimeControlMode,
+} from "./types.js";
+
+export interface CreateRenderStateInput {
+  sceneCode: string;
+  title: string;
+  category: SceneCategory;
+  timeControlMode: TimeControlMode;
+}
 
 /**
- * StateCache 保存场景完整状态与最多 1000 个历史快照。
+ * 构造空骨架状态。
+ *
+ * 严格语义：tick=0，envelope.primitives=[]。
+ * 首帧来自 WS 时调用方应：state = applyEnvelope(emptyState, firstEnvelope, msg.tick)。
+ * 协议要求首帧必须是 is_full_snapshot=true，否则 applyEnvelope 会因缺 changed_keys 抛错。
  */
-export class StateCache {
-  private readonly states = new Map<string, RenderState>();
-  private readonly history = new Map<string, SceneSnapshot[]>();
+export function createRenderState(input: CreateRenderStateInput): RenderState {
+  return {
+    sceneCode: input.sceneCode,
+    title: input.title,
+    category: input.category,
+    timeControlMode: input.timeControlMode,
+    tick: 0,
+    envelope: { primitives: [] },
+    metrics: [],
+    timeline: [],
+    annotations: [],
+    linked: false,
+  };
+}
 
-  /**
-   * constructor 初始化状态缓存器。
-   */
-  public constructor(private readonly maxTicks = 1000) {}
-
-  /**
-   * get 返回某个场景的最新完整状态。
-   */
-  public get(sceneCode: string): RenderState | undefined {
-    const state = this.states.get(sceneCode);
-    return state ? deepClone(state) : undefined;
-  }
-
-  /**
-   * list 返回全部最新场景状态。
-   */
-  public list(): RenderState[] {
-    return Array.from(this.states.values()).map((state) => deepClone(state));
-  }
-
-  /**
-   * hydrateSchema 将场景交互 schema 注入当前缓存状态。
-   */
-  public hydrateSchema(sceneCode: string, schema: NonNullable<RenderState["schema"]>): RenderState | undefined {
-    const previous = this.states.get(sceneCode);
-    if (!previous) {
-      return undefined;
-    }
-    const nextState: RenderState = {
-      ...previous,
-      schema: deepClone(schema)
+/**
+ * applyEnvelope 把后端推送的 envelope 合并进 state；返回新 state（不可变更新）。
+ *
+ * 规则：
+ *   • is_full_snapshot=true → 直接替换 primitives / micro_steps / link_triggers。
+ *   • is_full_snapshot=false → 按 changed_keys 合并：
+ *     - "primitives" 在 changed_keys 中：用新 primitives 数组按 id 合并到旧数组（同 id 替换、新 id 追加、本帧未出现的旧 id 保留）。
+ *     - "micro_steps" / "link_triggers" 同理。
+ *     - "container_data" 累积追加。
+ *   • changed_keys 为空且非全量 → 抛错（协议要求二选一）。
+ */
+export function applyEnvelope(state: RenderState, envelope: RenderEnvelope, tick: number): RenderState {
+  if (envelope.is_full_snapshot) {
+    const fullMerged: RenderEnvelope = {
+      primitives: applyContainerMetricsToPrimitives(envelope.primitives, envelope.container_data ?? []),
+      micro_steps: envelope.micro_steps ?? [],
+      link_triggers: envelope.link_triggers ?? [],
+      container_data: envelope.container_data ?? [],
+      changed_keys: envelope.changed_keys ?? [],
+      is_full_snapshot: true,
+      data: envelope.data ?? {},
     };
-    this.states.set(sceneCode, deepClone(nextState));
-    this.pushHistory(sceneCode, nextState);
-    return nextState;
-  }
-
-  /**
-   * applyMessage 将数据通道消息合并到状态缓存。
-   * 新协议仅处理 "render" 和 "event" 两种服务端推送。
-   */
-  public applyMessage(baseState: RenderState, message: WebSocketMessage): RenderState {
-    const previous = this.states.get(baseState.sceneCode);
-    let nextState = deepClone(baseState);
-
-    if (message.type === "render") {
-      const meta = this.normalizeEnvelope(message.payload);
-      nextState = {
-        ...(previous ?? baseState),
-        tick: message.tick,
-        envelope: {
-          primitives: (asArray(message.payload.primitives) ?? []) as Primitive[],
-          micro_steps: (asArray(message.payload.micro_steps) ?? []) as MicroStep[]
-        },
-        changedKeys: meta.changedKeys ?? []
-      };
-      nextState = this.applyEnvelopeState(nextState, meta);
-    } else if (message.type === "event" && previous) {
-      nextState = {
-        ...previous,
-        timeline: [...(previous.timeline ?? []), this.toTimelineEvent(message)],
-        tick: message.tick
-      };
-    } else if (previous) {
-      nextState = {
-        ...previous,
-        tick: message.tick
-      };
-    }
-
-    this.states.set(baseState.sceneCode, deepClone(nextState));
-    this.pushHistory(baseState.sceneCode, nextState);
-    return nextState;
-  }
-
-  /**
-   * applyEnvelopeState 将标准 envelope 中的顶层元数据映射回 RenderState。
-   */
-  private applyEnvelopeState(
-    state: RenderState,
-    envelope: {
-      title?: string;
-      timeControlMode?: RenderState["timeControlMode"];
-      linked?: boolean;
-      linkGroupName?: string;
-      metrics?: RenderState["metrics"];
-      tooltip?: RenderState["tooltip"];
-      timeline?: RenderState["timeline"];
-      schema?: RenderState["schema"];
-      changedKeys?: string[];
-    }
-  ): RenderState {
-    const nextState: RenderState = {
-      ...state
+    return {
+      ...state,
+      tick,
+      envelope: fullMerged,
+      changedKeys: envelope.changed_keys ?? [],
     };
-    if (envelope.title !== undefined) {
-      nextState.title = envelope.title;
-    }
-    if (envelope.timeControlMode !== undefined) {
-      nextState.timeControlMode = envelope.timeControlMode;
-    }
-    if (envelope.linked !== undefined) {
-      nextState.linked = envelope.linked;
-    }
-    if (envelope.linkGroupName !== undefined) {
-      nextState.linkGroupName = envelope.linkGroupName;
-    }
-    if (envelope.metrics !== undefined) {
-      nextState.metrics = deepClone(envelope.metrics);
-    }
-    if (envelope.tooltip !== undefined) {
-      nextState.tooltip = deepClone(envelope.tooltip);
-    }
-    if (envelope.timeline !== undefined) {
-      nextState.timeline = deepClone(envelope.timeline);
-    }
-    if (envelope.schema !== undefined) {
-      nextState.schema = deepClone(envelope.schema);
-    }
-    if (envelope.changedKeys !== undefined) {
-      nextState.changedKeys = [...envelope.changedKeys];
-    }
-    return nextState;
   }
 
-  /**
-   * normalizeEnvelope 从 render 载荷中提取元数据字段。
-   */
-  private normalizeEnvelope(payload: JsonObject): {
-    title?: string;
-    timeControlMode?: RenderState["timeControlMode"];
-    linked?: boolean;
-    linkGroupName?: string;
-    metrics?: RenderState["metrics"];
-    tooltip?: RenderState["tooltip"];
-    timeline?: RenderState["timeline"];
-    schema?: RenderState["schema"];
-    changedKeys?: string[];
-  } {
-    const meta = asObject(payload.meta);
-    const timeControlMode = this.resolveTimeControlMode(meta.time_control_mode);
-    const changedKeys = asArray<unknown>(payload.changed_keys).map((item) => asString(item)).filter(Boolean);
-    const result: {
-      title?: string;
-      timeControlMode?: RenderState["timeControlMode"];
-      linked?: boolean;
-      linkGroupName?: string;
-      metrics?: RenderState["metrics"];
-      tooltip?: RenderState["tooltip"];
-      timeline?: RenderState["timeline"];
-      schema?: RenderState["schema"];
-      changedKeys?: string[];
-    } = {};
-
-    const title = asString(meta.title);
-    if (title) {
-      result.title = title;
-    }
-    if (timeControlMode !== undefined) {
-      result.timeControlMode = timeControlMode;
-    }
-    if (typeof meta.linked === "boolean") {
-      result.linked = meta.linked;
-    }
-    const linkGroupName = asString(meta.link_group_name);
-    if (linkGroupName) {
-      result.linkGroupName = linkGroupName;
-    }
-    const metrics = asArray(meta.metrics) as NonNullable<RenderState["metrics"]>;
-    if (metrics.length > 0) {
-      result.metrics = metrics;
-    }
-    const tooltip = asArray(meta.tooltip) as NonNullable<RenderState["tooltip"]>;
-    if (tooltip.length > 0) {
-      result.tooltip = tooltip;
-    }
-    const timeline = asArray(meta.timeline) as NonNullable<RenderState["timeline"]>;
-    if (timeline.length > 0) {
-      result.timeline = timeline;
-    }
-    const schema = this.resolveSchema(meta.schema);
-    if (schema !== undefined) {
-      result.schema = schema;
-    }
-    if (changedKeys.length > 0) {
-      result.changedKeys = changedKeys;
-    }
-    return result;
+  const changedKeys = envelope.changed_keys;
+  if (!changedKeys || changedKeys.length === 0) {
+    throw new Error(
+      `applyEnvelope: 增量推送必须填 changed_keys（is_full_snapshot=false）；场景 "${state.sceneCode}" tick=${tick}`,
+    );
   }
 
-  /**
-   * resolveTimeControlMode 校验并返回允许的时间模式。
-   */
-  private resolveTimeControlMode(value: unknown): RenderState["timeControlMode"] | undefined {
-    const mode = asString(value);
-    if (mode === "process" || mode === "reactive" || mode === "continuous") {
-      return mode;
+  const merged: RenderEnvelope = { ...state.envelope };
+
+  if (changedKeys.includes("primitives") && envelope.primitives.length > 0) {
+    merged.primitives = mergeById(state.envelope.primitives, envelope.primitives);
+  }
+  if (changedKeys.includes("micro_steps") && envelope.micro_steps) {
+    merged.micro_steps = envelope.micro_steps;
+  }
+  if (changedKeys.includes("link_triggers") && envelope.link_triggers) {
+    merged.link_triggers = [...(state.envelope.link_triggers ?? []), ...envelope.link_triggers];
+  }
+  if (envelope.container_data && envelope.container_data.length > 0) {
+    merged.container_data = [...(state.envelope.container_data ?? []), ...envelope.container_data];
+    // 同步将容器采集指标 patch 到目标原语 params（协议 §10）
+    merged.primitives = applyContainerMetricsToPrimitives(
+      merged.primitives ?? state.envelope.primitives,
+      envelope.container_data,
+    );
+  }
+  merged.changed_keys = changedKeys;
+  merged.is_full_snapshot = false;
+  if (envelope.data) merged.data = { ...(state.envelope.data ?? {}), ...envelope.data };
+
+  return { ...state, tick, envelope: merged, changedKeys };
+}
+
+/**
+ * 将 ContainerMetric 会制到原语 params：按 (target_primitive, target_param) 定位并赋值。
+ *
+ * 不带目标的条目留给侧栏指标卡使用，不改 primitives。
+ * 指向不存在的 primitive 会抛错——场景表明宣告了采集变量却未输出对应原语是协议 bug。
+ */
+function applyContainerMetricsToPrimitives(
+  primitives: readonly Primitive[],
+  metrics: readonly ContainerMetric[],
+): Primitive[] {
+  const targeted = metrics.filter(m => m.target_primitive && m.target_param);
+  if (targeted.length === 0) return [...primitives];
+  // 同 id 多条取最新（在本批内后到为最新）
+  const byTarget = new Map<string, ContainerMetric>();
+  for (const m of targeted) byTarget.set(`${m.target_primitive}::${m.target_param}`, m);
+  const ids = new Set(targeted.map(m => m.target_primitive!));
+  return primitives.map(p => {
+    if (!ids.has(p.id)) return p;
+    const nextParams = { ...p.params };
+    for (const m of targeted) {
+      if (m.target_primitive !== p.id) continue;
+      nextParams[m.target_param!] = m.value as JsonValue;
     }
-    return undefined;
-  }
+    return { ...p, params: nextParams };
+  });
+  void byTarget;
+}
 
-  /**
-   * resolveSchema 校验并返回场景交互 schema。
-   */
-  private resolveSchema(value: unknown): RenderState["schema"] | undefined {
-    const schema = asObject(value);
-    if (typeof schema.sceneCode !== "string" || !Array.isArray(schema.actions)) {
-      return undefined;
-    }
-    return schema as unknown as RenderState["schema"];
+/**
+ * 将 event 消息转为 TimelineEvent，按约定映射：
+ *   title = payload.event
+ *   description = payload.data.description (if string)
+ *   tone = payload.data.tone (if matches)
+ *   id = `evt-${tick}-${event}-${seq}`
+ */
+export function eventPayloadToTimeline(
+  payload: EventMessagePayload,
+  tick: number,
+  seq: number,
+): TimelineEvent {
+  const desc = payload.data?.description;
+  const tone = payload.data?.tone;
+  const evt: TimelineEvent = {
+    id: `evt-${tick}-${payload.event}-${seq}`,
+    tick,
+    title: payload.event,
+  };
+  if (typeof desc === "string") evt.description = desc;
+  if (typeof tone === "string" && (
+    tone === "neutral" || tone === "info" || tone === "success" || tone === "warning" || tone === "danger"
+  )) {
+    evt.tone = tone;
   }
+  return evt;
+}
 
-  /**
-   * rewindTo 查找指定 tick 的状态快照。
-   */
-  public rewindTo(sceneCode: string, targetTick: number): RenderState | undefined {
-    const snapshots = this.history.get(sceneCode) ?? [];
-    const hit = [...snapshots].reverse().find((snapshot) => snapshot.tick <= targetTick);
-    return hit ? deepClone(hit.state) : undefined;
-  }
+/** 按 id 合并 primitives：新数组覆盖同 id，未出现的旧 id 保留。 */
+function mergeById<T extends { id: string }>(oldItems: readonly T[], newItems: readonly T[]): T[] {
+  const map = new Map<string, T>();
+  for (const it of oldItems) map.set(it.id, it);
+  for (const it of newItems) map.set(it.id, it);
+  return Array.from(map.values());
+}
 
-  /**
-   * toTimelineEvent 将消息转换为时间线项。
-   */
-  private toTimelineEvent(message: WebSocketMessage) {
-    const event: TimelineEvent = {
-      id: `${message.scene_code ?? "scene"}-${message.tick}-${message.timestamp}`,
-      tick: message.tick,
-      title: asString(message.payload.title, asString(message.payload.event, "事件")),
-      description: asString(message.payload.description, JSON.stringify(message.payload))
-    };
-    const tone = this.resolveTimelineTone(message.payload.tone);
-    if (tone !== undefined) {
-      event.tone = tone;
-    }
-    return event;
-  }
+export function applyMetrics(state: RenderState, metrics: readonly RenderMetric[]): RenderState {
+  return { ...state, metrics: [...metrics] };
+}
 
+export function appendTimelineEvent(state: RenderState, event: TimelineEvent): RenderState {
+  return { ...state, timeline: [...(state.timeline ?? []), event] };
+}
 
-  /**
-   * resolveTimelineTone 将后端返回的事件语义收敛到前端允许的 tone 枚举。
-   */
-  private resolveTimelineTone(value: unknown): TimelineEvent["tone"] | undefined {
-    const tone = asString(value);
-    if (tone === "neutral" || tone === "info" || tone === "success" || tone === "warning" || tone === "danger") {
-      return tone;
-    }
-    return undefined;
-  }
+export function appendAnnotation(state: RenderState, annotation: Annotation): RenderState {
+  return { ...state, annotations: [...(state.annotations ?? []), annotation] };
+}
 
-  /**
-   * pushHistory 追加单次场景快照并裁剪历史长度。
-   */
-  private pushHistory(sceneCode: string, state: RenderState): void {
-    const snapshots = this.history.get(sceneCode) ?? [];
-    snapshots.push({ tick: state.tick, state: deepClone(state) });
-    while (snapshots.length > this.maxTicks) {
-      snapshots.shift();
-    }
-    this.history.set(sceneCode, snapshots);
-  }
+export function removeAnnotation(state: RenderState, id: string): RenderState {
+  return { ...state, annotations: (state.annotations ?? []).filter(a => a.id !== id) };
+}
+
+export function setSchema(state: RenderState, schema: InteractionSchema): RenderState {
+  return { ...state, schema };
+}
+
+export function setLinkInfo(state: RenderState, linked: boolean, linkGroupName?: string): RenderState {
+  const next: RenderState = { ...state, linked };
+  if (linkGroupName !== undefined) next.linkGroupName = linkGroupName;
+  return next;
 }

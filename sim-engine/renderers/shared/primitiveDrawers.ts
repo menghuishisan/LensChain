@@ -1,1710 +1,958 @@
-import type { Primitive, PrimitiveType, RenderContext, RendererTheme } from "./types.js";
-import type { ResolvedLayout } from "./layoutSolver.js";
-import { asNumber, asString, clamp } from "./utils.js";
-
 /**
- * DrawEnvironment 渲染器绘制原语时可访问的环境。
- * resolvedLayout 由 layoutSolver 在 dispatch 之前算好，drawer 通过 p_num 自动读取。
+ * primitiveDrawers.ts — 33 个 canvas 原语的绘制函数 (Map dispatch)。
+ *
+ * 设计依据：
+ *   docs/modules/04-实验环境/06-可视化仿真引擎设计.md §3.2
+ *   docs/modules/04-实验环境/sim-engine-redesign-proposal.html §核心规则四铁律
+ *
+ * 原则：
+ *   • 仅 33 canvas 原语注册到 PRIMITIVE_DRAWER_MAP；14 个 DOM/浮层/容器类型不在此 map。
+ *   • drawer 接收 ResolvedPosition (已由 layoutSolver 算好像素)，drawer 不再做坐标计算。
+ *   • 不写兑底：未知 type / 缺字段 / 引用不存在的 anchor → 抛错（layoutSolver 已校验大部分）。
+ *   • 字段名严格对齐 framework/primitive.go schema (id/label/status/role/anchor_id/...)
  */
+
+import type { JsonObject, JsonValue, Primitive, PrimitiveType, RendererTheme } from "./types.js";
+import { asArray, asNumber, asString, clamp } from "./utils.js";
+import type { ResolvedLayout, ResolvedPosition } from "./layoutSolver.js";
+
+// ============================================================
+// 绘制环境
+// ============================================================
+
+/** 绘制时上下文（每帧由 primitiveRenderer 注入）。 */
 export interface DrawEnvironment {
   ctx: CanvasRenderingContext2D;
-  context: RenderContext;
   theme: RendererTheme;
-  highlightIds: Set<string>;
-  fireIds: Set<string>;
+  /** 当前活跃高亮的 primitive id 集合（由 MicroStep.highlight_ids 注入）。 */
+  highlightIds: ReadonlySet<string>;
+  /** 当前帧应触发的一次性效果 id 集合（MicroStep.fire_primitives）。 */
+  fireIds: ReadonlySet<string>;
+  /** 当前帧高精度时间 (ms)，用于动画相位计算。 */
   now: number;
-  resolvedLayout: Map<string, ResolvedLayout>;
+  /** 当前 tick（用于 burst.fired_at_tick 幂等）。 */
+  tick: number;
+  /** layoutSolver 输出。 */
+  resolvedLayout: ResolvedLayout;
 }
+
+/** drawer 函数签名。 */
+export type PrimitiveDrawer = (p: Primitive, env: DrawEnvironment) => void;
 
 // ============================================================
-// 布局感知坐标查表：drawer 直接调用 p_num 即可读到最终像素坐标
+// 颜色 / 文字 helper
 // ============================================================
 
-/**
- * currentEnv：dispatch 期间由 PrimitiveBasedRenderer 设置，使 p_num 能就近读取
- * resolvedLayout 与 0~1 逻辑坐标的画布尺寸。dispatch 结束后必须 setCurrentEnv(null) 释放。
- */
-let currentEnv: DrawEnvironment | null = null;
-
-export function setCurrentEnv(env: DrawEnvironment | null): void {
-  currentEnv = env;
+/** 角色 → 主题色映射（与 06.md §3.2 color_role 词表对齐）。 */
+function roleColor(role: string, theme: RendererTheme): string {
+  switch (role) {
+    case "primary":
+    case "honest":
+    case "ok":
+    case "success":
+      return theme.success;
+    case "attack":
+    case "byzantine":
+    case "danger":
+    case "error":
+      return theme.danger;
+    case "warning":
+    case "pending":
+      return theme.warning;
+    case "accent":
+    case "active":
+      return theme.accent;
+    case "muted":
+    case "idle":
+      return theme.muted;
+    default:
+      return theme.accent;
+  }
 }
 
-const POSITION_X_KEYS = new Set<string>(["x", "x1", "x2", "cx", "center_x", "from_x", "to_x"]);
-const POSITION_Y_KEYS = new Set<string>(["y", "y1", "y2", "cy", "center_y", "from_y", "to_y"]);
-const SIZE_W_KEYS = new Set<string>(["width", "cell_w"]);
-const SIZE_H_KEYS = new Set<string>(["height", "cell_h"]);
-const RADIUS_KEYS = new Set<string>(["radius"]);
-
-/** 读取 resolvedLayout 中对应轴 / 维度的值；未命中返回 undefined。 */
-function readResolved(p: Primitive, key: string): number | undefined {
-  if (!currentEnv) return undefined;
-  const r = currentEnv.resolvedLayout.get(p.id);
-  if (!r) return undefined;
-  if (POSITION_X_KEYS.has(key)) return r.x;
-  if (POSITION_Y_KEYS.has(key)) return r.y;
-  if (RADIUS_KEYS.has(key)) return r.radius;
-  if (SIZE_W_KEYS.has(key)) return r.width;
-  if (SIZE_H_KEYS.has(key)) return r.height;
-  return undefined;
+/** 状态 → 透明度 / 边框样式。 */
+function statusStyle(status: string): { alpha: number; stroke: "solid" | "dashed" } {
+  switch (status) {
+    case "active": return { alpha: 1.0, stroke: "solid" };
+    case "pending": return { alpha: 0.65, stroke: "dashed" };
+    case "idle": return { alpha: 0.45, stroke: "solid" };
+    case "error": return { alpha: 1.0, stroke: "solid" };
+    case "done": return { alpha: 0.85, stroke: "solid" };
+    default: return { alpha: 1.0, stroke: "solid" };
+  }
 }
 
-/** 把 raw 参数（可能是 0~1 逻辑值）放大到对应轴的像素；> 1 视为像素直传。 */
-function scaleLogical(raw: number, key: string): number {
-  if (!currentEnv) return raw;
-  if (raw < 0 || raw > 1) return raw;
-  const w = currentEnv.context.width;
-  const h = currentEnv.context.height;
-  if (POSITION_X_KEYS.has(key) || SIZE_W_KEYS.has(key)) return raw * w;
-  if (POSITION_Y_KEYS.has(key) || SIZE_H_KEYS.has(key)) return raw * h;
-  if (RADIUS_KEYS.has(key)) return raw * Math.min(w, h);
-  return raw;
+function withAlpha(color: string, alpha: number): string {
+  // 简单 hex → rgba 转换；非 hex 直接返回（rgba()/hsl() 等已含 alpha）
+  if (color.startsWith("#") && (color.length === 7 || color.length === 4)) {
+    const hex = color.length === 4
+      ? "#" + color[1]!.repeat(2) + color[2]!.repeat(2) + color[3]!.repeat(2)
+      : color;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return color;
 }
 
-/**
- * PrimitiveDrawFn 单个原语绘制函数签名。
- */
-export type PrimitiveDrawFn = (p: Primitive, env: DrawEnvironment) => void;
-
-// ============================================================
-// 工具函数
-// ============================================================
-
-function p_num(p: Primitive, key: string, fallback = 0): number {
-  // 1) 优先取 layoutSolver 算好的最终像素坐标
-  const resolved = readResolved(p, key);
-  if (resolved !== undefined) return resolved;
-  // 2) 否则读取原始 params；若是已知坐标 / 尺寸字段，自动把 0~1 逻辑值放大到像素
-  const v = p.params[key];
-  if (typeof v === "number") return scaleLogical(v, key);
-  return fallback;
+function drawText(
+  ctx: CanvasRenderingContext2D,
+  text: string, x: number, y: number,
+  opts: { color?: string; size?: number; weight?: number; align?: CanvasTextAlign; baseline?: CanvasTextBaseline } = {},
+): void {
+  const { color = "#e5f2ff", size = 11, weight = 400, align = "center", baseline = "middle" } = opts;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.font = `${weight} ${size}px ui-monospace, "SF Mono", monospace`;
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+  ctx.fillText(text, x, y);
+  ctx.restore();
 }
 
-function p_str(p: Primitive, key: string, fallback = ""): string {
-  const v = p.params[key];
-  return typeof v === "string" ? v : fallback;
+function requirePos(p: Primitive, env: DrawEnvironment): ResolvedPosition {
+  const pos = env.resolvedLayout.positions.get(p.id);
+  if (!pos) {
+    throw new Error(`drawer: primitive "${p.id}" (${p.type}) 缺解算位置`);
+  }
+  return pos;
 }
 
-function p_color(p: Primitive, key: string, env: DrawEnvironment): string {
-  const v = p.params[key];
-  return typeof v === "string" && v.length > 0 ? v : env.theme.accent;
-}
-
-function p_arr(p: Primitive, key: string): unknown[] {
-  const v = p.params[key];
-  return Array.isArray(v) ? v : [];
-}
-
-function isHighlighted(p: Primitive, env: DrawEnvironment): boolean {
-  return env.highlightIds.has(p.id);
-}
-
-function highlightGlow(p: Primitive, env: DrawEnvironment, overrideColor?: string, blur = 16): void {
-  const isFire = env.fireIds.has(p.id);
-  const isHigh = isHighlighted(p, env);
-  if (!isHigh && !isFire) return;
-  
-  // Fire状态给非常强的白/蓝脉冲，Highlight给警告色
-  env.ctx.shadowColor = isFire ? "#ffffff" : (overrideColor || env.theme.warning);
-  env.ctx.shadowBlur = isFire ? blur * 1.5 : blur;
-}
-
-function resetGlow(env: DrawEnvironment): void {
-  env.ctx.shadowColor = "transparent";
-  env.ctx.shadowBlur = 0;
-}
-
-// 辅助方法：Hex转rgba
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16) || 0;
-  const g = parseInt(hex.slice(3, 5), 16) || 0;
-  const b = parseInt(hex.slice(5, 7), 16) || 0;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+function requireAnchorPos(anchorId: string, env: DrawEnvironment, owner: Primitive): ResolvedPosition {
+  if (!anchorId) {
+    throw new Error(`drawer: ${owner.type} "${owner.id}" 缺 anchor_id`);
+  }
+  const pos = env.resolvedLayout.positions.get(anchorId);
+  if (!pos) {
+    throw new Error(`drawer: ${owner.type} "${owner.id}" anchor_id="${anchorId}" 未解算`);
+  }
+  return pos;
 }
 
 // ============================================================
 // 几何类（8）
 // ============================================================
 
-function drawNode(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x", 100);
-  const y = p_num(p, "y", 100);
-  const radius = p_num(p, "radius", 24);
-  const label = p_str(p, "label");
-  const status = p_str(p, "status", "normal");
-  const baseColor = status === "fault" ? theme.danger
-    : status === "leader" ? theme.success
-    : status === "active" ? theme.accent
-    : p_color(p, "color", env);
+const drawNode: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const r = pos.radius ?? 22;
+  const role = asString(p.params.role, "primary");
+  const status = asString(p.params.status, "active");
+  const label = asString(p.params.label, "");
+  const color = roleColor(role, env.theme);
+  const style = statusStyle(status);
+  const highlighted = env.highlightIds.has(p.id);
 
-  // 极客风外发光层
-  ctx.save();
-  highlightGlow(p, env, baseColor, 20);
-  
-  // 节点渐变底色
-  const grad = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, radius * 0.1, x, y, radius);
-  grad.addColorStop(0, hexToRgba(baseColor, 0.9));
-  grad.addColorStop(1, hexToRgba(baseColor, 0.4));
-  
-  ctx.fillStyle = grad;
-  ctx.strokeStyle = baseColor;
-  ctx.lineWidth = 2;
-  
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  
-  // 高亮呼吸环
-  if (status === "leader" || status === "active") {
-    const pulse = 1 + 0.1 * Math.sin(env.now * 0.003);
-    ctx.strokeStyle = hexToRgba(baseColor, 0.4 * pulse);
-    ctx.lineWidth = 4;
+  const { ctx } = env;
+  // halo for highlighted
+  if (highlighted) {
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(x, y, radius + 6 * pulse, 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y, r + 8, 0, Math.PI * 2);
+    ctx.strokeStyle = env.theme.accent;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = env.theme.accent;
     ctx.stroke();
+    ctx.restore();
   }
-  
-  ctx.restore();
-
-  if (label) {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 12px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, x, y + radius + 16);
-    ctx.textAlign = "start";
-    ctx.textBaseline = "alphabetic";
-  }
-}
-
-function drawEdge(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme, now } = env;
-  // 文档 framework/primitive.go:52-54：edge 不带坐标，通过 from_id/to_id 引用节点。
-  // 优先按节点 ID 查 resolvedLayout；fallback 才用 x1/y1/x2/y2（少数 EdgeAt 场景）。
-  const fromId = p_str(p, "from_id");
-  const toId = p_str(p, "to_id");
-  let x1 = p_num(p, "x1");
-  let y1 = p_num(p, "y1");
-  let x2 = p_num(p, "x2");
-  let y2 = p_num(p, "y2");
-  if (fromId && toId) {
-    const a = env.resolvedLayout.get(fromId);
-    const b = env.resolvedLayout.get(toId);
-    if (a && b) {
-      x1 = a.x; y1 = a.y;
-      x2 = b.x; y2 = b.y;
-    }
-  }
-  // 仍未拿到合法端点（fallback 全 0），跳过绘制避免在画布左上角画一条隐线。
-  if (x1 === 0 && y1 === 0 && x2 === 0 && y2 === 0) return;
-  const width = p_num(p, "width", 2);
-  const dashed = p.params["dashed"] === true;
-  const color = p_color(p, "color", env);
-  const label = p_str(p, "label");
-
-  ctx.save();
-  highlightGlow(p, env, color, 12);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  
-  // 赛博流光虚线
-  if (dashed) {
-    ctx.setLineDash([8, 6]);
-    ctx.lineDashOffset = -(now * 0.05) % 14;
-  }
-  
+  // fill disc
   ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.stroke();
-  
-  if (dashed) {
-    ctx.setLineDash([]);
-    ctx.lineDashOffset = 0;
-  }
-  ctx.restore();
-
-  if (label) {
-    const mx = (x1 + x2) / 2;
-    const my = (y1 + y2) / 2;
-    
-    // 标签背景胶囊
-    ctx.font = "11px sans-serif";
-    const tw = ctx.measureText(label).width;
-    ctx.fillStyle = "rgba(9, 17, 31, 0.8)";
-    ctx.beginPath();
-    ctx.roundRect(mx - tw/2 - 4, my - 10, tw + 8, 18, 4);
-    ctx.fill();
-    
-    ctx.fillStyle = theme.muted;
-    ctx.textAlign = "center";
-    ctx.fillText(label, mx, my + 3);
-    ctx.textAlign = "start";
-  }
-}
-
-function drawBar(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 32);
-  const height = p_num(p, "height", 100);
-  const value = clamp(p_num(p, "value", 1), 0, 1);
-  const color = p_color(p, "color", env);
-  const label = p_str(p, "label");
-
-  const barH = height * value;
-  
-  // 玻璃态槽槽底
-  ctx.fillStyle = "rgba(18, 29, 48, 0.6)";
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.2)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 4);
+  ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = withAlpha(color, style.alpha * 0.35);
   ctx.fill();
+  // outline
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  if (style.stroke === "dashed") ctx.setLineDash([4, 3]);
   ctx.stroke();
+  ctx.setLineDash([]);
+  // label inside
+  if (label) {
+    drawText(ctx, label, pos.x, pos.y, { color: env.theme.foreground, size: r >= 22 ? 11 : 10, weight: 600 });
+  }
+};
 
-  ctx.save();
-  highlightGlow(p, env, color, 12);
-  
-  // 渐变柱子
-  const grad = ctx.createLinearGradient(x, y + height, x, y + height - barH);
-  grad.addColorStop(0, hexToRgba(color, 0.6));
-  grad.addColorStop(1, color);
+const drawEdge: PrimitiveDrawer = (p, env) => {
+  const fromId = asString(p.params.from_id, "");
+  const toId = asString(p.params.to_id, "");
+  const from = env.resolvedLayout.positions.get(fromId);
+  const to = env.resolvedLayout.positions.get(toId);
+  if (!from || !to) {
+    throw new Error(`edge "${p.id}": from_id="${fromId}" 或 to_id="${toId}" 未解算`);
+  }
+  const style = asString(p.params.style, "solid");
+  const animation = asString(p.params.animation, "");
+  const { ctx } = env;
+  ctx.strokeStyle = withAlpha(env.theme.muted, 0.65);
+  ctx.lineWidth = 1.5;
+  if (style === "dashed") ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // arrow head when animation=flow
+  if (animation === "flow") {
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const ax = to.x - Math.cos(angle) * (to.radius ?? 22);
+    const ay = to.y - Math.sin(angle) * (to.radius ?? 22);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - Math.cos(angle - 0.35) * 8, ay - Math.sin(angle - 0.35) * 8);
+    ctx.lineTo(ax - Math.cos(angle + 0.35) * 8, ay - Math.sin(angle + 0.35) * 8);
+    ctx.closePath();
+    ctx.fillStyle = env.theme.accent;
+    ctx.fill();
+  }
+};
+
+const drawBar: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const colorRole = asString(p.params.color_role, "primary");
+  const heightLogical = asNumber(p.params.height, 0.5);
+  const widthLogical = asNumber(p.params.width, 0.1);
+  const color = roleColor(colorRole, env.theme);
+  const w = pos.width ?? widthLogical * 200;
+  const h = clamp(heightLogical, 0, 1) * (pos.height ?? 80);
+  const { ctx } = env;
+  ctx.fillStyle = withAlpha(color, env.highlightIds.has(p.id) ? 1 : 0.7);
+  ctx.fillRect(pos.x - w / 2, pos.y - h / 2, w, h);
+  const label = asString(p.params.label, "");
+  if (label) drawText(ctx, label, pos.x, pos.y + h / 2 + 12, { color: env.theme.muted, size: 10 });
+};
+
+const drawCurve: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const points = asArray<JsonObject>(p.params.points);
+  if (points.length < 2) return;
+  const style = asString(p.params.style, "solid");
+  const w = pos.width ?? env.resolvedLayout.main.width;
+  const h = pos.height ?? env.resolvedLayout.main.height;
+  const left = pos.x - w / 2;
+  const top = pos.y - h / 2;
+  // points 为算法坐标系（通常 0~1），归一化到当前区域
+  const { ctx } = env;
+  ctx.strokeStyle = env.theme.accent;
+  ctx.lineWidth = 2;
+  if (style === "dashed") ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  points.forEach((pt, i) => {
+    const px = asNumber(pt.x, 0);
+    const py = asNumber(pt.y, 0);
+    const x = left + clamp(px, 0, 1) * w;
+    const y = top + (1 - clamp(py, 0, 1)) * h;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+};
+
+const drawPolygon: PrimitiveDrawer = (p, env) => {
+  const vertices = asArray<JsonObject>(p.params.vertices);
+  if (vertices.length < 3) return;
+  const pos = env.resolvedLayout.positions.get(p.id);
+  const main = env.resolvedLayout.main;
+  const ox = pos?.x ?? main.x + main.width / 2;
+  const oy = pos?.y ?? main.y + main.height / 2;
+  const span = Math.min(main.width, main.height);
+  const fill = asString(p.params.fill, "");
+  const stroke = asString(p.params.stroke, "");
+  const { ctx } = env;
+  ctx.beginPath();
+  vertices.forEach((v, i) => {
+    const x = ox + asNumber(v.x, 0) * span;
+    const y = oy + asNumber(v.y, 0) * span;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+};
+
+const drawArea: PrimitiveDrawer = (p, env) => {
+  const points = asArray<JsonObject>(p.params.points);
+  if (points.length < 2) return;
+  const main = env.resolvedLayout.main;
+  const { ctx } = env;
+  const grad = ctx.createLinearGradient(main.x, main.y, main.x, main.y + main.height);
+  grad.addColorStop(0, withAlpha(env.theme.accent, 0.35));
+  grad.addColorStop(1, withAlpha(env.theme.accent, 0));
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.roundRect(x, y + height - barH, width, barH, [0, 0, 4, 4]);
-  ctx.fill();
-  
-  // 顶部高光线
-  if (barH > 2) {
-    ctx.fillStyle = "rgba(255,255,255,0.4)";
-    ctx.fillRect(x, y + height - barH, width, 2);
-  }
-  ctx.restore();
-
-  if (label) {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(label, x + width / 2, y + height + 16);
-    ctx.textAlign = "start";
-  }
-}
-
-function drawCurve(p: Primitive, env: DrawEnvironment): void {
-  const { ctx } = env;
-  const points = p_arr(p, "points");
-  const color = p_color(p, "color", env);
-  const width = p_num(p, "width", 2);
-
-  if (points.length < 2) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.beginPath();
-  for (let i = 0; i < points.length; i++) {
-    const pt = points[i] as { x?: number; y?: number } | undefined;
-    if (!pt) continue;
-    const px = typeof pt.x === "number" ? pt.x : 0;
-    const py = typeof pt.y === "number" ? pt.y : 0;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.stroke();
-}
-
-function drawPolygon(p: Primitive, env: DrawEnvironment): void {
-  const { ctx } = env;
-  const points = p_arr(p, "points");
-  const color = p_color(p, "fill", env);
-  const stroke = p_str(p, "stroke");
-
-  if (points.length < 3) return;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  for (let i = 0; i < points.length; i++) {
-    const pt = points[i] as { x?: number; y?: number } | undefined;
-    if (!pt) continue;
-    const px = typeof pt.x === "number" ? pt.x : 0;
-    const py = typeof pt.y === "number" ? pt.y : 0;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
+  points.forEach((pt, i) => {
+    const x = main.x + clamp(asNumber(pt.x, 0), 0, 1) * main.width;
+    const y = main.y + (1 - clamp(asNumber(pt.y, 0), 0, 1)) * main.height;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(main.x + main.width, main.y + main.height);
+  ctx.lineTo(main.x, main.y + main.height);
   ctx.closePath();
   ctx.fill();
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  }
-}
+};
 
-function drawArea(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 120);
-  const height = p_num(p, "height", 80);
-  const color = p_color(p, "color", env);
-  const opacity = p_num(p, "opacity", 0.15);
-  const label = p_str(p, "label");
-
-  ctx.save();
-  highlightGlow(p, env, color, 12);
-  
-  // 赛博分区背景
-  const grad = ctx.createLinearGradient(x, y, x, y + height);
-  grad.addColorStop(0, hexToRgba(color, opacity));
-  grad.addColorStop(1, hexToRgba(color, opacity * 0.3));
-  
-  ctx.fillStyle = grad;
-  ctx.strokeStyle = hexToRgba(color, 0.8);
+const drawGridCell: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const colorRole = asString(p.params.color_role, "muted");
+  const color = roleColor(colorRole, env.theme);
+  const w = pos.width ?? 48;
+  const h = pos.height ?? 32;
+  const { ctx } = env;
+  ctx.fillStyle = withAlpha(color, env.highlightIds.has(p.id) ? 0.9 : 0.55);
+  ctx.fillRect(pos.x - w / 2 + 2, pos.y - h / 2 + 2, w - 4, h - 4);
+  ctx.strokeStyle = withAlpha(color, 0.9);
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 8);
-  ctx.fill();
-  ctx.stroke();
-  
-  // 角落装饰框
-  const decoL = 12;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  // 左上
-  ctx.moveTo(x, y + decoL); ctx.lineTo(x, y); ctx.lineTo(x + decoL, y);
-  // 右上
-  ctx.moveTo(x + width - decoL, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + decoL);
-  // 左下
-  ctx.moveTo(x, y + height - decoL); ctx.lineTo(x, y + height); ctx.lineTo(x + decoL, y + height);
-  // 右下
-  ctx.moveTo(x + width - decoL, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - decoL);
-  ctx.stroke();
-
-  ctx.restore();
-
-  if (label) {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 11px sans-serif";
-    ctx.fillText(label, x + 8, y + 18);
+  ctx.strokeRect(pos.x - w / 2 + 2, pos.y - h / 2 + 2, w - 4, h - 4);
+  const value = p.params.value;
+  if (value !== null && value !== undefined) {
+    drawText(ctx, String(value), pos.x, pos.y, { color: env.theme.foreground, size: 10, weight: 600 });
   }
-}
+};
 
-function drawGridCell(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const size = p_num(p, "size", 32);
-  const color = p_color(p, "color", env);
-  const label = p_str(p, "label");
-
-  ctx.save();
-  highlightGlow(p, env, color, 12);
-  
-  // 单元格赛博格栅效果
-  ctx.fillStyle = hexToRgba(color, 0.15);
-  ctx.fillRect(x, y, size, size);
-  
-  // 边框加亮
-  ctx.strokeStyle = hexToRgba(color, 0.8);
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, size, size);
-  
-  // 四角装饰小方块
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, 3, 3);
-  ctx.fillRect(x + size - 3, y, 3, 3);
-  ctx.fillRect(x, y + size - 3, 3, 3);
-  ctx.fillRect(x + size - 3, y + size - 3, 3, 3);
-  
-  ctx.restore();
-
-  if (label) {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 10px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(label, x + size / 2, y + size / 2 + 4);
-    ctx.textAlign = "start";
-  }
-}
-
-function drawRing(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const cx = p_num(p, "cx", 200);
-  const cy = p_num(p, "cy", 200);
-  const radius = p_num(p, "radius", 60);
-  const startAngle = p_num(p, "start_angle", 0);
-  const endAngle = p_num(p, "end_angle", Math.PI * 2);
-  const color = p_color(p, "color", env);
-  const width = p_num(p, "width", 8);
-
-  ctx.save();
-  highlightGlow(p, env, color, 12);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
+const drawRing: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const total = Math.max(1, asNumber(p.params.total, 1));
+  const current = clamp(asNumber(p.params.current, 0), 0, total);
+  const r = pos.radius ?? 32;
+  const { ctx } = env;
+  // 底环
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = withAlpha(env.theme.muted, 0.2);
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  // 进度
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * current) / total);
+  ctx.strokeStyle = env.theme.accent;
+  ctx.lineWidth = 6;
   ctx.lineCap = "round";
-  
-  // 环状动态光泽
-  const grad = ctx.createConicGradient(now * 0.002, cx, cy);
-  grad.addColorStop(0, color);
-  grad.addColorStop(0.5, hexToRgba(color, 0.2));
-  grad.addColorStop(1, color);
-  
-  ctx.strokeStyle = grad;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, startAngle, endAngle);
   ctx.stroke();
-  ctx.restore();
-}
+  ctx.lineCap = "butt";
+  // 文字
+  drawText(ctx, `${current}/${total}`, pos.x, pos.y, { color: env.theme.foreground, size: 12, weight: 600 });
+  const label = asString(p.params.label, "");
+  if (label) drawText(ctx, label, pos.x, pos.y + r + 14, { color: env.theme.muted, size: 10 });
+};
 
 // ============================================================
-// 动效类（7）
+// 动效类（7）— 全部需要 anchor_id
 // ============================================================
 
-function drawParticleStream(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const x1 = p_num(p, "x1");
-  const y1 = p_num(p, "y1");
-  const x2 = p_num(p, "x2");
-  const y2 = p_num(p, "y2");
-  const color = p_color(p, "color", env);
-  const count = p_num(p, "count", 8);
-  const speed = p_num(p, "speed", 1);
-
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 8;
-  ctx.fillStyle = color;
-  
+const drawParticleStream: PrimitiveDrawer = (p, env) => {
+  const anchor = requireAnchorPos(asString(p.params.anchor_id, ""), env, p);
+  const color = roleColor(asString(p.params.color_role, "accent"), env.theme);
+  const rate = asNumber(p.params.rate, 20);
+  const lifetime = asNumber(p.params.lifetime_ms, 1200);
+  const direction = asString(p.params.direction, "out");
+  const { ctx } = env;
+  // 简化：用 now+rate 决定 N 个粒子的相位
+  const count = Math.min(12, Math.max(4, Math.floor(rate / 4)));
   for (let i = 0; i < count; i++) {
-    const t = ((now * speed * 0.001 + i / count) % 1);
-    // 使用 easeOutQuad 缓动，产生粒子在结尾减速并淡出的效果
-    const eased = t * (2 - t);
-    const px = x1 + dx * eased;
-    const py = y1 + dy * eased;
-    
-    ctx.globalAlpha = 1 - Math.pow(eased, 2);
+    const phase = ((env.now / lifetime) + i / count) % 1;
+    const distance = phase * 40;
+    const angle = (i / count) * Math.PI * 2;
+    const dx = direction === "in" ? -distance : distance;
+    const x = anchor.x + Math.cos(angle) * dx;
+    const y = anchor.y + Math.sin(angle) * dx;
     ctx.beginPath();
-    ctx.arc(px, py, 3 - eased * 1.5, 0, Math.PI * 2);
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = withAlpha(color, 1 - phase);
     ctx.fill();
   }
-  ctx.restore();
-}
+};
 
-function drawBurst(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const cx = p_num(p, "cx", 200);
-  const cy = p_num(p, "cy", 200);
-  const color = p_color(p, "color", env);
-  const maxRadius = p_num(p, "radius", 40);
-  const startTime = p_num(p, "start_time", 0);
-  const duration = p_num(p, "duration", 600);
-
-  const elapsed = now - startTime;
-  if (elapsed < 0 || elapsed > duration) return;
-  const progress = elapsed / duration;
-  
-  // easeOutQuart 缓动，爆炸感
-  const eased = 1 - Math.pow(1 - progress, 4);
-  const r = maxRadius * eased;
-
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = hexToRgba(color, 0.2);
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 15;
-  ctx.lineWidth = 3 * (1 - progress);
-  ctx.globalAlpha = 1 - progress;
-  
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawPulse(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const cx = p_num(p, "cx", 200);
-  const cy = p_num(p, "cy", 200);
-  const color = p_color(p, "color", env);
-  const radius = p_num(p, "radius", 30);
-  const period = p_num(p, "period", 1200);
-
-  const phase = (now % period) / period;
-  
-  // 核心
-  ctx.fillStyle = color;
-  ctx.globalAlpha = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2);
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * 0.8, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // 脉冲波纹
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 10;
-  const ripplePhase = (now % (period * 1.5)) / (period * 1.5);
-  ctx.globalAlpha = 1 - ripplePhase;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * (0.8 + 0.8 * ripplePhase), 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawTrail(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const points = p_arr(p, "points");
-  const color = p_color(p, "color", env);
-  const duration = p_num(p, "duration", 1500);
-  const startTime = p_num(p, "start_time", 0);
-
-  const elapsed = now - startTime;
-  if (elapsed < 0 || points.length < 2) return;
-  const progress = clamp(elapsed / duration, 0, 1);
-  
-  const totalLength = points.length - 1;
-  const currentIndex = progress * totalLength;
-  const tailLength = Math.max(1, totalLength * 0.3); // 尾巴长度占 30%
-
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 10;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  
-  for (let i = 1; i <= Math.ceil(currentIndex) && i < points.length; i++) {
-    const ptPrev = points[i-1] as { x?: number; y?: number };
-    const ptCurr = points[i] as { x?: number; y?: number };
-    if (!ptPrev || !ptCurr) continue;
-    
-    // 计算当前线段相对于尾巴的透明度和粗细
-    const age = currentIndex - i;
-    if (age > tailLength) continue;
-    
-    const intensity = 1 - (age / tailLength);
-    
-    ctx.strokeStyle = hexToRgba(color, intensity);
-    ctx.lineWidth = 1 + 3 * intensity;
-    ctx.beginPath();
-    ctx.moveTo(typeof ptPrev.x === "number" ? ptPrev.x : 0, typeof ptPrev.y === "number" ? ptPrev.y : 0);
-    ctx.lineTo(typeof ptCurr.x === "number" ? ptCurr.x : 0, typeof ptCurr.y === "number" ? ptCurr.y : 0);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawGlow(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const cx = p_num(p, "cx", 200);
-  const cy = p_num(p, "cy", 200);
-  const radius = p_num(p, "radius", 20);
-  const color = p_color(p, "color", env);
-  const intensity = p_num(p, "intensity", 0.6);
-
-  ctx.save();
-  const pulse = 1 + 0.1 * Math.sin(now * 0.003); // 微呼吸
-  
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * pulse);
-  grad.addColorStop(0, hexToRgba(color, intensity));
-  grad.addColorStop(0.4, hexToRgba(color, intensity * 0.5));
-  grad.addColorStop(1, hexToRgba(color, 0));
-
-  ctx.fillStyle = grad;
-  ctx.globalCompositeOperation = "screen"; // 叠加提亮层
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * pulse, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawShake(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const targetId = p_str(p, "target_id");
-  const amplitude = p_num(p, "amplitude", 4);
-  const duration = p_num(p, "duration", 400);
-  const startTime = p_num(p, "start_time", 0);
-
-  const elapsed = now - startTime;
-  if (elapsed < 0 || elapsed > duration) return;
-  const decay = 1 - elapsed / duration;
-  const offsetX = Math.sin(elapsed * 0.05) * amplitude * decay;
-  const offsetY = Math.cos(elapsed * 0.07) * amplitude * decay * 0.5;
-  ctx.translate(offsetX, offsetY);
-  void targetId;
-}
-
-function drawShiftAnimation(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const x1 = p_num(p, "from_x");
-  const y1 = p_num(p, "from_y");
-  const x2 = p_num(p, "to_x", 100);
-  const y2 = p_num(p, "to_y", 100);
-  const duration = p_num(p, "duration", 500);
-  const startTime = p_num(p, "start_time", 0);
-  const color = p_color(p, "color", env);
-  const radius = p_num(p, "radius", 8);
-
-  const elapsed = now - startTime;
-  if (elapsed < 0) return;
-  const t = clamp(elapsed / duration, 0, 1);
-  const eased = t * (2 - t);
-  const px = x1 + (x2 - x1) * eased;
-  const py = y1 + (y2 - y1) * eased;
-
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = color;
-  ctx.globalAlpha = t < 1 ? 1 : 0;
-  
-  // 主体
-  ctx.beginPath();
-  ctx.arc(px, py, radius, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // 运动拖影
-  if (t > 0 && t < 1) {
-    ctx.globalAlpha = 0.5;
-    ctx.beginPath();
-    ctx.arc(px - (x2-x1)*0.05, py - (y2-y1)*0.05, radius * 0.8, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-// ============================================================
-// 布局类（6）：仅画极淡的辅助引导线，子节点坐标由 layoutSolver 注入 resolvedLayout。
-// 这些 drawer 不再自行排列 items / 画占位框，避免和子原语视觉重复。
-// ============================================================
-
-function drawHorizontalLane(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const r = env.resolvedLayout.get(p.id);
-  if (!r || !r.width || !r.height) return;
-  ctx.save();
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.12)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 6]);
-  ctx.beginPath();
-  ctx.moveTo(r.x, r.y);
-  ctx.lineTo(r.x + r.width, r.y);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  const label = p_str(p, "label");
-  if (label) {
-    ctx.fillStyle = theme.muted;
-    ctx.font = "10px sans-serif";
-    ctx.fillText(label, r.x + 8, r.y - 4);
-  }
-  ctx.restore();
-}
-
-function drawStack(p: Primitive, env: DrawEnvironment): void {
-  // 布局原语：仅画一条极淡的中线作为参考；items 的坐标已由 layoutSolver 写入对应子原语。
-  const r = env.resolvedLayout.get(p.id);
-  if (!r || !r.width) return;
+const drawBurst: PrimitiveDrawer = (p, env) => {
+  const anchor = requireAnchorPos(asString(p.params.anchor_id, ""), env, p);
+  const firedAt = asNumber(p.params.fired_at_tick, -1);
+  if (firedAt < 0 || env.tick - firedAt > 1) return; // 仅在触发后短时间内显示
+  const color = asString(p.params.color, env.theme.warning);
+  const duration = asNumber(p.params.duration_ms, 600);
+  const progress = Math.min(1, (env.now % duration) / duration);
+  const r = 8 + progress * 40;
   const { ctx } = env;
-  ctx.save();
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.08)";
-  ctx.lineWidth = 1;
   ctx.beginPath();
-  if ((p.params["direction"] ?? "horizontal") === "horizontal") {
-    ctx.moveTo(r.x, r.y);
-    ctx.lineTo(r.x + r.width, r.y);
-  } else {
-    const h = r.height ?? 0;
-    ctx.moveTo(r.x, r.y);
-    ctx.lineTo(r.x, r.y + h);
-  }
+  ctx.arc(anchor.x, anchor.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = withAlpha(color, 1 - progress);
+  ctx.lineWidth = 3;
   ctx.stroke();
-  ctx.restore();
-}
+};
 
-function drawRingLayout(p: Primitive, env: DrawEnvironment): void {
-  // 布局原语：画一条极淡的环形参考线；环上 node 已由 layoutSolver 解算。
-  const r = env.resolvedLayout.get(p.id);
-  if (!r || !r.radius) return;
+const drawPulse: PrimitiveDrawer = (p, env) => {
+  const anchor = requireAnchorPos(asString(p.params.anchor_id, ""), env, p);
+  const color = roleColor(asString(p.params.color_role, "accent"), env.theme);
+  const period = asNumber(p.params.period_ms, 1200);
+  const phase = (env.now % period) / period;
+  const r = (anchor.radius ?? 22) + 6 + phase * 12;
   const { ctx } = env;
-  ctx.save();
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.10)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 6]);
   ctx.beginPath();
-  ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
-function drawTreeLayout(_p: Primitive, _env: DrawEnvironment): void {
-  // 布局原语：层次坐标已由 layoutSolver 写入各 node，本身不绘制额外背景。
-}
-
-function drawGraphLayout(p: Primitive, env: DrawEnvironment): void {
-  // 布局原语：节点坐标已由 layoutSolver 注入；不画 algorithm 占位框。
-  drawRingLayout(p, env);
-}
-
-function drawMatrixLayout(p: Primitive, env: DrawEnvironment): void {
-  // 布局原语：grid_cell 坐标已由 layoutSolver 写入，仅画极淡边框示意网格区域。
-  const r = env.resolvedLayout.get(p.id);
-  if (!r || !r.width || !r.height) return;
-  const { ctx } = env;
-  ctx.save();
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.10)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(r.x, r.y, r.width, r.height);
-  ctx.restore();
-}
-
-// ============================================================
-// 数据展示类（7）
-// ============================================================
-
-function drawLabel(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const text = p_str(p, "text");
-  const fontSize = p_num(p, "font_size", 14);
-  const color = p_color(p, "color", env);
-  const bold = p.params["bold"] === true;
-
-  ctx.fillStyle = color === env.theme.accent ? theme.foreground : color;
-  ctx.font = `${bold ? "600 " : ""}${fontSize}px sans-serif`;
-  ctx.fillText(text, x, y);
-}
-
-function drawTooltip(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const items = p_arr(p, "items");
-
-  if (items.length === 0) return;
-  const width = 220;
-  const height = 24 + items.length * 20;
-  
-  ctx.save();
-  // 悬浮玻璃态背景
-  ctx.fillStyle = "rgba(10, 18, 30, 0.85)";
-  ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-  ctx.shadowBlur = 10;
-  ctx.shadowOffsetY = 4;
-  
-  // 赛博边框
-  ctx.strokeStyle = hexToRgba(theme.accent, 0.5);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 6);
-  ctx.fill();
-  ctx.stroke();
-
-  // 顶部装饰线
-  ctx.fillStyle = theme.accent;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, 4, [6, 6, 0, 0]);
-  ctx.fill();
-
-  items.forEach((item, i) => {
-    const row = item as { label?: string; value?: string } | undefined;
-    if (!row) return;
-    const ly = y + 20 + i * 20;
-    ctx.fillStyle = theme.muted;
-    ctx.font = "11px sans-serif";
-    ctx.fillText(asString(row.label), x + 12, ly);
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 11px monospace";
-    ctx.fillText(asString(row.value), x + 110, ly);
-  });
-  ctx.restore();
-}
-
-function drawAnnotation(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const text = p_str(p, "text");
-  const color = p_color(p, "color", env);
-
-  ctx.font = "600 12px sans-serif";
-  const tw = ctx.measureText(text).width;
-  const w = Math.max(60, tw + 20);
-  
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 8;
-  
-  // 梯形/斜切标签底板
-  ctx.fillStyle = color;
-  ctx.globalAlpha = 0.9;
-  ctx.beginPath();
-  ctx.moveTo(x + 6, y);
-  ctx.lineTo(x + w, y);
-  ctx.lineTo(x + w - 6, y + 24);
-  ctx.lineTo(x, y + 24);
-  ctx.closePath();
-  ctx.fill();
-  
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = theme.background; // 黑色文字
-  ctx.textAlign = "center";
-  ctx.fillText(text, x + w / 2, y + 16);
-  ctx.restore();
-}
-
-function drawRegisterRow(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 280);
-  const label = p_str(p, "label");
-  const value = p_str(p, "value");
-
-  ctx.save();
-  highlightGlow(p, env, theme.accent, 12);
-  
-  // 玻璃态微渐变背景
-  const grad = ctx.createLinearGradient(x, y, x, y + 24);
-  grad.addColorStop(0, "rgba(24, 38, 62, 0.9)");
-  grad.addColorStop(1, "rgba(14, 22, 38, 0.9)");
-  
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, 24, 4);
-  ctx.fill();
-  
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.25)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = theme.muted;
-  ctx.font = "11px monospace";
-  ctx.fillText(label, x + 10, y + 16);
-  
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "600 12px monospace";
-  ctx.fillText(value, x + width * 0.4, y + 16);
-  
-  // 分隔线
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.15)";
-  ctx.beginPath();
-  ctx.moveTo(x + width * 0.38, y + 4);
-  ctx.lineTo(x + width * 0.38, y + 20);
-  ctx.stroke();
-  
-  ctx.restore();
-}
-
-function drawMathPipeline(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const steps = p_arr(p, "steps");
-  const stepWidth = p_num(p, "step_width", 100);
-
-  steps.forEach((step, i) => {
-    const sx = x + i * (stepWidth + 20);
-    const label = typeof step === "string" ? step : asString((step as Record<string, unknown>)?.label);
-    ctx.fillStyle = "rgba(18, 29, 48, 0.85)";
-    ctx.strokeStyle = theme.accent;
-    ctx.beginPath();
-    ctx.roundRect(sx, y, stepWidth, 36, 8);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "12px sans-serif";
-    ctx.fillText(label, sx + 8, y + 22);
-    if (i < steps.length - 1) {
-      ctx.strokeStyle = theme.muted;
-      ctx.beginPath();
-      ctx.moveTo(sx + stepWidth + 4, y + 18);
-      ctx.lineTo(sx + stepWidth + 16, y + 18);
-      ctx.stroke();
-    }
-  });
-}
-
-function drawCodeBlock(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 300);
-  const lines = p_arr(p, "lines");
-  const lineHeight = 18;
-  const height = Math.max(40, lines.length * lineHeight + 16);
-
-  ctx.save();
-  highlightGlow(p, env, theme.accent, 12);
-  
-  // 赛博终端背景
-  ctx.fillStyle = "rgba(5, 10, 20, 0.95)";
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.2)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 6);
-  ctx.fill();
-  ctx.stroke();
-
-  // 顶部装饰条（模拟终端标题栏）
-  ctx.fillStyle = "rgba(24, 38, 62, 0.8)";
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, 12, [6, 6, 0, 0]);
-  ctx.fill();
-  
-  // 三个小红绿灯
-  ctx.fillStyle = theme.danger; ctx.beginPath(); ctx.arc(x + 10, y + 6, 3, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = theme.warning; ctx.beginPath(); ctx.arc(x + 20, y + 6, 3, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = theme.success; ctx.beginPath(); ctx.arc(x + 30, y + 6, 3, 0, Math.PI*2); ctx.fill();
-
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "12px monospace";
-  lines.forEach((line, i) => {
-    const text = typeof line === "string" ? line : String(line ?? "");
-    // 行号
-    ctx.fillStyle = theme.muted;
-    ctx.globalAlpha = 0.5;
-    ctx.fillText(String(i + 1).padStart(2, ' '), x + 8, y + 24 + i * lineHeight);
-    
-    // 代码高亮简化版
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = text.includes("return") || text.includes("function") ? theme.accent : theme.foreground;
-    ctx.fillText(text, x + 32, y + 24 + i * lineHeight);
-  });
-  ctx.restore();
-}
-
-function drawMathFormula(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const formula = p_str(p, "formula");
-
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "italic 16px serif";
-  ctx.fillText(formula, x, y);
-}
-
-// ============================================================
-// 状态指示类（8）
-// ============================================================
-
-function drawPhaseProgress(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 300);
-  const phases = p_arr(p, "phases");
-  const activeIndex = p_num(p, "active_index", 0);
-  const progress = p_num(p, "progress", 0);
-
-  if (phases.length === 0) return;
-  const gap = width / Math.max(1, phases.length - 1);
-
-  // 极客感底层线
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.2)";
-  ctx.lineWidth = 4;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + width, y);
-  ctx.stroke();
-
-  // 进度发光线
-  if (activeIndex > 0 || progress > 0) {
-    const currentProgressX = x + gap * (activeIndex + clamp(progress, 0, 1));
-    ctx.save();
-    ctx.strokeStyle = theme.accent;
-    ctx.shadowColor = theme.accent;
-    ctx.shadowBlur = 10;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(Math.min(currentProgressX, x + width), y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  phases.forEach((phase, i) => {
-    const dotX = x + gap * i;
-    const isActive = i === activeIndex;
-    const isCompleted = i < activeIndex;
-    const label = typeof phase === "string" ? phase : asString((phase as Record<string, unknown>)?.label);
-    
-    ctx.save();
-    if (isCompleted) {
-      ctx.fillStyle = theme.success;
-      ctx.shadowColor = theme.success;
-      ctx.shadowBlur = 8;
-    } else if (isActive) {
-      ctx.fillStyle = theme.accent;
-      ctx.shadowColor = theme.accent;
-      ctx.shadowBlur = 12;
-    } else {
-      ctx.fillStyle = "rgba(36, 52, 78, 1)";
-      ctx.strokeStyle = theme.muted;
-      ctx.lineWidth = 2;
-    }
-
-    ctx.beginPath();
-    ctx.arc(dotX, y, isActive ? 8 : 6, 0, Math.PI * 2);
-    ctx.fill();
-    if (!isActive && !isCompleted) ctx.stroke();
-    
-    // 活跃状态的呼吸外圈
-    if (isActive) {
-      const pulse = 1 + 0.2 * Math.sin(env.now * 0.005);
-      ctx.strokeStyle = hexToRgba(theme.accent, 0.5 * (2 - pulse));
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(dotX, y, 10 * pulse, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    if (label) {
-      ctx.fillStyle = isActive ? theme.foreground : theme.muted;
-      ctx.font = isActive ? "600 12px sans-serif" : "11px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(label, dotX, y + 24);
-      ctx.textAlign = "start";
-    }
-  });
-}
-
-function drawProgressBar(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 200);
-  const height = p_num(p, "height", 12);
-  const value = clamp(p_num(p, "value", 0), 0, 1);
-  const color = p_color(p, "color", env);
-
-  ctx.save();
-  // 槽底
-  ctx.fillStyle = "rgba(18, 29, 48, 0.8)";
-  ctx.strokeStyle = "rgba(143, 163, 191, 0.2)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, height / 2);
-  ctx.fill();
-  ctx.stroke();
-  
-  // 进度条发光
-  if (value > 0) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    const grad = ctx.createLinearGradient(x, y, x + width * value, y);
-    grad.addColorStop(0, hexToRgba(color, 0.5));
-    grad.addColorStop(1, color);
-    
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(x, y, width * value, height, height / 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawTargetZone(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme, now } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 60);
-  const height = p_num(p, "height", 60);
-  const hit = p.params["hit"] === true;
-
-  const color = hit ? theme.success : theme.warning;
-  
-  ctx.save();
-  ctx.strokeStyle = color;
+  ctx.arc(anchor.x, anchor.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = withAlpha(color, 0.7 * (1 - phase));
   ctx.lineWidth = 2;
-  
-  // 边框呼吸流动
-  ctx.setLineDash([8, 8]);
-  ctx.lineDashOffset = -(now * 0.05);
-  ctx.strokeRect(x, y, width, height);
-  ctx.setLineDash([]);
-  
-  // 四角瞄准星
-  const m = 6;
-  ctx.beginPath();
-  ctx.moveTo(x, y + m); ctx.lineTo(x, y); ctx.lineTo(x + m, y);
-  ctx.moveTo(x + width - m, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + m);
-  ctx.moveTo(x, y + height - m); ctx.lineTo(x, y + height); ctx.lineTo(x + m, y + height);
-  ctx.moveTo(x + width - m, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - m);
   ctx.stroke();
+};
 
-  if (hit) {
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.15 + 0.05 * Math.sin(now * 0.01);
-    ctx.fillRect(x, y, width, height);
-  }
-  ctx.restore();
-}
-
-function drawLinkIndicator(p: Primitive, env: DrawEnvironment): void {
-  // 契约（framework/primitive.go:499-507）：PrimLinkIndicator 无 x/y 时由 DOM Sidebar 统一布局，
-  // canvas 内不再复刻该徽章；只有 PrimLinkIndicatorAt（带显式坐标的 M8 多场景对照）才落到 canvas。
-  // 否则会在 (0,0) 与场景内容（如 phase 标签）重叠，违反文档 §6.2 单一信息源原则。
-  if (typeof p.params["x"] !== "number" || typeof p.params["y"] !== "number") {
-    return;
-  }
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const active = p.params["active"] !== false;
-  const label = p_str(p, "label", "联动");
-
-  const color = active ? theme.success : theme.muted;
-  ctx.fillStyle = "rgba(18, 29, 48, 0.92)";
-  ctx.strokeStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(x, y, Math.max(60, label.length * 12 + 16), 24, 12);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "11px sans-serif";
-  ctx.fillText(label, x + 8, y + 16);
-}
-
-function drawExternalEventMarker(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const label = p_str(p, "label", "外部事件");
-
-  ctx.fillStyle = theme.warning;
-  ctx.beginPath();
-  ctx.moveTo(x, y - 10);
-  ctx.lineTo(x + 8, y + 6);
-  ctx.lineTo(x - 8, y + 6);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "10px sans-serif";
-  ctx.fillText(label, x - 20, y + 20);
-}
-
-function drawErrorOverlay(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme, now } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 200);
-  const height = p_num(p, "height", 40);
-  const message = p_str(p, "message", "错误");
-
-  ctx.save();
-  // 红色闪烁光晕
-  const pulse = 1 + 0.3 * Math.sin(now * 0.008);
-  ctx.shadowColor = theme.danger;
-  ctx.shadowBlur = 12 * pulse;
-  
-  ctx.fillStyle = hexToRgba(theme.danger, 0.15 + 0.05 * Math.sin(now * 0.01));
-  ctx.strokeStyle = theme.danger;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 4);
-  ctx.fill();
-  ctx.stroke();
-  
-  // 警告斜纹背景 (模拟警示条)
-  ctx.save();
-  ctx.clip();
-  ctx.strokeStyle = hexToRgba(theme.danger, 0.3);
-  ctx.lineWidth = 2;
-  const offset = (now * 0.02) % 10;
-  for (let i = -10; i < width + height; i += 10) {
-    ctx.beginPath();
-    ctx.moveTo(x + i + offset, y);
-    ctx.lineTo(x + i - height + offset, y + height);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // 文字发光
-  ctx.shadowColor = "transparent";
-  ctx.fillStyle = theme.danger;
-  ctx.font = "600 12px sans-serif";
-  ctx.fillText(message, x + 10, y + height / 2 + 4);
-  ctx.restore();
-}
-
-function drawVerifyPathHighlight(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, now } = env;
-  const points = p_arr(p, "points");
-  const valid = p.params["valid"] !== false;
-  const color = valid ? env.theme.success : env.theme.danger;
-
+const drawTrail: PrimitiveDrawer = (p, env) => {
+  const points = asArray<JsonObject>(p.params.points);
   if (points.length < 2) return;
-  
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 4;
-  
-  // 验证路径流光
-  ctx.setLineDash([12, 8]);
-  ctx.lineDashOffset = -(now * 0.08);
-  
-  ctx.beginPath();
-  for (let i = 0; i < points.length; i++) {
-    const pt = points[i] as { x?: number; y?: number } | undefined;
-    if (!pt) continue;
-    const px = typeof pt.x === "number" ? pt.x : 0;
-    const py = typeof pt.y === "number" ? pt.y : 0;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.stroke();
-  
-  ctx.setLineDash([]);
-  ctx.restore();
-}
-
-function drawRiskGauge(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const cx = p_num(p, "cx", 100);
-  const cy = p_num(p, "cy", 100);
-  const radius = p_num(p, "radius", 40);
-  const value = clamp(p_num(p, "value", 0.5), 0, 1);
-
-  const startAngle = Math.PI * 0.8;
-  const endAngle = Math.PI * 2.2;
-  
-  // 赛博仪表盘背景
-  ctx.strokeStyle = "rgba(18, 29, 48, 0.8)";
-  ctx.lineWidth = 10;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, startAngle, endAngle);
-  ctx.stroke();
-  
-  // 刻度线
-  ctx.strokeStyle = theme.grid;
+  const main = env.resolvedLayout.main;
+  const duration = asNumber(p.params.duration_ms, 1500);
+  const fade = asNumber(p.params.fade_ms, 500);
+  const elapsed = env.now % (duration + fade);
+  const alpha = elapsed < duration ? 1 : Math.max(0, 1 - (elapsed - duration) / fade);
+  const { ctx } = env;
+  ctx.strokeStyle = withAlpha(env.theme.accent, alpha * 0.85);
   ctx.lineWidth = 2;
-  const ticks = 10;
-  for (let i = 0; i <= ticks; i++) {
-    const angle = startAngle + (endAngle - startAngle) * (i / ticks);
-    ctx.beginPath();
-    ctx.moveTo(cx + (radius - 12) * Math.cos(angle), cy + (radius - 12) * Math.sin(angle));
-    ctx.lineTo(cx + (radius - 6) * Math.cos(angle), cy + (radius - 6) * Math.sin(angle));
-    ctx.stroke();
-  }
-
-  const color = value > 0.75 ? theme.danger : value > 0.4 ? theme.warning : theme.success;
-  const valueAngle = startAngle + (endAngle - startAngle) * value;
-  
-  // 发光指针条
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  ctx.lineWidth = 8;
-  ctx.lineCap = "round";
+  ctx.setLineDash([4, 3]);
   ctx.beginPath();
-  if (value > 0) {
-    ctx.arc(cx, cy, radius, startAngle, valueAngle);
-    ctx.stroke();
-  }
-  ctx.restore();
+  points.forEach((pt, i) => {
+    const x = main.x + clamp(asNumber(pt.x, 0), 0, 1) * main.width;
+    const y = main.y + clamp(asNumber(pt.y, 0), 0, 1) * main.height;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+};
 
-  ctx.fillStyle = color;
-  ctx.font = "600 16px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(`${Math.round(value * 100)}%`, cx, cy + 6);
-  ctx.textAlign = "start";
-}
+const drawGlow: PrimitiveDrawer = (p, env) => {
+  const anchor = requireAnchorPos(asString(p.params.anchor_id, ""), env, p);
+  const color = roleColor(asString(p.params.color_role, "accent"), env.theme);
+  const intensity = clamp(asNumber(p.params.intensity, 0.6), 0, 1);
+  const r = (anchor.radius ?? 22) + 16;
+  const { ctx } = env;
+  const grad = ctx.createRadialGradient(anchor.x, anchor.y, anchor.radius ?? 22, anchor.x, anchor.y, r);
+  grad.addColorStop(0, withAlpha(color, intensity * 0.6));
+  grad.addColorStop(1, withAlpha(color, 0));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(anchor.x, anchor.y, r, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+const drawShake: PrimitiveDrawer = (p, env) => {
+  // shake 不画自己；只是为 anchor 的下一帧加位移。这里画一个短暂红圈表示触发。
+  const anchor = requireAnchorPos(asString(p.params.anchor_id, ""), env, p);
+  const duration = asNumber(p.params.duration_ms, 400);
+  const phase = (env.now % duration) / duration;
+  if (phase > 0.8) return;
+  const { ctx } = env;
+  ctx.strokeStyle = withAlpha(env.theme.danger, 1 - phase);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(anchor.x, anchor.y, (anchor.radius ?? 22) + 4, 0, Math.PI * 2);
+  ctx.stroke();
+};
+
+const drawShiftAnimation: PrimitiveDrawer = (p, env) => {
+  // 同上：实际位移由布局生成下一帧呈现；这里仅画方向箭头表示动作
+  const target = requireAnchorPos(asString(p.params.target_id, ""), env, p);
+  const direction = asString(p.params.direction, "right");
+  const distance = asNumber(p.params.distance, 30);
+  const dx = direction === "right" ? distance : direction === "left" ? -distance : 0;
+  const dy = direction === "down" ? distance : direction === "up" ? -distance : 0;
+  const { ctx } = env;
+  ctx.strokeStyle = env.theme.accent;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(target.x, target.y);
+  ctx.lineTo(target.x + dx, target.y + dy);
+  ctx.stroke();
+  ctx.setLineDash([]);
+};
+
+// ============================================================
+// 状态指示类（7 canvas，error_overlay 走 DOM）
+// ============================================================
+
+const drawPhaseProgress: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const phases = asArray<string>(p.params.phases);
+  const current = asNumber(p.params.current_index, 0);
+  const progress = clamp(asNumber(p.params.progress, 0), 0, 1);
+  if (phases.length === 0) return;
+  const { ctx } = env;
+  const padding = 16;
+  const segW = (pos.width! - padding * 2) / phases.length;
+  const y = pos.y + pos.height! / 2;
+  phases.forEach((label, i) => {
+    const cx = pos.x + padding + segW * (i + 0.5);
+    const done = i < current;
+    const active = i === current;
+    // dot
+    ctx.beginPath();
+    ctx.arc(cx, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = done ? env.theme.success : active ? env.theme.accent : env.theme.muted;
+    ctx.fill();
+    // label
+    drawText(ctx, label, cx, y + 12, {
+      color: done ? env.theme.success : active ? env.theme.accent : env.theme.muted,
+      size: 10,
+    });
+    // connector
+    if (i < phases.length - 1) {
+      ctx.strokeStyle = done ? env.theme.success : withAlpha(env.theme.muted, 0.3);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx + 6, y);
+      ctx.lineTo(cx + segW - 6, y);
+      ctx.stroke();
+    }
+  });
+  // 当前段填充进度
+  if (current >= 0 && current < phases.length) {
+    const cx = pos.x + padding + segW * (current + 0.5);
+    ctx.fillStyle = withAlpha(env.theme.accent, 0.6);
+    ctx.fillRect(cx, y - 1, (segW - 12) * progress, 2);
+  }
+};
+
+const drawProgressBar: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const value = asNumber(p.params.value, 0);
+  const max = Math.max(1, asNumber(p.params.max, 1));
+  const ratio = clamp(value / max, 0, 1);
+  const label = asString(p.params.label, "");
+  const w = pos.width ?? 160;
+  const h = 8;
+  const { ctx } = env;
+  if (label) drawText(ctx, label, pos.x, pos.y - 10, { color: env.theme.muted, size: 10, align: "center" });
+  ctx.fillStyle = withAlpha(env.theme.muted, 0.2);
+  ctx.fillRect(pos.x - w / 2, pos.y, w, h);
+  ctx.fillStyle = env.theme.accent;
+  ctx.fillRect(pos.x - w / 2, pos.y, w * ratio, h);
+};
+
+const drawTargetZone: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const label = asString(p.params.label, "");
+  const axis = asString(p.params.axis, "y");
+  const { ctx } = env;
+  ctx.strokeStyle = env.theme.warning;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  if (axis === "y") {
+    ctx.moveTo(pos.x, pos.y);
+    ctx.lineTo(pos.x + pos.width!, pos.y);
+  } else {
+    ctx.moveTo(pos.x, pos.y);
+    ctx.lineTo(pos.x, pos.y + pos.height!);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  if (label) {
+    if (axis === "y") drawText(ctx, label, pos.x + 8, pos.y - 8, { color: env.theme.warning, size: 10, align: "left" });
+    else drawText(ctx, label, pos.x + 8, pos.y + 10, { color: env.theme.warning, size: 10, align: "left", baseline: "top" });
+  }
+};
+
+const drawLinkIndicator: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const status = asString(p.params.status, "idle");
+  const linkGroup = asString(p.params.link_group, "");
+  const color = status === "active" ? env.theme.accent : status === "recent" ? env.theme.warning : env.theme.muted;
+  const { ctx } = env;
+  ctx.fillStyle = withAlpha(color, 0.25);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  const w = 64, h = 22;
+  const x = pos.x - w / 2, y = pos.y - h / 2;
+  ctx.beginPath();
+  // rounded rect
+  const r = 11;
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  drawText(ctx, `🔗 ${linkGroup || "link"}`, pos.x, pos.y, { color, size: 10, weight: 600 });
+};
+
+const drawExternalEventMarker: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const label = asString(p.params.label, "ext");
+  const fadeMs = asNumber(p.params.fade_ms, 1500);
+  const phase = (env.now % fadeMs) / fadeMs;
+  const alpha = 1 - phase;
+  const { ctx } = env;
+  ctx.fillStyle = withAlpha(env.theme.warning, alpha * 0.85);
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+  drawText(ctx, label, pos.x + 10, pos.y, { color: env.theme.warning, size: 10, align: "left" });
+};
+
+const drawVerifyPathHighlight: PrimitiveDrawer = (p, env) => {
+  const nodeIds = asArray<string>(p.params.node_ids);
+  const { ctx } = env;
+  ctx.strokeStyle = env.theme.success;
+  ctx.lineWidth = 2.5;
+  for (let i = 0; i < nodeIds.length; i++) {
+    const id = nodeIds[i]!;
+    const pos = env.resolvedLayout.positions.get(id);
+    if (!pos) continue;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, (pos.radius ?? 22) + 4, 0, Math.PI * 2);
+    ctx.stroke();
+    if (i < nodeIds.length - 1) {
+      const next = env.resolvedLayout.positions.get(nodeIds[i + 1]!);
+      if (next) {
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(next.x, next.y);
+        ctx.stroke();
+      }
+    }
+  }
+};
+
+const drawRiskGauge: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const value = clamp(asNumber(p.params.value, 0), 0, 1);
+  const r = 30;
+  const { ctx } = env;
+  // arc 底
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y + 10, r, Math.PI, 0);
+  ctx.strokeStyle = withAlpha(env.theme.muted, 0.3);
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  // 当前
+  const color = value > 0.66 ? env.theme.danger : value > 0.33 ? env.theme.warning : env.theme.success;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y + 10, r, Math.PI, Math.PI + Math.PI * value);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.lineCap = "butt";
+  drawText(ctx, `${Math.round(value * 100)}%`, pos.x, pos.y + 12, { color, size: 12, weight: 700 });
+};
 
 // ============================================================
 // 领域复合类（11）
 // ============================================================
 
-function drawVoteMatrix(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const rows = p_arr(p, "rows");
-  const cols = p_arr(p, "cols");
-  const votes = p_arr(p, "votes");
-  const cellSize = p_num(p, "cell_size", 24);
-
-  cols.forEach((col, ci) => {
-    const label = typeof col === "string" ? col : `C${ci}`;
-    ctx.fillStyle = theme.muted;
-    ctx.font = "10px sans-serif";
-    ctx.fillText(label, x + 60 + ci * (cellSize + 2), y - 4);
-  });
-
-  rows.forEach((row, ri) => {
-    const label = typeof row === "string" ? row : `R${ri}`;
-    ctx.fillStyle = theme.muted;
-    ctx.font = "10px sans-serif";
-    ctx.fillText(label, x, y + 12 + ri * (cellSize + 2));
-    const rowVotes = (Array.isArray(votes[ri]) ? votes[ri] : []) as unknown[];
-    (rowVotes as unknown[]).forEach((v: unknown, ci: number) => {
-      const cx = x + 60 + ci * (cellSize + 2);
-      const cy = y + ri * (cellSize + 2);
-      ctx.fillStyle = v === true || v === 1 ? theme.success : v === false || v === 0 ? theme.danger : theme.grid;
-      ctx.fillRect(cx, cy, cellSize, cellSize);
-    });
-  });
-}
-
-function drawDualTrack(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 400);
-  const height = p_num(p, "height", 200);
-  const leftLabel = p_str(p, "left_label", "Track A");
-  const rightLabel = p_str(p, "right_label", "Track B");
-
-  const half = width / 2 - 8;
-  ctx.fillStyle = "rgba(18, 29, 48, 0.5)";
-  ctx.fillRect(x, y, half, height);
-  ctx.fillRect(x + half + 16, y, half, height);
-  ctx.strokeStyle = theme.grid;
-  ctx.strokeRect(x, y, half, height);
-  ctx.strokeRect(x + half + 16, y, half, height);
-
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "600 12px sans-serif";
-  ctx.fillText(leftLabel, x + 8, y + 18);
-  ctx.fillText(rightLabel, x + half + 24, y + 18);
-}
-
-function drawTimeWheel(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme, now } = env;
-  const cx = p_num(p, "cx", 200);
-  const cy = p_num(p, "cy", 200);
-  const radius = p_num(p, "radius", 60);
-  const segments = p_num(p, "segments", 12);
-  const activeSegment = p_num(p, "active_segment", 0);
-
-  for (let i = 0; i < segments; i++) {
-    const start = (i / segments) * Math.PI * 2 - Math.PI / 2;
-    const end = ((i + 1) / segments) * Math.PI * 2 - Math.PI / 2;
-    ctx.fillStyle = i === activeSegment ? theme.accent : "rgba(18, 29, 48, 0.6)";
+const drawVoteMatrix: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const rows = Math.max(1, asNumber(p.params.rows, 1));
+  const cols = Math.max(1, asNumber(p.params.cols, 1));
+  const cells = asArray<JsonObject>(p.params.cells);
+  const w = pos.width ?? 200, h = pos.height ?? 120;
+  const cw = w / cols, ch = h / rows;
+  const left = pos.x - w / 2, top = pos.y - h / 2;
+  const { ctx } = env;
+  // 背景网格
+  ctx.strokeStyle = withAlpha(env.theme.muted, 0.2);
+  ctx.lineWidth = 1;
+  for (let r = 0; r <= rows; r++) {
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, radius, start, end);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = theme.grid;
+    ctx.moveTo(left, top + r * ch);
+    ctx.lineTo(left + w, top + r * ch);
     ctx.stroke();
   }
-  void now;
-}
-
-function drawPieChart(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const cx = p_num(p, "cx", 200);
-  const cy = p_num(p, "cy", 200);
-  const radius = p_num(p, "radius", 60);
-  const slices = p_arr(p, "slices");
-
-  const colors = [theme.accent, theme.success, theme.warning, theme.danger, theme.muted, "#9b59b6", "#e67e22", "#1abc9c"];
-  let startAngle = -Math.PI / 2;
-  const total = slices.reduce<number>((sum, s) => sum + asNumber((s as Record<string, unknown>)?.value), 0);
-  if (total <= 0) return;
-
-  slices.forEach((slice, i) => {
-    const s = slice as Record<string, unknown> | undefined;
-    if (!s) return;
-    const value = asNumber(s.value);
-    const angle = (value / total) * Math.PI * 2;
-    ctx.fillStyle = colors[i % colors.length] ?? theme.accent;
+  for (let c = 0; c <= cols; c++) {
     ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, radius, startAngle, startAngle + angle);
-    ctx.closePath();
-    ctx.fill();
-    startAngle += angle;
-  });
-}
-
-function drawSankeyFlow(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 300);
-  const flows = p_arr(p, "flows");
-
-  flows.forEach((flow, i) => {
-    const f = flow as { from_y?: number; to_y?: number; thickness?: number; color?: string } | undefined;
-    if (!f) return;
-    const fy = y + asNumber(f.from_y, i * 40);
-    const ty = y + asNumber(f.to_y, i * 40);
-    const thickness = asNumber(f.thickness, 12);
-    const color = typeof f.color === "string" ? f.color : theme.accent;
-
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.6;
-    ctx.beginPath();
-    ctx.moveTo(x, fy);
-    ctx.bezierCurveTo(x + width * 0.4, fy, x + width * 0.6, ty, x + width, ty);
-    ctx.lineTo(x + width, ty + thickness);
-    ctx.bezierCurveTo(x + width * 0.6, ty + thickness, x + width * 0.4, fy + thickness, x, fy + thickness);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  });
-}
-
-function drawHeatMap(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const rows = p_num(p, "rows", 4);
-  const cols = p_num(p, "cols", 6);
-  const cellSize = p_num(p, "cell_size", 24);
-  const data = p_arr(p, "data");
-
-  for (let r = 0; r < rows; r++) {
-    const rowData = (Array.isArray(data[r]) ? data[r] : []) as number[];
-    for (let c = 0; c < cols; c++) {
-      const value = clamp(typeof rowData[c] === "number" ? rowData[c] as number : 0, 0, 1);
-      const cx = x + c * (cellSize + 1);
-      const cy = y + r * (cellSize + 1);
-      const r_ = Math.round(255 * value);
-      const b_ = Math.round(255 * (1 - value));
-      ctx.fillStyle = `rgb(${r_}, 40, ${b_})`;
-      ctx.fillRect(cx, cy, cellSize, cellSize);
+    ctx.moveTo(left + c * cw, top);
+    ctx.lineTo(left + c * cw, top + h);
+    ctx.stroke();
+  }
+  // 单元
+  for (const cell of cells) {
+    const r = asNumber(cell.row, 0);
+    const c = asNumber(cell.col, 0);
+    const role = asString(cell.color_role, "muted");
+    ctx.fillStyle = withAlpha(roleColor(role, env.theme), 0.7);
+    ctx.fillRect(left + c * cw + 2, top + r * ch + 2, cw - 4, ch - 4);
+    const value = cell.value;
+    if (value !== null && value !== undefined) {
+      drawText(ctx, String(value), left + c * cw + cw / 2, top + r * ch + ch / 2, {
+        color: env.theme.foreground, size: 10, weight: 600,
+      });
     }
   }
-  void theme;
-}
-
-function drawMempoolSlot(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 48);
-  const height = p_num(p, "height", 28);
-  const label = p_str(p, "label");
-  const priority = p_str(p, "priority", "normal");
-
-  const color = priority === "high" ? theme.warning : priority === "low" ? theme.muted : theme.accent;
-  
-  ctx.save();
-  highlightGlow(p, env, color, 12);
-  
-  ctx.fillStyle = hexToRgba(color, 0.15);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 4);
-  ctx.fill();
-  ctx.stroke();
-  
-  // 右上角小角标
-  ctx.beginPath();
-  ctx.moveTo(x + width - 8, y);
-  ctx.lineTo(x + width, y);
-  ctx.lineTo(x + width, y + 8);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-
-  ctx.restore();
-
-  if (label) {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "600 10px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(label, x + width / 2, y + height / 2 + 3);
-    ctx.textAlign = "start";
-  }
-}
-
-function drawBridgeTrack(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 400);
-  const leftLabel = p_str(p, "left_chain", "Chain A");
-  const rightLabel = p_str(p, "right_chain", "Chain B");
-
-  ctx.strokeStyle = theme.accent;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + width, y);
-  ctx.stroke();
-
-  ctx.fillStyle = theme.foreground;
-  ctx.font = "12px sans-serif";
-  ctx.fillText(leftLabel, x, y - 8);
-  ctx.textAlign = "end";
-  ctx.fillText(rightLabel, x + width, y - 8);
-  ctx.textAlign = "start";
-}
-
-function drawCodeMarker(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const line = p_num(p, "line", 1);
-  const marker = p_str(p, "marker", "▶");
-  const color = p_color(p, "color", env);
-
-  ctx.fillStyle = color;
-  ctx.font = "14px monospace";
-  ctx.fillText(`${marker} L${line}`, x, y);
-  void theme;
-}
-
-function drawPartitionZone(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme, now } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const width = p_num(p, "width", 150);
-  const height = p_num(p, "height", 150);
-  const label = p_str(p, "label", "分区");
-
-  ctx.save();
-  ctx.strokeStyle = theme.danger;
-  ctx.lineWidth = 2;
-  
-  // 流动虚线框
-  ctx.setLineDash([10, 10]);
-  ctx.lineDashOffset = -(now * 0.02);
-  ctx.strokeRect(x, y, width, height);
-  ctx.setLineDash([]);
-  
-  // 闪烁背景
-  const alpha = 0.04 + 0.03 * Math.sin(now * 0.005);
-  ctx.fillStyle = hexToRgba(theme.danger, alpha);
-  ctx.fillRect(x, y, width, height);
-  
-  // 左上角名称标签底色
-  ctx.fillStyle = theme.danger;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x + 60, y);
-  ctx.lineTo(x + 50, y + 20);
-  ctx.lineTo(x, y + 20);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = theme.background; // 文字反色
-  ctx.font = "600 11px sans-serif";
-  ctx.fillText(label, x + 8, y + 14);
-  
-  ctx.restore();
-}
-
-function drawCurvePoint(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x");
-  const y = p_num(p, "y");
-  const radius = p_num(p, "radius", 5);
-  const color = p_color(p, "color", env);
-  const label = p_str(p, "label");
-
-  highlightGlow(p, env);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fill();
-  resetGlow(env);
-
-  if (label) {
-    ctx.fillStyle = theme.foreground;
-    ctx.font = "10px sans-serif";
-    ctx.fillText(label, x + radius + 4, y + 4);
-  }
-}
-
-// ============================================================
-// Fallback
-// ============================================================
-
-function drawFallback(p: Primitive, env: DrawEnvironment): void {
-  const { ctx, theme } = env;
-  const x = p_num(p, "x", 20);
-  const y = p_num(p, "y", 20);
-
-  ctx.fillStyle = theme.muted;
-  ctx.font = "11px sans-serif";
-  ctx.fillText(`[未知原语: ${p.type}] id=${p.id}`, x, y);
-}
-
-// ============================================================
-// 注册表
-// ============================================================
-
-/**
- * PRIMITIVE_DRAWER_MAP 全部 47 原语的绘制函数注册表。
- */
-export const PRIMITIVE_DRAWER_MAP: Record<PrimitiveType, PrimitiveDrawFn> = {
-  // 几何类
-  node: drawNode,
-  edge: drawEdge,
-  bar: drawBar,
-  curve: drawCurve,
-  polygon: drawPolygon,
-  area: drawArea,
-  grid_cell: drawGridCell,
-  ring: drawRing,
-  // 动效类
-  particle_stream: drawParticleStream,
-  burst: drawBurst,
-  pulse: drawPulse,
-  trail: drawTrail,
-  glow: drawGlow,
-  shake: drawShake,
-  shift_animation: drawShiftAnimation,
-  // 布局类
-  horizontal_lane: drawHorizontalLane,
-  stack: drawStack,
-  ring_layout: drawRingLayout,
-  tree_layout: drawTreeLayout,
-  graph_layout: drawGraphLayout,
-  matrix_layout: drawMatrixLayout,
-  // 数据展示类
-  label: drawLabel,
-  tooltip: drawTooltip,
-  annotation: drawAnnotation,
-  register_row: drawRegisterRow,
-  math_pipeline: drawMathPipeline,
-  code_block: drawCodeBlock,
-  math_formula: drawMathFormula,
-  // 状态指示类
-  phase_progress: drawPhaseProgress,
-  progress_bar: drawProgressBar,
-  target_zone: drawTargetZone,
-  link_indicator: drawLinkIndicator,
-  external_event_marker: drawExternalEventMarker,
-  error_overlay: drawErrorOverlay,
-  verify_path_highlight: drawVerifyPathHighlight,
-  risk_gauge: drawRiskGauge,
-  // 领域复合类
-  vote_matrix: drawVoteMatrix,
-  dual_track: drawDualTrack,
-  time_wheel: drawTimeWheel,
-  pie_chart: drawPieChart,
-  sankey_flow: drawSankeyFlow,
-  heat_map: drawHeatMap,
-  mempool_slot: drawMempoolSlot,
-  bridge_track: drawBridgeTrack,
-  code_marker: drawCodeMarker,
-  partition_zone: drawPartitionZone,
-  curve_point: drawCurvePoint,
 };
 
-/**
- * FALLBACK_DRAWER 未知原语类型的兜底绘制函数。
- */
-export const FALLBACK_DRAWER: PrimitiveDrawFn = drawFallback;
+const drawDualTrack: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const tracks = asArray<JsonObject>(p.params.tracks);
+  if (tracks.length === 0) return;
+  const w = pos.width ?? 400, h = pos.height ?? 80;
+  const trackH = h / tracks.length;
+  const { ctx } = env;
+  tracks.forEach((t, ti) => {
+    const lane = asString(t.lane, "");
+    const label = asString(t.label, lane);
+    const blocks = asArray<JsonObject>(t.blocks);
+    const color = roleColor(lane === "attack" ? "danger" : "primary", env.theme);
+    const y = pos.y - h / 2 + ti * trackH + trackH / 2;
+    drawText(ctx, label, pos.x - w / 2 - 4, y, { color, size: 10, align: "right" });
+    // 区块
+    const bw = Math.min(40, (w - 20) / Math.max(1, blocks.length));
+    blocks.forEach((b, i) => {
+      const x = pos.x - w / 2 + 20 + i * (bw + 4);
+      ctx.fillStyle = withAlpha(color, 0.65);
+      ctx.fillRect(x, y - 10, bw, 20);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y - 10, bw, 20);
+      const bLabel = asString(b.label, "");
+      if (bLabel) drawText(ctx, bLabel, x + bw / 2, y, { color: env.theme.foreground, size: 9, weight: 600 });
+    });
+  });
+};
+
+const drawTimeWheel: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const slots = Math.max(1, asNumber(p.params.slots, 1));
+  const current = asNumber(p.params.current_slot, 0);
+  const r = pos.radius ?? 40;
+  const { ctx } = env;
+  ctx.strokeStyle = withAlpha(env.theme.muted, 0.4);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+  ctx.stroke();
+  for (let i = 0; i < slots; i++) {
+    const angle = (Math.PI * 2 * i) / slots - Math.PI / 2;
+    const x = pos.x + r * Math.cos(angle);
+    const y = pos.y + r * Math.sin(angle);
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = i === current ? env.theme.accent : env.theme.muted;
+    ctx.fill();
+  }
+  drawText(ctx, `${current}/${slots}`, pos.x, pos.y, { color: env.theme.foreground, size: 11, weight: 600 });
+};
+
+const drawPieChart: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const segments = asArray<JsonObject>(p.params.segments);
+  if (segments.length === 0) return;
+  const total = segments.reduce((s, seg) => s + asNumber(seg.value, 0), 0) || 1;
+  const r = pos.radius ?? 40;
+  const { ctx } = env;
+  let angle = -Math.PI / 2;
+  for (const seg of segments) {
+    const v = asNumber(seg.value, 0);
+    const role = asString(seg.color_role, "accent");
+    const sweep = (v / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    ctx.arc(pos.x, pos.y, r, angle, angle + sweep);
+    ctx.closePath();
+    ctx.fillStyle = withAlpha(roleColor(role, env.theme), 0.75);
+    ctx.fill();
+    angle += sweep;
+  }
+};
+
+const drawSankeyFlow: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const flows = asArray<JsonObject>(p.params.flows);
+  const w = pos.width ?? 300, h = pos.height ?? 80;
+  const left = pos.x - w / 2, top = pos.y - h / 2;
+  const { ctx } = env;
+  flows.forEach((f, i) => {
+    const value = asNumber(f.value, 1);
+    const thickness = clamp(value, 1, 20);
+    const y = top + (i + 0.5) * (h / Math.max(1, flows.length));
+    ctx.strokeStyle = withAlpha(env.theme.accent, 0.55);
+    ctx.lineWidth = thickness;
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.bezierCurveTo(left + w * 0.4, y, left + w * 0.6, y, left + w, y);
+    ctx.stroke();
+  });
+  ctx.lineWidth = 1;
+};
+
+const drawHeatMap: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const rows = Math.max(1, asNumber(p.params.rows, 1));
+  const cols = Math.max(1, asNumber(p.params.cols, 1));
+  const cells = asArray<JsonObject>(p.params.cells);
+  const w = pos.width ?? 200, h = pos.height ?? 120;
+  const cw = w / cols, ch = h / rows;
+  const left = pos.x - w / 2, top = pos.y - h / 2;
+  const { ctx } = env;
+  for (const c of cells) {
+    const r = asNumber(c.row, 0);
+    const co = asNumber(c.col, 0);
+    const v = clamp(asNumber(c.value, 0), 0, 1);
+    ctx.fillStyle = withAlpha(env.theme.danger, v);
+    ctx.fillRect(left + co * cw, top + r * ch, cw - 1, ch - 1);
+  }
+};
+
+const drawMempoolSlot: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const txId = asString(p.params.tx_id, "");
+  const label = asString(p.params.label, txId.slice(0, 6));
+  const w = pos.width ?? 48, h = pos.height ?? 24;
+  const { ctx } = env;
+  ctx.fillStyle = withAlpha(env.theme.accent, 0.25);
+  ctx.fillRect(pos.x - w / 2 + 1, pos.y - h / 2 + 1, w - 2, h - 2);
+  ctx.strokeStyle = env.theme.accent;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pos.x - w / 2 + 1, pos.y - h / 2 + 1, w - 2, h - 2);
+  drawText(ctx, label, pos.x, pos.y, { color: env.theme.foreground, size: 9 });
+};
+
+const drawBridgeTrack: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const left = asArray<JsonObject>(p.params.left_chain);
+  const right = asArray<JsonObject>(p.params.right_chain);
+  const w = pos.width ?? 400, h = pos.height ?? 80;
+  const ox = pos.x - w / 2, oy = pos.y - h / 2;
+  const { ctx } = env;
+  // 左链
+  drawChainRow(ctx, env.theme.accent, ox + 10, oy + h * 0.25, w * 0.35, left);
+  // 右链
+  drawChainRow(ctx, env.theme.success, ox + w * 0.55, oy + h * 0.75, w * 0.35, right);
+  // 桥梁连接
+  ctx.strokeStyle = withAlpha(env.theme.warning, 0.6);
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(ox + w * 0.45, oy + h * 0.25);
+  ctx.lineTo(ox + w * 0.55, oy + h * 0.75);
+  ctx.stroke();
+  ctx.setLineDash([]);
+};
+
+function drawChainRow(
+  ctx: CanvasRenderingContext2D, color: string,
+  x: number, y: number, width: number, blocks: JsonObject[],
+): void {
+  if (blocks.length === 0) return;
+  const bw = Math.min(32, width / blocks.length);
+  blocks.forEach((b, i) => {
+    const bx = x + i * (bw + 3);
+    ctx.fillStyle = withAlpha(color, 0.55);
+    ctx.fillRect(bx, y - 10, bw, 20);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx, y - 10, bw, 20);
+    const lbl = asString((b as JsonObject).label as JsonValue, "");
+    if (lbl) drawText(ctx, lbl.slice(0, 4), bx + bw / 2, y, { color: "#e5f2ff", size: 8 });
+  });
+}
+
+const drawCodeMarker: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const line = asNumber(p.params.line_number, 0);
+  const label = asString(p.params.label, "PC");
+  const { ctx } = env;
+  ctx.fillStyle = env.theme.warning;
+  // 三角箭头指向代码块行（实际代码块在 DOM，这里只画一个浮标作为可视提示）
+  ctx.beginPath();
+  ctx.moveTo(pos.x - 8, pos.y);
+  ctx.lineTo(pos.x, pos.y - 6);
+  ctx.lineTo(pos.x, pos.y + 6);
+  ctx.closePath();
+  ctx.fill();
+  drawText(ctx, `${label} L${line}`, pos.x + 6, pos.y, { color: env.theme.warning, size: 10, align: "left" });
+};
+
+const drawPartitionZone: PrimitiveDrawer = (p, env) => {
+  const vertices = asArray<JsonObject>(p.params.vertices);
+  if (vertices.length < 3) return;
+  const main = env.resolvedLayout.main;
+  const { ctx } = env;
+  ctx.fillStyle = withAlpha(env.theme.danger, 0.12);
+  ctx.strokeStyle = withAlpha(env.theme.danger, 0.55);
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  vertices.forEach((v, i) => {
+    const x = main.x + clamp(asNumber(v.x, 0), 0, 1) * main.width;
+    const y = main.y + clamp(asNumber(v.y, 0), 0, 1) * main.height;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const label = asString(p.params.label, "");
+  if (label && vertices[0]) {
+    const x = main.x + clamp(asNumber(vertices[0].x, 0), 0, 1) * main.width;
+    const y = main.y + clamp(asNumber(vertices[0].y, 0), 0, 1) * main.height;
+    drawText(ctx, label, x + 6, y - 6, { color: env.theme.danger, size: 10, align: "left" });
+  }
+};
+
+const drawCurvePoint: PrimitiveDrawer = (p, env) => {
+  const pos = requirePos(p, env);
+  const label = asString(p.params.label, "");
+  const { ctx } = env;
+  ctx.fillStyle = env.theme.accent;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
+  ctx.fill();
+  if (label) drawText(ctx, label, pos.x + 6, pos.y - 6, { color: env.theme.accent, size: 10, align: "left" });
+};
+
+// ============================================================
+// 注册表（仅 33 canvas 原语）
+// ============================================================
+
+/** 画在 canvas 的 33 个原语 type。 */
+export const CANVAS_PRIMITIVE_TYPES: ReadonlySet<PrimitiveType> = new Set<PrimitiveType>([
+  // 几何 8
+  "node", "edge", "bar", "curve", "polygon", "area", "grid_cell", "ring",
+  // 动效 7
+  "particle_stream", "burst", "pulse", "trail", "glow", "shake", "shift_animation",
+  // 状态 7（不含 error_overlay）
+  "phase_progress", "progress_bar", "target_zone", "link_indicator",
+  "external_event_marker", "verify_path_highlight", "risk_gauge",
+  // 领域 11
+  "vote_matrix", "dual_track", "time_wheel", "pie_chart", "sankey_flow", "heat_map",
+  "mempool_slot", "bridge_track", "code_marker", "partition_zone", "curve_point",
+]);
+
+/** 33 个 canvas drawer 注册表；renderer 严格只用此表查找。 */
+export const PRIMITIVE_DRAWER_MAP: ReadonlyMap<PrimitiveType, PrimitiveDrawer> = new Map<PrimitiveType, PrimitiveDrawer>([
+  // 几何
+  ["node", drawNode],
+  ["edge", drawEdge],
+  ["bar", drawBar],
+  ["curve", drawCurve],
+  ["polygon", drawPolygon],
+  ["area", drawArea],
+  ["grid_cell", drawGridCell],
+  ["ring", drawRing],
+  // 动效
+  ["particle_stream", drawParticleStream],
+  ["burst", drawBurst],
+  ["pulse", drawPulse],
+  ["trail", drawTrail],
+  ["glow", drawGlow],
+  ["shake", drawShake],
+  ["shift_animation", drawShiftAnimation],
+  // 状态
+  ["phase_progress", drawPhaseProgress],
+  ["progress_bar", drawProgressBar],
+  ["target_zone", drawTargetZone],
+  ["link_indicator", drawLinkIndicator],
+  ["external_event_marker", drawExternalEventMarker],
+  ["verify_path_highlight", drawVerifyPathHighlight],
+  ["risk_gauge", drawRiskGauge],
+  // 领域
+  ["vote_matrix", drawVoteMatrix],
+  ["dual_track", drawDualTrack],
+  ["time_wheel", drawTimeWheel],
+  ["pie_chart", drawPieChart],
+  ["sankey_flow", drawSankeyFlow],
+  ["heat_map", drawHeatMap],
+  ["mempool_slot", drawMempoolSlot],
+  ["bridge_track", drawBridgeTrack],
+  ["code_marker", drawCodeMarker],
+  ["partition_zone", drawPartitionZone],
+  ["curve_point", drawCurvePoint],
+]);

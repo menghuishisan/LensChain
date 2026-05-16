@@ -128,9 +128,10 @@ type SimSnapshot struct {
 	CreatedAtMS  int64
 }
 
-// SimTeacherInterventionRequest 教师干预请求（对齐 proto PublishTeacherInterventionRequest，06.md §14.5）
-// 10 类 action_code: broadcast_message / pause_all / resume_all / force_step /
-// force_reset / force_link_state / unlock_link_sync / kick_student 等
+// SimTeacherInterventionRequest 教师干预请求（对齐 proto PublishTeacherInterventionRequest，06.md §14.5）。
+// 10 个合法 action_code 与 internal/model/enum/experiment.go::InterveneType* 严格同名：
+//   broadcast / pause_all / resume_all / force_step / force_reset /
+//   push_step / debug_shared_state / unlock_link_clock / kick_student / annotation
 type SimTeacherInterventionRequest struct {
 	InstanceID       string          `json:"instance_id"`
 	TeacherID        string          `json:"teacher_id"`

@@ -1,116 +1,144 @@
 'use client';
 
-// SimCrossCanvasOverlay.tsx
-// 联动模式跨画布因果弧线 SVG 叠加层（06.2 §6.2）。
-// 全局叠加在 MultiSceneContainer 上，仅 C 联动 + 多场景同屏启用。
-// WS 接收 link_triggers[]，从 source_anchor_id 几何中心到 target_anchor_id 几何中心绘制贝塞尔弧线。
-// 配色按 LinkGroup 类目：attack=红 / network=蓝 / crypto=青 / economic=金 / consensus=紫 / blockchain-integrity=灰。
-// 弧线持续 1.5-2s 后 fade out。
+/**
+ * SimCrossCanvasOverlay — 跨画布因果弧线（06.2 §6.2，仅 C 联动 + 多场景同屏启用）。
+ *
+ * 监听 linkTriggers，对每条 trigger：
+ *   1. 通过 getAnchorPosition 查 source / target anchor 在视口的像素位置；
+ *   2. 用 SVG 绘制贝塞尔弧线 + 头部箭头 + 文字标签；
+ *   3. 1.5-2s 后 fade out。
+ *
+ * 配色按 LinkGroup 类目（详 06.2 §6.2 末）。
+ */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { LinkTrigger } from '@lenschain/sim-engine-renderers';
 import { cn } from '@/lib/utils';
-import type { SimLinkGroupColorType } from '@/types/experiment';
 
-/** 单条跨画布因果弧线。 */
-export interface LinkArc {
-  id: string;
-  sourceX: number;
-  sourceY: number;
-  targetX: number;
-  targetY: number;
-  colorType: SimLinkGroupColorType;
-  label?: string;
-  /** 创建时间戳（ms），用于 fade out 计算。 */
-  createdAt: number;
+export interface AnchorPosition {
+  x: number; // 视口绝对像素
+  y: number;
 }
 
 export interface SimCrossCanvasOverlayProps {
-  /** 当前活跃的弧线列表。由 SimEnginePanel 从 WS link_triggers 推导。 */
-  arcs: LinkArc[];
-  /** 弧线持续时间（ms），默认 2000。 */
-  fadeDuration?: number;
+  /** 当前活跃的联动事件（最新触发的若干条）。 */
+  triggers: readonly LinkTrigger[];
+  /** 解析 anchor 在视口中的像素位置；找不到返回 null。 */
+  getAnchorPosition: (sceneCode: string, anchorId: string) => AnchorPosition | null;
   className?: string;
 }
 
-/** LinkGroup 配色映射。 */
-const COLOR_MAP: Record<SimLinkGroupColorType, string> = {
-  attack: '#ef4444',
-  network: '#3b82f6',
-  crypto: '#06b6d4',
-  economic: '#eab308',
-  consensus: '#a855f7',
-  'blockchain-integrity': '#6b7280',
-};
+interface ActiveArc {
+  id: string;
+  source: AnchorPosition;
+  target: AnchorPosition;
+  label: string;
+  group: string;
+  expiresAt: number;
+}
 
-/**
- * SimCrossCanvasOverlay 联动跨画布贝塞尔弧线叠加层（06.2 §6.2）。
- * 使用 position:absolute SVG 叠加于 scene grid 之上，pointer-events:none 不阻挡交互。
- */
-export function SimCrossCanvasOverlay({ arcs, fadeDuration = 2000, className }: SimCrossCanvasOverlayProps) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [visibleArcs, setVisibleArcs] = useState<LinkArc[]>([]);
+/** LinkGroup 名称 → 弧线颜色（06.2 §6.2 末）。 */
+function colorForGroup(group: string): string {
+  if (group.includes('attack')) return '#ef4444';        // red
+  if (group.includes('network')) return '#3b82f6';       // blue
+  if (group.includes('crypto')) return '#06b6d4';        // cyan
+  if (group.includes('economic')) return '#f59e0b';      // gold
+  if (group.includes('consensus')) return '#a855f7';     // purple
+  if (group.includes('integrity')) return '#6b7280';     // gray
+  return '#64748b';                                      // slate fallback
+}
 
-  // 定时清理过期弧线
+const ARC_TTL_MS = 1800;
+
+export function SimCrossCanvasOverlay(props: SimCrossCanvasOverlayProps) {
+  const { triggers, getAnchorPosition, className } = props;
+  const [now, setNow] = useState(() => Date.now());
+
+  const activeArcs = useMemo<ActiveArc[]>(() => {
+    const arcs: ActiveArc[] = [];
+    for (const t of triggers) {
+      if (!t.source_anchor_id || !t.target_anchor_id) continue;
+      const src = getAnchorPosition(t.source_scene, t.source_anchor_id);
+      // target_scene 在 LinkTrigger 上没有显式字段；这里假设跨画布弧线的 target 也在 source_scene 同一 anchor 命名空间下，
+      // 真实业务通常 target_anchor 属于另一场景，需要由父组件提前把 target_scene 注入 anchor 解析；
+      // 为保留 anchor_id 接口兼容，先用 source_scene 解析两端。父组件可以叠加 anchor → 全局键映射。
+      const tgt = getAnchorPosition(t.source_scene, t.target_anchor_id);
+      if (!src || !tgt) continue;
+      arcs.push({
+        id: t.id,
+        source: src,
+        target: tgt,
+        label: t.changed_fields[0] ?? t.source_action,
+        group: t.link_group,
+        expiresAt: t.ts + ARC_TTL_MS,
+      });
+    }
+    return arcs.filter(a => a.expiresAt > now);
+  }, [triggers, getAnchorPosition, now]);
+
+  // 60ms 一次刷新本地 now，使过期的弧线自动消失
   useEffect(() => {
-    setVisibleArcs(arcs);
-    const timer = setInterval(() => {
-      const now = Date.now();
-      setVisibleArcs((prev) => prev.filter((a) => now - a.createdAt < fadeDuration));
-    }, 200);
-    return () => clearInterval(timer);
-  }, [arcs, fadeDuration]);
+    if (activeArcs.length === 0) return;
+    const id = setInterval(() => setNow(Date.now()), 60);
+    return () => clearInterval(id);
+  }, [activeArcs.length]);
 
-  const getOpacity = useCallback(
-    (createdAt: number) => {
-      const elapsed = Date.now() - createdAt;
-      if (elapsed >= fadeDuration) return 0;
-      // 前 50% 不透明，后 50% 线性 fade
-      const fadeStart = fadeDuration * 0.5;
-      if (elapsed < fadeStart) return 0.85;
-      return 0.85 * (1 - (elapsed - fadeStart) / (fadeDuration - fadeStart));
-    },
-    [fadeDuration],
-  );
-
-  if (visibleArcs.length === 0) return null;
+  if (activeArcs.length === 0) return null;
 
   return (
     <svg
-      ref={svgRef}
-      className={cn('pointer-events-none absolute inset-0 z-20', className)}
-      style={{ width: '100%', height: '100%' }}
+      className={cn('pointer-events-none absolute inset-0 z-30', className)}
+      width="100%"
+      height="100%"
     >
-      <defs>
-        <marker id="link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
-        </marker>
-      </defs>
-      {visibleArcs.map((arc) => {
-        const color = COLOR_MAP[arc.colorType] ?? '#6b7280';
-        const opacity = getOpacity(arc.createdAt);
-        if (opacity <= 0) return null;
-        // 贝塞尔控制点：中点上偏 40px
-        const midX = (arc.sourceX + arc.targetX) / 2;
-        const midY = Math.min(arc.sourceY, arc.targetY) - 40;
-        const d = `M ${arc.sourceX} ${arc.sourceY} Q ${midX} ${midY} ${arc.targetX} ${arc.targetY}`;
+      {activeArcs.map((arc) => {
+        const color = colorForGroup(arc.group);
+        const remain = Math.max(0, arc.expiresAt - now);
+        const opacity = Math.min(1, remain / ARC_TTL_MS);
+        const path = bezierPath(arc.source, arc.target);
         return (
           <g key={arc.id} opacity={opacity}>
-            <path
-              d={d}
-              fill="none"
-              stroke={color}
-              strokeWidth={2}
-              markerEnd="url(#link-arrow)"
-              style={{ color, transition: 'opacity 0.3s ease' }}
-            />
-            {arc.label && (
-              <text x={midX} y={midY - 6} textAnchor="middle" className="fill-current text-[10px]" style={{ color }}>
-                {arc.label}
-              </text>
-            )}
+            <path d={path} fill="none" stroke={color} strokeWidth={2} strokeDasharray="4 3" />
+            <ArrowHead source={arc.source} target={arc.target} color={color} />
+            <text
+              x={(arc.source.x + arc.target.x) / 2}
+              y={(arc.source.y + arc.target.y) / 2 - 6}
+              textAnchor="middle"
+              fontSize="10"
+              fill={color}
+              className="font-mono"
+            >
+              ↗ {arc.label}
+            </text>
           </g>
         );
       })}
     </svg>
+  );
+}
+
+function bezierPath(s: AnchorPosition, t: AnchorPosition): string {
+  const cx1 = s.x;
+  const cy1 = (s.y + t.y) / 2 - 60;
+  const cx2 = t.x;
+  const cy2 = (s.y + t.y) / 2 - 60;
+  return `M ${s.x} ${s.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${t.x} ${t.y}`;
+}
+
+function ArrowHead(props: { source: AnchorPosition; target: AnchorPosition; color: string }) {
+  const { source, target, color } = props;
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const angle = Math.atan2(dy, dx);
+  const size = 8;
+  const x1 = target.x - Math.cos(angle - Math.PI / 6) * size;
+  const y1 = target.y - Math.sin(angle - Math.PI / 6) * size;
+  const x2 = target.x - Math.cos(angle + Math.PI / 6) * size;
+  const y2 = target.y - Math.sin(angle + Math.PI / 6) * size;
+  return (
+    <polygon
+      points={`${target.x},${target.y} ${x1},${y1} ${x2},${y2}`}
+      fill={color}
+    />
   );
 }

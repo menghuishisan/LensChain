@@ -1,0 +1,1682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SimEngine 重构后完整布局设计</title>
+<style>
+:root{
+  --bg:#0a0e1a;--card:#11192d;--cv:#050912;--side:#0d1426;--bd:#1f2a44;
+  --fg:#e5e7eb;--mt:#94a3b8;--dm:#64748b;
+  --ac:#38bdf8;--ok:#4ade80;--wn:#fbbf24;--dg:#f87171;
+  --cs:#c084fc;--cr:#67e8f9;--nt:#38bdf8;--dt:#94a3b8;
+  --tx:#fbbf24;--sc:#f97316;--at:#f87171;--ec:#fde047;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.55 system-ui,"Segoe UI",sans-serif}
+main{max-width:1480px;margin:0 auto;padding:24px}
+h1{font-size:24px;margin:0 0 8px}
+h2{margin:32px 0 12px;font-size:18px;padding:10px 14px;background:rgba(56,189,248,.08);border-left:4px solid var(--ac);border-radius:0 4px 4px 0}
+h3{margin:14px 0 6px;font-size:14px;color:var(--ac)}
+h4{margin:10px 0 4px;font-size:13px}
+.lead{color:var(--mt);font-size:13px;line-height:1.7}
+code{background:rgba(56,189,248,.12);color:var(--ac);padding:1px 5px;border-radius:3px;font-size:11px;font-family:ui-monospace,monospace}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(56,189,248,.15);color:var(--ac);border:1px solid rgba(56,189,248,.3);font-size:11px}
+.pill.ok{background:rgba(74,222,128,.15);color:var(--ok);border-color:rgba(74,222,128,.35)}
+.pill.bd{background:rgba(248,113,113,.15);color:var(--dg);border-color:rgba(248,113,113,.35)}
+.pill.wn{background:rgba(250,204,21,.15);color:var(--wn);border-color:rgba(250,204,21,.35)}
+.pill.cs{background:rgba(192,132,252,.15);color:var(--cs);border-color:rgba(192,132,252,.35)}
+.note{background:rgba(56,189,248,.06);border-left:3px solid var(--ac);padding:10px 14px;margin:10px 0;font-size:12px;color:var(--mt);border-radius:4px}
+.note.ok{background:rgba(74,222,128,.06);border-left-color:var(--ok);color:#bbf7d0}
+.note.wn{background:rgba(250,204,21,.06);border-left-color:var(--wn);color:#fde68a}
+
+table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+th,td{border:1px solid var(--bd);padding:6px 10px;text-align:left;vertical-align:top}
+th{background:rgba(56,189,248,.08);color:var(--ac)}
+ul.t{margin:4px 0 8px;padding-left:18px;font-size:12px;color:var(--mt);line-height:1.7}
+
+/* SimEnginePanel 整体 */
+.ph{background:var(--card);border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin:14px 0}
+.tabs{display:flex;background:rgba(15,23,42,.6);border-bottom:1px solid var(--bd);padding:0 8px}
+.tabs .tb{padding:9px 16px;font-size:12px;color:var(--mt);cursor:pointer;border-bottom:2px solid transparent}
+.tabs .tb.act{color:var(--ac);border-bottom-color:var(--ac)}
+.tp{height:46px;padding:0 14px;background:rgba(15,23,42,.6);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between}
+.tp .l{display:flex;gap:10px;align-items:center;font-weight:600;font-size:13px}
+.tp .r{display:flex;gap:6px;align-items:center}
+.bdg{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid}
+.ib{background:transparent;border:1px solid var(--bd);color:var(--mt);padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer}
+.ib:hover{background:rgba(56,189,248,.1);color:var(--ac)}
+.sg{display:flex;border:1px solid var(--bd);border-radius:4px;overflow:hidden}
+.sg button{background:transparent;border:0;color:var(--mt);padding:4px 10px;cursor:pointer;font-size:11px;border-right:1px solid var(--bd)}
+.sg button:last-child{border-right:0}
+.sg button.act{background:rgba(56,189,248,.18);color:var(--ac)}
+
+/* Body 双栏 — 两列独立高度，避免侧栏撑高画布产生空白 */
+.bd{display:grid;grid-template-columns:1fr 280px;align-items:start}
+.bd.no-sb{grid-template-columns:1fr}
+.cv{background:var(--cv);padding:12px;position:relative;display:flex;flex-direction:column}
+.sd{background:var(--side);padding:10px 12px;border-left:1px solid var(--bd);font-size:11px;overflow-y:auto;align-self:stretch;max-height:100%}
+.sd h4{margin:8px 0 4px;font-size:10px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px dashed var(--bd);padding-bottom:3px}
+.sd .r{display:flex;justify-content:space-between;padding:2px 0}
+.sd .lb{color:var(--dm)}
+.sd .v{color:var(--fg);font-weight:600}
+
+/* ControlBar */
+.cb{height:42px;padding:0 14px;background:rgba(15,23,42,.6);border-top:1px solid var(--bd);display:flex;align-items:center;gap:6px}
+.cbt{background:rgba(56,189,248,.12);border:1px solid var(--bd);color:var(--fg);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+.cbt.dis{opacity:.35;cursor:not-allowed}
+.sp{display:flex;gap:3px;margin-left:auto}
+.sp button{background:transparent;border:1px solid var(--bd);color:var(--mt);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px}
+.sp button.act{background:rgba(56,189,248,.18);color:var(--ac)}
+.tk{color:var(--mt);font-size:11px}
+
+/* Canvas wrap */
+.cw{background:linear-gradient(135deg,rgba(56,189,248,.03),rgba(192,132,252,.03));border:1px solid rgba(56,189,248,.15);border-radius:6px;position:relative;overflow:hidden;padding:10px}
+.pp{display:flex;align-items:center;gap:6px;padding:3px 4px}
+.pp .st{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dm)}
+.pp .st.dn{color:var(--ok)}
+.pp .st.ac{color:var(--ac);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--dm)}
+.st.dn .dot{background:var(--ok)}
+.st.ac .dot{background:var(--ac);box-shadow:0 0 6px var(--ac)}
+.pp .ln{flex:1;height:1px;background:var(--bd)}
+
+/* link indicator */
+.li{position:absolute;top:10px;right:10px;width:24px;height:24px;border-radius:50%;background:rgba(192,132,252,.18);border:1px solid var(--cs);color:var(--cs);display:flex;align-items:center;justify-content:center;font-size:12px}
+.li.ak{background:rgba(248,113,113,.18);border-color:var(--dg);color:var(--dg)}
+.li.nt{background:rgba(56,189,248,.18);border-color:var(--nt);color:var(--nt)}
+.li.cr{background:rgba(103,232,249,.18);border-color:var(--cr);color:var(--cr)}
+.li.ec{background:rgba(253,224,71,.18);border-color:var(--ec);color:var(--ec)}
+
+/* InteractionForm */
+.if{border-top:1px dashed var(--bd);padding:8px 14px;background:rgba(13,20,38,.5)}
+.ig{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 0}
+.ig .gn{color:var(--mt);font-size:11px;min-width:58px}
+.ab{padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid}
+.ab.tu{background:rgba(56,189,248,.12);border-color:var(--ac);color:var(--ac)}
+.ab.at{background:rgba(248,113,113,.12);border-color:var(--dg);color:var(--dg)}
+.ab.ob{background:rgba(148,163,184,.12);border-color:var(--dt);color:var(--dt)}
+.ab.pr{background:rgba(74,222,128,.12);border-color:var(--ok);color:var(--ok)}
+.ab.dis{opacity:.4;cursor:not-allowed}
+
+/* category cards */
+.cgr{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.cc{background:var(--card);border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+.cc .hd{padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bd);background:rgba(15,23,42,.5)}
+.cc .hd strong{font-size:12px}
+.cc .hd .tg{font-size:10px;color:var(--mt)}
+.cc .by{display:grid;grid-template-columns:1fr 200px;min-height:200px}
+.cc .ccv{background:var(--cv);padding:8px;position:relative;min-height:200px}
+.cc .csb{background:var(--side);padding:7px 9px;border-left:1px solid var(--bd);font-size:10px}
+.cc .csb h5{margin:4px 0 2px;font-size:9px;color:var(--ac);text-transform:uppercase;letter-spacing:.4px}
+.cc .csb .r{display:flex;justify-content:space-between;color:var(--mt);padding:1px 0}
+.cc .csb .r .v{color:var(--fg);font-weight:600}
+
+/* DOM 内容类原语样式 */
+.cdb{background:rgba(5,9,18,.7);padding:5px 6px;border-radius:3px;font-family:ui-monospace,monospace;font-size:10px;line-height:1.45}
+.cdb .ln{color:var(--dm);user-select:none;display:inline-block;width:18px}
+.cdb .hl{background:rgba(74,222,128,.15)}
+.fmb{font-style:italic;font-size:11px;background:rgba(18,29,48,.5);padding:5px 7px;border-radius:3px}
+.fmb .lbl{color:var(--dm);font-size:9px;font-style:normal}
+
+/* 多场景布局 */
+.g4{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;height:100%}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;height:100%}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px;height:100%}
+.fcw{display:grid;grid-template-columns:1fr 140px;gap:8px;height:100%}
+.sl{background:rgba(5,9,18,.95);border:1px solid var(--bd);border-radius:5px;overflow:hidden;display:flex;flex-direction:column}
+.sl .sh{padding:4px 8px;background:rgba(15,23,42,.6);border-bottom:1px solid var(--bd);font-size:10px;display:flex;justify-content:space-between}
+.sl .sb{flex:1;padding:5px;min-height:100px;position:relative}
+.tm{background:rgba(192,132,252,.08);border:1px solid var(--cs);border-radius:4px;padding:6px;font-size:10px;cursor:pointer;color:var(--fg)}
+.tm.act{background:rgba(192,132,252,.25);border-color:var(--cs);box-shadow:0 0 8px rgba(192,132,252,.3)}
+
+/* SharedState 抽屉 */
+.dr{background:rgba(13,20,38,.95);border-left:2px solid var(--cs);padding:12px;font-size:11px;width:340px}
+.dr h5{margin:0 0 6px;font-size:12px;color:var(--cs)}
+.fld{background:rgba(18,29,48,.6);padding:6px 8px;border-radius:4px;margin:4px 0;font-family:ui-monospace,monospace;font-size:11px}
+.fld.fl{background:rgba(250,204,21,.12);border:1px solid var(--wn);animation:flash 1s ease-out}
+@keyframes flash{0%{background:rgba(250,204,21,.4)}100%{background:rgba(250,204,21,.12)}}
+
+/* 教师标注 */
+.tan{position:absolute;background:rgba(192,132,252,.95);color:#1a0033;padding:4px 8px;border-radius:4px;font-size:10px;font-weight:600;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.atb{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;gap:3px;z-index:5;background:rgba(13,20,38,.9);border:1px solid var(--bd);border-radius:4px;padding:4px}
+.atb button{background:transparent;border:0;color:var(--mt);width:24px;height:24px;font-size:13px;cursor:pointer;border-radius:3px}
+.atb button:hover,.atb button.act{background:rgba(56,189,248,.2);color:var(--ac)}
+
+/* FSM 状态标签 */
+.fsm{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.fsm .ss{padding:5px 10px;border-radius:4px;font-size:11px;border:1px solid;font-family:ui-monospace,monospace}
+.fsm .ss.idle{color:var(--dm);border-color:var(--dm)}
+.fsm .ss.run{color:var(--ok);border-color:var(--ok);background:rgba(74,222,128,.08)}
+.fsm .ss.pau{color:var(--wn);border-color:var(--wn);background:rgba(250,204,21,.08)}
+.fsm .ss.fin{color:var(--ac);border-color:var(--ac);background:rgba(56,189,248,.08)}
+.fsm .ss.err{color:var(--dg);border-color:var(--dg);background:rgba(248,113,113,.08)}
+
+/* legend */
+.lg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin:8px 0;color:var(--mt)}
+.lg .lgi{display:flex;gap:6px;align-items:center}
+.lg .sw{width:14px;height:14px;border-radius:3px;border:1px solid}
+
+/* 教师干预面板 */
+.intv{background:rgba(192,132,252,.06);border:1px solid var(--cs);border-radius:6px;padding:10px;margin:6px 0}
+.intv h5{margin:0 0 6px;color:var(--cs);font-size:12px}
+.intv .grp{display:flex;gap:6px;flex-wrap:wrap;padding:3px 0}
+.intv .lbl{color:var(--mt);font-size:11px;min-width:64px}
+
+/* 紧凑 panel */
+.compact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+.cp{background:var(--card);border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.cp .ch{padding:5px 8px;border-bottom:1px solid var(--bd);font-size:11px;display:flex;justify-content:space-between;background:rgba(15,23,42,.5)}
+.cp .cb2{background:var(--cv);padding:4px;min-height:120px;position:relative}
+.cp .iform-mini{padding:4px 8px;border-top:1px dashed var(--bd);background:rgba(13,20,38,.3);font-size:10px;display:flex;gap:4px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+
+<h1>🎯 SimEngine 重构后完整布局设计</h1>
+<p class="lead">
+对应文档：<code>06-可视化仿真引擎设计.md</code> · <code>06.2-SimEngine前端设计.md</code> · <code>sim-engine-layout-mockup.html</code><br>
+<strong>覆盖</strong>：4 种模式（A 单仿真 / B 对照 grid·focus·carousel / C 联动 / D reactive）× 5 种播放态 × 8 类目场景 × 教师/学生角色 × 全部交互区。
+</p>
+
+<div class="note ok">
+<strong>核心规则四铁律（适用于全部 <u>47</u> 个原语，详 <code>framework/types.go:22-82</code>）</strong><br><br>
+① <strong>Canvas 渲染 33 个</strong>（几何 8 + 动效 7 + 状态 7 + 领域 11）：<br>
+&nbsp;&nbsp;<em>几何</em> node / edge / bar / curve / polygon / area / grid_cell / ring<br>
+&nbsp;&nbsp;<em>动效</em> particle_stream / burst / pulse / trail / glow / shake / shift_animation<br>
+&nbsp;&nbsp;<em>状态</em> phase_progress / target_zone / link_indicator / external_event_marker / verify_path_highlight / risk_gauge / progress_bar<br>
+&nbsp;&nbsp;<em>领域</em> vote_matrix / dual_track / time_wheel / pie_chart / sankey_flow / heat_map / mempool_slot / bridge_track / code_marker / partition_zone / curve_point<br><br>
+② <strong>DOM 渲染 4 个</strong>（强文本/交互/a11y 必走 DOM）：code_block（语法高亮+复制）/ math_formula（KaTeX）/ register_row（HTML 表格）/ error_overlay（Modal）<br><br>
+③ <strong>DOM 浮层 4 个</strong>（覆盖在 canvas 之上，不画入 canvas）：label（节点旁文字 a11y）/ tooltip（hover 气泡）/ annotation（教师标注）/ math_pipeline（公式行 + canvas 主流混合）<br><br>
+④ <strong>Layout 容器 6 个</strong>（自身不绘制，仅为子原语解算坐标）：stack / ring_layout / matrix_layout / horizontal_lane / tree_layout / graph_layout<br><br>
+<strong>33 + 4 + 4 + 6 = 47</strong> 全覆盖。<br>
+<strong>内容驱动尺寸</strong>：node radius clamp [16, 28]px；水平 step = max(2r+8, label.width+8)；每原语 minH/prefH/maxH 三档；Σprefh > 可用区时压到 minH，反之按权重再分。
+</div>
+
+<div class="note">
+<strong>零遮挡铁律</strong>（layoutSolver + React 强制执行，禁止任何 absolute 覆盖式弹层）：<br>
+• <strong>右侧抽屉</strong>（SharedState / 干预面板）= <code>position:fixed</code> 滑入，<u>主区 <code>margin-right:+360px</code> 让位</u>，不覆盖画布<br>
+• <strong>左侧标注工具栏 atb</strong> = 浮动竖排，<u>主画布 <code>padding-left:48px</code> 让位</u><br>
+• <strong>InteractionForm</strong> = 画布<u>下方</u> flex 子项，永远在画布之下，不浮动<br>
+• <strong>ControlBar</strong> = panel <u>最底部</u> flex 子项，sticky，画布缩放时不被压掉<br>
+• <strong>tooltip / 节点 label</strong> = DOM 浮层，<u>智能避让</u>（首选右侧 → 顶部 → 底部 → 左侧）+ 边界碰撞检测自动翻转<br>
+• <strong>ErrorOverlay</strong> = 居中 Modal + 半透明遮罩（这是<u>唯一允许</u>的全覆盖，因为它本就是阻断性状态）<br>
+• <strong>对照模式 focus 切换</strong> = 主舞台与缩略图位置<u>互换</u>，不是浮层；缩略图始终在底部 flex row 中<br>
+• <strong>跨画布 M8 弧线</strong>（联动模式）= SVG <code>pointer-events:none</code>，不拦截交互
+</div>
+
+<div class="lg">
+<span class="lgi"><span class="sw" style="background:rgba(192,132,252,.4);border-color:var(--cs)"></span>共识 consensus</span>
+<span class="lgi"><span class="sw" style="background:rgba(103,232,249,.4);border-color:var(--cr)"></span>密码 crypto</span>
+<span class="lgi"><span class="sw" style="background:rgba(56,189,248,.4);border-color:var(--nt)"></span>网络 network</span>
+<span class="lgi"><span class="sw" style="background:rgba(148,163,184,.4);border-color:var(--dt)"></span>数据 data</span>
+<span class="lgi"><span class="sw" style="background:rgba(251,191,36,.4);border-color:var(--tx)"></span>交易 transaction</span>
+<span class="lgi"><span class="sw" style="background:rgba(249,115,22,.4);border-color:var(--sc)"></span>合约 contract</span>
+<span class="lgi"><span class="sw" style="background:rgba(248,113,113,.4);border-color:var(--at)"></span>攻击 attack</span>
+<span class="lgi"><span class="sw" style="background:rgba(253,224,71,.4);border-color:var(--ec)"></span>经济 economic</span>
+</div>
+
+<h2>① 模式 A · 单仿真 — 完整页面（PoW 挖矿竞争）</h2>
+<p class="lead">所有 SimEngine 页面统一使用此结构：Tabs → TopBar → 主画布 + 右侧 SimSidebar → InteractionForm → ControlBar；教师角色多一层 atb 标注工具 + ⚙ 干预面板。</p>
+
+<div class="ph">
+  <!-- 5 个 Tab -->
+  <div class="tabs">
+    <span class="tb act">仿真</span>
+    <span class="tb">说明</span>
+    <span class="tb">检查点</span>
+    <span class="tb">快照</span>
+    <span class="tb">报告</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 0">
+      <span class="bdg pill cs">教师</span>
+      <button class="ib">⚙ 干预面板</button>
+    </span>
+  </div>
+  <!-- TopBar -->
+  <div class="tp">
+    <div class="l">
+      <span style="color:var(--mt);font-weight:400">实验 5</span>
+      <span style="color:var(--mt)">›</span>
+      <span style="color:var(--mt);font-weight:400">仿真</span>
+      <span style="color:var(--mt)">›</span>
+      <strong>PoW 挖矿竞争</strong>
+      <span class="bdg pill">单仿真</span>
+    </div>
+    <div class="r">
+      <div class="sg" title="布局模式">
+        <button class="act">⊞ 网格</button><button>◫ 焦点</button><button>⊟ 轮播</button>
+      </div>
+      <button class="ib" title="截图">📷</button>
+      <button class="ib" title="全屏">⛶</button>
+      <span class="bdg pill ok">● WS 已连接</span>
+    </div>
+  </div>
+  <!-- Body -->
+  <div class="bd">
+    <div class="cv">
+      <!-- 教师标注工具栏（左侧浮动） -->
+      <div class="atb">
+        <button class="act" title="选择">↖</button>
+        <button title="箭头">↗</button>
+        <button title="圆圈">◯</button>
+        <button title="文字">T</button>
+        <button title="颜色">🎨</button>
+        <button title="清除">⌫</button>
+      </div>
+      <!-- 主画布 -->
+      <div class="cw" style="height:340px">
+        <!-- HUD: phase_progress -->
+        <div class="pp">
+          <span class="st dn"><span class="dot"></span>区块头模板</span><span class="ln"></span>
+          <span class="st dn"><span class="dot"></span>Nonce++</span><span class="ln"></span>
+          <span class="st ac"><span class="dot"></span>SHA-256</span><span class="ln"></span>
+          <span class="st"><span class="dot"></span>难度比对</span><span class="ln"></span>
+          <span class="st"><span class="dot"></span>新区块广播</span>
+        </div>
+        <!-- canvas SVG -->
+        <svg viewBox="0 0 700 270" style="width:100%;height:270px">
+          <!-- target_zone overlay 贯穿 -->
+          <line x1="40" y1="55" x2="660" y2="55" stroke="#fbbf24" stroke-width="2" stroke-dasharray="6 4" opacity=".85"/>
+          <text x="48" y="50" fill="#fbbf24" font-size="10" font-family="ui-monospace">target_zone · target = 0x000000a3</text>
+          <!-- horizontal_lane: 矿工链 -->
+          <line x1="40" y1="130" x2="660" y2="130" stroke="rgba(96,165,250,.18)" stroke-dasharray="4 4"/>
+          <text x="40" y="116" fill="#94a3b8" font-size="10">矿工链 (horizontal_lane)</text>
+          <!-- 3 矿工节点（独立 lane，不与 phase 重叠） -->
+          <g transform="translate(150,130)">
+            <circle r="24" fill="rgba(192,132,252,.25)" stroke="#c084fc" stroke-width="2"/>
+            <text text-anchor="middle" y="4" fill="#fff" font-size="11">M-A</text>
+          </g>
+          <g transform="translate(350,130)">
+            <circle r="24" fill="rgba(192,132,252,.55)" stroke="#c084fc" stroke-width="2"/>
+            <circle r="36" fill="none" stroke="#4ade80" stroke-width="2" opacity=".55"/>
+            <text text-anchor="middle" y="4" fill="#fff" font-size="11">M-B</text>
+          </g>
+          <g transform="translate(550,130)">
+            <circle r="24" fill="rgba(192,132,252,.25)" stroke="#c084fc" stroke-width="2"/>
+            <text text-anchor="middle" y="4" fill="#fff" font-size="11">M-C</text>
+          </g>
+          <!-- node label 在节点下方（layoutSolver measureText 后留出空间） -->
+          <text x="150" y="172" text-anchor="middle" fill="#94a3b8" font-size="10">hashrate 30%</text>
+          <text x="350" y="172" text-anchor="middle" fill="#c084fc" font-size="10" font-weight="600">50% (主导)</text>
+          <text x="550" y="172" text-anchor="middle" fill="#94a3b8" font-size="10">20%</text>
+          <!-- particle_stream nonce hash 试探 -->
+          <g fill="#c084fc" opacity=".55">
+            <circle cx="200" cy="105" r="2"/><circle cx="220" cy="120" r="2"/>
+            <circle cx="400" cy="105" r="2"/><circle cx="420" cy="120" r="2"/>
+            <circle cx="380" cy="125" r="2"/><circle cx="395" cy="115" r="2"/>
+          </g>
+          <!-- bar lane: 算力直方图（独立第三条带） -->
+          <text x="40" y="210" fill="#94a3b8" font-size="10">算力直方图 (bar lane)</text>
+          <g transform="translate(150,230)">
+            <rect x="-30" y="-12" width="60" height="12" fill="#c084fc" opacity=".55"/>
+          </g>
+          <g transform="translate(350,230)">
+            <rect x="-50" y="-12" width="100" height="12" fill="#c084fc" opacity=".9"/>
+          </g>
+          <g transform="translate(550,230)">
+            <rect x="-20" y="-12" width="40" height="12" fill="#c084fc" opacity=".35"/>
+          </g>
+          <!-- glow 命中效果 -->
+          <circle cx="350" cy="130" r="50" fill="url(#glow)" opacity=".4"/>
+          <defs>
+            <radialGradient id="glow"><stop offset="0%" stop-color="#4ade80" stop-opacity=".6"/><stop offset="100%" stop-color="#4ade80" stop-opacity="0"/></radialGradient>
+          </defs>
+        </svg>
+        <!-- 教师标注（DOM 浮层，不写进 canvas） -->
+        <div class="tan" style="left:300px;top:150px">⚠ 关注 50% 矿工 →</div>
+        <!-- link_indicator (DOM 角标，不画 canvas) -->
+        <div class="li">⛓</div>
+      </div>
+
+      <!-- InteractionForm -->
+      <div class="if">
+        <div class="ig"><span class="gn">⚙ 调参</span>
+          <span class="ab tu">难度调整</span>
+          <span class="ab tu">块间隔 [12s]</span>
+          <span class="ab tu">网络延迟</span>
+        </div>
+        <div class="ig"><span class="gn">⚠ 攻击</span>
+          <span class="ab at">提升攻击者算力</span>
+          <span class="ab at">发布私链</span>
+          <span class="ab at dis" title="前置：私链高度 ≥ 公链 + 2">双花交易（前置未满足）</span>
+        </div>
+        <div class="ig"><span class="gn">👁 观察</span>
+          <span class="ab ob">查看链头哈希</span>
+          <span class="ab ob">下载区块</span>
+        </div>
+        <div class="ig"><span class="gn">▶ 触发</span>
+          <span class="ab pr">手动出块</span>
+          <span class="ab pr">广播至全网</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SimSidebar 6 sections -->
+    <div class="sd">
+      <h4>📊 指标</h4>
+      <div class="r"><span class="lb">tick</span><span class="v">23</span></div>
+      <div class="r"><span class="lb">已出块</span><span class="v">4</span></div>
+      <div class="r"><span class="lb">最长链</span><span class="v">4</span></div>
+      <div class="r"><span class="lb">target</span><span class="v" style="font-family:ui-monospace,monospace;font-size:10px">0x000000a3</span></div>
+      <div class="r"><span class="lb">最近哈希</span><span class="v" style="font-family:ui-monospace,monospace;font-size:10px">0x4a8f...c2e1</span></div>
+
+      <h4>⛓ 联动状态</h4>
+      <div class="r"><span class="lb">pow-attack-group</span><span class="v" style="color:var(--ok)">● active</span></div>
+      <div class="r"><span class="lb">role</span><span class="v">producer</span></div>
+
+      <h4>📜 MicroSteps</h4>
+      <div style="font-size:10px;color:var(--mt);max-height:100px;overflow-y:auto">
+        <div style="color:var(--ac);background:rgba(56,189,248,.08);padding:2px 4px;border-radius:2px">▶ Miner-B 命中目标 <span style="float:right">1.4s</span></div>
+        <div style="padding:1px 4px">· 广播新块 <span style="float:right">0.8s</span></div>
+        <div style="padding:1px 4px">· gossip 扩散 <span style="float:right">0.3s</span></div>
+        <div style="padding:1px 4px;color:var(--dm)">· verify chain head <span style="float:right">0.1s</span></div>
+      </div>
+
+      <h4>🩺 容器健康</h4>
+      <div class="r"><span class="lb">algo-runner</span><span class="v" style="color:var(--ok)">healthy</span></div>
+      <div class="r"><span class="lb">env-pow</span><span class="v" style="color:var(--ok)">healthy</span></div>
+      <div class="r"><span class="lb">cpu</span><span class="v">31%</span></div>
+      <div class="r"><span class="lb">mem</span><span class="v">128 MB</span></div>
+
+      <h4>📋 内容类原语 <span class="pill" style="font-size:9px">DOM</span></h4>
+      <!-- code_block (DOM, 高亮命中行 + 复制) -->
+      <div class="cdb" style="margin-bottom:6px">
+        <div style="color:var(--dm);font-size:9px;font-family:system-ui">code_block · go · highlight: hit_line</div>
+        <div><span class="ln">1</span>nonce++</div>
+        <div><span class="ln">2</span><span style="color:var(--cs)">h := sha256(blk)</span></div>
+        <div class="hl"><span class="ln">3</span><span style="color:var(--ok)">if h &lt; target ✓</span></div>
+        <div><span class="ln">4</span>broadcast(blk)</div>
+        <button class="ib" style="font-size:9px;padding:1px 5px;margin-top:4px">📋 复制</button>
+      </div>
+      <!-- math_formula (KaTeX 渲染) -->
+      <div class="fmb" style="margin-bottom:6px">
+        <div class="lbl">math_formula · KaTeX</div>
+        <div>H(blk) &lt; 2<sup>256-d</sup></div>
+        <div style="font-style:normal;font-size:9px;color:var(--dm);margin-top:2px">d = 工作量证明难度</div>
+      </div>
+      <!-- progress_bar -->
+      <div style="background:rgba(18,29,48,.5);border-radius:3px;padding:5px;margin-bottom:6px;font-size:10px">
+        <div style="color:var(--dm);font-size:9px">progress_bar · 确认数</div>
+        <div>已确认 <strong>13/20</strong></div>
+        <div style="background:rgba(143,163,191,.2);height:6px;border-radius:3px;margin-top:3px;overflow:hidden">
+          <div style="width:65%;height:100%;background:var(--ac);box-shadow:0 0 6px var(--ac)"></div>
+        </div>
+      </div>
+      <!-- risk_gauge -->
+      <div style="background:rgba(18,29,48,.5);border-radius:3px;padding:5px;font-size:10px">
+        <div style="color:var(--dm);font-size:9px">risk_gauge · 51% 攻击风险</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:3px">
+          <svg viewBox="0 0 60 36" style="width:50px">
+            <path d="M 6 30 A 24 24 0 0 1 54 30" fill="none" stroke="rgba(143,163,191,.2)" stroke-width="6"/>
+            <path d="M 6 30 A 24 24 0 0 1 38 11" fill="none" stroke="#fbbf24" stroke-width="6"/>
+          </svg>
+          <span style="color:var(--wn);font-weight:600">中等 · 35%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- ControlBar -->
+  <div class="cb">
+    <button class="cbt" title="播放">▶</button>
+    <button class="cbt" title="暂停">⏸</button>
+    <button class="cbt" title="单步">⏭</button>
+    <button class="cbt" title="回退">⏮</button>
+    <button class="cbt" title="重置">⟲</button>
+    <span style="color:var(--dm);margin:0 8px;font-size:11px">|</span>
+    <button class="cbt" title="提交报告">📤 提交</button>
+    <button class="cbt" title="结束">🛑</button>
+    <div class="sp">
+      <button>0.5×</button><button class="act">1×</button><button>1.5×</button><button>2×</button>
+    </div>
+    <span class="tk">Tick 23 · 第 6 步</span>
+  </div>
+</div>
+
+<div class="note">
+<strong>对比当前实现的关键改善</strong>：
+<ul class="t">
+<li>原本画在 canvas 的 3 个 code_block + math_formula + progress_bar + risk_gauge → 全部下沉到 SimSidebar 的"📋 内容类原语" section（DOM 渲染，KaTeX/语法高亮/复制按钮可用）</li>
+<li>canvas 只剩 phase_progress / horizontal_lane / 3 矿工 node / target_zone / particle_stream / glow / bar lane — 节点直径稳定 24px，水平步距 200px，文字不再重叠</li>
+<li>"5 phase 节点链"和"3 矿工节点链"分到独立横向带（各自 prefH=80px），不再在同一 y 中线打架</li>
+<li>target_zone 不再是 HUD 顶部 24px 矩形框，而是贯穿主区的虚线（overlay）— 真实表达"难度阈值"语义</li>
+<li>教师标注 (annotation) 是 DOM 浮层（`<div class="tan">`），不画进 canvas — 能选中、复制、a11y</li>
+</ul>
+</div>
+
+<h3>① -B 教师干预面板（点击 TopBar ⚙ 后展开）</h3>
+<div class="intv">
+<h5>🎓 教师干预 · PoW 挖矿竞争</h5>
+<div class="grp"><span class="lbl">参数注入</span>
+  <span class="ab tu">将矿工 M-B 算力提升至 60%</span>
+  <span class="ab tu">将难度降至 0x0000FFFF</span>
+  <span class="ab tu">注入网络延迟 200ms</span>
+</div>
+<div class="grp"><span class="lbl">事件注入</span>
+  <span class="ab at">触发 51% 攻击</span>
+  <span class="ab at">模拟分叉</span>
+  <span class="ab at">断开 M-C</span>
+</div>
+<div class="grp"><span class="lbl">流程</span>
+  <span class="ab pr">推进到下一阶段</span>
+  <span class="ab ob">导出当前快照</span>
+  <span class="ab ob">广播标注给学生</span>
+</div>
+<div style="margin-top:6px;font-size:10px;color:var(--mt)">
+注：学生角色看不到此面板；干预动作通过 <code>POST /sim/intervene</code> 写入审计日志，并在 MicroSteps 时间轴标记 🎓 来源。
+</div>
+</div>
+
+<h2>② 8 类目场景模板矩阵 — 共享布局规则</h2>
+<p class="lead">所有 ~45 个场景按 8 类目分组；每类目共享一套<strong>布局模板 + 主色调</strong>，避免每场景独立适配。下方每张卡片 = 该类目代表场景的 canvas（左）+ DOM 侧栏（右，仅展示内容类原语）。</p>
+
+<div class="cgr">
+
+<!-- CON 共识 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--cs)">CON · 共识机制</strong><span class="tg">PoW · PoS · PBFT · Raft · DPoS</span></div>
+<div class="by">
+<div class="ccv">
+<div class="pp" style="padding:1px 4px"><span class="st dn"><span class="dot"></span>Pre-Prepare</span><span class="ln"></span><span class="st ac"><span class="dot"></span>Prepare</span><span class="ln"></span><span class="st"><span class="dot"></span>Commit</span></div>
+<svg viewBox="0 0 360 180" style="width:100%;height:180px;margin-top:6px">
+<text x="10" y="14" fill="#94a3b8" font-size="9">vote_matrix · 4×4</text>
+<g><rect x="10" y="22" width="38" height="20" fill="#4ade80" opacity=".75"/><rect x="50" y="22" width="38" height="20" fill="#4ade80" opacity=".75"/><rect x="90" y="22" width="38" height="20" fill="#4ade80" opacity=".75"/><rect x="130" y="22" width="38" height="20" fill="#4ade80" opacity=".75"/></g>
+<g><rect x="10" y="44" width="38" height="20" fill="#4ade80" opacity=".55"/><rect x="50" y="44" width="38" height="20" fill="#4ade80" opacity=".55"/><rect x="90" y="44" width="38" height="20" fill="#fbbf24" opacity=".75"/><rect x="130" y="44" width="38" height="20" fill="#fbbf24" opacity=".75"/></g>
+<g><rect x="10" y="66" width="38" height="20" fill="rgba(150,150,150,.25)"/><rect x="50" y="66" width="38" height="20" fill="rgba(150,150,150,.25)"/><rect x="90" y="66" width="38" height="20" fill="rgba(150,150,150,.25)"/><rect x="130" y="66" width="38" height="20" fill="rgba(150,150,150,.25)"/></g>
+<text x="180" y="50" fill="#94a3b8" font-size="9">P3, P4 拜占庭</text>
+<line x1="10" y1="100" x2="350" y2="100" stroke="#fbbf24" stroke-dasharray="4 3"/>
+<text x="14" y="96" fill="#fbbf24" font-size="9">2f+1 阈值线 (target_zone)</text>
+<g fill="#c084fc"><circle cx="60" cy="140" r="13"/><circle cx="140" cy="140" r="13"/><circle cx="220" cy="140" r="13"/><circle cx="300" cy="140" r="13"/></g>
+<g><line x1="60" y1="140" x2="140" y2="140" stroke="#c084fc" stroke-width="1"/><line x1="140" y1="140" x2="220" y2="140" stroke="#c084fc" stroke-width="1"/><line x1="220" y1="140" x2="300" y2="140" stroke="#c084fc" stroke-width="1"/></g>
+<text x="60" y="170" text-anchor="middle" fill="#fff" font-size="9">P0 ★</text>
+<text x="140" y="170" text-anchor="middle" fill="#fff" font-size="9">P1</text>
+<text x="220" y="170" text-anchor="middle" fill="#fff" font-size="9">P2</text>
+<text x="300" y="170" text-anchor="middle" fill="#dg" font-size="9" stroke="#f87171">P3 ✗</text>
+</svg>
+<div class="li">⛓</div>
+</div>
+<div class="csb">
+<h5>指标</h5>
+<div class="r"><span>view</span><span class="v">3</span></div>
+<div class="r"><span>2f+1</span><span class="v">3 / 4</span></div>
+<div class="r"><span>byzantine</span><span class="v" style="color:var(--dg)">P3,P4</span></div>
+<h5>code · go</h5>
+<div class="cdb">prepare(v,n,m)<br>commit(v,n,d)</div>
+<h5>μsteps</h5>
+<div style="color:var(--mt);font-size:9px">▶ Prepare 阶段</div>
+</div>
+</div>
+</div>
+
+<!-- CRY 密码学 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--cr)">CRY · 密码学</strong><span class="tg">SHA-256 · RSA · ECDSA · ZKP · Merkle 验证</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<text x="10" y="14" fill="#94a3b8" font-size="9">register_row 占位 · 实际值在侧栏 DOM 表格</text>
+<g>
+<rect x="10" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+<rect x="52" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+<rect x="94" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+<rect x="136" y="22" width="40" height="22" fill="rgba(103,232,249,.45)" stroke="#67e8f9"/>
+<rect x="178" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+<rect x="220" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+<rect x="262" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+<rect x="304" y="22" width="40" height="22" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+</g>
+<text x="156" y="36" text-anchor="middle" fill="#fff" font-size="8">d ←</text>
+<text x="10" y="65" fill="#94a3b8" font-size="9">verify_path_highlight · Merkle 路径高亮</text>
+<g stroke="#67e8f9" stroke-width="2" fill="none">
+<path d="M 30 100 L 80 75 L 130 75 L 180 100"/>
+<path d="M 130 75 L 130 130"/>
+</g>
+<g fill="#67e8f9">
+<rect x="20" y="92" width="20" height="16"/>
+<rect x="120" y="68" width="20" height="14"/>
+<rect x="170" y="92" width="20" height="16"/>
+<rect x="120" y="125" width="20" height="14" opacity=".6"/>
+</g>
+<text x="30" y="155" fill="#94a3b8" font-size="9">round 32/64</text>
+<rect x="30" y="160" width="200" height="6" fill="rgba(143,163,191,.2)" rx="3"/>
+<rect x="30" y="160" width="100" height="6" fill="#67e8f9" rx="3"/>
+</svg>
+<div class="li cr">🔑</div>
+</div>
+<div class="csb">
+<h5>register · sha256 a~h</h5>
+<div class="cdb">a=6a09e667<br>b=bb67ae85<br><span style="color:var(--wn)">d=a54ff53a ←</span><br>e=510e527f</div>
+<h5>math · KaTeX</h5>
+<div class="fmb">H<sub>i+1</sub> = H<sub>i</sub> ⊕ T₁</div>
+<h5>μsteps</h5>
+<div style="color:var(--mt);font-size:9px">▶ round 32/64</div>
+</div>
+</div>
+</div>
+
+<!-- NET 网络 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--nt)">NET · 节点网络</strong><span class="tg">P2P · Gossip · 分区 · 同步 · 负载均衡</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<g stroke="rgba(56,189,248,.3)" stroke-width="1" fill="none">
+<line x1="60" y1="50" x2="180" y2="90"/>
+<line x1="180" y1="90" x2="300" y2="50"/>
+<line x1="60" y1="130" x2="180" y2="90"/>
+<line x1="180" y1="90" x2="300" y2="130"/>
+<line x1="60" y1="50" x2="60" y2="130"/>
+<line x1="300" y1="50" x2="300" y2="130"/>
+<line x1="60" y1="50" x2="180" y2="90" stroke="#38bdf8" stroke-width="2"/>
+</g>
+<g fill="#38bdf8">
+<circle cx="60" cy="50" r="16"/><circle cx="180" cy="90" r="18"/><circle cx="300" cy="50" r="16"/>
+<circle cx="60" cy="130" r="16"/><circle cx="300" cy="130" r="16"/>
+</g>
+<text x="60" y="54" text-anchor="middle" fill="#fff" font-size="10">N1</text>
+<text x="180" y="94" text-anchor="middle" fill="#fff" font-size="10">N2</text>
+<text x="300" y="54" text-anchor="middle" fill="#fff" font-size="10">N3</text>
+<text x="60" y="134" text-anchor="middle" fill="#fff" font-size="10">N4</text>
+<text x="300" y="134" text-anchor="middle" fill="#fff" font-size="10">N5</text>
+<g fill="#38bdf8" opacity=".6">
+<circle cx="100" cy="63" r="3"/><circle cx="135" cy="76" r="3"/>
+<circle cx="220" cy="63" r="2"/><circle cx="245" cy="76" r="2"/>
+</g>
+</svg>
+<div class="li nt">N</div>
+</div>
+<div class="csb">
+<h5>topology</h5>
+<div class="r"><span>nodes</span><span class="v">5</span></div>
+<div class="r"><span>edges</span><span class="v">6</span></div>
+<div class="r"><span>latency p50</span><span class="v">120ms</span></div>
+<h5>code · proto</h5>
+<div class="cdb">gossip(msg,fanout=3)</div>
+<h5>μsteps</h5>
+<div style="color:var(--mt);font-size:9px">▶ N1→N2 gossip<br>· N3 接收</div>
+</div>
+</div>
+</div>
+
+<!-- DAT 数据 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--dt)">DAT · 数据结构</strong><span class="tg">区块结构 · 区块内 · MPT · DHT · BloomFilter</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<text x="10" y="14" fill="#94a3b8" font-size="9">stack(direction=horizontal) · 区块链</text>
+<g stroke="#94a3b8" fill="rgba(148,163,184,.15)">
+<rect x="10" y="22" width="60" height="38" rx="4"/>
+<rect x="84" y="22" width="60" height="38" rx="4"/>
+<rect x="158" y="22" width="60" height="38" rx="4"/>
+<rect x="232" y="22" width="60" height="38" rx="4"/>
+</g>
+<g stroke="#94a3b8" fill="none">
+<line x1="70" y1="41" x2="84" y2="41"/>
+<line x1="144" y1="41" x2="158" y2="41"/>
+<line x1="218" y1="41" x2="232" y2="41"/>
+</g>
+<text x="40" y="46" text-anchor="middle" fill="#e5e7eb" font-size="11">B0</text>
+<text x="114" y="46" text-anchor="middle" fill="#e5e7eb" font-size="11">B1</text>
+<text x="188" y="46" text-anchor="middle" fill="#e5e7eb" font-size="11">B2</text>
+<text x="262" y="46" text-anchor="middle" fill="#e5e7eb" font-size="11">B3</text>
+<text x="10" y="80" fill="#94a3b8" font-size="9">tree_layout · MPT 状态根</text>
+<g stroke="#94a3b8" fill="#94a3b8">
+<line x1="180" y1="105" x2="120" y2="135"/>
+<line x1="180" y1="105" x2="240" y2="135"/>
+<line x1="120" y1="135" x2="80" y2="160"/>
+<line x1="120" y1="135" x2="160" y2="160"/>
+<line x1="240" y1="135" x2="200" y2="160"/>
+<line x1="240" y1="135" x2="280" y2="160"/>
+<circle cx="180" cy="105" r="8"/>
+<circle cx="120" cy="135" r="6"/><circle cx="240" cy="135" r="6"/>
+<circle cx="80" cy="160" r="5"/><circle cx="160" cy="160" r="5"/><circle cx="200" cy="160" r="5"/><circle cx="280" cy="160" r="5"/>
+</g>
+</svg>
+<div class="li" style="background:rgba(148,163,184,.18);border-color:#94a3b8;color:#94a3b8">⛁</div>
+</div>
+<div class="csb">
+<h5>chain</h5>
+<div class="r"><span>height</span><span class="v">3</span></div>
+<div class="r"><span>txs</span><span class="v">12</span></div>
+<div class="r"><span>state root</span><span class="v" style="font-family:ui-monospace,monospace;font-size:9px">0xfe..</span></div>
+<h5>tooltip · B2 (DOM)</h5>
+<div class="cdb">prev: 0x4a..<br>tx_root: 0xfe..<br>nonce: 421</div>
+</div>
+</div>
+</div>
+
+<!-- TXN 交易 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--tx)">TXN · 交易处理</strong><span class="tg">生命周期 · Gas · 转账 · MEV · 跨链桥</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<text x="10" y="14" fill="#94a3b8" font-size="9">horizontal_lane · TX 生命周期</text>
+<line x1="20" y1="60" x2="340" y2="60" stroke="rgba(251,191,36,.18)" stroke-dasharray="3 3"/>
+<g>
+<circle cx="50" cy="60" r="18" fill="rgba(251,191,36,.55)" stroke="#fbbf24" stroke-width="2"/>
+<circle cx="130" cy="60" r="18" fill="rgba(251,191,36,.35)" stroke="#fbbf24" stroke-width="2"/>
+<circle cx="210" cy="60" r="18" fill="rgba(251,191,36,.65)" stroke="#fbbf24" stroke-width="2"/>
+<circle cx="290" cy="60" r="18" fill="rgba(74,222,128,.55)" stroke="#4ade80" stroke-width="2"/>
+</g>
+<text x="50" y="64" text-anchor="middle" fill="#fff" font-size="9">crt</text>
+<text x="130" y="64" text-anchor="middle" fill="#fff" font-size="9">mp</text>
+<text x="210" y="64" text-anchor="middle" fill="#fff" font-size="9">inc</text>
+<text x="290" y="64" text-anchor="middle" fill="#fff" font-size="9">cf</text>
+<text x="50" y="98" text-anchor="middle" fill="#fbbf24" font-size="9">created · 8</text>
+<text x="130" y="98" text-anchor="middle" fill="#fbbf24" font-size="9">mempool · 5</text>
+<text x="210" y="98" text-anchor="middle" fill="#fbbf24" font-size="9">included · 12</text>
+<text x="290" y="98" text-anchor="middle" fill="#4ade80" font-size="9">confirmed · 7</text>
+<text x="10" y="125" fill="#94a3b8" font-size="9">sankey_flow · gas 消耗</text>
+<path d="M 20 145 Q 100 145, 150 155 T 340 165" stroke="#fbbf24" stroke-width="6" fill="none" opacity=".5"/>
+<path d="M 20 155 Q 100 160, 150 168 T 340 175" stroke="#f87171" stroke-width="3" fill="none" opacity=".4"/>
+</svg>
+<div class="li" style="background:rgba(251,191,36,.18);border-color:#fbbf24;color:#fbbf24">$</div>
+</div>
+<div class="csb">
+<h5>tx phase</h5>
+<div class="r"><span>pending</span><span class="v">8</span></div>
+<div class="r"><span>included</span><span class="v">12</span></div>
+<div class="r"><span>confirmed</span><span class="v">7</span></div>
+<h5>code · solidity</h5>
+<div class="cdb">tx.gasLimit<br>= 21000</div>
+<h5>progress</h5>
+<div style="background:rgba(143,163,191,.2);height:5px;border-radius:3px;overflow:hidden;margin-top:2px"><div style="width:55%;height:100%;background:var(--tx)"></div></div>
+</div>
+</div>
+</div>
+
+<!-- SC 智能合约 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--sc)">SC · 智能合约</strong><span class="tg">部署 · 交互 · EVM · 状态机 · 状态通道</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<text x="10" y="14" fill="#94a3b8" font-size="9">graph_layout · 状态机</text>
+<g stroke="#f97316" fill="rgba(249,115,22,.12)">
+<rect x="20" y="22" width="80" height="44" rx="6"/>
+<rect x="140" y="22" width="80" height="44" rx="6"/>
+<rect x="260" y="22" width="80" height="44" rx="6"/>
+</g>
+<g stroke="#f97316" stroke-width="2" fill="none">
+<line x1="100" y1="44" x2="140" y2="44" marker-end="url(#ar)"/>
+<line x1="220" y1="44" x2="260" y2="44" marker-end="url(#ar)"/>
+</g>
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#f97316"/></marker></defs>
+<text x="60" y="48" text-anchor="middle" fill="#fff" font-size="10">Init</text>
+<text x="180" y="48" text-anchor="middle" fill="#fff" font-size="10">Active</text>
+<text x="300" y="48" text-anchor="middle" fill="#fff" font-size="10">Closed</text>
+<circle cx="180" cy="44" r="32" fill="none" stroke="#4ade80" stroke-width="2" opacity=".5"/>
+<text x="10" y="95" fill="#94a3b8" font-size="9">stack(direction=vertical) · EVM stack</text>
+<g>
+<rect x="20" y="105" width="100" height="16" fill="rgba(249,115,22,.25)" stroke="#f97316"/>
+<rect x="20" y="123" width="100" height="16" fill="rgba(249,115,22,.45)" stroke="#f97316"/>
+<rect x="20" y="141" width="100" height="16" fill="rgba(249,115,22,.65)" stroke="#f97316"/>
+</g>
+<text x="70" y="117" text-anchor="middle" fill="#fff" font-size="10">PUSH 0x40</text>
+<text x="70" y="135" text-anchor="middle" fill="#fff" font-size="10">PUSH 0x60</text>
+<text x="70" y="153" text-anchor="middle" fill="#fff" font-size="10">MSTORE</text>
+<text x="140" y="120" fill="#94a3b8" font-size="9">PC: 0x12</text>
+<text x="140" y="138" fill="#94a3b8" font-size="9">gas: 41 800</text>
+<text x="140" y="156" fill="#94a3b8" font-size="9">depth: 1</text>
+</svg>
+<div class="li" style="background:rgba(249,115,22,.18);border-color:#f97316;color:#f97316">⚙</div>
+</div>
+<div class="csb">
+<h5>contract</h5>
+<div class="r"><span>state</span><span class="v">Active</span></div>
+<div class="r"><span>gas used</span><span class="v">41.8k</span></div>
+<div class="r"><span>storage</span><span class="v">12 slots</span></div>
+<h5>code · sol</h5>
+<div class="cdb">function deposit()<br>  payable {<br>  bal[msg.sender]<br>    += msg.value;<br>}</div>
+</div>
+</div>
+</div>
+
+<!-- ATK 攻击 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--at)">ATK · 攻击与安全</strong><span class="tg">51% · 双花 · 拜占庭 · 重入 · 整数溢出 · 自私挖矿</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<text x="10" y="14" fill="#f87171" font-size="9">dual_track · 公链 vs 私链</text>
+<line x1="20" y1="55" x2="340" y2="55" stroke="rgba(74,222,128,.4)" stroke-dasharray="2 2"/>
+<g fill="#4ade80">
+<circle cx="40" cy="55" r="11"/><circle cx="100" cy="55" r="11"/><circle cx="160" cy="55" r="11"/>
+</g>
+<text x="40" y="58" text-anchor="middle" fill="#022" font-size="9">B1</text>
+<text x="100" y="58" text-anchor="middle" fill="#022" font-size="9">B2</text>
+<text x="160" y="58" text-anchor="middle" fill="#022" font-size="9">B3</text>
+<text x="200" y="58" fill="#4ade80" font-size="10">公链 (3 块)</text>
+<line x1="20" y1="115" x2="340" y2="115" stroke="rgba(248,113,113,.4)" stroke-dasharray="2 2"/>
+<g fill="#f87171">
+<circle cx="40" cy="115" r="11"/><circle cx="100" cy="115" r="11"/><circle cx="160" cy="115" r="11"/><circle cx="220" cy="115" r="11"/><circle cx="280" cy="115" r="11"/>
+</g>
+<text x="40" y="118" text-anchor="middle" fill="#fff" font-size="9">B1'</text>
+<text x="100" y="118" text-anchor="middle" fill="#fff" font-size="9">B2'</text>
+<text x="160" y="118" text-anchor="middle" fill="#fff" font-size="9">B3'</text>
+<text x="220" y="118" text-anchor="middle" fill="#fff" font-size="9">B4'</text>
+<text x="280" y="118" text-anchor="middle" fill="#fff" font-size="9">B5'</text>
+<text x="180" y="155" text-anchor="middle" fill="#f87171" font-size="11" font-weight="600">⚠ 私链领先 +2 → 准备发布</text>
+</svg>
+<div class="li ak">⚡</div>
+</div>
+<div class="csb">
+<h5>attack</h5>
+<div class="r"><span>hashrate</span><span class="v" style="color:var(--dg)">52%</span></div>
+<div class="r"><span>lead</span><span class="v" style="color:var(--dg)">+2</span></div>
+<div class="r"><span>双花金额</span><span class="v" style="color:var(--dg)">100 ETH</span></div>
+<h5>risk_gauge (DOM)</h5>
+<div style="display:flex;gap:6px;align-items:center;margin-top:3px">
+<svg viewBox="0 0 60 36" style="width:42px"><path d="M 6 30 A 24 24 0 0 1 54 30" fill="none" stroke="rgba(143,163,191,.2)" stroke-width="6"/><path d="M 6 30 A 24 24 0 0 1 50 14" fill="none" stroke="#f87171" stroke-width="6"/></svg>
+<span style="color:var(--dg);font-weight:600;font-size:11px">高危 90%</span>
+</div>
+<h5>code</h5>
+<div class="cdb">privateChain.publish()</div>
+</div>
+</div>
+</div>
+
+<!-- ECO 经济 -->
+<div class="cc">
+<div class="hd"><strong style="color:var(--ec)">ECO · 经济模型</strong><span class="tg">PoS staking · DeFi · 治理投票 · Token · Gas 市场</span></div>
+<div class="by">
+<div class="ccv">
+<svg viewBox="0 0 360 180" style="width:100%;height:180px">
+<text x="10" y="14" fill="#fde047" font-size="9">bar lane · stake 分布</text>
+<g>
+<rect x="20" y="30" width="44" height="60" fill="#fde047" opacity=".75"/>
+<rect x="74" y="50" width="44" height="40" fill="#fde047" opacity=".7"/>
+<rect x="128" y="20" width="44" height="70" fill="#fde047" opacity=".95"/>
+<rect x="182" y="40" width="44" height="50" fill="#fde047" opacity=".7"/>
+<rect x="236" y="60" width="44" height="30" fill="#fde047" opacity=".5"/>
+</g>
+<text x="42" y="105" text-anchor="middle" fill="#fde047" font-size="9">A 250</text>
+<text x="96" y="105" text-anchor="middle" fill="#fde047" font-size="9">B 150</text>
+<text x="150" y="105" text-anchor="middle" fill="#fde047" font-size="9">C 300</text>
+<text x="204" y="105" text-anchor="middle" fill="#fde047" font-size="9">D 200</text>
+<text x="258" y="105" text-anchor="middle" fill="#fde047" font-size="9">E 125</text>
+<text x="10" y="130" fill="#94a3b8" font-size="9">sankey_flow · 奖励分配</text>
+<path d="M 20 150 Q 80 150, 130 155 T 280 165" stroke="#fde047" stroke-width="6" fill="none" opacity=".55"/>
+<path d="M 20 158 Q 80 158, 130 162 T 280 170" stroke="#4ade80" stroke-width="3" fill="none" opacity=".55"/>
+<text x="290" y="155" fill="#fde047" font-size="9">↗ APY ↑ 4.5%</text>
+</svg>
+<div class="li ec">¥</div>
+</div>
+<div class="csb">
+<h5>economy</h5>
+<div class="r"><span>total stake</span><span class="v">1025</span></div>
+<div class="r"><span>APY</span><span class="v" style="color:var(--ok)">4.5%</span></div>
+<div class="r"><span>active vote</span><span class="v">3</span></div>
+<h5>pie_chart (DOM)</h5>
+<div style="display:flex;gap:5px;align-items:center;margin-top:2px">
+<svg viewBox="0 0 60 60" style="width:42px"><circle cx="30" cy="30" r="22" fill="rgba(253,224,71,.2)"/><path d="M 30 30 L 30 8 A 22 22 0 0 1 51 28 Z" fill="#fde047"/><path d="M 30 30 L 51 28 A 22 22 0 0 1 38 51 Z" fill="#4ade80" opacity=".7"/></svg>
+<div style="font-size:9px;color:var(--mt)">A 30%<br>B 18%<br>C 36%</div>
+</div>
+<h5>code</h5>
+<div class="cdb">stake(amount, addr)</div>
+</div>
+</div>
+</div>
+
+</div>
+
+<div class="note">
+<strong>每类目布局规则（layoutSolver 模板）</strong>：
+<ul class="t">
+<li><strong>CON 共识</strong>：(可选 phase_progress 顶 HUD) + ring_layout (Pos/Raft) 或 vote_matrix (PBFT) 或 horizontal_lane+stack (PoW) + target_zone overlay</li>
+<li><strong>CRY 密码</strong>：register_row 顶 + verify_path_highlight 中 + progress_bar 底（侧栏 KaTeX 公式必备）</li>
+<li><strong>NET 网络</strong>：graph_layout 占整主区 + particle_stream 沿 edge 流动</li>
+<li><strong>DAT 数据</strong>：stack(horizontal) 区块链顶部 + tree_layout MPT 底部</li>
+<li><strong>TXN 交易</strong>：horizontal_lane 4 phase 节点 + sankey_flow gas 消耗</li>
+<li><strong>SC 合约</strong>：graph_layout 状态机 + stack(vertical) EVM stack</li>
+<li><strong>ATK 攻击</strong>：dual_track 公私链对照 + 显著 risk_gauge 角标</li>
+<li><strong>ECO 经济</strong>：bar lane 持仓直方 + sankey_flow 奖励流</li>
+</ul>
+</div>
+
+<h2>③ 模式 B · 对照（grid / focus / carousel）— 共识机制对比</h2>
+
+<h3>③-1 grid 网格 · 4 场景同时演示</h3>
+<div class="ph">
+  <div class="tp">
+    <div class="l">
+      <span style="color:var(--mt)">实验 8</span> ›
+      <strong>共识机制可视化对比</strong>
+      <span class="bdg pill wn">对照模式 · 4 场景</span>
+    </div>
+    <div class="r">
+      <div class="sg"><button class="act">⊞ 网格</button><button>◫ 焦点</button><button>⊟ 轮播</button></div>
+      <button class="ib" title="SharedState">📊</button>
+      <button class="ib">📷</button><button class="ib">⛶</button>
+      <span class="bdg pill ok">● WS 4/4 已连接</span>
+    </div>
+  </div>
+  <div class="bd">
+    <div class="cv">
+      <div class="g4" style="height:420px">
+        <!-- PoW -->
+        <div class="sl">
+          <div class="sh"><strong>PoW 挖矿</strong><span style="color:var(--mt)">consensus</span></div>
+          <div class="sb" style="position:relative">
+            <svg viewBox="0 0 280 140" style="width:100%;height:100%">
+              <line x1="20" y1="35" x2="260" y2="35" stroke="#fbbf24" stroke-dasharray="4 3"/>
+              <text x="22" y="30" fill="#fbbf24" font-size="9">target</text>
+              <line x1="20" y1="80" x2="260" y2="80" stroke="rgba(96,165,250,.18)" stroke-dasharray="3 3"/>
+              <circle cx="60" cy="80" r="16" fill="rgba(192,132,252,.25)" stroke="#c084fc" stroke-width="2"/>
+              <text x="60" y="84" text-anchor="middle" fill="#fff" font-size="10">A</text>
+              <circle cx="140" cy="80" r="16" fill="rgba(192,132,252,.6)" stroke="#c084fc" stroke-width="2"/>
+              <circle cx="140" cy="80" r="24" fill="none" stroke="#4ade80" opacity=".55"/>
+              <text x="140" y="84" text-anchor="middle" fill="#fff" font-size="10">B</text>
+              <circle cx="220" cy="80" r="16" fill="rgba(192,132,252,.25)" stroke="#c084fc" stroke-width="2"/>
+              <text x="220" y="84" text-anchor="middle" fill="#fff" font-size="10">C</text>
+            </svg>
+            <div class="li">⛓</div>
+          </div>
+        </div>
+        <!-- PoS -->
+        <div class="sl">
+          <div class="sh"><strong>PoS 验证</strong><span style="color:var(--mt)">consensus</span></div>
+          <div class="sb" style="position:relative">
+            <svg viewBox="0 0 280 140" style="width:100%;height:100%">
+              <circle cx="140" cy="70" r="48" fill="none" stroke="rgba(192,132,252,.18)" stroke-dasharray="3 3"/>
+              <g fill="#c084fc">
+                <circle cx="188" cy="70" r="9"/>
+                <circle cx="170" cy="113" r="9"/>
+                <circle cx="110" cy="113" r="9"/>
+                <circle cx="92" cy="70" r="9"/>
+                <circle cx="110" cy="27" r="9"/>
+                <circle cx="170" cy="27" r="9"/>
+              </g>
+              <circle cx="188" cy="70" r="14" fill="none" stroke="#4ade80" stroke-width="2"/>
+              <text x="140" y="74" text-anchor="middle" fill="#e5e7eb" font-size="10">Epoch 12</text>
+            </svg>
+            <div class="li">⛓</div>
+          </div>
+        </div>
+        <!-- PBFT -->
+        <div class="sl">
+          <div class="sh"><strong>PBFT 三阶段</strong><span style="color:var(--mt)">consensus</span></div>
+          <div class="sb" style="position:relative">
+            <div class="pp" style="font-size:9px;padding:1px 4px"><span class="st dn"><span class="dot"></span>PrP</span><span class="ln"></span><span class="st ac"><span class="dot"></span>P</span><span class="ln"></span><span class="st"><span class="dot"></span>C</span></div>
+            <svg viewBox="0 0 280 110" style="width:100%;height:110px">
+              <g>
+                <rect x="60" y="10" width="22" height="22" fill="#4ade80" opacity=".85"/>
+                <rect x="86" y="10" width="22" height="22" fill="#4ade80" opacity=".85"/>
+                <rect x="112" y="10" width="22" height="22" fill="#4ade80" opacity=".85"/>
+                <rect x="138" y="10" width="22" height="22" fill="#fbbf24" opacity=".85"/>
+                <rect x="60" y="36" width="22" height="22" fill="#4ade80" opacity=".6"/>
+                <rect x="86" y="36" width="22" height="22" fill="#fbbf24" opacity=".6"/>
+                <rect x="112" y="36" width="22" height="22" fill="rgba(150,150,150,.3)"/>
+                <rect x="138" y="36" width="22" height="22" fill="rgba(150,150,150,.3)"/>
+              </g>
+              <line x1="50" y1="80" x2="240" y2="80" stroke="#fbbf24" stroke-dasharray="4 3"/>
+              <text x="180" y="76" fill="#fbbf24" font-size="9">2f+1</text>
+              <g fill="#c084fc"><circle cx="80" cy="95" r="7"/><circle cx="120" cy="95" r="7"/><circle cx="160" cy="95" r="7"/><circle cx="200" cy="95" r="7"/></g>
+            </svg>
+            <div class="li">⛓</div>
+          </div>
+        </div>
+        <!-- Raft -->
+        <div class="sl">
+          <div class="sh"><strong>Raft 选举</strong><span style="color:var(--mt)">consensus</span></div>
+          <div class="sb" style="position:relative">
+            <svg viewBox="0 0 280 140" style="width:100%;height:100%">
+              <circle cx="140" cy="70" r="44" fill="none" stroke="rgba(192,132,252,.2)" stroke-dasharray="3 3"/>
+              <g fill="#c084fc">
+                <circle cx="140" cy="26" r="13"/>
+                <circle cx="183" cy="70" r="10"/>
+                <circle cx="166" cy="115" r="10"/>
+                <circle cx="114" cy="115" r="10"/>
+                <circle cx="97" cy="70" r="10"/>
+              </g>
+              <text x="140" y="30" text-anchor="middle" fill="#fff" font-size="10" font-weight="600">L</text>
+              <circle cx="140" cy="26" r="20" fill="none" stroke="#4ade80" opacity=".5"/>
+              <text x="140" y="135" text-anchor="middle" fill="#94a3b8" font-size="9">term 5</text>
+            </svg>
+            <div class="li">⛓</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sd">
+      <h4>📊 聚合指标</h4>
+      <div class="r"><span class="lb">PoW 块</span><span class="v">4</span></div>
+      <div class="r"><span class="lb">PoS Epoch</span><span class="v">12</span></div>
+      <div class="r"><span class="lb">PBFT view</span><span class="v">3</span></div>
+      <div class="r"><span class="lb">Raft term</span><span class="v">5</span></div>
+      <h4>⛓ 联动状态</h4>
+      <div class="r"><span class="lb">无激活组</span><span class="v" style="color:var(--mt)">idle</span></div>
+      <h4>📜 MicroSteps（多源合并）</h4>
+      <div style="font-size:10px;color:var(--mt);max-height:80px;overflow-y:auto">
+        <div style="color:var(--ac)">▶ [PoW] 命中</div>
+        <div>· [PoS] 轮换</div>
+        <div>· [PBFT] Prepare</div>
+        <div>· [Raft] heartbeat</div>
+      </div>
+      <h4>📋 内容类原语</h4>
+      <div style="color:var(--mt);font-size:10px;line-height:1.5">每场景的 <strong>code/formula/progress</strong> 在该场景<strong>头部 ▼ dropdown</strong> 展开（避免侧栏堆叠 4 套）；点击 slot header 即可</div>
+    </div>
+  </div>
+  <div class="cb">
+    <button class="cbt">▶</button><button class="cbt">⏸</button><button class="cbt">⏭</button>
+    <button class="cbt dis">⏮</button><button class="cbt">⟲</button>
+    <span style="color:var(--dm);margin:0 8px">|</span>
+    <span class="tk">🔒 时钟同步</span>
+    <div class="sp"><button>0.5×</button><button class="act">1×</button><button>1.5×</button><button>2×</button></div>
+    <span class="tk">Tick 23</span>
+  </div>
+</div>
+
+<h3>③-2 focus 焦点 · 主区 + 缩略图列表</h3>
+<div class="ph">
+  <div class="tp">
+    <div class="l"><strong>共识机制可视化对比</strong> <span class="bdg pill wn">焦点 · 主 PBFT</span></div>
+    <div class="r">
+      <div class="sg"><button>⊞</button><button class="act">◫ 焦点</button><button>⊟</button></div>
+      <button class="ib">📊</button><button class="ib">⛶</button>
+    </div>
+  </div>
+  <div class="bd">
+    <div class="cv">
+      <div class="fcw" style="height:380px">
+        <!-- 主聚焦 -->
+        <div class="sl">
+          <div class="sh"><strong>PBFT 三阶段共识 (聚焦)</strong><span style="color:var(--mt)">consensus</span></div>
+          <div class="sb" style="position:relative">
+            <div class="pp"><span class="st dn"><span class="dot"></span>Pre-Prepare</span><span class="ln"></span><span class="st dn"><span class="dot"></span>Prepare</span><span class="ln"></span><span class="st ac"><span class="dot"></span>Commit</span></div>
+            <svg viewBox="0 0 600 280" style="width:100%;height:280px">
+              <text x="20" y="20" fill="#94a3b8" font-size="10">vote_matrix · 4 节点 × 3 阶段</text>
+              <g>
+                <rect x="80" y="40" width="60" height="34" fill="#4ade80" opacity=".85"/>
+                <rect x="142" y="40" width="60" height="34" fill="#4ade80" opacity=".85"/>
+                <rect x="204" y="40" width="60" height="34" fill="#4ade80" opacity=".85"/>
+                <rect x="266" y="40" width="60" height="34" fill="#4ade80" opacity=".85"/>
+                <rect x="80" y="76" width="60" height="34" fill="#4ade80" opacity=".7"/>
+                <rect x="142" y="76" width="60" height="34" fill="#4ade80" opacity=".7"/>
+                <rect x="204" y="76" width="60" height="34" fill="#4ade80" opacity=".7"/>
+                <rect x="266" y="76" width="60" height="34" fill="#fbbf24" opacity=".75"/>
+                <rect x="80" y="112" width="60" height="34" fill="#fbbf24" opacity=".7"/>
+                <rect x="142" y="112" width="60" height="34" fill="rgba(150,150,150,.3)"/>
+                <rect x="204" y="112" width="60" height="34" fill="rgba(150,150,150,.3)"/>
+                <rect x="266" y="112" width="60" height="34" fill="rgba(150,150,150,.3)"/>
+              </g>
+              <text x="50" y="60" fill="#94a3b8" font-size="10">PrP</text>
+              <text x="50" y="96" fill="#94a3b8" font-size="10">P</text>
+              <text x="50" y="132" fill="#94a3b8" font-size="10">C</text>
+              <text x="110" y="32" fill="#94a3b8" font-size="10">P0</text>
+              <text x="172" y="32" fill="#94a3b8" font-size="10">P1</text>
+              <text x="234" y="32" fill="#94a3b8" font-size="10">P2</text>
+              <text x="296" y="32" fill="#94a3b8" font-size="10">P3</text>
+              <line x1="80" y1="170" x2="400" y2="170" stroke="#fbbf24" stroke-dasharray="4 3"/>
+              <text x="84" y="166" fill="#fbbf24" font-size="9">2f+1 阈值线</text>
+              <g fill="#c084fc"><circle cx="110" cy="220" r="14"/><circle cx="172" cy="220" r="14"/><circle cx="234" cy="220" r="14"/><circle cx="296" cy="220" r="14" stroke="#f87171" stroke-width="2"/></g>
+              <text x="110" y="225" text-anchor="middle" fill="#fff" font-size="10">P0 ★</text>
+              <text x="172" y="225" text-anchor="middle" fill="#fff" font-size="10">P1</text>
+              <text x="234" y="225" text-anchor="middle" fill="#fff" font-size="10">P2</text>
+              <text x="296" y="225" text-anchor="middle" fill="#fff" font-size="10">P3✗</text>
+              <text x="110" y="255" text-anchor="middle" fill="#94a3b8" font-size="9">primary</text>
+              <text x="172" y="255" text-anchor="middle" fill="#94a3b8" font-size="9">backup</text>
+              <text x="234" y="255" text-anchor="middle" fill="#94a3b8" font-size="9">backup</text>
+              <text x="296" y="255" text-anchor="middle" fill="#f87171" font-size="9">byzantine</text>
+              <text x="380" y="58" fill="#94a3b8" font-size="10">view: 3</text>
+              <text x="380" y="78" fill="#94a3b8" font-size="10">2f+1 = 3/4</text>
+              <text x="380" y="98" fill="#fbbf24" font-size="10">⏳ Commit 等待</text>
+            </svg>
+            <div class="li">⛓</div>
+          </div>
+          <div class="if">
+            <div class="ig"><span class="gn">⚠ 攻击</span><span class="ab at">注入拜占庭</span><span class="ab at">伪造投票</span></div>
+            <div class="ig"><span class="gn">▶ 操作</span><span class="ab pr">视图切换</span><span class="ab ob">查看日志</span></div>
+          </div>
+        </div>
+        <!-- 缩略图列表 -->
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <button class="ib" style="font-size:10px;padding:4px 6px">⊞ 返回 grid</button>
+          <div class="tm act"><strong>PBFT</strong><div style="color:var(--mt);font-size:9px;margin-top:2px">三阶段 · view 3</div></div>
+          <div class="tm"><strong>PoW</strong><div style="color:var(--mt);font-size:9px;margin-top:2px">挖矿 · 4 块</div></div>
+          <div class="tm"><strong>PoS</strong><div style="color:var(--mt);font-size:9px;margin-top:2px">验证 · Epoch 12</div></div>
+          <div class="tm"><strong>Raft</strong><div style="color:var(--mt);font-size:9px;margin-top:2px">选举 · term 5</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="sd">
+      <h4>📊 指标 (聚焦 PBFT)</h4>
+      <div class="r"><span class="lb">view</span><span class="v">3</span></div>
+      <div class="r"><span class="lb">2f+1</span><span class="v">3/4</span></div>
+      <div class="r"><span class="lb">byzantine</span><span class="v" style="color:var(--dg)">P3</span></div>
+      <h4>⛓ 联动</h4>
+      <div class="r"><span class="lb">pbft-attack-group</span><span class="v" style="color:var(--ok)">● active</span></div>
+      <h4>📜 MicroSteps</h4>
+      <div style="font-size:10px;color:var(--mt)"><div style="color:var(--ac)">▶ [PBFT] Prepare 完成</div><div>· [攻击] P3 投票延迟</div></div>
+      <h4>📋 PBFT 内容</h4>
+      <div class="cdb">prepare(v,n,m)<br>commit(v,n,d)</div>
+      <div class="fmb" style="margin-top:4px">|R| ≥ 2f+1</div>
+    </div>
+  </div>
+  <div class="cb">
+    <button class="cbt">▶</button><button class="cbt">⏸</button><button class="cbt">⏭</button>
+    <button class="cbt dis">⏮</button><button class="cbt">⟲</button>
+    <span style="color:var(--dm);margin:0 8px">|</span>
+    <span class="tk">🔒 时钟同步</span>
+    <div class="sp"><button>0.5×</button><button class="act">1×</button><button>1.5×</button><button>2×</button></div>
+    <span class="tk">Tick 23</span>
+  </div>
+</div>
+
+<h3>③-3 carousel 轮播 · 单场景全宽 + 翻页</h3>
+<div class="ph">
+  <div class="tp">
+    <div class="l"><strong>共识机制可视化对比</strong> <span class="bdg pill wn">轮播 · 2 / 4</span></div>
+    <div class="r">
+      <div class="sg"><button>⊞</button><button>◫</button><button class="act">⊟ 轮播</button></div>
+      <button class="ib">⛶</button>
+    </div>
+  </div>
+  <div class="bd no-sb">
+    <div class="cv" style="min-height:300px;display:flex;align-items:center;gap:10px">
+      <button class="cbt" style="height:60px">‹</button>
+      <div style="flex:1;background:rgba(5,9,18,.95);border:1px solid var(--bd);border-radius:6px;padding:14px;height:280px;position:relative">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+          <strong>PoS 验证 · 全宽视图</strong>
+          <span style="color:var(--mt);font-size:11px">2 / 4</span>
+        </div>
+        <svg viewBox="0 0 700 200" style="width:100%;height:200px">
+          <circle cx="350" cy="100" r="80" fill="none" stroke="rgba(192,132,252,.18)" stroke-dasharray="4 3"/>
+          <g fill="#c084fc">
+            <circle cx="430" cy="100" r="14"/>
+            <circle cx="402" cy="170" r="14"/>
+            <circle cx="298" cy="170" r="14"/>
+            <circle cx="270" cy="100" r="14"/>
+            <circle cx="298" cy="30" r="14"/>
+            <circle cx="402" cy="30" r="14"/>
+          </g>
+          <circle cx="430" cy="100" r="22" fill="none" stroke="#4ade80" stroke-width="2"/>
+          <text x="430" y="104" text-anchor="middle" fill="#fff" font-size="10">V1★</text>
+          <text x="350" y="104" text-anchor="middle" fill="#e5e7eb" font-size="14">Epoch 12</text>
+        </svg>
+        <div class="li">⛓</div>
+      </div>
+      <button class="cbt" style="height:60px">›</button>
+    </div>
+    <div class="if">
+      <div class="ig" style="justify-content:center">
+        <span style="color:var(--mt);font-size:11px">PoW</span>
+        <span class="dot" style="background:var(--mt)"></span>
+        <span class="dot" style="background:var(--ac);box-shadow:0 0 6px var(--ac)"></span>
+        <span class="dot" style="background:var(--mt)"></span>
+        <span class="dot" style="background:var(--mt)"></span>
+        <span style="color:var(--mt);font-size:11px">Raft</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>④ 模式 C · 联动 — 跨场景 SharedState + M8 弧线</h2>
+<p class="lead">联动模式额外渲染：① 跨画布 M8 SVG 弧线（在所有 slot 上层 z-index:5 浮层）② 顶部 [📊 SharedState] 触发右侧抽屉 ③ 时钟严格同步锁，⏮ 单场景回退被禁用</p>
+
+<div class="ph">
+  <div class="tp">
+    <div class="l">
+      <span style="color:var(--mt)">实验 12</span> ›
+      <strong>PBFT 攻击联动实验</strong>
+      <span class="bdg pill cs">联动 · pbft-attack-group</span>
+    </div>
+    <div class="r">
+      <div class="sg"><button class="act">⊞</button><button>◫</button><button>⊟</button></div>
+      <button class="ib" style="background:rgba(192,132,252,.15);color:var(--cs);border-color:var(--cs)">📊 SharedState</button>
+      <button class="ib">⛶</button>
+    </div>
+  </div>
+  <div class="bd">
+    <div class="cv" style="min-height:380px;position:relative">
+      <!-- 跨画布 M8 弧线（DOM SVG 浮层） -->
+      <svg style="position:absolute;inset:0;pointer-events:none;z-index:5" viewBox="0 0 800 380" preserveAspectRatio="none">
+        <path d="M 240 90 C 320 40, 480 40, 560 90" stroke="#c084fc" stroke-width="2.5" fill="none" stroke-dasharray="6 4" opacity=".9"/>
+        <text x="380" y="50" fill="#c084fc" font-size="11" font-weight="600">view 3 → 4</text>
+        <path d="M 560 250 C 480 300, 320 300, 240 250" stroke="#f87171" stroke-width="2.5" fill="none" stroke-dasharray="6 4" opacity=".9"/>
+        <text x="380" y="320" fill="#f87171" font-size="11" font-weight="600">byzantine 注入</text>
+      </svg>
+      <div class="g4" style="height:380px">
+        <!-- 主：PBFT 共识 -->
+        <div class="sl" style="border-color:var(--cs)">
+          <div class="sh"><strong style="color:var(--cs)">PBFT 共识</strong><span style="color:var(--cs);font-size:9px">producer</span></div>
+          <div class="sb" style="position:relative">
+            <svg viewBox="0 0 280 160" style="width:100%;height:100%">
+              <text x="10" y="14" fill="#94a3b8" font-size="9">vote_matrix</text>
+              <g>
+                <rect x="20" y="22" width="32" height="20" fill="#4ade80" opacity=".75"/>
+                <rect x="54" y="22" width="32" height="20" fill="#4ade80" opacity=".75"/>
+                <rect x="88" y="22" width="32" height="20" fill="#fbbf24" opacity=".85"/>
+                <rect x="122" y="22" width="32" height="20" fill="#f87171" opacity=".85"/>
+              </g>
+              <line x1="10" y1="60" x2="270" y2="60" stroke="#fbbf24" stroke-dasharray="3 2"/>
+              <text x="14" y="56" fill="#fbbf24" font-size="9">2f+1</text>
+              <g fill="#c084fc"><circle cx="50" cy="100" r="13"/><circle cx="110" cy="100" r="13"/><circle cx="170" cy="100" r="13"/><circle cx="230" cy="100" r="13" stroke="#f87171" stroke-width="2"/></g>
+              <text x="50" y="104" text-anchor="middle" fill="#fff" font-size="9">P0★</text>
+              <text x="110" y="104" text-anchor="middle" fill="#fff" font-size="9">P1</text>
+              <text x="170" y="104" text-anchor="middle" fill="#fff" font-size="9">P2</text>
+              <text x="230" y="104" text-anchor="middle" fill="#fff" font-size="9">P3</text>
+              <text x="140" y="140" text-anchor="middle" fill="#94a3b8" font-size="10">view: 3 → 4</text>
+            </svg>
+            <div class="li">⛓</div>
+          </div>
+        </div>
+        <!-- 从：拜占庭注入 -->
+        <div class="sl" style="border-color:var(--at)">
+          <div class="sh"><strong style="color:var(--at)">拜占庭节点</strong><span style="color:var(--at);font-size:9px">consumer</span></div>
+          <div class="sb" style="position:relative">
+            <svg viewBox="0 0 280 160" style="width:100%;height:100%">
+              <text x="10" y="14" fill="#94a3b8" font-size="9">graph_layout · 4 节点</text>
+              <g stroke="#f87171" stroke-width="1" fill="none">
+                <line x1="60" y1="50" x2="220" y2="50"/><line x1="60" y1="100" x2="220" y2="100"/>
+                <line x1="60" y1="50" x2="60" y2="100"/><line x1="220" y1="50" x2="220" y2="100"/>
+              </g>
+              <g fill="#4ade80"><circle cx="60" cy="50" r="14"/><circle cx="220" cy="50" r="14"/></g>
+              <g fill="#f87171"><circle cx="60" cy="100" r="14"/><circle cx="220" cy="100" r="14"/></g>
+              <text x="60" y="54" text-anchor="middle" fill="#fff" font-size="9">P0</text>
+              <text x="220" y="54" text-anchor="middle" fill="#fff" font-size="9">P1</text>
+              <text x="60" y="104" text-anchor="middle" fill="#fff" font-size="9">P2✗</text>
+              <text x="220" y="104" text-anchor="middle" fill="#fff" font-size="9">P3✗</text>
+              <text x="140" y="135" text-anchor="middle" fill="#f87171" font-size="10">2 拜占庭节点</text>
+            </svg>
+            <div class="li ak">⚡</div>
+          </div>
+        </div>
+        <!-- 网络层 -->
+        <div class="sl">
+          <div class="sh"><strong>网络层</strong><span style="color:var(--mt);font-size:9px">consumer</span></div>
+          <div class="sb" style="position:relative">
+            <svg viewBox="0 0 280 160" style="width:100%;height:100%">
+              <g stroke="rgba(56,189,248,.3)" fill="none">
+                <line x1="50" y1="50" x2="140" y2="80"/>
+                <line x1="140" y1="80" x2="230" y2="50"/>
+                <line x1="50" y1="120" x2="140" y2="80"/>
+                <line x1="140" y1="80" x2="230" y2="120"/>
+              </g>
+              <g fill="#38bdf8"><circle cx="50" cy="50" r="14"/><circle cx="140" cy="80" r="16"/><circle cx="230" cy="50" r="14"/><circle cx="50" cy="120" r="14"/><circle cx="230" cy="120" r="14"/></g>
+              <g fill="#38bdf8" opacity=".6"><circle cx="90" cy="63" r="2.5"/><circle cx="120" cy="74" r="2.5"/><circle cx="180" cy="74" r="2.5"/></g>
+              <text x="140" y="140" text-anchor="middle" fill="#94a3b8" font-size="9">latency 120ms</text>
+            </svg>
+            <div class="li nt">N</div>
+          </div>
+        </div>
+        <!-- 报警/监控 -->
+        <div class="sl">
+          <div class="sh"><strong>系统监控</strong><span style="color:var(--mt);font-size:9px">observer</span></div>
+          <div class="sb" style="padding:8px">
+            <div style="font-size:10px;color:var(--mt);margin-bottom:4px">📊 关键指标</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:10px">
+              <div style="flex:1;background:rgba(74,222,128,.1);padding:5px;border-radius:3px"><div style="color:var(--mt);font-size:9px">tx 成功率</div><strong style="color:var(--ok)">94%</strong></div>
+              <div style="flex:1;background:rgba(248,113,113,.1);padding:5px;border-radius:3px"><div style="color:var(--mt);font-size:9px">异常块</div><strong style="color:var(--dg)">2</strong></div>
+            </div>
+            <div style="font-size:10px;color:var(--mt);margin:6px 0 2px">⚠ 最新告警</div>
+            <div style="background:rgba(248,113,113,.1);border-left:2px solid var(--dg);padding:4px 6px;font-size:10px">P3 投票超时 ×3</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 主 SimSidebar 让位给 SharedState 抽屉 -->
+    <div class="dr">
+      <h5>📊 SharedState · pbft-attack-group <button class="ib" style="float:right;font-size:11px">×</button></h5>
+      <div style="color:var(--mt);font-size:10px;margin-bottom:6px">联动组：1 producer + 3 consumer，3 字段实时联动</div>
+
+      <div class="fld fl">
+        <div style="color:var(--cs);font-size:10px;font-weight:normal;font-family:system-ui">view_number <span style="color:var(--dm);float:right">producer: pbft</span></div>
+        <strong style="color:var(--wn);font-size:14px">4</strong> <span style="color:var(--mt);font-size:9px">↑ 闪烁动画</span>
+      </div>
+
+      <div class="fld">
+        <div style="color:var(--cs);font-size:10px;font-weight:normal;font-family:system-ui">byzantine_set <span style="color:var(--dm);float:right">producer: pbft-byzantine</span></div>
+        <strong style="color:var(--ok)">[P2, P3]</strong>
+      </div>
+
+      <div class="fld">
+        <div style="color:var(--cs);font-size:10px;font-weight:normal;font-family:system-ui">network_latency <span style="color:var(--dm);float:right">producer: network</span></div>
+        <strong style="color:var(--fg)">120ms</strong>
+      </div>
+
+      <h5 style="margin-top:10px">📜 联动事件</h5>
+      <div style="font-size:10px;color:var(--mt);max-height:120px;overflow-y:auto;background:rgba(18,29,48,.4);border-radius:4px;padding:5px">
+        <div style="color:var(--ac)">▶ view 3 → 4 (0.8s)</div>
+        <div>· P3 投票拒绝</div>
+        <div>· byzantine 触发 +1</div>
+        <div>· network 注入延迟 200ms</div>
+        <div style="color:var(--dm)">· 系统恢复 broadcast</div>
+      </div>
+
+      <div style="margin-top:8px;font-size:10px;color:var(--mt)">
+        <strong style="color:var(--cs)">订阅说明</strong>：所有 consumer 在每个 tick 接收同步包；producer 写入冲突时用 lww 策略。
+      </div>
+    </div>
+  </div>
+  <div class="cb">
+    <button class="cbt">▶</button><button class="cbt">⏸</button><button class="cbt">⏭</button>
+    <button class="cbt dis" title="联动模式下禁用">⏮</button>
+    <button class="cbt">⟲</button>
+    <span style="color:var(--dm);margin:0 8px">|</span>
+    <span class="tk" style="color:var(--cs)">🔒 时钟同步锁</span>
+    <div class="sp"><button>0.5×</button><button class="act">1×</button><button>1.5×</button><button>2×</button></div>
+    <span class="tk">Tick 23</span>
+  </div>
+</div>
+
+<div class="note wn">
+<strong>联动模式特殊约束</strong>：
+<ul class="t">
+<li>✗ 单场景回退按钮 ⏮ 禁用 — 防止时间漂移导致 SharedState 失同步</li>
+<li>✓ 速率统一：调整任一场景的速率立即广播至全 group</li>
+<li>✓ 重置 ⟲ 触发"全组联动重置"，所有 consumer 同步回到 tick 0</li>
+<li>✓ 跨画布 M8 弧线只在联动激活时显示；徽章颜色按 group_color 而非 category</li>
+<li>✓ producer 失败 / consumer 离线 → 顶部 banner 显示 ⚠，且联动徽章变红</li>
+</ul>
+</div>
+
+<h2>⑤ 模式 D · reactive — 反馈式（不显示 ControlBar）</h2>
+<p class="lead">仅"作业型"实验使用：场景接收用户提交后即时计算反馈，没有 tick / 速率 / 单步概念，故 ControlBar 整体隐藏；InteractionForm 改为"提交答案 + 重做"二态。</p>
+<div class="ph">
+  <div class="tp">
+    <div class="l">
+      <span style="color:var(--mt)">作业 3</span> ›
+      <strong>构造一个 SHA-256 碰撞</strong>
+      <span class="bdg pill">reactive</span>
+    </div>
+    <div class="r">
+      <button class="ib">📷</button><button class="ib">⛶</button>
+    </div>
+  </div>
+  <div class="bd">
+    <div class="cv" style="min-height:280px">
+      <div class="cw" style="height:240px">
+        <svg viewBox="0 0 700 220" style="width:100%;height:220px">
+          <!-- 用户提交两个原文 → SHA 后比对 -->
+          <text x="20" y="20" fill="#94a3b8" font-size="11">用户提交（DOM 输入框）→ canvas 实时哈希演示</text>
+          <g>
+            <rect x="20" y="40" width="200" height="34" fill="rgba(103,232,249,.12)" stroke="#67e8f9" rx="4"/>
+            <text x="120" y="61" text-anchor="middle" fill="#fff" font-size="11" font-family="ui-monospace">"hello1"</text>
+            <rect x="20" y="84" width="200" height="34" fill="rgba(103,232,249,.12)" stroke="#67e8f9" rx="4"/>
+            <text x="120" y="105" text-anchor="middle" fill="#fff" font-size="11" font-family="ui-monospace">"hello2"</text>
+          </g>
+          <g fill="#67e8f9" opacity=".55">
+            <circle cx="240" cy="57" r="2.5"/><circle cx="270" cy="57" r="2.5"/><circle cx="300" cy="57" r="2.5"/>
+            <circle cx="240" cy="101" r="2.5"/><circle cx="270" cy="101" r="2.5"/><circle cx="300" cy="101" r="2.5"/>
+          </g>
+          <g>
+            <rect x="320" y="40" width="60" height="78" fill="rgba(103,232,249,.2)" stroke="#67e8f9" rx="4"/>
+            <text x="350" y="84" text-anchor="middle" fill="#67e8f9" font-size="14">SHA</text>
+          </g>
+          <g>
+            <rect x="400" y="40" width="280" height="34" fill="rgba(74,222,128,.15)" stroke="#4ade80" rx="4"/>
+            <text x="540" y="61" text-anchor="middle" fill="#4ade80" font-size="10" font-family="ui-monospace">0x4a8f2d...e1b3</text>
+            <rect x="400" y="84" width="280" height="34" fill="rgba(248,113,113,.15)" stroke="#f87171" rx="4"/>
+            <text x="540" y="105" text-anchor="middle" fill="#f87171" font-size="10" font-family="ui-monospace">0x9c2e51...77a8</text>
+          </g>
+          <text x="540" y="155" text-anchor="middle" fill="#f87171" font-size="13" font-weight="600">✗ 哈希不相等 — 未构造碰撞</text>
+          <text x="540" y="180" text-anchor="middle" fill="#94a3b8" font-size="10">前导 0 数：4 / 4</text>
+        </svg>
+        <div class="li cr">🔑</div>
+      </div>
+      <div class="if">
+        <div class="ig" style="align-items:flex-start">
+          <span class="gn">📝 输入</span>
+          <div style="display:flex;gap:6px;flex:1">
+            <input type="text" value="hello1" style="flex:1;background:rgba(18,29,48,.5);border:1px solid var(--bd);color:var(--fg);padding:5px 8px;border-radius:4px;font-family:ui-monospace,monospace;font-size:11px">
+            <input type="text" value="hello2" style="flex:1;background:rgba(18,29,48,.5);border:1px solid var(--bd);color:var(--fg);padding:5px 8px;border-radius:4px;font-family:ui-monospace,monospace;font-size:11px">
+          </div>
+        </div>
+        <div class="ig" style="justify-content:flex-end;margin-top:4px">
+          <span class="ab ob">💡 提示</span>
+          <span class="ab tu">↺ 重置</span>
+          <span class="ab pr">▶ 提交并验证</span>
+        </div>
+      </div>
+    </div>
+    <div class="sd">
+      <h4>🎯 任务进度</h4>
+      <div class="r"><span class="lb">尝试次数</span><span class="v">7</span></div>
+      <div class="r"><span class="lb">最佳前缀</span><span class="v" style="color:var(--ok)">4 个 0</span></div>
+      <div class="r"><span class="lb">所需前缀</span><span class="v">8 个 0</span></div>
+      <h4>💡 阶段提示</h4>
+      <div style="font-size:10px;color:var(--mt)">
+        <div>· 修改原文一个字符</div>
+        <div>· 关注前 4 字节</div>
+        <div style="color:var(--dm)">· (锁) 进阶提示</div>
+      </div>
+      <h4>📋 内容</h4>
+      <div class="cdb">target = "0x00000000"<br>candidate = sha256(x)<br>assert candidate&lt;target</div>
+      <div class="fmb" style="margin-top:4px">P[hit] ≈ 1 / 16⁸</div>
+    </div>
+  </div>
+  <!-- 注意：reactive 模式下 ControlBar 不显示 -->
+</div>
+
+<h2>⑥ 5 种播放态 — 状态机与可视化</h2>
+<p class="lead">SimEngine 内置 FSM：<code>idle → running ⇄ paused → finished</code>，外加 <code>error</code> 兜底。每态触发不同的 UI 反馈。</p>
+
+<div class="fsm">
+  <span class="ss idle">idle · 未启动</span>
+  <span class="ss run">running · 运行中</span>
+  <span class="ss pau">paused · 已暂停</span>
+  <span class="ss fin">finished · 已完成</span>
+  <span class="ss err">error · 异常</span>
+</div>
+
+<table>
+<tr><th style="width:14%">状态</th><th>UI 反馈</th><th>ControlBar 按钮可用性</th><th>InteractionForm</th></tr>
+<tr>
+  <td><span class="ss idle">idle</span></td>
+  <td>画布空白 + 中央 "▶ 点击播放" 大按钮；MicroSteps 空；指标全 0</td>
+  <td>仅 ▶ 可点；其它灰</td>
+  <td>所有 action 灰禁用</td>
+</tr>
+<tr>
+  <td><span class="ss run">running</span></td>
+  <td>动画流畅；联动徽章脉动；Tick 高频更新</td>
+  <td>⏸ ⏭ ⟲ 可点；▶ 灰</td>
+  <td>调参 / 攻击 / 触发 全部可点；前置满足才亮</td>
+</tr>
+<tr>
+  <td><span class="ss pau">paused</span></td>
+  <td>画布静止；HUD 顶部黄色 "⏸ 已暂停 · 第 6 步" banner；动画 freeze 在当前帧</td>
+  <td>▶ ⏭ ⏮ ⟲ 可点</td>
+  <td>调参 / 观察可点；动画类攻击灰禁用</td>
+</tr>
+<tr>
+  <td><span class="ss fin">finished</span></td>
+  <td>画布锁定；右上 ✅ 完成徽章；自动展开"📤 提交报告"对话；MicroSteps 全部为 dn</td>
+  <td>仅 ⟲ 重置可点</td>
+  <td>仅 "查看回放 / 下载快照" 两键</td>
+</tr>
+<tr>
+  <td><span class="ss err">error</span></td>
+  <td>顶部红色 banner: "⚠ algo-runner exited (code 137) — 内存溢出"；画布半透明遮罩；ErrorOverlay 卡片显示堆栈</td>
+  <td>仅 ⟲ 重置可点</td>
+  <td>全灰；仅 "查看日志 / 重启容器" 两键</td>
+</tr>
+</table>
+
+<h3>⑥-1 paused 暂停态完整示意</h3>
+<div class="ph">
+  <div class="tp">
+    <div class="l"><strong>PoW 挖矿竞争</strong> <span class="bdg pill wn">⏸ paused · 第 6 步</span></div>
+    <div class="r"><span class="bdg pill ok">● WS 已连接</span></div>
+  </div>
+  <div class="bd">
+    <div class="cv">
+      <div class="cw" style="height:200px;position:relative">
+        <div style="position:absolute;inset:0;background:rgba(250,204,21,.04);border:1px dashed var(--wn);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--wn);font-weight:600">
+          ⏸ 已暂停 · Tick 23 · 步骤 6 / 12
+        </div>
+        <div style="opacity:.45">
+          <svg viewBox="0 0 600 160" style="width:100%;height:160px">
+            <line x1="40" y1="80" x2="560" y2="80" stroke="rgba(96,165,250,.18)" stroke-dasharray="4 4"/>
+            <g><circle cx="120" cy="80" r="22" fill="rgba(192,132,252,.25)" stroke="#c084fc"/><circle cx="300" cy="80" r="22" fill="rgba(192,132,252,.55)" stroke="#c084fc"/><circle cx="480" cy="80" r="22" fill="rgba(192,132,252,.25)" stroke="#c084fc"/></g>
+            <text x="120" y="84" text-anchor="middle" fill="#fff" font-size="11">M-A</text>
+            <text x="300" y="84" text-anchor="middle" fill="#fff" font-size="11">M-B</text>
+            <text x="480" y="84" text-anchor="middle" fill="#fff" font-size="11">M-C</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="sd">
+      <h4>📊 指标 (snapshot)</h4>
+      <div class="r"><span class="lb">tick</span><span class="v">23</span></div>
+      <div class="r"><span class="lb">已出块</span><span class="v">4</span></div>
+      <h4>📜 MicroSteps</h4>
+      <div style="font-size:10px;color:var(--mt)"><div style="color:var(--ac)">▶ 当前: SHA-256</div></div>
+    </div>
+  </div>
+  <div class="cb">
+    <button class="cbt">▶ 继续</button>
+    <button class="cbt dis">⏸</button>
+    <button class="cbt">⏭ 单步</button>
+    <button class="cbt">⏮ 回退</button>
+    <button class="cbt">⟲ 重置</button>
+    <span class="tk" style="margin-left:auto">Tick 23 · 暂停于 14:23:08</span>
+  </div>
+</div>
+
+<h3>⑥-2 error 错误态完整示意</h3>
+<div class="ph" style="border-color:var(--dg)">
+  <div style="background:rgba(248,113,113,.15);border-bottom:1px solid var(--dg);padding:8px 14px;font-size:12px;color:var(--dg);display:flex;justify-content:space-between">
+    <span><strong>⚠ algo-runner exited (code 137)</strong> — 算法容器 OOMKilled，已自动 dump 堆栈</span>
+    <span><button class="ib" style="border-color:var(--dg);color:var(--dg)">📋 复制日志</button> <button class="ib" style="border-color:var(--dg);color:var(--dg)">🔄 重启容器</button></span>
+  </div>
+  <div class="tp">
+    <div class="l"><strong>PoW 挖矿竞争</strong> <span class="bdg pill bd">⚠ error</span></div>
+    <div class="r"><span class="bdg pill bd">● WS 已断开</span></div>
+  </div>
+  <div class="bd">
+    <div class="cv" style="position:relative">
+      <div style="opacity:.25" class="cw">
+        <svg viewBox="0 0 600 160" style="width:100%;height:160px">
+          <g><circle cx="120" cy="80" r="22" fill="rgba(192,132,252,.2)"/><circle cx="300" cy="80" r="22" fill="rgba(192,132,252,.2)"/><circle cx="480" cy="80" r="22" fill="rgba(192,132,252,.2)"/></g>
+        </svg>
+      </div>
+      <!-- error_overlay (DOM 卡片) -->
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(13,20,38,.98);border:2px solid var(--dg);border-radius:8px;padding:14px 18px;width:90%;max-width:480px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+        <div style="color:var(--dg);font-weight:600;font-size:13px;margin-bottom:6px">⚠ ErrorOverlay (DOM)</div>
+        <div style="font-size:11px;color:var(--fg);margin-bottom:8px">
+          <strong>容器：</strong>algo-runner-pow-x9k2<br>
+          <strong>退出码：</strong>137 (SIGKILL by OOM)<br>
+          <strong>持续时间：</strong>00:14:23 → 内存峰值 2.1 GiB / limit 2.0 GiB
+        </div>
+        <div class="cdb" style="font-size:10px;max-height:80px;overflow-y:auto">
+          panic: out of memory<br>
+          &nbsp;&nbsp;goroutine 21 [running]:<br>
+          &nbsp;&nbsp;runtime.gopanic(...)<br>
+          &nbsp;&nbsp;sim.PoWMiner.Hash(0xc000124000)<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;/sim/pow/miner.go:142 +0x4a
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end">
+          <button class="ib">📋 复制堆栈</button>
+          <button class="ib" style="background:rgba(74,222,128,.12);color:var(--ok);border-color:var(--ok)">🔄 重启容器</button>
+        </div>
+      </div>
+    </div>
+    <div class="sd">
+      <h4>🩺 容器健康</h4>
+      <div class="r"><span class="lb">algo-runner</span><span class="v" style="color:var(--dg)">crashed</span></div>
+      <div class="r"><span class="lb">restart count</span><span class="v" style="color:var(--wn)">3 / 5</span></div>
+      <h4>📜 最近日志</h4>
+      <div class="cdb" style="font-size:9px;max-height:120px;overflow-y:auto">
+        <div style="color:var(--dg)">14:23:08 ERR OOM</div>
+        <div style="color:var(--wn)">14:23:05 WARN mem 95%</div>
+        <div>14:22:50 INFO tick 198</div>
+      </div>
+    </div>
+  </div>
+  <div class="cb">
+    <button class="cbt dis">▶</button>
+    <button class="cbt dis">⏸</button>
+    <button class="cbt dis">⏭</button>
+    <button class="cbt dis">⏮</button>
+    <button class="cbt" style="background:rgba(248,113,113,.18);border-color:var(--dg);color:var(--dg)">⟲ 重置</button>
+    <span class="tk" style="margin-left:auto;color:var(--dg)">⚠ 操作不可用 — 请重启容器后重试</span>
+  </div>
+</div>
+
+<h2>⑦ 紧凑响应式 — panel 缩小时的降级</h2>
+<p class="lead">当 panel width &lt; 600 或 height &lt; 360（嵌入小窗 / 移动端 / 教师对照课件）时，自动降级：① 侧栏折叠为底部抽屉 ② InteractionForm 折叠成单行 + ▼ 弹出 ③ 节点 radius 降到 [12, 18]。</p>
+
+<div class="compact-grid">
+  <!-- 紧凑 panel 1 -->
+  <div class="cp">
+    <div class="ch"><strong>PoW 挖矿</strong><span style="color:var(--mt);font-size:9px">紧凑</span></div>
+    <div class="cb2" style="height:140px">
+      <div class="pp" style="font-size:9px;padding:1px 4px"><span class="st dn"><span class="dot"></span>SHA</span><span class="ln"></span><span class="st ac"><span class="dot"></span>验证</span></div>
+      <svg viewBox="0 0 280 100" style="width:100%;height:90px">
+        <line x1="20" y1="50" x2="260" y2="50" stroke="rgba(96,165,250,.18)" stroke-dasharray="3 3"/>
+        <circle cx="60" cy="50" r="14" fill="rgba(192,132,252,.25)" stroke="#c084fc"/>
+        <circle cx="140" cy="50" r="14" fill="rgba(192,132,252,.55)" stroke="#c084fc"/>
+        <circle cx="140" cy="50" r="22" fill="none" stroke="#4ade80" opacity=".55"/>
+        <circle cx="220" cy="50" r="14" fill="rgba(192,132,252,.25)" stroke="#c084fc"/>
+      </svg>
+      <div class="li" style="width:18px;height:18px;font-size:9px">⛓</div>
+    </div>
+    <div class="iform-mini">
+      <span class="ab tu" style="padding:2px 6px;font-size:9px">⚙</span>
+      <span class="ab at" style="padding:2px 6px;font-size:9px">⚠</span>
+      <span class="ab pr" style="padding:2px 6px;font-size:9px">▶</span>
+      <span style="margin-left:auto;font-size:9px;color:var(--mt)">▼ 全部</span>
+    </div>
+  </div>
+  <!-- 紧凑 panel 2 -->
+  <div class="cp">
+    <div class="ch"><strong>PoS 验证</strong><span style="color:var(--mt);font-size:9px">紧凑</span></div>
+    <div class="cb2" style="height:140px">
+      <svg viewBox="0 0 280 130" style="width:100%;height:130px">
+        <circle cx="140" cy="65" r="44" fill="none" stroke="rgba(192,132,252,.18)" stroke-dasharray="3 3"/>
+        <g fill="#c084fc"><circle cx="184" cy="65" r="9"/><circle cx="170" cy="105" r="9"/><circle cx="110" cy="105" r="9"/><circle cx="96" cy="65" r="9"/><circle cx="110" cy="25" r="9"/><circle cx="170" cy="25" r="9"/></g>
+        <circle cx="184" cy="65" r="13" fill="none" stroke="#4ade80"/>
+      </svg>
+      <div class="li" style="width:18px;height:18px;font-size:9px">⛓</div>
+    </div>
+    <div class="iform-mini"><span class="ab pr" style="padding:2px 6px;font-size:9px">▶</span><span class="ab tu" style="padding:2px 6px;font-size:9px">⚙</span></div>
+  </div>
+  <!-- 紧凑 panel 3 -->
+  <div class="cp">
+    <div class="ch"><strong>PBFT</strong><span style="color:var(--mt);font-size:9px">紧凑</span></div>
+    <div class="cb2" style="height:140px">
+      <svg viewBox="0 0 280 130" style="width:100%;height:130px">
+        <g><rect x="60" y="20" width="22" height="22" fill="#4ade80" opacity=".85"/><rect x="86" y="20" width="22" height="22" fill="#4ade80" opacity=".85"/><rect x="112" y="20" width="22" height="22" fill="#fbbf24" opacity=".85"/><rect x="138" y="20" width="22" height="22" fill="#f87171" opacity=".85"/></g>
+        <line x1="40" y1="60" x2="240" y2="60" stroke="#fbbf24" stroke-dasharray="3 2"/>
+        <g fill="#c084fc"><circle cx="80" cy="95" r="11"/><circle cx="120" cy="95" r="11"/><circle cx="160" cy="95" r="11"/><circle cx="200" cy="95" r="11"/></g>
+      </svg>
+      <div class="li" style="width:18px;height:18px;font-size:9px">⛓</div>
+    </div>
+    <div class="iform-mini"><span class="ab at" style="padding:2px 6px;font-size:9px">⚠</span><span class="ab pr" style="padding:2px 6px;font-size:9px">▶</span></div>
+  </div>
+  <!-- 紧凑 panel 4 -->
+  <div class="cp">
+    <div class="ch"><strong>SHA-256</strong><span style="color:var(--mt);font-size:9px">紧凑</span></div>
+    <div class="cb2" style="height:140px">
+      <svg viewBox="0 0 280 130" style="width:100%;height:130px">
+        <g>
+          <rect x="20" y="20" width="30" height="20" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+          <rect x="52" y="20" width="30" height="20" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+          <rect x="84" y="20" width="30" height="20" fill="rgba(103,232,249,.45)" stroke="#67e8f9"/>
+          <rect x="116" y="20" width="30" height="20" fill="rgba(103,232,249,.12)" stroke="#67e8f9"/>
+        </g>
+        <text x="20" y="70" fill="#94a3b8" font-size="9">round 32 / 64</text>
+        <rect x="20" y="80" width="240" height="6" fill="rgba(143,163,191,.2)" rx="3"/>
+        <rect x="20" y="80" width="120" height="6" fill="#67e8f9" rx="3"/>
+      </svg>
+      <div class="li cr" style="width:18px;height:18px;font-size:9px">🔑</div>
+    </div>
+    <div class="iform-mini"><span class="ab pr" style="padding:2px 6px;font-size:9px">▶</span></div>
+  </div>
+</div>
+
+<div class="note">
+<strong>降级规则（layoutSolver 内置）</strong>：
+<ul class="t">
+<li><strong>统一展开入口</strong>：TopBar 右上 <code>[⛶ 全屏]</code> 按钮在任何模式 / 任何 panel 都可见且<u>仅此一处</u>。点击 → 当前 panel 脱离 Tabs 占满 viewport，ESC 退出。<u>取消</u>旧设计里的 SimSidebar 二级 ▼ 展开和极小预览的角标展开。</li>
+<li>panel.width &lt; 600：右侧 SimSidebar 整体<u>切换</u>为顶部下拉 Popover（点击 TopBar [📋] 切换），<u>不</u>使用底部抽屉二次展开，避免双展开</li>
+<li>panel.height &lt; 360：HUD phase_progress 强制 16px 单行；node radius 钳制 [12, 18]</li>
+<li>panel.width &lt; 360：InteractionForm 折叠成 4 个图标按钮（⚙ ⚠ 👁 ▶），点击展开 popover（这是<u>表单级</u>展开，不与 [⛶] 全屏冲突，职责正交）</li>
+<li>panel.width &lt; 280：极小预览仅画 canvas，<u>不再加角标</u>；如需放大，走 TopBar [⛶] 全屏（与正常模式一致）</li>
+</ul>
+</div>
+
+<h2>⑧ 实施清单（按文件 + 依赖顺序）</h2>
+
+<table>
+<tr><th style="width:5%">#</th><th style="width:30%">文件</th><th>改动</th><th style="width:10%">代价</th></tr>
+<tr><td>1</td><td><code>sim-engine/renderers/shared/primitiveDrawers.ts</code></td>
+<td>把 <strong></strong>14 个</strong> 不在 canvas 绘制的原语的 drawer 改为 noop（保留函数防 dispatch 报错）：<br>
+· <strong>DOM 渲染 4</strong>：<code>code_block</code> / <code>math_formula</code> / <code>register_row</code> / <code>error_overlay</code><br>
+· <strong>DOM 浮层 4</strong>：<code>label</code>(无 anchor 时) / <code>tooltip</code> / <code>annotation</code> / <code>math_pipeline</code>(公式行部分)<br>
+· <strong>Layout 容器 6</strong>：<code>stack</code> / <code>ring_layout</code> / <code>matrix_layout</code> / <code>horizontal_lane</code> / <code>tree_layout</code> / <code>graph_layout</code>（只解算子坐标，自身不绘）<br>
+<em>保留 canvas 绘制</em>：<code>pie_chart</code> / <code>time_wheel</code> / <code>progress_bar</code> / <code>risk_gauge</code> / <code>link_indicator</code> / <code>external_event_marker</code>（纯可视化指示器，无强文本）</td>
+<td><span class="pill ok">小</span></td></tr>
+<tr><td>2</td><td><code>sim-engine/renderers/shared/layoutSolver.ts</code></td>
+<td>移除 STANDALONE_DISPLAY_TYPES（不再为 DOM 类原语分配带）；node radius clamp [16, 28]；接 <code>ctx.measureText</code> 算 horizontal step；引入 <code>{minH, prefH, maxH}</code> 三档；新增紧凑模式判定（width&lt;600 / height&lt;360）</td>
+<td><span class="pill wn">中</span></td></tr>
+<tr><td>3</td><td><code>frontend/src/components/business/SimPrimitiveSidebar.tsx</code> <span class="pill" style="font-size:9px">新建</span></td>
+<td>从 <code>RenderEnvelope.primitives</code> filter出 <strong>DOM 渲染 4 类</strong>，按类型渲染到侧栏：<br>
+• <code>code_block</code> → <code>&lt;pre&gt;</code> + react-syntax-highlighter + 复制按钮<br>
+• <code>math_formula</code> → KaTeX (<code>react-katex</code>)<br>
+• <code>register_row</code> → <code>&lt;table&gt;</code> + 高亮变更值<br>
+• <code>error_overlay</code> → Alert 卡片（详情走 SimErrorOverlay Modal）<br>
+<em>注</em>：<code>label</code>/<code>tooltip</code>/<code>annotation</code>/<code>math_pipeline</code> 为“浮层”不走侧栏，由 <code>SimAnnotationLayer</code> / Tooltip 组件统一接管</td>
+<td><span class="pill wn">中</span></td></tr>
+<tr><td>4</td><td><code>frontend/src/components/business/SimSceneSlot.tsx</code></td>
+<td>三层 flex column：<code>.cv</code>(画布+InteractionForm) → <code>.cb</code>(ControlBar)；右侧加一列 280px <code>SimSidebar</code>（grid）。<strong>关键：</strong><code>display:grid; grid-template-columns:1fr 280px; align-items:start</code> 两列<u>独立高度</u>，侧栏 <code>overflow-y:auto</code> 内部滚动，不撑高画布起空白。<br>panel.width&lt;600 时整体切为顶部 <code>[📋]</code> Popover（不是底部抽屉）；侧栏 6 sections 按需渲染（reactive 无 MicroSteps，error 无内容类）；新增 <code>SimPrimitiveSidebar</code> 作为第 6 个 section</td>
+<td><span class="pill wn">中</span></td></tr>
+<tr><td>5</td><td><code>frontend/src/components/business/SimEnginePanel.tsx</code></td>
+<td>TopBar 右侧增加三个统一按钮：<code>📋</code>（紧凑模式下切换侧栏 Popover）/ <code>📊 SharedState</code>（仅联动模式启用）/ <strong><code>⛶ 全屏</code>（统一展开入口，任何模式任何 panel 可见且仅此一处）</strong>。全屏点击 → 当前 panel 脱离 Tabs 占满 viewport，ESC 退出。SharedState 打开时主区 <code>margin-right:+360px</code> 让位（不覆盖画布）</td>
+<td><span class="pill ok">小</span></td></tr>
+<tr><td>6</td><td><code>frontend/src/components/business/SimAnnotationLayer.tsx</code> <span class="pill" style="font-size:9px">新建</span></td>
+<td>教师角色专属：左侧浮动竖排 <code>atb</code> 工具栏 + 顶部 <code>✏️</code> toggle；DOM 浮层覆盖在 canvas 上层（z-index:8）；标注存储为 <code>{type, target, color, text, x, y}</code>；广播给学生通过 <code>POST /sim/annotations</code></td>
+<td><span class="pill wn">中</span></td></tr>
+<tr><td>7</td><td><code>frontend/src/components/business/SimInterventionPanel.tsx</code> <span class="pill" style="font-size:9px">新建</span></td>
+<td>教师角色专属：抽屉/Modal；3 类干预（参数注入 / 事件注入 / 流程控制）；每个动作生成 InteractionAction 调用既有 <code>POST /sim/intervene</code>；写入审计日志 + MicroSteps 标记 🎓</td>
+<td><span class="pill wn">中</span></td></tr>
+<tr><td>8</td><td><code>frontend/src/components/business/SimErrorOverlay.tsx</code> <span class="pill" style="font-size:9px">新建</span></td>
+<td>error 态专用 Modal：堆栈 / 容器日志 / 复制按钮 / 重启按钮；与 ContainerHealth section 协同</td>
+<td><span class="pill ok">小</span></td></tr>
+<tr><td>9</td><td><code>frontend/src/hooks/useSimFsm.ts</code></td>
+<td>FSM hook：<code>idle → running ⇄ paused → finished</code> + <code>error</code>；驱动 ControlBar 按钮可用性 + InteractionForm dis；订阅 ws 状态包</td>
+<td><span class="pill ok">小</span></td></tr>
+<tr><td>10</td><td><code>docs/modules/04-实验环境/sim-engine-layout-mockup.html</code></td>
+<td>更新 §⑨ "原语分类表" 增加"画布/DOM 二分"列；更新 §六 "侧栏分区" 增加第 6 节"内容类原语"；本文件作为这些规则的可视示意</td>
+<td><span class="pill ok">小</span></td></tr>
+</table>
+
+<div class="note ok">
+<strong>预计落地时间</strong>：以上 10 项按依赖顺序串行实施约 3-5 个工作日。<br>
+<strong>验收标准</strong>：<br>
+1. PoW 单仿真画布内不再出现任何 code_block / formula / register_row（全部走 DOM 侧栏）<br>
+2. 节点直径稳定 24px 不再随带高放大；label 文字不再重叠<br>
+3. 紧凑 panel（width&lt;600）下 SimSidebar 自动折叠到底部抽屉<br>
+4. 教师标注通过 atb 工具栏可创建 / 编辑 / 广播<br>
+5. error 态出现时弹出 ErrorOverlay 卡片，所有播放按钮灰禁用，仅 ⟲ 可点
+</div>
+
+<h2>⑨ 文件树（最终形态）</h2>
+<pre style="background:rgba(5,9,18,.7);padding:14px;border-radius:6px;font-family:ui-monospace,monospace;font-size:11px;line-height:1.6;color:var(--fg)">
+sim-engine/renderers/shared/
+  ├─ primitiveDrawers.ts         <span style="color:var(--ok)">[改] 23 个 canvas drawer + 12 个 noop</span>
+  ├─ layoutSolver.ts              <span style="color:var(--ok)">[改] 内容驱动 + measureText + 紧凑模式</span>
+  ├─ types.ts                     <span style="color:var(--mt)">[沿用] Primitive / RenderEnvelope</span>
+  └─ index.ts                     <span style="color:var(--mt)">[沿用]</span>
+
+frontend/src/components/business/
+  ├─ SimEnginePanel.tsx           <span style="color:var(--ok)">[改] +SharedState 按钮 +SimAnnotationLayer toggle</span>
+  ├─ SimSceneSlot.tsx             <span style="color:var(--ok)">[改] 主画布 + SimSidebar(280px) + 紧凑降级</span>
+  ├─ SimSidebar.tsx               <span style="color:var(--cs)">[新] 6 sections 容器</span>
+  │   ├─ MetricsSection
+  │   ├─ LinkageSection
+  │   ├─ MicroStepsSection
+  │   ├─ ContainerHealthSection
+  │   ├─ SharedStateMiniSection
+  │   └─ <span style="color:var(--ac)">SimPrimitiveSidebar</span>      <span style="color:var(--cs)">[新] 12 DOM 原语渲染</span>
+  ├─ SimAnnotationLayer.tsx       <span style="color:var(--cs)">[新] 教师标注浮层</span>
+  ├─ SimInterventionPanel.tsx     <span style="color:var(--cs)">[新] 教师干预抽屉</span>
+  ├─ SimErrorOverlay.tsx          <span style="color:var(--cs)">[新] 错误态 Modal</span>
+  ├─ SimSharedStateDrawer.tsx     <span style="color:var(--mt)">[沿用]</span>
+  ├─ SimControlBar.tsx            <span style="color:var(--mt)">[沿用]</span>
+  ├─ SimInteractionForm.tsx       <span style="color:var(--mt)">[沿用]</span>
+  └─ SimTopBar.tsx                <span style="color:var(--mt)">[沿用]</span>
+
+frontend/src/hooks/
+  ├─ useSimFsm.ts                 <span style="color:var(--cs)">[新] FSM 状态机驱动</span>
+  ├─ useSimPanel.ts               <span style="color:var(--mt)">[沿用]</span>
+  └─ useSimWebSocket.ts           <span style="color:var(--mt)">[沿用]</span>
+</pre>
+
+<div class="note">
+<strong>本设计稿核对清单</strong> — 按文档 06.2 §13 LAYOUT-01 ~ LAYOUT-13 验证：<br>
+✓ LAYOUT-01 单仿真完整页面 (§①)<br>
+✓ LAYOUT-02 教师附加层（atb / SimInterventionPanel） (§①-B / §⑧#6,7)<br>
+✓ LAYOUT-03 三种布局模式（grid / focus / carousel） (§③)<br>
+✓ LAYOUT-04 InteractionForm 画布下方折叠 (§① / §③ / §④)<br>
+✓ LAYOUT-05 SharedStatePanel 顶部按钮 + 右侧抽屉（联动模式让位） (§④)<br>
+✓ LAYOUT-06 annotation 工具栏左侧浮动竖排 + 顶部 [✏️] toggle (§①)<br>
+✓ LAYOUT-07~13 模式与控制（5 态 FSM / reactive 隐藏 ControlBar / 联动锁 ⏮） (§⑤ / §⑥)
+</div>
+
+</main>
+</body>
+</html>

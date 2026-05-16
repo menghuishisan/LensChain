@@ -317,8 +317,8 @@ export interface RenderConfig {
   theme: RendererTheme;
 }
 
-/** 4 种布局模式（详 06.2 §三）。 */
-export type LayoutMode = "grid" | "focus" | "carousel" | "multi_compare";
+/** 3 种布局模式（详 06.2 §三）；与 frontend SimLayoutMode 严格对齐。 */
+export type LayoutMode = "grid" | "focus" | "carousel";
 
 /** 布局角色（详 06.md §9.2 / 02 §2.11）。 */
 export type LayoutRole = "primary" | "secondary" | "auxiliary";
@@ -438,6 +438,18 @@ export interface InteractionAction {
   fields: InteractionField[];
   roles: UserRole[];
   cooldownMs?: number;
+  /** 联动写入字段（06.md §八）。 */
+  writesOwnedFields?: string[];
+  /** 联动 owner 字段（教师扩展校验用）。 */
+  linkOwnerFields?: string[];
+  /** 混合实验通道：sim 走 WS / container 走 Web Terminal。 */
+  hybridChannel?: HybridChannel;
+  /** container 通道下要执行的命令模板。 */
+  containerCmd?: string;
+  /** 是否可由单步回退撤销。 */
+  reversible?: boolean;
+  /** 教师干预类型（仅 teacher 可见的 ActionDef）。 */
+  interveneType?: string;
 }
 
 /** 场景交互 schema（前端缓存用，从 InteractionDefinition 映射）。 */
@@ -447,8 +459,11 @@ export interface InteractionSchema {
   actions: InteractionAction[];
 }
 
-/** 交互面板输入值。 */
-export type InteractionInputValue = string | number | boolean | JsonObject;
+/** 交互面板输入值（含 multi_select 的数组形态）。 */
+export type InteractionInputValue =
+  | string | number | boolean
+  | JsonObject
+  | ReadonlyArray<string | number>;
 
 /** 交互面板输入表。 */
 export type InteractionInputMap = Record<string, InteractionInputValue>;
@@ -536,10 +551,11 @@ export interface SimPanelOptions {
    * 这样 access_token 过期不会导致 WS 死循环 401——重连自带 refresh。
    */
   urlProvider: () => string | Promise<string>;
-  initialLayout?: PanelLayoutItem[];
-  layoutStorageKey?: string;
+  /** 全场景默认 actor（教学会话发起人）。 */
   actorId?: string;
+  /** 全场景默认角色（学生/教师）。 */
   roleKey?: string;
+  /** 全场景默认 user role（用于 ActionDef.roles 校验）。 */
   userRole?: UserRole;
 }
 

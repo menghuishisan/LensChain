@@ -1,108 +1,119 @@
-'use client';
+/**
+ * useSimPanel.ts — SimPanel 渲染编排 hook（06.2 §一-§六）。
+ *
+ * 职责：
+ *   • 创建并连接 SimPanel；
+ *   • 注册 scenes、订阅事件，把后端 RenderState / TimelineEvent / LinkTrigger
+ *     映射成 React state 给上层组件消费；
+ *   • 暴露 attach/detach/dispatch 给画布与控件层。
+ *
+ * 注意：
+ *   • panel 用 useState 而非 useRef——子组件 SceneCanvas 的 effect 早于父
+ *     useEffect，必须靠 panel 状态变化触发 attach 重跑（参考前次实现的踩坑笔记）。
+ *   • urlProvider 走 apiClient.ensureFreshAccessToken：每次重连自带 refresh，
+ *     避免 access token 过期 → 401 死循环。
+ */
 
-// useSimPanel.ts
-// SimEngine 仿真面板 Hook（06.2 §一 / API v3.1 §4.1）。
-// 管理 SimPanel 渲染器实例的生命周期，桥接 sim-engine-renderers 包与 React 业务组件。
-// 消费者：SimTopBar / SimSceneGrid / SimSceneSlot / SimControlBar / SimSidebar 等。
-// 注：InteractionForm 的 schema 拉取已下沉到 SimSceneSlot 内的 useSimInteraction，本 hook 不再聚合。
-
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createDefaultSimPanel,
-  createRenderState,
-  type SimPanel,
+  type ControlAckPayload,
+  type EventMessagePayload,
+  type JsonObject as EngineJsonObject,
+  type LinkTrigger,
   type RenderState,
-  type PanelLayoutItem,
-  type WebSocketMessage,
-  type SimAction,
-  type TimeControlCommand,
+  type ResolvedLayout,
   type SceneCategory,
-  type InteractionInputMap,
+  type SimAction,
+  type SimPanel,
+  type TimeControlCommand,
+  type TimeControlMode,
 } from '@lenschain/sim-engine-renderers';
 import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/lib/api-client';
-import type { JsonObject, SimControlCommand, SimWSMessage } from '@/types/experiment';
+import type { SimTimeControlMode } from '@/types/experiment';
 
+/** 单个场景配置：上层把模板里的 sim_scenes 映射成此结构传入。 */
 export interface SimSceneConfig {
   sceneCode: string;
-  category: string;
-  algorithmType: string;
   title: string;
+  /** 06.md 9 大领域 + generic 教师扩展。 */
+  category: SceneCategory;
+  /** SimEngine 时间控制模式（snake_case 与 camelCase 等价）。 */
+  timeControlMode: SimTimeControlMode;
 }
 
+/** useSimPanel 输入。 */
 export interface UseSimPanelOptions {
+  /** SimEngine WS 会话 ID（来自 instance.sim_session_id）。 */
   sessionId: string;
-  scenes: SimSceneConfig[];
-  initialLayout?: PanelLayoutItem[];
-  layoutStorageKey?: string;
+  /** 场景列表；元素顺序即默认主区排列顺序。 */
+  scenes: readonly SimSceneConfig[];
+  /** 用户角色，传给协议 actor_id / user_role。 */
+  userRole?: 'student' | 'teacher';
+  /** 教师监控视角传 actor_id（学生侧无需）。 */
+  actorId?: string;
 }
 
+/** useSimPanel 返回。 */
 export interface UseSimPanelReturn {
   panel: SimPanel | null;
   connected: boolean;
-  sceneStates: Map<string, RenderState>;
-  layout: PanelLayoutItem[];
-  latestMessage: SimWSMessage | null;
-  attachScene: (sceneCode: string, category: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => void;
+  /** 各场景最新 RenderState；key=sceneCode。 */
+  sceneStates: ReadonlyMap<string, RenderState>;
+  /** 最近一次 control_ack（供 ControlBar 显示等待态 / 错误回滚）。 */
+  lastControlAck: ControlAckPayload | null;
+  /** 累积 link triggers（cross-canvas-overlay 消费）。 */
+  linkTriggers: readonly LinkTrigger[];
+  /** 累积 scene events（侧栏 timeline / 教师监控可消费）。 */
+  sceneEvents: readonly { sceneCode: string; payload: EventMessagePayload; tick: number }[];
+
+  // ── canvas 绑定（子组件 mount 时调用） ──
+  attachScene: (sceneCode: string, canvas: HTMLCanvasElement) => void;
   detachScene: (sceneCode: string) => void;
-  redrawScene: (sceneCode: string) => void;
-  sendControl: (command: TimeControlCommand, value?: number) => void;
-  sendSimControl: (command: SimControlCommand, value?: number) => void;
-  sendAction: (action: SimAction) => void;
-  stepBack: (sceneCode: string) => void;
-  submitInteraction: (sceneCode: string, actionCode: string, params: JsonObject) => void;
-  saveLayout: () => void;
+
+  /** 查询某场景最近一次 layoutSolver 解算结果（用于跨画布弧线 anchor 定位）。 */
+  getResolvedLayout: (sceneCode: string) => ResolvedLayout | null;
+
+  // ── 操作 ──
+  dispatchAction: (action: SimAction) => void;
+  sendTimeControl: (command: TimeControlCommand, value?: number) => void;
+  sendStepBack: (sceneCode: string) => void;
   captureScene: (sceneCode: string) => string | null;
 }
 
-/**
- * useSimPanel 创建并管理 SimPanel 渲染器实例。
- *
- * 设计要点：
- * - panel 必须用 state 而不是 ref：子组件 SceneCanvas 的 useEffect 在父组件 useEffect 之前执行
- *   （React 对 effect 的提交顺序是子先父后），如果只用 ref，第一次 attachScene 调用时 ref
- *   仍是 null，调用变为 no-op，导致场景永不绑定 SceneView，Canvas 永远不绘制。
- *   用 state 后 panel 创建会触发重渲，所有 useCallback 依赖 panel 后随之更新，
- *   子组件 useEffect 因依赖变更重跑一次 attachScene，这次 panel 已就绪。
- * - latestMessage 暴露最新 WS 消息供 useSimSchemaInvalidation 等上层 hook 消费。
- */
+/** SimSceneConfig.timeControlMode → SimEngine TimeControlMode（同义重命名）。 */
+function toEngineTimeControlMode(m: SimTimeControlMode): TimeControlMode {
+  return m;
+}
+
 export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
-  const { sessionId, scenes, initialLayout, layoutStorageKey } = options;
+  const { sessionId, scenes, userRole, actorId } = options;
   const accessToken = useAuthStore(s => s.accessToken);
 
   const [panel, setPanel] = useState<SimPanel | null>(null);
   const [connected, setConnected] = useState(false);
   const [sceneStates, setSceneStates] = useState<Map<string, RenderState>>(new Map());
-  const [layout, setLayout] = useState<PanelLayoutItem[]>(initialLayout ?? []);
-  const [latestMessage, setLatestMessage] = useState<SimWSMessage | null>(null);
+  const [lastControlAck, setLastControlAck] = useState<ControlAckPayload | null>(null);
+  const [linkTriggers, setLinkTriggers] = useState<LinkTrigger[]>([]);
+  const [sceneEvents, setSceneEvents] = useState<{ sceneCode: string; payload: EventMessagePayload; tick: number }[]>([]);
 
-  const sceneConfigMapRef = useRef(new Map<string, SimSceneConfig>());
-  useEffect(() => {
-    const map = new Map<string, SimSceneConfig>();
-    scenes.forEach(s => map.set(s.sceneCode, s));
-    sceneConfigMapRef.current = map;
-  }, [scenes]);
+  // 跟踪场景配置，避免 effect 因数组身份频繁变化重连
+  const scenesRef = useRef(scenes);
+  useEffect(() => { scenesRef.current = scenes; }, [scenes]);
 
   useEffect(() => {
     if (!sessionId) return;
-    // accessToken 仅作为"是否已登录"的 gate；URL 里实际使用的 token 由 urlProvider 通过
-    // apiClient.ensureFreshAccessToken() 每次拨号前拿最新值（HTTP 双 token 同源刷新）。
-    if (!accessToken) return;
+    if (!accessToken) return; // 仅作为"已登录"门闸，token 实际值由 urlProvider 现取
 
-    // 项目规约：所有实时连接必须基于 NEXT_PUBLIC_WS_BASE_URL（指向后端 :8080），见 src/lib/ws-url.ts。
     const rawBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? '';
     if (rawBase.length === 0) return;
-    const wsBase = rawBase.replace(/^https?:/, (proto) => (proto === 'https:' ? 'wss:' : 'ws:')).replace(/\/$/, '');
+    const wsBase = rawBase
+      .replace(/^https?:/, (proto) => (proto === 'https:' ? 'wss:' : 'ws:'))
+      .replace(/\/$/, '');
     const endpoint = `${wsBase}/ws/sim-engine`;
 
-    // urlProvider 在每次 WS 拨号 / 重连前被 SimPanel 调用：
-    //   - 先走 apiClient.ensureFreshAccessToken()——若 access_token 距过期 < 5min
-    //     会复用 HTTP 同款双 token 无感刷新拿新 token；
-    //   - 再用最新 token 拼 URL。
-    //
-    // 直接读 Zustand 的 accessToken 是错的：组件渲染时绑定的 accessToken 会随时间
-    // 过期，重连仍会带过期 token 触发 401 死循环（之前 sim-engine WS 死循环 401 即此因）。
-    const urlProvider = async () => {
+    const urlProvider = async (): Promise<string> => {
       const token = await apiClient.ensureFreshAccessToken();
       if (!token) return '';
       return `${endpoint}/${sessionId}?token=${token}`;
@@ -111,111 +122,120 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     const instance = createDefaultSimPanel({
       sessionId,
       urlProvider,
-      initialLayout: initialLayout ?? [],
-      layoutStorageKey: layoutStorageKey ?? `sim-layout-${sessionId}`,
+      ...(actorId ? { actorId } : {}),
+      ...(userRole ? { userRole } : {}),
     });
+
+    // 注册全部场景
+    for (const cfg of scenesRef.current) {
+      instance.registerScene({
+        sceneCode: cfg.sceneCode,
+        title: cfg.title,
+        category: cfg.category,
+        timeControlMode: toEngineTimeControlMode(cfg.timeControlMode),
+      });
+    }
 
     setPanel(instance);
 
-    const unsubscribeStatus = instance.subscribeConnectionStatus(setConnected);
-
-    // 订阅消息：render 类型触发 sceneStates 更新，所有消息暴露给上层。
-    instance.subscribeMessages((message: WebSocketMessage) => {
-      setLatestMessage(message as unknown as SimWSMessage);
-
-      if (message.type === 'render') {
-        const code = message.scene_code;
-        if (code) {
-          const state = instance.getSceneState(code);
-          if (state) {
-            setSceneStates(prev => {
-              const next = new Map(prev);
-              next.set(code, state);
-              return next;
-            });
-          }
-        }
-      }
-    });
-
-    instance.connect((message: WebSocketMessage): RenderState => {
-      const sceneCode = message.scene_code ?? '';
-      const config = sceneConfigMapRef.current.get(sceneCode);
-      return createRenderState({
-        sceneCode,
-        title: config?.title ?? '',
-        category: (config?.category ?? 'node_network') as SceneCategory,
-        timeControlMode: 'reactive',
-        tick: typeof message.tick === 'number' ? message.tick : 0,
-        envelope: (message.payload ?? { primitives: [] }) as unknown as RenderState['envelope'],
+    const offConn = instance.onConnectionChange(setConnected);
+    const offState = instance.onSceneStateChange((sceneCode, state) => {
+      setSceneStates(prev => {
+        const next = new Map(prev);
+        next.set(sceneCode, state);
+        return next;
       });
     });
+    const offLink = instance.onLinkTrigger((trigger) => {
+      setLinkTriggers(prev => [...prev, trigger]);
+    });
+    const offEvent = instance.onSceneEvent((sceneCode, payload, tick) => {
+      setSceneEvents(prev => [...prev, { sceneCode, payload, tick }]);
+    });
+    const offAck = instance.onControlAck((ack) => {
+      setLastControlAck(ack);
+    });
+
+    void instance.connect();
 
     return () => {
-      unsubscribeStatus();
+      offConn();
+      offState();
+      offLink();
+      offEvent();
+      offAck();
       instance.disconnect();
       setPanel(null);
       setConnected(false);
-      setLatestMessage(null);
+      setSceneStates(new Map());
+      setLastControlAck(null);
+      setLinkTriggers([]);
+      setSceneEvents([]);
     };
-  }, [sessionId, accessToken]);
+  }, [sessionId, accessToken, userRole, actorId]);
 
-  const attachScene = useCallback((sceneCode: string, category: string, canvas: HTMLCanvasElement, overlay?: HTMLElement) => {
-    panel?.attachScene(sceneCode, category as SceneCategory, canvas, overlay);
+  const attachScene = useCallback((sceneCode: string, canvas: HTMLCanvasElement) => {
+    panel?.attachScene(sceneCode, canvas);
   }, [panel]);
 
   const detachScene = useCallback((sceneCode: string) => {
     panel?.detachScene(sceneCode);
   }, [panel]);
 
-  const redrawScene = useCallback((sceneCode: string) => {
-    panel?.redrawScene(sceneCode);
+  const getResolvedLayout = useCallback((sceneCode: string) => {
+    return panel?.getResolvedLayout(sceneCode) ?? null;
   }, [panel]);
 
-  const sendControl = useCallback((command: TimeControlCommand, value?: number) => {
-    panel?.sendControl(command, value);
+  const dispatchAction = useCallback((action: SimAction) => {
+    panel?.dispatchAction(action);
   }, [panel]);
 
-  const sendSimControl = useCallback((command: SimControlCommand, value?: number) => {
-    panel?.sendControl(command as TimeControlCommand, value);
+  const sendTimeControl = useCallback((command: TimeControlCommand, value?: number) => {
+    panel?.sendTimeControl(command, value);
   }, [panel]);
 
-  const sendAction = useCallback((action: SimAction) => {
-    panel?.sendAction(action);
-  }, [panel]);
-
-  const stepBack = useCallback((sceneCode: string) => {
-    panel?.sendAction({ sceneCode, actionCode: '__step_back__', params: {} });
-  }, [panel]);
-
-  const submitInteraction = useCallback((sceneCode: string, actionCode: string, params: JsonObject) => {
-    panel?.submitInteraction(sceneCode, actionCode, params as unknown as InteractionInputMap);
-  }, [panel]);
-
-  const saveLayoutCb = useCallback(() => {
-    const currentLayout = panel?.getLayout() ?? [];
-    panel?.saveLayout(currentLayout);
+  const sendStepBack = useCallback((sceneCode: string) => {
+    panel?.sendStepBack(sceneCode);
   }, [panel]);
 
   const captureScene = useCallback((sceneCode: string): string | null => {
     return panel?.captureScene(sceneCode) ?? null;
   }, [panel]);
 
-  return {
+  return useMemo<UseSimPanelReturn>(() => ({
     panel,
     connected,
     sceneStates,
-    layout,
-    latestMessage,
+    lastControlAck,
+    linkTriggers,
+    sceneEvents,
     attachScene,
     detachScene,
-    redrawScene,
-    sendControl,
-    sendSimControl,
-    sendAction,
-    stepBack,
-    submitInteraction,
-    saveLayout: saveLayoutCb,
+    getResolvedLayout,
+    dispatchAction,
+    sendTimeControl,
+    sendStepBack,
     captureScene,
+  }), [
+    panel, connected, sceneStates, lastControlAck, linkTriggers, sceneEvents,
+    attachScene, detachScene, getResolvedLayout, dispatchAction, sendTimeControl, sendStepBack, captureScene,
+  ]);
+}
+
+/** 便利：构造 immediate / submit ActionDef 的 SimAction（用于 InteractionForm 提交）。 */
+export function buildSimAction(input: {
+  sceneCode: string;
+  actionCode: string;
+  params: EngineJsonObject;
+  actorId?: string;
+  userRole?: 'student' | 'teacher';
+}): SimAction {
+  const action: SimAction = {
+    sceneCode: input.sceneCode,
+    actionCode: input.actionCode,
+    params: input.params,
   };
+  if (input.actorId) action.actorId = input.actorId;
+  if (input.userRole) action.userRole = input.userRole;
+  return action;
 }
