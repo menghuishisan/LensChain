@@ -55,6 +55,19 @@ export class SimPanel {
   private schemaInvalidatedListeners = new Set<(sceneCode: string) => void>();
   private linkTriggerListeners = new Set<(trigger: LinkTrigger) => void>();
   private sceneEventListeners = new Set<(sceneCode: string, payload: EventMessagePayload, tick: number) => void>();
+  /**
+   * Session-scoped event 订阅者。
+   *
+   * 协议依据（06.md §7.3 第二行 + sim-engine/core/internal/app/engine.go 顶部注释）：
+   * `event` 通道承载所有非渲染事件，**scene_code 字段可选**：
+   *   - 有 scene_code  → 场景级事件（算法容器自定义日志），走 sceneEventListeners
+   *   - 无 scene_code  → session 级事件（teacher_broadcast / link_update /
+   *                       snapshot_created / snapshot_restored / scene_runtime_failure /
+   *                       link_owner_violation / link_sync_unlocked / collector_interrupted /
+   *                       scene_load_failed 等编排层事件），走本订阅者
+   * 二分由消息 envelope 的 scene_code 是否存在决定，与 backend `omitempty` 序列化口径一致。
+   */
+  private sessionEventListeners = new Set<(payload: EventMessagePayload, tick: number) => void>();
   private controlAckListeners = new Set<(ack: ControlAckPayload) => void>();
 
   /** event 消息计数器 (用于 TimelineEvent.id seq)。 */
@@ -143,6 +156,19 @@ export class SimPanel {
   onSceneEvent(cb: (sceneCode: string, payload: EventMessagePayload, tick: number) => void): Unsubscribe {
     this.sceneEventListeners.add(cb);
     return () => { this.sceneEventListeners.delete(cb); };
+  }
+
+  /**
+   * 订阅 session-scoped 事件（envelope 不带 scene_code 的 `event` 消息）。
+   *
+   * 典型负载：teacher_broadcast / teacher_kick / link_update / link_owner_violation /
+   * link_sync_unlocked / snapshot_created / snapshot_restored / scene_runtime_failure /
+   * scene_load_failed / collector_interrupted。前端可据此驱动 toast、sidebar 通知日志、
+   * 重新拉 SharedState 等。
+   */
+  onSessionEvent(cb: (payload: EventMessagePayload, tick: number) => void): Unsubscribe {
+    this.sessionEventListeners.add(cb);
+    return () => { this.sessionEventListeners.delete(cb); };
   }
 
   onControlAck(cb: (ack: ControlAckPayload) => void): Unsubscribe {
@@ -317,25 +343,39 @@ export class SimPanel {
     for (const cb of this.schemaInvalidatedListeners) cb(sceneCode);
   }
 
+  /**
+   * 处理 `event` 消息（06.md §7.3 第二行）。
+   *
+   * payload 协议：`{ event: string, data?: object }`。`event` 字段是必填，识别事件子类型；
+   * `data` 由具体事件自定义。
+   *
+   * 路由口径（与 backend `engine_util.go::publishEvent` / `engine.go:457` 双侧一致）：
+   *   - envelope.scene_code 存在  → 场景级事件，落地该场景 timeline + 派发 sceneEventListeners
+   *   - envelope.scene_code 不存在 → session 级事件，派发 sessionEventListeners（不落任何
+   *     场景的 timeline，因为它不属于任何单一场景）
+   */
   private handleSceneEvent(msg: WebSocketMessage): void {
-    const sceneCode = msg.scene_code;
-    if (!sceneCode) {
-      throw new Error("SimPanel.handleSceneEvent: 缺 scene_code");
-    }
-    const config = this.configs.get(sceneCode);
-    if (!config) {
-      throw new Error(`SimPanel.handleSceneEvent: 未注册场景 "${sceneCode}"`);
-    }
     const payload = msg.payload as unknown as EventMessagePayload;
     if (typeof payload.event !== "string") {
-      throw new Error(`SimPanel.handleSceneEvent: payload 缺 event 字段`);
+      throw new Error("SimPanel.handleSceneEvent: payload 缺 event 字段");
     }
-    const prev = this.states.get(sceneCode) ?? createRenderState(config);
-    const timeline = eventPayloadToTimeline(payload, msg.tick, this.eventSeq++);
-    const next = appendTimelineEvent(prev, timeline);
-    this.states.set(sceneCode, next);
-    for (const cb of this.stateListeners) cb(sceneCode, next);
-    for (const cb of this.sceneEventListeners) cb(sceneCode, payload, msg.tick);
+    const sceneCode = msg.scene_code;
+    if (sceneCode) {
+      // 场景级事件：要求该 sceneCode 已 registerScene，否则是协议违规（后端推了未注册场景的事件）
+      const config = this.configs.get(sceneCode);
+      if (!config) {
+        throw new Error(`SimPanel.handleSceneEvent: 未注册场景 "${sceneCode}"`);
+      }
+      const prev = this.states.get(sceneCode) ?? createRenderState(config);
+      const timeline = eventPayloadToTimeline(payload, msg.tick, this.eventSeq++);
+      const next = appendTimelineEvent(prev, timeline);
+      this.states.set(sceneCode, next);
+      for (const cb of this.stateListeners) cb(sceneCode, next);
+      for (const cb of this.sceneEventListeners) cb(sceneCode, payload, msg.tick);
+      return;
+    }
+    // session 级事件：不依附于任何场景
+    for (const cb of this.sessionEventListeners) cb(payload, msg.tick);
   }
 
   private handleControlAck(msg: WebSocketMessage): void {

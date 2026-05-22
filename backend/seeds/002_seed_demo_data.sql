@@ -532,7 +532,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO template_containers (
     id, template_id, image_version_id, container_name, deployment_scope,
-    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on, startup_order,
+    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on,
     is_primary, sort_order, created_at, updated_at
 )
 VALUES
@@ -548,7 +548,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        1,
         TRUE,
         1,
         NOW(),
@@ -566,7 +565,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        1,
         FALSE,
         1,
         NOW(),
@@ -584,7 +582,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        2,
         TRUE,
         2,
         NOW(),
@@ -602,7 +599,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        1,
         TRUE,
         1,
         NOW(),
@@ -620,7 +616,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        1,
         FALSE,
         1,
         NOW(),
@@ -638,7 +633,6 @@ VALUES
         '500m',
         '1Gi',
         '[{"container_name":"data-shared-geth"}]'::jsonb,
-        2,
         FALSE,
         2,
         NOW(),
@@ -656,7 +650,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        3,
         TRUE,
         3,
         NOW(),

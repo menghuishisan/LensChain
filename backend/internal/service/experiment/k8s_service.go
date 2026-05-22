@@ -7,6 +7,7 @@ package experiment
 
 import (
 	"context"
+	"io"
 	"net"
 	"time"
 )
@@ -17,6 +18,9 @@ type K8sService interface {
 	// 命名空间管理
 	CreateNamespace(ctx context.Context, name string, labels map[string]string, resourceSpec *NamespaceResourceSpec) error
 	DeleteNamespace(ctx context.Context, name string) error
+	// DeletePodsInNamespace 仅删 Pod，保留 Service / NetworkPolicy / PVC，详见实现注释。
+	// 暂停实验专用入口；Destroy 仍走 DeleteNamespace。
+	DeletePodsInNamespace(ctx context.Context, namespace string) error
 
 	// Pod 管理
 	DeployPod(ctx context.Context, req *DeployPodRequest) (*DeployPodResponse, error)
@@ -26,12 +30,25 @@ type K8sService interface {
 
 	// 容器操作
 	ExecInPod(ctx context.Context, namespace, podName, container, command string) (*ExecResult, error)
+	// ExecPodPTY 在 Pod 容器内启动一个 PTY 进程（默认 /bin/sh），通过 K8s exec subresource
+	// 的 SPDY 流双向桥接 stdin/stdout 与终端尺寸变更。用于 Web 终端：浏览器 ↔ 后端 WS ↔
+	// K8s exec ↔ 目标容器 PTY，工具按容器自然就绪（redis-cli 在 redis 容器、psql 在
+	// postgres 容器、geth attach 在 geth 容器）。
+	//
+	// 实现合约：
+	//   - command 为空时使用 ["/bin/sh"]；如目标容器有 /bin/bash 调用方可显式传入。
+	//   - stdin/stdout 必须由调用方提供 io.Reader/io.Writer；stderr 合并到 stdout（PTY 模式
+	//     下与终端语义一致，不需要拆分）。
+	//   - resize 通过 TerminalSize 通道异步下发到 K8s，channel 关闭表示终端关闭。
+	//   - 方法在 PTY 进程退出或 ctx 取消时返回；不在内部启动 goroutine，调用方负责并发。
+	ExecPodPTY(ctx context.Context, req *ExecPodPTYRequest) error
 	GetPodLogs(ctx context.Context, namespace, podName, container string, tailLines int) (string, error)
 	CaptureContainerRuntimeState(ctx context.Context, namespace, podName, container string, mountPaths []string) (*RuntimeContainerState, error)
 	RestoreContainerRuntimeState(ctx context.Context, namespace, podName, container string, state *RuntimeContainerState) error
 
 	// DialPodPort 通过 K8s API 的 SPDY portforward 隧道连接到指定 Pod 端口，返回 net.Conn。
-	// 用于 backend 代理学生 WS / HTTP 流量到实验容器（终端 PTY、IDE、可视化工具等）；
+	// 用于 backend 代理 HTTP / iframe 反代到工具镜像（code-server / blockscout / VNC 等）；
+	// 终端 PTY 不再走此路径——见 ExecPodPTY。
 	// 设计依据见 docs/modules/09-部署与运维/02-基础设施设计.md §2.4，本仓库不允许直拨 Pod IP /
 	// Service ClusterIP 或暴露 NodePort 替代该路径。
 	DialPodPort(ctx context.Context, namespace, podName string, port int) (net.Conn, error)
@@ -67,6 +84,16 @@ type ContainerSpec struct {
 	MemoryLimit string
 	Command     []string
 	Args        []string
+	// WaitForTCP 在主容器启动前等待这些 host:port 都可建立 TCP 连接。
+	// 由 K8sService 实现端翻译为一个 busybox initContainer 跑 `nc -z` 循环。
+	// 取代"启动顺序+sleep"的脆弱协调：postgres Pod 已 Running 不等于 postgres 已就绪，
+	// CouchDB / fabric-orderer 等都有显著的应用层冷启动时间。
+	WaitForTCP []string
+	// IsInitContainer 为 TRUE 时该容器进入 Pod 的 InitContainers 而非主 Containers。
+	// 用于业务自定义的 bootstrap 容器（例如 cryptogen 生成 Fabric MSP），与本结构里
+	// 由 WaitForTCP 自动生成的 wait-for-tcp init 容器并列。详见 docs/modules/04-实验环境/
+	// 02-数据库设计.md §2.5 Pod 打包与卷共享语义。
+	IsInitContainer bool
 }
 
 // PortSpec 端口规格
@@ -76,12 +103,25 @@ type PortSpec struct {
 	ServicePort   int
 }
 
-// VolumeSpec 卷规格
+// VolumeSpec 卷规格。
+//
+// JSON 标签使用 snake_case 以便 template_containers.volumes (JSONB) 直接反序列化；
+// 与 serviceDiscoveryPort / DTO 等本模块其余结构保持一致的 JSON 约定。
+//
+// 卷类型由 Size 字段决定（与文档 §6.3 "按镜像 default_volumes 自动创建 PV" 对齐）：
+//   - Size 非空（如 "5Gi"）：标识来自 image.default_volumes 的持久数据卷，运行时
+//     创建独立 PVC，Pod 引用之；Pod 重启 / 节点漂移后数据保留，由 namespace 级联
+//     删除统一清理。典型场景：code-server 工作区、链节点数据、DB 数据。
+//   - Size 空：标识 template_container 显式声明的 Pod 内共享卷，运行时使用 emptyDir，
+//     Pod 销毁即回收。典型场景：Fabric initContainer cryptogen 产物 → peer 主容器读取。
+//
+// 这一区分让 manifest 的"持久 vs 共享"语义直接落到 K8s 资源类型，无需额外 schema 字段。
 type VolumeSpec struct {
-	Name      string
-	MountPath string
-	SubPath   string
-	ReadOnly  bool
+	Name      string `json:"name"`
+	MountPath string `json:"mount_path"`
+	SubPath   string `json:"sub_path"`
+	ReadOnly  bool   `json:"read_only"`
+	Size      string `json:"size,omitempty"`
 }
 
 // NetworkPolicySpec 网络策略规格
@@ -130,6 +170,29 @@ type ExecResult struct {
 	ExitCode int
 	Stdout   string
 	Stderr   string
+}
+
+// TerminalSize 终端窗口尺寸（与 client-go remotecommand.TerminalSize 对齐）。
+type TerminalSize struct {
+	Width  uint16
+	Height uint16
+}
+
+// ExecPodPTYRequest 描述一次交互式 PTY exec 调用。
+//
+// Command 留空时 K8sService 实现端会默认为 ["/bin/sh"]——这是绝大多数官方 / Alpine /
+// distroless-debian 镜像内可用的最低公共集；若目标容器明确装有 bash 或自定义 shell，
+// 调用方可以显式传入。
+type ExecPodPTYRequest struct {
+	Namespace string
+	PodName   string
+	Container string
+	Command   []string
+	Stdin     io.Reader
+	Stdout    io.Writer
+	// Resize 由调用方持有写端，K8sService 实现端只读消费。channel 关闭 = 终端关闭，
+	// 实现端必须正确传递 SIGWINCH 而不在 channel 关闭时 panic。
+	Resize <-chan TerminalSize
 }
 
 // RuntimeContainerState 表示实验容器的可恢复运行态快照。

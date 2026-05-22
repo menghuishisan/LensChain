@@ -429,8 +429,13 @@ export function SimEnginePanel(props: SimEnginePanelProps) {
           </div>
         )}
 
-        <div className="flex-1 overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
+        {/* 主区：垂直 = mode toolbar (shrink-0) + 画布栈 (flex-1 min-h-0)。
+            必须用 flex flex-col 显式分配高度——以前是非 flex 块流，toolbar 与
+            `h-full` 画布栈相加超出父高度，被 overflow-hidden 裁掉的同时画布栈
+            内部仍按"父 100%"算高，导致 4 场景 grid 时每格 canvas 高度被压到负
+            值，layoutSolver 抛 `主区计算后非正`。 */}
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/20 px-2 py-1 text-[11px] text-muted-foreground">
             <span>模式：{mode}</span>
             <div className="flex items-center gap-1">
               {(['grid', 'focus', 'carousel'] as const).map(v => (
@@ -464,7 +469,7 @@ export function SimEnginePanel(props: SimEnginePanelProps) {
               )}
             </div>
           </div>
-          <div className="relative flex h-full flex-col">
+          <div className="relative flex flex-1 min-h-0 flex-col">
             {/* 跨画布 M8 弧线（仅联动 / hybrid 模式叠加；pointer-events:none 透传交互） */}
             {(mode === 'linkage' || mode === 'hybrid') && (
               <SimCrossCanvasOverlay

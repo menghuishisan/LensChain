@@ -834,8 +834,12 @@ func displayLeader(cs clusterState) string {
 func buildEnvelope(cs clusterState, reason, summary string, fullSnapshot bool) fw.RenderEnvelope {
 	prims := make([]fw.Primitive, 0, 40)
 
-	// 1) 环形布局
-	prims = append(prims, fw.PrimRingLayout("node-ring", len(cs.Nodes)))
+	// 1) 环形布局（按 cs.Nodes 顺序声明 ring 成员）
+	nodeIDs := make([]string, len(cs.Nodes))
+	for i, n := range cs.Nodes {
+		nodeIDs[i] = "node-" + n.ID
+	}
+	prims = append(prims, fw.PrimRingLayout("node-ring", nodeIDs))
 
 	// 2) 节点
 	leaderID := cs.findLeader()

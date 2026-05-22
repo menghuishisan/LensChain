@@ -57,6 +57,15 @@ export function renderFrame(input: FrameInput): ResolvedLayout {
     (text) => ctx.measureText(text).width,
   );
 
+  // layoutSolver 在画布合法（W>0 H>0）但减去 HUD/padding 后无主区可分配时，会返回
+  // main.width === 0 / main.height === 0 的空 ResolvedLayout（运行时尺寸瞬态，详见
+  // layoutSolver.ts 行 156-171 注释）。此时 positions 也是空 Map，若继续走绘制循环，
+  // drawNode 等 requirePos 必然抛 "缺解算位置"。直接早返回，等下一帧 ResizeObserver
+  // 把画布给到正常尺寸再正常解算 + 绘制。
+  if (resolvedLayout.main.width === 0 || resolvedLayout.main.height === 0) {
+    return resolvedLayout;
+  }
+
   const env: DrawEnvironment = {
     ctx, theme, highlightIds, fireIds, now, tick, resolvedLayout,
   };

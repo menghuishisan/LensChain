@@ -134,9 +134,19 @@ type ImageInjectVar struct {
 }
 
 // ImageVolumeItem 镜像默认数据卷项
+//
+// 字段名与 deploy/images/**/manifest.yaml::default_volumes 一一对应，避免 manifest →
+// DB → API 链路上出现 schema 翻译层（曾有过 path/desc vs mount_path/description 的不一致
+// 导致 default_volumes 在运行时全部丢失，详见 service/experiment/template_rules.go::mergeVolumes）。
+//   - mount_path：容器内挂载点，runtime VolumeSpec.MountPath 直接消费
+//   - purpose：用途分类（如 project_data / chain_data / db_data），用于审计与 PVC 复用判断
+//   - size：建议容量（如 5Gi），用于 PVC capacity 默认值
+//   - description：可读描述，前端展示
 type ImageVolumeItem struct {
-	Path string  `json:"path"`
-	Desc *string `json:"desc,omitempty"`
+	MountPath   string `json:"mount_path"`
+	Purpose     string `json:"purpose,omitempty"`
+	Size        string `json:"size,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // ImageTypicalCompanions 镜像典型搭配建议
@@ -588,8 +598,11 @@ type CreateContainerReq struct {
 	CPULimit       *string               `json:"cpu_limit"`
 	MemoryLimit    *string               `json:"memory_limit"`
 	DependsOn      []string              `json:"depends_on"`
-	StartupOrder   int                   `json:"startup_order"`
 	IsPrimary      bool                  `json:"is_primary"`
+	// PodGroup 非空时，同 (template_id, role_id, pod_group) 容器打包到一个 K8s Pod；
+	// 详见 docs/modules/04-实验环境/02-数据库设计.md §2.5 Pod 打包与卷共享语义。
+	PodGroup        *string `json:"pod_group"`
+	IsInitContainer bool    `json:"is_init_container"`
 }
 
 // UpdateContainerReq 编辑容器配置请求
@@ -605,8 +618,9 @@ type UpdateContainerReq struct {
 	CPULimit       *string               `json:"cpu_limit"`
 	MemoryLimit    *string               `json:"memory_limit"`
 	DependsOn      []string              `json:"depends_on"`
-	StartupOrder   *int                  `json:"startup_order"`
 	IsPrimary      *bool                 `json:"is_primary"`
+	PodGroup        *string `json:"pod_group"`
+	IsInitContainer *bool   `json:"is_init_container"`
 }
 
 // ContainerResp 容器配置响应
@@ -625,8 +639,9 @@ type ContainerResp struct {
 	CPULimit       *string                    `json:"cpu_limit"`
 	MemoryLimit    *string                    `json:"memory_limit"`
 	DependsOn      []string                   `json:"depends_on"`
-	StartupOrder   int                        `json:"startup_order"`
 	IsPrimary      bool                       `json:"is_primary"`
+	PodGroup        *string `json:"pod_group,omitempty"`
+	IsInitContainer bool    `json:"is_init_container"`
 }
 
 // ContainerEnvVarItem 模板容器环境变量项
@@ -642,9 +657,21 @@ type ContainerPortItem struct {
 }
 
 // ContainerVolumeItem 模板容器挂载卷项
+//
+// 字段与运行时 service/experiment.VolumeSpec 一一对应——template_containers.volumes
+// JSONB 直接落 `[]VolumeSpec`，handler / repository / runtime 三层共用同一组键名，
+// 杜绝 host_path / container_path vs name / mount_path 的双 schema 翻译丢字段。
+//   - name：Pod 级 Volume 名（留空则由后端按 mount_path 归一化生成）
+//   - mount_path：容器内挂载点
+//   - sub_path：可选子路径
+//   - read_only：是否只读
+//
+// 不再保留 host_path：Pod 内挂载只允许平台托管的 emptyDir / PVC，不允许节点宿主路径。
 type ContainerVolumeItem struct {
-	HostPath      string `json:"host_path"`
-	ContainerPath string `json:"container_path"`
+	Name      string `json:"name,omitempty"`
+	MountPath string `json:"mount_path"`
+	SubPath   string `json:"sub_path,omitempty"`
+	ReadOnly  bool   `json:"read_only,omitempty"`
 }
 
 // ContainerImageVersionResp 容器关联的镜像版本信息

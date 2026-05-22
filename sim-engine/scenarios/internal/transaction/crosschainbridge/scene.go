@@ -708,8 +708,12 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 	prims = append(prims, fw.PrimNodeAt("target-chain", "Target Chain\nminted="+fmt.Sprintf("%d", st.TargetMinted), "active", "chain", 0.85, 0.5, 1.5))
 	prims = append(prims, fw.PrimNodeAt("bridge", fmt.Sprintf("Bridge\nN=%d  f=%d  quorum=%d", len(st.Validators), st.Threshold, st.quorum()), "active", "bridge", 0.5, 0.5, 1.3))
 
-	// 2) Validator 节点
-	prims = append(prims, fw.PrimRingLayout("validator-ring", len(st.Validators)))
+	// 2) Validator 节点（按 st.Validators 顺序声明 ring 成员）
+	validatorNodeIDs := make([]string, len(st.Validators))
+	for i, v := range st.Validators {
+		validatorNodeIDs[i] = "v-" + v.ID
+	}
+	prims = append(prims, fw.PrimRingLayout("validator-ring", validatorNodeIDs))
 	for _, v := range st.Validators {
 		role := "validator"
 		status := "normal"

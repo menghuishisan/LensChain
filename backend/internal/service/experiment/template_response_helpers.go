@@ -43,8 +43,9 @@ func buildTemplateContainerRespBase(
 		CPULimit:            cpuLimit,
 		MemoryLimit:         memoryLimit,
 		DependsOn:           dependsOn,
-		StartupOrder:        c.StartupOrder,
 		IsPrimary:           c.IsPrimary,
+		PodGroup:            c.PodGroup,
+		IsInitContainer:     c.IsInitContainer,
 	}
 	if c.RoleID != nil {
 		roleID := strconv.FormatInt(*c.RoleID, 10)
@@ -118,8 +119,10 @@ func buildTemplateContainerDisplayConfig(
 	volumes := make([]dto.ContainerVolumeItem, 0, len(volumeSpecs))
 	for _, volume := range volumeSpecs {
 		volumes = append(volumes, dto.ContainerVolumeItem{
-			HostPath:      "",
-			ContainerPath: volume.MountPath,
+			Name:      volume.Name,
+			MountPath: volume.MountPath,
+			SubPath:   volume.SubPath,
+			ReadOnly:  volume.ReadOnly,
 		})
 	}
 

@@ -14,9 +14,9 @@ versions:
     tag: "python-3.11"
     upstream_tag: "python-3.11"
     min_cpu: "0.25"
-    min_memory: "256Mi"
+    min_memory: "512Mi"
     recommended_cpu: "0.5"
-    recommended_memory: "512Mi"
+    recommended_memory: "1Gi"
     is_default: true
 
 default_ports:
@@ -25,11 +25,10 @@ default_ports:
     name: HTTP
     description: Jupyter Web 访问端口
 
-default_env_vars:
-  - key: JUPYTER_TOKEN
-    default_value: ""
-    description: 访问 Token（空则免认证）
-    required: false
+default_env_vars: []
+# jupyter-notebook 镜像 CMD 已显式 `--ServerApp.token= --ServerApp.password=`（详见
+# Dockerfile 覆写），平台层 tool_proxy_cookie 是唯一鉴权点，因此本镜像不再读取
+# JUPYTER_TOKEN / JUPYTER_PASSWORD。
 
 conditional_env_vars: []
 

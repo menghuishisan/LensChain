@@ -823,7 +823,12 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 		addrs = append(addrs, a)
 	}
 	sort.Strings(addrs)
-	prims = append(prims, fw.PrimRingLayout("contract-ring", len(addrs)+1))
+	contractRingIDs := make([]string, 0, len(addrs)+1)
+	contractRingIDs = append(contractRingIDs, "eoa")
+	for _, a := range addrs {
+		contractRingIDs = append(contractRingIDs, "c-"+a)
+	}
+	prims = append(prims, fw.PrimRingLayout("contract-ring", contractRingIDs))
 	prims = append(prims, fw.PrimNode("eoa", "EOA\nbal="+fmt.Sprintf("%d", st.EOABalance["eoa"]), "active", "eoa"))
 	for _, a := range addrs {
 		c := st.Contracts[a]

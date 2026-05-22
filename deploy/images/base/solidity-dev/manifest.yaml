@@ -22,7 +22,7 @@ default_ports: []
 
 default_env_vars:
   - key: SOLC_VERSION
-    default_value: "0.8.25"
+    value: "0.8.25"
     description: Solidity 编译器版本
     required: false
 

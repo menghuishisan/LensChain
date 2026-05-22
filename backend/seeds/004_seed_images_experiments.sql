@@ -112,11 +112,11 @@ ON CONFLICT (id) DO NOTHING;
 --
 -- 模板 5（Fabric 单人多节点，topology_mode=2）
 -- 所有容器 deployment_scope=1，每个学生独立拥有完整网络
--- 启动顺序：CA(1) → Orderer(2) + CouchDB(2) → Peer(3) → fabric-tools(4) → go-dev(5)
+-- 启动协调由 depends_on + wait-for-tcp initContainer 接管，不再依赖显式启动序号。
 
 INSERT INTO template_containers (
     id, template_id, image_version_id, container_name, deployment_scope, role_id,
-    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on, startup_order,
+    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on,
     is_primary, sort_order, created_at, updated_at
 )
 VALUES
@@ -134,7 +134,6 @@ VALUES
         '250m',
         '256Mi',
         '[]'::jsonb,
-        1,
         FALSE,
         1,
         NOW(),
@@ -152,13 +151,15 @@ VALUES
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"fabric-ca"}]'::jsonb,
-        2,
+        '["fabric-ca"]'::jsonb,
         FALSE,
         2,
         NOW(),
         NOW()
     ),
+    -- CouchDB 3.x 必填 admin user/password，否则启动拒绝（“single-node setup detected,
+    -- but no admin password configured”→ phase=Failed）。fabric-peer 使用 CouchDB 作为
+    -- world state DB 时需要 username/password 与此一致。
     (
         910000000000009010,
         910000000000008005,
@@ -166,18 +167,20 @@ VALUES
         'couchdb',
         1,
         NULL,
-        '[]'::jsonb,
+        '[{"key":"COUCHDB_USER","value":"admin","desc":"管理员用户名","conditions":[]},{"key":"COUCHDB_PASSWORD","value":"adminpw","desc":"管理员密码（教学环境固定）","conditions":[]}]'::jsonb,
         '[{"container_port":5984,"service_port":5984,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '250m',
         '256Mi',
         '[]'::jsonb,
-        2,
         FALSE,
         3,
         NOW(),
         NOW()
     ),
+    -- fabric-peer 需 CORE_LEDGER_STATE_* 一组变量才能将 CouchDB 作为 state DB。
+    -- 仅一组 env 不够吗？是的，完整 Fabric 起动还需 MSP 证书 / channel 创建脚本等，
+    -- 详见 docs/modules/04-实验环境/07-实验类型与环境配置.md §6 Fabric 完整启动链路。
     (
         910000000000009011,
         910000000000008005,
@@ -185,13 +188,12 @@ VALUES
         'fabric-peer',
         1,
         NULL,
-        '[]'::jsonb,
+        '[{"key":"CORE_LEDGER_STATE_STATEDATABASE","value":"CouchDB","desc":"使用 CouchDB 作为 state DB","conditions":[]},{"key":"CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS","value":"couchdb:5984","desc":"CouchDB 服务地址","conditions":[]},{"key":"CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME","value":"admin","desc":"CouchDB 连接用户","conditions":[]},{"key":"CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD","value":"adminpw","desc":"CouchDB 连接密码","conditions":[]}]'::jsonb,
         '[{"container_port":7051,"service_port":7051,"protocol":"tcp"},{"container_port":7053,"service_port":7053,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"fabric-orderer"},{"container_name":"couchdb"}]'::jsonb,
-        3,
+        '["fabric-orderer","couchdb"]'::jsonb,
         FALSE,
         4,
         NOW(),
@@ -209,8 +211,7 @@ VALUES
         '[]'::jsonb,
         '250m',
         '256Mi',
-        '[{"container_name":"fabric-peer"}]'::jsonb,
-        4,
+        '["fabric-peer"]'::jsonb,
         FALSE,
         5,
         NOW(),
@@ -228,8 +229,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '1Gi',
-        '[{"container_name":"fabric-peer"}]'::jsonb,
-        5,
+        '["fabric-peer"]'::jsonb,
         TRUE,
         6,
         NOW(),
@@ -237,7 +237,8 @@ VALUES
     ),
 
     -- ---------- 模板 6：EVM 全栈 DApp（topology_mode=1，多容器） ----------
-    -- 启动顺序：geth(1) → blockscout(2) + remix-ide(2) → dapp-dev(3)
+    -- 启动顺序由 depends_on + wait-for-tcp initContainer 自动协调：
+    -- geth → (blockscout, remix-ide) → dapp-dev
     (
         910000000000009014,
         910000000000008006,
@@ -251,7 +252,6 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        1,
         FALSE,
         1,
         NOW(),
@@ -272,14 +272,14 @@ VALUES
         '[]'::jsonb,
         '500m',
         '1Gi',
-        '[{"container_name":"geth"},{"container_name":"postgres"}]'::jsonb,
-        2,
+        '["geth","postgres"]'::jsonb,
         FALSE,
         2,
         NOW(),
         NOW()
     ),
-    -- 模板 6 的 Postgres 容器：blockscout 持久化所需，与 geth 同 startup_order=1 并行启动。
+    -- 模板 6 的 Postgres 容器：blockscout 持久化所需。与 geth 并列起在 K8s 调度层，
+    -- 由 wait-for-tcp init 保证 blockscout 启动时 postgres 已 listen。
     (
         910000000000009033,
         910000000000008006,
@@ -293,7 +293,6 @@ VALUES
         '500m',
         '512Mi',
         '[]'::jsonb,
-        1,
         FALSE,
         5,
         NOW(),
@@ -310,9 +309,8 @@ VALUES
         '[{"container_port":8080,"service_port":8080,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '500m',
-        '512Mi',
+        '1Gi',
         '[]'::jsonb,
-        2,
         FALSE,
         3,
         NOW(),
@@ -330,8 +328,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '1Gi',
-        '[{"container_name":"geth"}]'::jsonb,
-        3,
+        '["geth"]'::jsonb,
         TRUE,
         4,
         NOW(),
@@ -344,7 +341,8 @@ VALUES
     --   Org1 管理员 → peer-org1 + couchdb-org1
     --   Org2 管理员 → peer-org2 + couchdb-org2
     --   Orderer 运维 → orderer
-    -- 启动顺序：CA(1) → Orderer(2) + CouchDB×2(2) → Peer×2(3) → tools(4) → go-dev(5)
+    -- 启动顺序由 depends_on + wait-for-tcp initContainer 自动协调：
+    -- CA → (Orderer, CouchDB×2) → Peer×2 → (tools, go-dev)
 
     -- 共享 fabric-ca
     (
@@ -360,7 +358,6 @@ VALUES
         '250m',
         '256Mi',
         '[]'::jsonb,
-        1,
         FALSE,
         1,
         NOW(),
@@ -379,8 +376,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"shared-ca"}]'::jsonb,
-        2,
+        '["shared-ca"]'::jsonb,
         TRUE,
         2,
         NOW(),
@@ -394,13 +390,12 @@ VALUES
         'couchdb-org1',
         1,
         910000000000020001,  -- role: Org1 管理员
-        '[]'::jsonb,
+        '[{"key":"COUCHDB_USER","value":"admin","desc":"管理员用户名","conditions":[]},{"key":"COUCHDB_PASSWORD","value":"adminpw","desc":"管理员密码（教学环境固定）","conditions":[]}]'::jsonb,
         '[{"container_port":5984,"service_port":5984,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '250m',
         '256Mi',
         '[]'::jsonb,
-        2,
         FALSE,
         3,
         NOW(),
@@ -419,8 +414,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"orderer"},{"container_name":"couchdb-org1"}]'::jsonb,
-        3,
+        '["orderer","couchdb-org1"]'::jsonb,
         TRUE,
         4,
         NOW(),
@@ -434,13 +428,12 @@ VALUES
         'couchdb-org2',
         1,
         910000000000020002,  -- role: Org2 管理员
-        '[]'::jsonb,
+        '[{"key":"COUCHDB_USER","value":"admin","desc":"管理员用户名","conditions":[]},{"key":"COUCHDB_PASSWORD","value":"adminpw","desc":"管理员密码（教学环境固定）","conditions":[]}]'::jsonb,
         '[{"container_port":5984,"service_port":5984,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '250m',
         '256Mi',
         '[]'::jsonb,
-        2,
         FALSE,
         5,
         NOW(),
@@ -459,8 +452,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"orderer"},{"container_name":"couchdb-org2"}]'::jsonb,
-        3,
+        '["orderer","couchdb-org2"]'::jsonb,
         TRUE,
         6,
         NOW(),
@@ -479,8 +471,7 @@ VALUES
         '[]'::jsonb,
         '250m',
         '256Mi',
-        '[{"container_name":"peer-org1"},{"container_name":"peer-org2"}]'::jsonb,
-        4,
+        '["peer-org1","peer-org2"]'::jsonb,
         FALSE,
         7,
         NOW(),
@@ -499,8 +490,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '1Gi',
-        '[{"container_name":"peer-org1"},{"container_name":"peer-org2"}]'::jsonb,
-        5,
+        '["peer-org1","peer-org2"]'::jsonb,
         FALSE,
         8,
         NOW(),
@@ -509,118 +499,13 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------
--- 07b. 终端工具容器：为所有真实环境/混合实验模板（experiment_type ∈ {2,3}）
---      统一注入一个 xterm-server 容器，对齐文档 §2.16 终端约束。
---      deployment_scope=1（实例独享，每位学生独立终端，即便其他容器走共享基础设施）
---      role_id=NULL（多人协作模板下所有角色共享）
---      startup_order=99（始终最后启动，等待主容器就绪）
+-- 07b. 终端通道说明
+--
+-- Web 终端走 K8s Pod exec subresource（kubectl exec / Lens / Rancher /
+-- OpenShift Web Terminal 一致路径），后端在学生选择的任意 Running 业务容器内
+-- 直接拉起 /bin/sh PTY。模板不再需要挂载专用的终端 sidecar 镜像；redis-cli /
+-- psql / geth attach 等工具按目标容器自然就绪。
 -- ---------------------------------------------------------------------
-
-INSERT INTO template_containers (
-    id, template_id, image_version_id, container_name, deployment_scope, role_id,
-    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on, startup_order,
-    is_primary, sort_order, created_at, updated_at
-)
-VALUES
-    -- 模板 1（以太坊本地开发与部署实践）
-    (
-        910000000000009026,
-        910000000000008001,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),  -- xterm-server v1.0
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    ),
-    -- 模板 2（共享链基础设施上的 DApp 部署）
-    (
-        910000000000009027,
-        910000000000008002,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    ),
-    -- 模板 3（智能合约漏洞分析）
-    (
-        910000000000009028,
-        910000000000008003,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    ),
-    -- 模板 4（链上数据索引与浏览）
-    (
-        910000000000009029,
-        910000000000008004,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    ),
-    -- 模板 5（Fabric 单人多节点）
-    (
-        910000000000009030,
-        910000000000008005,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    ),
-    -- 模板 6（EVM 全栈 DApp）
-    (
-        910000000000009031,
-        910000000000008006,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    ),
-    -- 模板 7（Fabric 多人协作）
-    (
-        910000000000009032,
-        910000000000008007,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1, NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m', '128Mi',
-        '[]'::jsonb,
-        99, FALSE, 99, NOW(), NOW()
-    )
-ON CONFLICT (id) DO NOTHING;
 
 -- =====================================================================
 -- 08. 模板检查点
@@ -946,26 +831,6 @@ VALUES
         NOW(),
         NOW()
     ),
-    -- 模板 11：Xterm-Server 终端操作实验
-    (
-        910000000000008011,
-        910000000000000001,
-        910000000000001001,
-        'Xterm-Server 终端操作实验',
-        '通过 Web 终端完成区块链节点的命令行操作。',
-        '掌握区块链节点的命令行工具，熟悉常用 CLI 命令。',
-        E'1. 启动 xterm-server 容器\n2. 连接到区块链节点\n3. 使用 CLI 查询节点状态\n4. 发送测试交易',
-        2,
-        1,
-        1,
-        100,
-        30,
-        30,
-        1,
-        2,
-        NOW(),
-        NOW()
-    ),
     -- 模板 12：Redis 缓存实验
     (
         910000000000008012,
@@ -1014,7 +879,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO template_containers (
     id, template_id, image_version_id, container_name, deployment_scope, role_id,
-    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on, startup_order,
+    env_vars, ports, volumes, cpu_limit, memory_limit, depends_on,
     is_primary, sort_order, created_at, updated_at
 )
 VALUES
@@ -1032,28 +897,8 @@ VALUES
         '500m',
         '1Gi',
         '[]'::jsonb,
-        1,
         TRUE,
         1,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000009035,
-        910000000000008008,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m',
-        '128Mi',
-        '[]'::jsonb,
-        99,
-        FALSE,
-        2,
         NOW(),
         NOW()
     ),
@@ -1069,30 +914,10 @@ VALUES
         '[{"container_port":8080,"service_port":8080,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '500m',
-        '512Mi',
+        '1Gi',
         '[]'::jsonb,
-        1,
         TRUE,
         1,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000009037,
-        910000000000008009,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m',
-        '128Mi',
-        '[]'::jsonb,
-        99,
-        FALSE,
-        2,
         NOW(),
         NOW()
     ),
@@ -1110,7 +935,6 @@ VALUES
         '250m',
         '256Mi',
         '[]'::jsonb,
-        1,
         FALSE,
         1,
         NOW(),
@@ -1128,8 +952,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"fabric-ca"}]'::jsonb,
-        2,
+        '["fabric-ca"]'::jsonb,
         FALSE,
         2,
         NOW(),
@@ -1142,13 +965,12 @@ VALUES
         'couchdb',
         1,
         NULL,
-        '[]'::jsonb,
+        '[{"key":"COUCHDB_USER","value":"admin","desc":"管理员用户名","conditions":[]},{"key":"COUCHDB_PASSWORD","value":"adminpw","desc":"管理员密码（教学环境固定）","conditions":[]}]'::jsonb,
         '[{"container_port":5984,"service_port":5984,"protocol":"tcp"}]'::jsonb,
         '[]'::jsonb,
         '250m',
         '256Mi',
         '[]'::jsonb,
-        2,
         FALSE,
         3,
         NOW(),
@@ -1166,8 +988,7 @@ VALUES
         '[]'::jsonb,
         '500m',
         '512Mi',
-        '[{"container_name":"fabric-orderer"},{"container_name":"couchdb"}]'::jsonb,
-        3,
+        '["fabric-orderer","couchdb"]'::jsonb,
         FALSE,
         4,
         NOW(),
@@ -1185,91 +1006,15 @@ VALUES
         '[]'::jsonb,
         '500m',
         '1Gi',
-        '[{"container_name":"fabric-peer"}]'::jsonb,
-        4,
+        '["fabric-peer"]'::jsonb,
         TRUE,
         5,
         NOW(),
         NOW()
     ),
-    (
-        910000000000009043,
-        910000000000008010,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m',
-        '128Mi',
-        '[]'::jsonb,
-        99,
-        FALSE,
-        6,
-        NOW(),
-        NOW()
-    ),
-    -- 模板 11：Xterm-Server（单容器）
-    (
-        910000000000009044,
-        910000000000008011,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
-        'geth',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":8545,"service_port":8545,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '500m',
-        '1Gi',
-        '[]'::jsonb,
-        1,
-        FALSE,
-        1,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000009045,
-        910000000000008011,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m',
-        '128Mi',
-        '[{"container_name":"geth"}]'::jsonb,
-        2,
-        TRUE,
-        2,
-        NOW(),
-        NOW()
-    ),
-    -- 模板 12：Redis 缓存
-    (
-        910000000000009046,
-        910000000000008012,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
-        'geth',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":8545,"service_port":8545,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '500m',
-        '1Gi',
-        '[]'::jsonb,
-        1,
-        FALSE,
-        1,
-        NOW(),
-        NOW()
-    ),
+    -- 模板 12：Redis 缓存（topology_mode=1 单容器）
+    -- 教学目标：学生通过 redis-cli 在 Pod 内学习缓存命令；不需要业务侧的 geth 节点。
+    -- 历史模板曾捎带 geth 容器导致前端默认 PTY 进入 geth 而非 redis，已剔除。
     (
         910000000000009047,
         910000000000008012,
@@ -1283,51 +1028,13 @@ VALUES
         '250m',
         '256Mi',
         '[]'::jsonb,
-        1,
-        FALSE,
-        2,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000009048,
-        910000000000008012,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m',
-        '128Mi',
-        '[{"container_name":"geth"},{"container_name":"redis"}]'::jsonb,
-        2,
         TRUE,
-        3,
-        NOW(),
-        NOW()
-    ),
-    -- 模板 13：Postgres 数据持久化
-    (
-        910000000000009049,
-        910000000000008013,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'geth' AND iv.version = '1.14'),
-        'geth',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":8545,"service_port":8545,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '500m',
-        '1Gi',
-        '[]'::jsonb,
-        1,
-        FALSE,
         1,
         NOW(),
         NOW()
     ),
+    -- 模板 13：Postgres 数据持久化（topology_mode=1 单容器）
+    -- 教学目标：学生通过 psql 在 Pod 内学习表设计与 SQL；与 Redis 模板同理剔除 geth。
     (
         910000000000009050,
         910000000000008013,
@@ -1341,28 +1048,8 @@ VALUES
         '500m',
         '512Mi',
         '[]'::jsonb,
-        1,
-        FALSE,
-        2,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000009051,
-        910000000000008013,
-        (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'xterm-server' AND iv.version = '1.0'),
-        'xterm-server',
-        1,
-        NULL,
-        '[]'::jsonb,
-        '[{"container_port":3000,"service_port":3000,"protocol":"tcp"}]'::jsonb,
-        '[]'::jsonb,
-        '100m',
-        '128Mi',
-        '[{"container_name":"geth"},{"container_name":"postgres"}]'::jsonb,
-        2,
         TRUE,
-        3,
+        1,
         NOW(),
         NOW()
     )
@@ -1458,33 +1145,6 @@ VALUES
         NOW(),
         NOW()
     ),
-    -- 模板 11 检查点
-    (
-        910000000000010018,
-        910000000000008011,
-        '终端连接验证',
-        '验证能够通过 Web 终端连接到节点。',
-        2,
-        NULL, NULL, NULL, NULL,
-        50,
-        1,
-        1,
-        NOW(),
-        NOW()
-    ),
-    (
-        910000000000010019,
-        910000000000008011,
-        'CLI 命令执行验证',
-        '验证能够通过 CLI 查询节点状态并发送交易。',
-        2,
-        NULL, NULL, NULL, NULL,
-        50,
-        1,
-        2,
-        NOW(),
-        NOW()
-    ),
     -- 模板 12 检查点
     (
         910000000000010020,
@@ -1570,9 +1230,6 @@ VALUES
     -- 模板 10（Fabric-Explorer）
     (910000000000031021, 910000000000008010, 910000000000030002, NOW()),
     (910000000000031022, 910000000000008010, 910000000000030007, NOW()),
-    -- 模板 11（Xterm-Server）
-    (910000000000031023, 910000000000008011, 910000000000030013, NOW()),
-    (910000000000031024, 910000000000008011, 910000000000030001, NOW()),
     -- 模板 12（Redis）
     (910000000000031025, 910000000000008012, 910000000000030011, NOW()),
     (910000000000031026, 910000000000008012, 910000000000030001, NOW()),

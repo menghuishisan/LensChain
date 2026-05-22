@@ -679,8 +679,12 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 
 	// 5) 一致性哈希环（仅 strategy=consistent-hash 时）
 	if st.Strategy == strategyConsistent {
-		// 用 ring_layout（slots = N）展示
-		prims = append(prims, fw.PrimRingLayout("hash-ring", len(st.Backends)))
+		// 用 ring_layout 显式声明 N 个环上节点（按 st.Backends 顺序）
+		ringNodeIDs := make([]string, len(st.Backends))
+		for i, b := range st.Backends {
+			ringNodeIDs[i] = "ring-" + b.ID
+		}
+		prims = append(prims, fw.PrimRingLayout("hash-ring", ringNodeIDs))
 		for _, b := range st.Backends {
 			role := "ring-node"
 			status := "normal"

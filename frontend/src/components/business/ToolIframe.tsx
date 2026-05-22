@@ -7,6 +7,7 @@
 
 import { LoadingState } from '@/components/ui/LoadingState';
 import { useToolProxyCookie } from '@/hooks/useToolProxyCookie';
+import { resolveToolProxyURL } from '@/services/experimentToolProxy';
 import { cn } from '@/lib/utils';
 import type { ID } from '@/types/api';
 
@@ -40,7 +41,7 @@ export function ToolIframe({ src, instanceID, toolKind, title, className }: Tool
   }
   return (
     <iframe
-      src={src}
+      src={resolveToolProxyURL(src)}
       className={cn('h-full w-full rounded border', className)}
       sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
       title={title}

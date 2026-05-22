@@ -600,7 +600,7 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 	for _, v := range st.Validators {
 		nodeIDs = append(nodeIDs, "node-"+v.ID)
 	}
-	prims = append(prims, fw.PrimRingLayout("validator-ring", len(st.Validators)))
+	prims = append(prims, fw.PrimRingLayout("validator-ring", nodeIDs))
 
 	// 2) 验证者节点
 	currentProducer := ""

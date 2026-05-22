@@ -2,8 +2,10 @@
 
 // ExperimentTerminal.tsx
 // 实验终端组件
-// 通过 xterm-server PTY 代理提供真终端交互体验
-// 后端 WebSocket 代理自动连接实例中的 xterm-server 工具容器
+// 后端通过 K8s Pod exec subresource 在选中容器内直接拉起 PTY，
+// 与 xterm.js 进行 WebSocket 双向字节流桥接。实例内任意 Running
+// 容器都可作为终端目标，工具（redis-cli / psql / geth attach 等）
+// 按镜像自然就绪，无需额外边车容器。
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { XTermTerminal, type XTermTerminalHandle } from './XTermTerminal';
@@ -33,8 +35,9 @@ export interface ExperimentTerminalProps {
 
 /**
  * 实验 Web 终端组件
- * 通过 xterm-server 提供真 PTY 终端，支持 Tab 补全、vim、信号处理、ANSI 转义等完整终端功能。
- * 后端将 WebSocket 连接代理到实例 Pod 中的 xterm-server 工具容器。
+ * 后端走 K8s exec subresource 提供真 PTY，支持 Tab 补全、vim、信号处理、
+ * ANSI 转义等完整终端功能。容器选择器列出实例内所有 Running 容器，
+ * 工具按镜像自然就绪。
  */
 export function ExperimentTerminal({
   instanceID,
@@ -65,39 +68,36 @@ export function ExperimentTerminal({
     prevMsgCountRef.current = msgs.length;
 
     for (const msg of newMessages) {
-      // 处理初始化消息
-      if (msg.type === 'terminal_init') {
-        const mode = (msg.data?.mode as string) ?? null;
-        if (mode === 'pty') {
-          setReady(true);
-        }
-        if (mode === 'error') {
-          // 把后端透传的上游真实错误（xterm-server 拨号失败原因 / HTTP 状态 / URL）
-          // 一并展示在 xterm 里，便于运维定位是容器未起、端口未暴露还是 path 不对，
-          // 而不是只看到一行模糊的 "连接终端服务失败"。
-          const message = (msg.data?.message as string) ?? '终端连接失败';
-          const upstreamURL = (msg.data?.upstream_url as string) ?? '';
-          const upstreamStatus = (msg.data?.upstream_status as number) ?? 0;
-          const upstreamReason = (msg.data?.upstream_reason as string) ?? '';
-          let detail = `\r\n\x1b[31m✗ ${message}\x1b[0m\r\n`;
-          if (upstreamURL) {
-            detail += `\x1b[90m  上游: ${upstreamURL}\x1b[0m\r\n`;
-          }
-          if (upstreamStatus > 0) {
-            detail += `\x1b[90m  HTTP 状态: ${upstreamStatus}\x1b[0m\r\n`;
-          }
-          if (upstreamReason) {
-            detail += `\x1b[90m  原因: ${upstreamReason}\x1b[0m\r\n`;
-          }
-          termRef.current?.write(detail);
-        }
+      // PTY 字节流（K8s exec stdout）：以 Uint8Array 形式由 useExperimentRealtime 透传，
+      // 直接交给 xterm.js 的 write(Uint8Array) 重载——它内部的有状态 UTF-8 解码器跨
+      // 调用缓存半字符，正确还原中文 / emoji 等多字节序列，并按字节透传 ANSI 控制序
+      // 列，不会损坏二进制 PTY 流。
+      if (msg.type === 'binary') {
+        termRef.current?.write(msg.data!.bytes as Uint8Array);
         continue;
       }
 
-      // PTY 输出：原始终端数据直接写入 xterm
-      const raw = typeof msg.data?.value === 'string' ? msg.data.value : '';
-      if (raw) {
-        termRef.current?.write(raw);
+      // 连接初始化 / 错误消息（JSON 文本帧）。
+      if (msg.type === 'terminal_init') {
+        const mode = msg.data!.mode as string;
+        if (mode === 'pty') {
+          setReady(true);
+          continue;
+        }
+        // mode === 'error'：后端透传的上游错误（K8s exec 失败原因、目标命名空间 /
+        // Pod / 容器名等）渲染到 xterm，便于运维定位是 Pod 未起、/bin/sh 不存在
+        // 还是 RBAC 被拒。
+        const message = msg.data!.message as string;
+        const upstreamTarget = msg.data!.upstream_target as string | undefined;
+        const upstreamReason = msg.data!.upstream_reason as string | undefined;
+        let detail = `\r\n\x1b[31m✗ ${message}\x1b[0m\r\n`;
+        if (upstreamTarget) {
+          detail += `\x1b[90m  目标: ${upstreamTarget}\x1b[0m\r\n`;
+        }
+        if (upstreamReason) {
+          detail += `\x1b[90m  原因: ${upstreamReason}\x1b[0m\r\n`;
+        }
+        termRef.current?.write(detail);
       }
     }
   }, [realtime.messages.length]);
@@ -109,7 +109,7 @@ export function ExperimentTerminal({
     setReady(false);
   }, [activeContainer]);
 
-  // 终端 resize 事件转发到 xterm-server
+  // 终端 resize 事件转发到后端（进而下发 SIGWINCH 到容器内 PTY）
   const handleResize = useCallback((cols: number, rows: number) => {
     if (readOnly || !ready) return;
     if ('sendResize' in writableTerminal) {
@@ -117,7 +117,7 @@ export function ExperimentTerminal({
     }
   }, [readOnly, ready, writableTerminal]);
 
-  // 用户键击直接发送到 xterm-server PTY
+  // 用户键击直接转发到容器内 PTY 的 stdin
   const handleTerminalData = useCallback((data: string) => {
     if (readOnly || !ready) return;
     if ('sendInput' in writableTerminal) {

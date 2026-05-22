@@ -2,7 +2,7 @@
 // 基础徽标组件，用于状态、角色和未读数展示。
 
 import { cva, type VariantProps } from "class-variance-authority";
-import type { HTMLAttributes } from "react";
+import { forwardRef, type HTMLAttributes } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -29,7 +29,16 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, VariantProp
 
 /**
  * Badge 基础徽标组件。
+ *
+ * 使用 forwardRef 暴露底层 span 的 ref，便于 Radix `<TooltipTrigger asChild>` /
+ * `<PopoverTrigger asChild>` 之类把 ref 透传给 Badge（否则 React 会抛
+ * "Function components cannot be given refs" 警告）。
  */
-export function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
-}
+export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(function Badge(
+  { className, variant, ...props },
+  ref,
+) {
+  return <span ref={ref} className={cn(badgeVariants({ variant }), className)} {...props} />;
+});
+
+Badge.displayName = "Badge";

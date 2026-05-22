@@ -42,11 +42,11 @@ default_ports:
 
 default_env_vars:
   - key: GETH_NETWORK
-    default_value: dev
+    value: dev
     description: 运行网络（dev / mainnet / testnet）
     required: false
   - key: GETH_DATADIR
-    default_value: /root/.ethereum
+    value: /root/.ethereum
     description: 链数据目录
     required: false
 

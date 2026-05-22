@@ -66,7 +66,19 @@ func resolveSnapshotIDForResume(requested *string, snapshots []*entity.InstanceS
 }
 
 // captureInstanceRuntimeState 采集真实/混合实验实例的容器运行态。
-func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, instance *entity.ExperimentInstance) ([]runtimeContainerState, error) {
+//
+// 参数 captureVolumes 控制是否将容器内挂载目录 tar 归档进快照：
+//   - true：用于 Manual / Scheduled / Timeout 快照——这些快照可能在未来某次
+//     RestoreSnapshot 中被显式回放（namespace 会先被销毁、PVC 重建为空），必须有
+//     卷归档才能复原数据。
+//   - false：用于 Pause 快照——PVC 本身就是 pause/resume 的数据保留机制（详见
+//     k8s_client.go::DeletePodsInNamespace 注释）。再做 tar 归档纯粹冗余，且会在
+//     resume 时触发 `tar -xzf` 反向回灌，落到 root 拥有的 hostpath 挂载点上时
+//     直接报 "Cannot utime / Cannot change mode: Operation not permitted"。
+//
+// 即使 captureVolumes=false，仍然返回容器元数据（Name / PodName / InternalIP /
+// Status）以便快照列表 UI 展示与诊断；只是省略大体积的 ArchiveData 字段。
+func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, instance *entity.ExperimentInstance, captureVolumes bool) ([]runtimeContainerState, error) {
 	if instance == nil || s.k8sSvc == nil || instance.Namespace == nil || *instance.Namespace == "" {
 		return nil, nil
 	}
@@ -115,6 +127,11 @@ func (s *instanceService) captureInstanceRuntimeState(ctx context.Context, insta
 			state.InternalIP = *container.InternalIP
 		}
 
+		if !captureVolumes {
+			// Pause 快照路径：PVC 已是数据保留机制，不再复读卷内容生成 tar 归档。
+			states = append(states, state)
+			continue
+		}
 		templateContainer, ok := templateMap[container.TemplateContainerID]
 		if !ok || state.PodName == "" {
 			states = append(states, state)

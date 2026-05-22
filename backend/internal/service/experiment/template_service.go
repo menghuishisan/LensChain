@@ -580,8 +580,9 @@ func (s *templateService) Clone(ctx context.Context, sc *svcctx.ServiceContext, 
 					CPULimit:       c.CPULimit,
 					MemoryLimit:    c.MemoryLimit,
 					DependsOn:      c.DependsOn,
-					StartupOrder:   c.StartupOrder,
 					IsPrimary:      c.IsPrimary,
+					PodGroup:       c.PodGroup,
+					IsInitContainer: c.IsInitContainer,
 					SortOrder:      c.SortOrder,
 				})
 			}
@@ -893,36 +894,9 @@ func (s *templateService) validateDependencyIntegrity(ctx context.Context, templ
 		})
 	}
 
-	// 强制约束：真实环境/混合实验必须挂载至少一个终端工具容器（images.tool_kind = 'terminal'），
-	// 对齐 docs/modules/04-实验环境/02-数据库设计.md §2.16 终端约束 + §3.5 终端交互规范，
-	// 避免学生进入实验后无 Web 终端可用。
-	if (template.Template.ExperimentType == enum.ExperimentTypeReal || template.Template.ExperimentType == enum.ExperimentTypeMixed) && len(template.Containers) > 0 {
-		hasTerminal := false
-		for _, c := range template.Containers {
-			if c == nil {
-				continue
-			}
-			version, err := s.imageVersionRepo.GetByID(ctx, c.ImageVersionID)
-			if err != nil || version == nil {
-				continue
-			}
-			image, err := s.imageRepo.GetByID(ctx, version.ImageID)
-			if err != nil || image == nil || image.ToolKind == nil {
-				continue
-			}
-			if *image.ToolKind == "terminal" {
-				hasTerminal = true
-				break
-			}
-		}
-		if !hasTerminal {
-			result.Passed = false
-			result.Issues = append(result.Issues, dto.ValidationIssue{
-				Code:    "L1_MISSING_TERMINAL_TOOL",
-				Message: "真实环境/混合实验必须挂载一个终端工具容器（如 xterm-server，images.tool_kind = 'terminal'），学生才能获得 Web 终端入口",
-			})
-		}
-	}
+	// Web 终端由 K8s exec subresource 直接进入任意业务容器（kubectl exec / Lens /
+	// Rancher / OpenShift 一致路径），任何含 /bin/sh 的镜像都可作为终端目标，无需挂载
+	// 专门的 "tool_kind=terminal" 镜像。因此模板校验不再强制要求终端工具容器。
 
 	// 检查仿真场景配置
 	if len(template.SimScenes) == 0 && (template.Template.ExperimentType == enum.ExperimentTypeSimulation || template.Template.ExperimentType == enum.ExperimentTypeMixed) {
@@ -1279,13 +1253,6 @@ func (s *templateService) validateConnectivityPrecheck(template *TemplateAggrega
 		})
 	}
 
-	for _, issue := range findInvalidStartupOrders(template.Containers) {
-		result.Passed = false
-		result.Issues = append(result.Issues, dto.ValidationIssue{
-			Code:    "L5_STARTUP_ORDER_INVALID",
-			Message: issue,
-		})
-	}
 
 	for _, issue := range findMissingServiceReferences(template.Containers) {
 		result.Passed = false

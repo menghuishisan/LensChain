@@ -11,9 +11,16 @@
 //
 //  2. ServeToolProxy        ANY  /instance/:instance_id/:tool_kind/*proxy_path
 //     - 走 ToolProxyAuth（cookie 鉴权），不走 JWTAuth
-//     - HTTP 走 httputil.ReverseProxy + SPDY DialContext
-//     - WebSocket 走 hijack + 双向 io.Copy
+//     - HTTP 与 WebSocket 共用 httputil.ReverseProxy（Go 1.20+ 原生支持 Connection: Upgrade
+//       的 101 透传与双向流桥接），上游连接由 SPDY DialContext 提供
 //     - cookie 已携 (Namespace, PodName, Port)，本端点无 DB 命中
+//
+// iframe / WS origin 解耦：浏览器看到的 origin 不强制等于 backend origin。
+//   - 生产环境：Ingress 兜底，frontend / backend 同源，前端 iframe src 用相对路径；
+//   - 本地开发：浏览器直接连 backend :8080（`NEXT_PUBLIC_TOOL_PROXY_BASE_URL`），
+//     绕开 Next dev rewrite 对 trailingSlash 与 WS upgrade 的路径归一化限制。
+//   两种部署对 backend 完全透明——cookie 发到哪个 origin / iframe src 拼成什么形态，
+//   由前端 services/experimentToolProxy.ts::resolveToolProxyURL 决定，详见该处注释。
 //
 // 不允许直拨 Pod IP / Service ClusterIP / NodePort，所有上游连接强制走 K8s API 的 SPDY
 // portforward 隧道（详见 docs/modules/09-部署与运维/02-基础设施设计.md §2.4）。
@@ -23,7 +30,6 @@ package experiment
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -121,14 +127,17 @@ func (h *InstanceHandler) ServeToolProxy(c *gin.Context) {
 		upstreamPath = "/"
 	}
 
-	if isWebSocketUpgrade(c.Request) {
-		h.serveToolProxyWebSocket(c, claims, upstreamPath)
-		return
-	}
 	h.serveToolProxyHTTP(c, claims, upstreamPath)
 }
 
-// serveToolProxyHTTP 处理普通 HTTP 反代。每个请求新建 SPDY 隧道（无法跨请求复用 SPDY 流）。
+// serveToolProxyHTTP 处理 HTTP 与 WebSocket 反代。
+//
+// Go 1.20+ 的 httputil.ReverseProxy 原生识别 `Connection: Upgrade` + `Upgrade: websocket`
+// 头并完成 101 Switching Protocols 透传与双向字节流桥接，无需在 handler 层判 WS 走单独
+// hijack 实现——单实现覆盖 HTML/CSS/JS/字体/IDE 内部 WS / VNC websockify / blockscout
+// 实时事件等所有协议形态。
+//
+// 每个请求新建 SPDY 隧道（无法跨请求复用 SPDY 流）。
 func (h *InstanceHandler) serveToolProxyHTTP(c *gin.Context, claims *jwtpkg.ToolProxyClaims, upstreamPath string) {
 	upstreamHost := fmt.Sprintf("%s:%d", claims.PodName, claims.Port)
 
@@ -141,6 +150,18 @@ func (h *InstanceHandler) serveToolProxyHTTP(c *gin.Context, claims *jwtpkg.Tool
 			req.Host = upstreamHost
 			// 不向上游泄漏反代 cookie——这是 backend 与浏览器之间的凭证，与上游无关。
 			req.Header.Del("Cookie")
+			// 同源/CSRF 重写 Origin：上游工具（code-server / VS Code Web、jupyter、grafana
+			// 等）在 WebSocket / 敏感 HTTP 端点会比较 Origin 与自身 Host，不一致直接 403。
+			// 浏览器 → backend 之间走 backend origin（localhost:8080 / Ingress 域名），上游
+			// Pod 完全不感知该外部域名，从上游视角"请求来自自己" 才是事实。这与 nginx
+			// `proxy_set_header Origin $scheme://$proxy_host` 的做法等价，是反代 WS 的
+			// 正解，不是临时绕过。同样处理 Referer，避免上游 Referer 检查复现该问题。
+			if req.Header.Get("Origin") != "" {
+				req.Header.Set("Origin", "http://"+upstreamHost)
+			}
+			if req.Header.Get("Referer") != "" {
+				req.Header.Set("Referer", "http://"+upstreamHost+"/")
+			}
 			// X-Forwarded-* 让上游应用知道实际外部协议 / 主机，便于生成正确的链接。
 			if req.Header.Get("X-Forwarded-Proto") == "" {
 				if c.Request.TLS != nil {
@@ -166,79 +187,8 @@ func (h *InstanceHandler) serveToolProxyHTTP(c *gin.Context, claims *jwtpkg.Tool
 		},
 	}
 	proxy.ServeHTTP(c.Writer, c.Request)
-}
-
-// serveToolProxyWebSocket 处理 WebSocket upgrade 请求。
-//
-// httputil.ReverseProxy 不支持 WS upgrade（它只复用 HTTP RoundTrip 语义），所以走 hijack：
-//  1. 通过 SPDY 隧道拿到一条裸 net.Conn 通向 Pod:Port
-//  2. 把客户端 HTTP/1.1 Upgrade 请求按字节级写到 upstream
-//  3. 上游回 101 Switching Protocols 后 hijack client TCP，做双向 io.Copy
-//
-// 这种实现对协议无感（IDE 自定义 WS / VNC websockify / blockscout 实时事件）都能正确转发。
-func (h *InstanceHandler) serveToolProxyWebSocket(c *gin.Context, claims *jwtpkg.ToolProxyClaims, upstreamPath string) {
-	dialCtx, cancel := context.WithTimeout(c.Request.Context(), toolProxyDialTimeout)
-	defer cancel()
-	upstreamConn, err := h.instanceService.DialPodPort(dialCtx, claims.Namespace, claims.PodName, claims.Port)
-	if err != nil {
-		c.Error(err)
-		response.Error(c, errcode.ErrInternal.WithMessage("连接工具上游失败: "+err.Error()))
-		return
-	}
-	defer upstreamConn.Close()
-
-	// 重写请求行：去掉 /instance/<id>/<kind> 前缀，否则上游应用收到不识别的路径。
-	// 同时清掉反代 cookie，避免泄漏给上游进程；保留 Authorization / Upgrade 等头。
-	outReq := c.Request.Clone(c.Request.Context())
-	outReq.URL.Path = upstreamPath
-	outReq.URL.RawPath = ""
-	outReq.URL.Scheme = ""
-	outReq.URL.Host = ""
-	outReq.Host = fmt.Sprintf("%s:%d", claims.PodName, claims.Port)
-	outReq.RequestURI = ""
-	outReq.Header.Del("Cookie")
-
-	// hijack 客户端连接
-	hj, ok := c.Writer.(http.Hijacker)
-	if !ok {
-		response.Error(c, errcode.ErrInternal.WithMessage("ResponseWriter 不支持 Hijack"))
-		return
-	}
-	clientConn, _, err := hj.Hijack()
-	if err != nil {
-		c.Error(err)
-		return
-	}
-	defer clientConn.Close()
-
-	// 把客户端的 Upgrade 请求按字节级写到上游 SPDY 流。
-	if err := outReq.Write(upstreamConn); err != nil {
-		c.Error(err)
-		return
-	}
-
-	// 双向字节级转发，任何一侧关闭就退出。
-	doneCh := make(chan struct{}, 2)
-	go func() {
-		_, _ = io.Copy(upstreamConn, clientConn)
-		doneCh <- struct{}{}
-	}()
-	go func() {
-		_, _ = io.Copy(clientConn, upstreamConn)
-		doneCh <- struct{}{}
-	}()
-	<-doneCh
-	// 刷新活跃时间——iframe 持续打开 = 学生在使用工具
+	// 刷新活跃时间——iframe 持续打开 = 学生在使用工具。
+	// HTTP 与 WS（被 ReverseProxy 升级后阻塞到流关闭）都会在此返回时触达。
 	h.instanceService.TouchActivity(context.WithoutCancel(c.Request.Context()), claims.InstanceID)
-}
-
-// isWebSocketUpgrade 判断当前 HTTP 请求是否为 WebSocket 升级请求。
-func isWebSocketUpgrade(r *http.Request) bool {
-	if r.Method != http.MethodGet {
-		return false
-	}
-	connection := strings.ToLower(r.Header.Get("Connection"))
-	upgrade := strings.ToLower(r.Header.Get("Upgrade"))
-	return strings.Contains(connection, "upgrade") && upgrade == "websocket"
 }
 

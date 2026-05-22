@@ -14,9 +14,9 @@ versions:
     tag: "v4.89.1"
     upstream_tag: "4.89.1"
     min_cpu: "0.25"
-    min_memory: "256Mi"
+    min_memory: "512Mi"
     recommended_cpu: "0.5"
-    recommended_memory: "512Mi"
+    recommended_memory: "1Gi"
     is_default: true
 
 default_ports:
@@ -25,11 +25,9 @@ default_ports:
     name: HTTP
     description: Web IDE 访问端口
 
-default_env_vars:
-  - key: PASSWORD
-    default_value: ""
-    description: 访问密码（空则免密）
-    required: false
+default_env_vars: []
+# code-server 镜像 ENTRYPOINT 已显式 `--auth none`（详见 Dockerfile 覆写），平台层
+# tool_proxy_cookie 是唯一鉴权点，因此本镜像不再读取 PASSWORD/HASHED_PASSWORD。
 
 conditional_env_vars: []
 

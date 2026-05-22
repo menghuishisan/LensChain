@@ -7,8 +7,7 @@ package experiment
 import (
 	"context"
 	"encoding/json"
-	"net"
-	"strconv"
+	"io"
 	"strings"
 	"time"
 
@@ -139,9 +138,13 @@ func (h *InstanceHandler) ServeTerminalStreamWS(c *gin.Context) {
 }
 
 // ServeStudentTerminalWS 建立学生 Web 终端 PTY 通道。
-// 通过 xterm-server WebSocket 代理提供真 PTY 终端体验。
-// 实验实例必须挂载 xterm-server 工具容器，否则返回错误。
-// GET /api/v1/experiment-instances/:id/terminal
+//
+// 通过 K8s Pod exec subresource 直接在目标容器内拉起 PTY（kubectl exec / Lens / Rancher /
+// OpenShift Web Terminal 一致路径）。任何 Running 容器都可作为终端目标，工具按容器自然
+// 就绪（redis-cli 在 redis 容器、psql 在 postgres 容器、geth attach 在 geth 容器）。
+// query.container 留空则使用实例首个就绪容器（按 template_containers.sort_order）。
+//
+// GET /api/v1/experiment-instances/:id/terminal?container=xxx
 func (h *InstanceHandler) ServeStudentTerminalWS(c *gin.Context) {
 	instanceID, ok := validator.ParsePathID(c, "id")
 	if !ok {
@@ -156,105 +159,146 @@ func (h *InstanceHandler) ServeStudentTerminalWS(c *gin.Context) {
 		return
 	}
 	if target == nil {
-		response.Abort(c, errcode.ErrInvalidParams.WithMessage("实验实例未挂载 xterm-server 终端服务"))
+		response.Abort(c, errcode.ErrInvalidParams.WithMessage("实例没有就绪容器可作为终端目标"))
 		return
 	}
-	h.serveTerminalPTYProxy(c, sc, target)
+	h.serveTerminalExecPTY(c, sc, target)
 }
 
-// serveTerminalPTYProxy 建立到 xterm-server 的 WebSocket 双向代理，提供真 PTY 终端体验。
+// serveTerminalExecPTY 在客户端 WebSocket 与 K8s exec PTY 流之间建立全双工桥接。
 //
-// 上游 xterm-server 跑在实验 Pod 内（端口 3000），其网络可达性必须经由 K8s API 的 SPDY
-// portforward 隧道，而不是直拨 Pod IP / Service ClusterIP / NodePort。设计依据见
-// docs/modules/09-部署与运维/02-基础设施设计.md §2.4。
+// 协议（前后端唯一约定）：
+//   - 客户端 → 服务端：WS Text/Binary 帧。
+//     * Text 帧若为 JSON {"type":"resize","cols":N,"rows":N}，作为 SIGWINCH 处理。
+//     * 其余字节（含 Text/Binary）一律视为 PTY 输入，直接写入容器 stdin。
+//   - 服务端 → 客户端：容器 stdout 字节流（TTY 模式 stderr 已合并）以 WS BinaryMessage 下发。
+//     PTY 数据是字节流（含 ANSI 转义、回车 \r、二进制控制字符），不能按行读取。
+//   - 连接初始化：服务端立即发一帧 {"type":"terminal_init","data":{"mode":"pty","container":...}}，
+//     前端据此判定通道就绪。
 //
-// 实现路径：通过 K8sService.DialPodPort 拿到等价于 Pod 内 localhost:3000 的 net.Conn，
-// 把它注入 gorilla/websocket Dialer 的 NetDialContext，让 WebSocket 握手在 SPDY 隧道
-// 之上进行。隧道生命周期与 WS 一致：上下游任一关闭，net.Conn.Close → SPDY stream 释放。
-func (h *InstanceHandler) serveTerminalPTYProxy(c *gin.Context, sc *svcctx.ServiceContext, target *svc.TerminalProxyTarget) {
+// 生命周期：客户端断开 → 关闭 stdinWriter → exec stdin EOF → PTY 进程退出 → 关闭
+// stdoutWriter → stdout→WS goroutine 退出。任一端关闭都会引导另一端自然解开。
+func (h *InstanceHandler) serveTerminalExecPTY(c *gin.Context, _ *svcctx.ServiceContext, target *svc.TerminalProxyTarget) {
 	clientConn, err := wsmanager.Upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}
+	defer clientConn.Close()
 
-	// 拨号必须有超时——SPDY 上游或 K8s API 异常时不能让 net.Conn 阻塞；同时必须启用 ctx，
-	// 由 ServeSimEngineWS 模块同步引入的 8 秒上限对终端代理同样适用。
-	dialCtx, dialCancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
-	defer dialCancel()
+	// 上行 stdin：客户端 → io.Pipe → K8s exec。Pipe 端关闭即向 exec 发 EOF。
+	stdinReader, stdinWriter := io.Pipe()
+	// 下行 stdout：K8s exec → io.Pipe → 客户端 WS。
+	stdoutReader, stdoutWriter := io.Pipe()
+	resizeCh := make(chan svc.TerminalSize, 4)
 
-	// 通过 service 层 SPDY 隧道拨号上游 xterm-server。handler 不直接依赖 K8sService，
-	// 所有 (ns, pod, port) 解析与隧道建立逻辑封装在 instanceService.DialPodPort 内。
-	// 业务边界（本人 / Running / 该实例容器）已在 ResolveTerminalProxyTarget 完成校验。
-	tunnelConn, dialErr := h.instanceService.DialPodPort(dialCtx, target.Namespace, target.PodName, target.Port)
-	if dialErr != nil {
-		c.Error(dialErr)
-		_ = clientConn.WriteJSON(map[string]interface{}{
-			"type": "terminal_init",
-			"data": map[string]interface{}{
-				"mode":            "error",
-				"message":         "连接终端服务失败",
-				"upstream_target": target.Namespace + "/" + target.PodName,
-				"upstream_reason": dialErr.Error(),
-			},
-		})
-		_ = clientConn.Close()
-		return
-	}
+	// ExecPodPTY 阻塞到 PTY 进程退出 / ctx 取消。生命周期独立于 HTTP 请求 ctx，
+	// 使用 WithoutCancel 让 K8s exec 在 WS 升级完成后不被 gin 的 ctx 提前取消。
+	callCtx := websocketServiceContext(c)
+	execCtx, execCancel := context.WithCancel(callCtx)
+	defer execCancel()
 
-	// 把 SPDY 隧道当作 net.Conn，让 gorilla 在它上面跑标准 WebSocket 握手。
-	// NetDialContext 会被 gorilla 调用一次，返回我们的 SPDY net.Conn；之后 gorilla 在该
-	// conn 上写 HTTP/1.1 Upgrade 请求，xterm-server 回 101，gorilla 把 conn 升级为
-	// websocket.Conn。所有权随之转移给 upstreamWS，关闭路径只有一处（upstreamWS.Close）。
-	tunnelDialer := websocket.Dialer{
-		NetDialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-			return tunnelConn, nil
-		},
-		HandshakeTimeout: 8 * time.Second,
-	}
-	upstreamWSURL := "ws://" + target.PodName + ":" + strconv.Itoa(target.Port) + target.WebSocketPath
-	upstreamConn, upstreamResp, wsErr := tunnelDialer.DialContext(dialCtx, upstreamWSURL, nil)
-	if wsErr != nil {
-		upstreamStatus := 0
-		upstreamReason := wsErr.Error()
-		if upstreamResp != nil {
-			upstreamStatus = upstreamResp.StatusCode
-			_ = upstreamResp.Body.Close()
-		}
-		_ = tunnelConn.Close()
-		c.Error(wsErr)
-		_ = clientConn.WriteJSON(map[string]interface{}{
-			"type": "terminal_init",
-			"data": map[string]interface{}{
-				"mode":            "error",
-				"message":         "连接终端服务失败",
-				"upstream_target": target.Namespace + "/" + target.PodName,
-				"upstream_status": upstreamStatus,
-				"upstream_reason": upstreamReason,
-			},
-		})
-		_ = clientConn.Close()
-		return
-	}
+	// 协调三个 goroutine 的退出：execDone（PTY 退出）、wsReadDone（客户端断开）。
+	// 任一发生都触发关闭：stdinWriter/stdoutWriter 关闭 → 另一侧 io.Pipe 读取返回 EOF。
+	execDone := make(chan error, 1)
+	go func() {
+		execDone <- h.instanceService.ExecTerminalPTY(execCtx, target, stdinReader, stdoutWriter, resizeCh)
+		// PTY 退出后必须关闭 stdoutWriter，否则 stdout→WS goroutine 永远阻塞在 Read。
+		_ = stdoutWriter.Close()
+	}()
 
-	// 发送 PTY 模式指示
+	// 发送 PTY 就绪指示，前端据此切换到键击转发状态。
 	_ = clientConn.WriteJSON(map[string]interface{}{
 		"type": "terminal_init",
 		"data": map[string]interface{}{"mode": "pty", "container": target.ContainerName},
 	})
 
-	proxyDone := make(chan struct{}, 2)
-	callCtx := websocketServiceContext(c)
+	// goroutine 1：客户端 → stdin。读取 WS 消息，识别 resize JSON，其余原样写 stdin。
+	go func() {
+		defer func() {
+			// 关闭 stdinWriter 让 exec stdin 收到 EOF，触发 PTY 进程退出（sh 默认 exit）。
+			_ = stdinWriter.Close()
+			// 关闭 resize 通道让 client-go 的 ptySizeQueue.Next 返回 nil 停止 SIGWINCH。
+			close(resizeCh)
+		}()
+		for {
+			messageType, payload, err := clientConn.ReadMessage()
+			if err != nil {
+				return
+			}
+			// 仅 Text 帧尝试解析 resize；二进制帧总是直接转 stdin。
+			if messageType == websocket.TextMessage {
+				if cols, rows, ok := tryParseTerminalResize(payload); ok {
+					select {
+					case resizeCh <- svc.TerminalSize{Width: uint16(cols), Height: uint16(rows)}:
+					default:
+						// 通道满（4 容量足够，理论上不会到这），丢弃最旧的 resize。
+					}
+					h.instanceService.TouchActivity(callCtx, target.InstanceID)
+					continue
+				}
+			}
+			if _, werr := stdinWriter.Write(payload); werr != nil {
+				return
+			}
+			h.instanceService.TouchActivity(callCtx, target.InstanceID)
+		}
+	}()
 
-	// upstream → client: PTY 输出原样转发
-	go proxyWebSocket(upstreamConn, clientConn, proxyDone, nil, nil)
-	// client → upstream: 用户输入原样转发，同时刷新活跃时间
-	go proxyWebSocket(clientConn, upstreamConn, proxyDone, func() {
-		h.instanceService.TouchActivity(callCtx, target.InstanceID)
-	}, nil)
+	// goroutine 2（当前 goroutine）：stdout → 客户端。PTY 数据按字节流读，固定大小缓冲。
+	buf := make([]byte, 4*1024)
+	for {
+		n, rerr := stdoutReader.Read(buf)
+		if n > 0 {
+			if werr := clientConn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+				break
+			}
+		}
+		if rerr != nil {
+			break
+		}
+	}
 
-	<-proxyDone
-	_ = clientConn.Close()
-	_ = upstreamConn.Close()
+	// 等 ExecPodPTY 真正退出，把错误（如有）记录到 gin 请求日志，便于运维定位。
+	if err := <-execDone; err != nil && c.Request.Context().Err() == nil {
+		c.Error(err)
+		// 错误时尝试通知客户端：连接已断，前端会看到 mode=error 并自动重连。
+		_ = clientConn.WriteJSON(map[string]interface{}{
+			"type": "terminal_init",
+			"data": map[string]interface{}{
+				"mode":            "error",
+				"message":         "终端会话已结束",
+				"upstream_target": target.Namespace + "/" + target.PodName + "/" + target.ContainerName,
+				"upstream_reason": err.Error(),
+			},
+		})
+	}
+}
+
+// tryParseTerminalResize 尝试把 WS Text 帧解析为终端 resize 控制消息。
+//
+// 控制消息格式：{"type":"resize","cols":C,"rows":R}。命中时返回 (cols,rows,true)，
+// 调用方应把消息送入 resize 通道；解析失败（非 JSON、type 不是 resize、字段缺失等）
+// 返回 ok=false，调用方应把 payload 当作普通 PTY 输入字节流透传到 stdin。
+//
+// 之所以放在 handler 层而不是引一个通用 codec 包：终端通道只有这一种控制消息，
+// 增加一层封装反而隐藏协议；将来若引入更多控制帧（如 detach / signal）再考虑抽取。
+func tryParseTerminalResize(payload []byte) (cols, rows int, ok bool) {
+	// 快速预筛：必须以 '{' 开头。避免对所有键击都跑 JSON parser。
+	if len(payload) < 2 || payload[0] != '{' {
+		return 0, 0, false
+	}
+	var msg struct {
+		Type string `json:"type"`
+		Cols int    `json:"cols"`
+		Rows int    `json:"rows"`
+	}
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		return 0, 0, false
+	}
+	if msg.Type != "resize" || msg.Cols <= 0 || msg.Rows <= 0 {
+		return 0, 0, false
+	}
+	return msg.Cols, msg.Rows, true
 }
 
 // ServeGroupMemberTerminalStreamWS 建立组员只读终端查看通道。

@@ -19,12 +19,16 @@ import (
 // instance_containers.tool_kind 与 proxy_url：
 //   - tool_kind：沿 template_container.image_version_id → image_versions.image_id → images.tool_kind
 //     直接读取，service 层不做任何镜像名→kind 的硬编码映射；
-//   - proxy_url：仅工具镜像（tool_kind 非空）签发，格式 {ToolProxyBaseURL}/instance/{id}/{tool_kind}/
-//     （末尾斜杠保证 router 路由 *proxy_path 在裸路径下也能命中根 "/"；token 不放 URL，前端
-//     必须先调 POST /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie 拿 cookie，
-//     由 ToolProxyAuth 中间件鉴权，详见 handler/experiment/tool_proxy.go）。
-//   - ToolProxyBaseURL 为空时返回相对路径 /instance/{id}/{kind}/，由前端拼当前主机或 Ingress 处理；
-//     生产部署需在 config.toolProxyBaseURL 显式填外部访问域名。
+//   - proxy_url：仅工具镜像（tool_kind 非空）签发，格式 /instance/{id}/{tool_kind}/。
+//     **始终为相对路径，绝不嵌入 host**——origin 由前端 `NEXT_PUBLIC_TOOL_PROXY_BASE_URL`
+//     解析（services/experimentToolProxy.ts::resolveToolProxyURL）：生产留空走 Ingress
+//     同源；本地开发设为 http://localhost:8080，iframe / WS 直连后端，绕开 Next dev
+//     rewrite 对 trailingSlash 与 WS upgrade 的路径归一化限制。`localhost:3000` 与
+//     `localhost:8080` 是 same-site（eTLD+1=localhost），SameSite=Lax cookie 在跨源
+//     same-site iframe / WS 中仍会被发送，鉴权链路与生产保持一致。
+//   - 末尾斜杠保证 router 路由 *proxy_path 在裸路径下也能命中根 "/"。token 不放 URL，
+//     前端必须先调 POST /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie
+//     拿 cookie，由 ToolProxyAuth 中间件鉴权（handler/experiment/tool_proxy.go）。
 //
 // 任一环节失败或非工具镜像，返回 (nil, nil)。
 func (s *instanceService) deriveContainerToolMeta(ctx context.Context, imageVersionID int64, instanceID int64) (*string, *string) {
@@ -43,8 +47,7 @@ func (s *instanceService) deriveContainerToolMeta(ctx context.Context, imageVers
 		return nil, nil
 	}
 	kind := strings.TrimSpace(*image.ToolKind)
-	base := strings.TrimRight(strings.TrimSpace(s.toolProxyBaseURL), "/")
-	url := fmt.Sprintf("%s/instance/%d/%s/", base, instanceID, kind)
+	url := fmt.Sprintf("/instance/%d/%s/", instanceID, kind)
 	return &kind, &url
 }
 

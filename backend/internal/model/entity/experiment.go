@@ -164,8 +164,13 @@ type TemplateContainer struct {
 	CPULimit       *string        `gorm:"type:varchar(20)" json:"cpu_limit,omitempty"`
 	MemoryLimit    *string        `gorm:"type:varchar(20)" json:"memory_limit,omitempty"`
 	DependsOn      datatypes.JSON `gorm:"column:depends_on;type:jsonb" json:"depends_on,omitempty"`
-	StartupOrder   int            `gorm:"not null;default:0" json:"startup_order"`
 	IsPrimary      bool           `gorm:"not null;default:false" json:"is_primary"`
+	// PodGroup 非空时，同 (TemplateID, RoleID, PodGroup) 容器打包到一个 K8s Pod，
+	// 通过同名 emptyDir 实现跨容器文件共享。详见 02-数据库设计.md §2.5 Pod 打包语义。
+	PodGroup        *string `gorm:"column:pod_group;type:varchar(100)" json:"pod_group,omitempty"`
+	// IsInitContainer 为 TRUE 时该容器作为 K8s initContainers 串行运行，主容器在其
+	// 退出 0 后才启动；仅 PodGroup 非空时有效。
+	IsInitContainer bool `gorm:"column:is_init_container;not null;default:false" json:"is_init_container"`
 	SortOrder      int            `gorm:"not null;default:0" json:"sort_order"`
 	CreatedAt      time.Time      `gorm:"not null;default:now()" json:"created_at"`
 	UpdatedAt      time.Time      `gorm:"not null;default:now()" json:"updated_at"`

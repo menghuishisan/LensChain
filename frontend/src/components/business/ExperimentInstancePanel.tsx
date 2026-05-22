@@ -176,17 +176,23 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
   const canUseSimEngine = simSessionID.length > 0 || simScenes.length > 0;
   const experimentType = templateQuery.data?.experiment_type ?? 2;
 
-  // 从 tools[] 提取工具 URL
-  const terminalTool = instance.tools.find((t) => t.kind === "terminal");
+  // 从 tools[] 提取 iframe 反代工具（IDE / 桌面 / 浏览器 / 监控等需 HTTP 反代的工具）。
+  // 终端不再作为 "tool" 出现：Web 终端走 K8s exec subresource 直接进入业务容器内 PTY，
+  // 无需 sidecar 镜像与端口反代，详见后端 ExecPodPTY。
   const ideTool = instance.tools.find((t) => t.kind === "ide");
   const desktopTool = instance.tools.find((t) => t.kind === "desktop");
   const explorerTool = instance.tools.find((t) => t.kind === "explorer");
   const monitorTool = instance.tools.find((t) => t.kind === "monitor");
 
-  // 仅将 tool_kind="terminal" 的容器传给终端组件，避免默认选中非终端容器导致 WS 400
-  const terminalContainers = (instance.containers ?? [])
-    .filter((c) => c.tool_kind === "terminal")
-    .map((c) => ({ container_name: c.container_name, display_name: c.container_name }));
+  // 终端目标候选：实例内所有容器都可作为 PTY 目标（kubectl exec / Lens / Rancher 一致路径），
+  // 学生可在 redis 容器用 redis-cli、在 postgres 容器用 psql、在 geth 容器用 geth attach。
+  // 真实环境/混合实验（experiment_type ∈ {2,3}）只要有任意容器就提供终端入口；纯仿真实验
+  // (experiment_type = 1) 没有容器，终端 Tab 自动隐藏。
+  const terminalContainers = (instance.containers ?? []).map((c) => ({
+    container_name: c.container_name,
+    display_name: c.container_name,
+  }));
+  const hasTerminal = experimentType !== 1 && terminalContainers.length > 0;
 
   const submitGuidance = () => {
     const content = guidanceMessage.trim();
@@ -210,7 +216,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
   // 计算默认激活 Tab
   const defaultTab = experimentType === 1
     ? "sim"
-    : terminalTool ? "terminal" : ideTool ? "ide" : canUseSimEngine ? "sim" : "instructions";
+    : hasTerminal ? "terminal" : ideTool ? "ide" : canUseSimEngine ? "sim" : "instructions";
 
   // 实验实例页是"工作区"型页面：必须铺满 main 的高度（由 AuthenticatedLayout 提供 flex-1 + 内部
   // overflow-y-auto），并由本面板自己控制内部纵向滚动。h-full 直接拿到 main 的确定高度，
@@ -284,7 +290,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
         <div className="flex items-center border-b">
           <TabsList className="flex flex-1 flex-wrap justify-start rounded-none border-b-0">
             {/* 工具 Tab — 按实验类型动态显隐 */}
-            {terminalTool && (
+            {hasTerminal && (
               <TabsTrigger value="terminal">{isAssistMode ? "只读终端" : "终端"}</TabsTrigger>
             )}
             {ideTool && (
@@ -317,7 +323,7 @@ export function ExperimentInstancePanel({ instanceID, mode = "student" }: Experi
         </div>
 
         {/* 工具内容区 — 每个 Tab 独占全宽 */}
-        {terminalTool && (
+        {hasTerminal && (
           <TabsContent value="terminal" className="flex-1 overflow-hidden p-2">
             <ExperimentTerminal instanceID={instanceID} containers={terminalContainers} readOnly={isAssistMode || isGradeMode} className="h-full" />
           </TabsContent>

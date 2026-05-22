@@ -159,6 +159,74 @@ func (k *k8sClient) DeleteNamespace(ctx context.Context, name string) error {
 	return k.clientset.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{})
 }
 
+// DeletePodsInNamespace 删除命名空间内的所有 Pod，保留其他所有资源（Service /
+// NetworkPolicy / PVC / ResourceQuota / LimitRange）。
+//
+// 暂停实验时调用：仅 Pod 真正消耗节点 CPU / 内存，删除即可释放配额；其它资源都是
+// etcd 元数据 + 选择器，不消耗算力，保留它们让恢复时重建的 Pod 自动通过同名 label
+// selector 接管 Service 路由 / NetworkPolicy 隔离 / PVC 数据，零额外动作。
+//
+// 这是修正之前误用 DeleteNamespace 做暂停清理的根因：
+//
+//  1. namespace 级联删除是异步的，Terminating 阶段未完成时 CreateNamespace 会失败，
+//     用户实测点"恢复"立刻看到 `pods is forbidden: ... namespace is being terminated`。
+//  2. namespace 级联会把 PVC 一起带走，与文档 §6.3 "按 default_volumes 自动创建 PV"
+//     声明的持久语义直接矛盾，pause/resume 等于 100% 丢数据。
+//
+// Destroy / Submit / Restart 仍走 DeleteNamespace，namespace 级联删除一次性清干净
+// 包括 PVC，对应 F-39 "重新开始：从初始状态" 的语义。
+func (k *k8sClient) DeletePodsInNamespace(ctx context.Context, namespace string) error {
+	if strings.TrimSpace(namespace) == "" {
+		return nil
+	}
+	if err := k.clientset.CoreV1().Pods(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("删除命名空间 %s 内 Pod 失败: %w", namespace, err)
+	}
+	return nil
+}
+
+// ensurePVC 在指定命名空间内幂等创建 PersistentVolumeClaim。
+//
+// 设计要点：
+//   - 名称即 VolumeSpec.Name，与 Pod 中 PersistentVolumeClaim.ClaimName 相同，方便人肉
+//     在 kubectl 里追溯；同名 PVC 已存在直接返回（snapshot 恢复 / Pod 重建复用同一 PVC）。
+//   - storageClassName 不指定，沿用集群默认 StorageClass：
+//       * 本地开发（Docker Desktop / kind / minikube）：自带 hostpath / standard；
+//       * 生产 K8s：由集群运维统一规划（NFS / Ceph / Longhorn 见文档 §6.2）。
+//   - AccessMode = ReadWriteOnce：实验 Pod 全部固定单副本（RestartPolicyNever，调度到
+//     单一节点），多容器跨容器共享靠 Pod 级 volumeMounts 即可，无需 ReadWriteMany。
+//   - Labels 透传 Pod 标签（instance_id 等），便于按实验维度排查 / 清理。
+func (k *k8sClient) ensurePVC(ctx context.Context, namespace, name, size string, labels map[string]string) error {
+	quantity, err := resource.ParseQuantity(size)
+	if err != nil {
+		return fmt.Errorf("解析存储容量 %q 失败: %w", size, err)
+	}
+	if _, err := k.clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{}); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("查询 PVC 失败: %w", err)
+	}
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: quantity,
+				},
+			},
+		},
+	}
+	if _, err := k.clientset.CoreV1().PersistentVolumeClaims(namespace).Create(ctx, pvc, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("创建 PVC 失败: %w", err)
+	}
+	return nil
+}
+
 // applyNamespaceResourceIsolation 为实验命名空间应用资源配额和默认资源限制。
 func (k *k8sClient) applyNamespaceResourceIsolation(ctx context.Context, namespace string, spec *NamespaceResourceSpec) error {
 	if spec == nil {
@@ -240,10 +308,20 @@ func buildNamespaceLimitRange(namespace string, spec *NamespaceResourceSpec) *co
 // Pod 管理
 // ---------------------------------------------------------------------------
 
-// DeployPod 部署 Pod（含 Service 和可选 NetworkPolicy）
+// DeployPod 部署 Pod（含 Service 和可选 NetworkPolicy）。
+//
+// Pod 内容器路由规则：
+//   - cs.IsInitContainer=true → 进 PodSpec.InitContainers（K8s 串行 exec，全部退出 0 后才
+//     启动主容器）。用于业务 bootstrap：cryptogen 生成 MSP、configtxgen 生成 channel artifacts
+//     等。
+//   - cs.IsInitContainer=false（默认）→ 进 PodSpec.Containers（主容器）。
+//
+// 由 WaitForTCP 自动派生的 wait-for-deps 容器也会被追加到 InitContainers 末尾（业务
+// bootstrap 优先跑，依赖等待最后跑），保证主容器启动时既有 MSP 也有外部依赖就绪。
 func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*DeployPodResponse, error) {
 	// 构建容器列表
 	containers := make([]corev1.Container, 0, len(req.Containers))
+	userInitContainers := make([]corev1.Container, 0)
 	for _, cs := range req.Containers {
 		container := corev1.Container{
 			Name:  cs.Name,
@@ -251,11 +329,34 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 			// 本地构建/预拉取的镜像直接复用，避免 K8s 对 :latest 标签默认 Always 重拉
 			// 触发对占位 registry（如 registry.lianjing.com）的 DNS 查询失败导致 ImagePullBackOff。
 			ImagePullPolicy: corev1.PullIfNotPresent,
+			// 实验业务容器是第三方官方镜像（postgres/redis/code-server/remix-ide/blockscout 等），
+			// 其入口脚本普遍以 root 启动后通过 gosu/su-exec/su 切换到非特权用户，必须依赖
+			// Docker 默认能力集中的 CHOWN/DAC_OVERRIDE/FOWNER/FSETID/SETUID/SETGID/SETPCAP/
+			// NET_BIND_SERVICE/KILL 等基础能力。若 Drop:["ALL"]，所有这类镜像在 setuid 第一步
+			// 就会以 ExitCode 1 / Pod phase=Failed 立刻退出（详见 docs/modules/04-实验环境/
+			// 07-实验类型与环境配置.md §6 容器安全约束）。
+			//
+			// 生产策略：对齐 K8s PodSecurity "Baseline" 配置——保留 Docker 默认能力集，仅
+			// 显式 Drop 危险能力（内核操控、抓包、改时间等），同时通过 AllowPrivilegeEscalation
+			// =false + Privileged=false 锁死特权升级路径，再叠加 PodSpec 的 seccomp
+			// RuntimeDefault 完成 syscall 过滤。CTF 沙箱如需更严，可在 CTF 运行时按需进一步
+			// 收紧而不是改动通用实验路径。
 			SecurityContext: &corev1.SecurityContext{
 				AllowPrivilegeEscalation: boolPtr(false),
 				Privileged:               boolPtr(false),
 				Capabilities: &corev1.Capabilities{
-					Drop: []corev1.Capability{"ALL"},
+					Drop: []corev1.Capability{
+						"SYS_ADMIN",
+						"SYS_MODULE",
+						"SYS_RAWIO",
+						"SYS_PTRACE",
+						"SYS_BOOT",
+						"SYS_TIME",
+						"NET_ADMIN",
+						"NET_RAW",
+						"MAC_ADMIN",
+						"MAC_OVERRIDE",
+					},
 				},
 			},
 		}
@@ -318,26 +419,72 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 			container.Args = cs.Args
 		}
 
-		containers = append(containers, container)
+		if cs.IsInitContainer {
+			userInitContainers = append(userInitContainers, container)
+		} else {
+			containers = append(containers, container)
+		}
 	}
 
 	if req.Collector != nil {
 		containers = append(containers, k.buildCollectorContainer(req.Collector))
 	}
 
-	// 构建 Pod 卷（为每个 VolumeSpec 创建 emptyDir）
+	// 应用层依赖等待（initContainer 模式）。
+	//
+	// 主容器启动前，跑一个 busybox initContainer 通过 `nc -z` 阻塞到所有依赖
+	// host:port 都已 listen。这覆盖了"K8s 报 Pod Running 但应用还在 initdb /
+	// 启动 BEAM VM / cryptogen 中"的间隙——纯 K8s 调度顺序无法等到应用真正
+	// 就绪，会让 blockscout/CouchDB 等下游容器连接被拒后立即退出，
+	// phase=Succeeded 看起来"正常完成"实则启动失败。
+	//
+	// 用 busybox:1.36（标准最小镜像 < 5MB），imagePullPolicy=IfNotPresent 复用集群缓存。
+	// 整个 wait 命令是 `for tgt in ...; do until nc -z host port; do sleep 1; done; done`，
+	// 单 init 进程串行等所有依赖，与 docker-compose 的 depends_on 健康检查语义对齐。
+	//
+	// 顺序：user bootstrap init 先跑（cryptogen / configtxgen），wait-for-deps 后跑
+	// （等外部依赖 TCP 就绪）。这样 MSP 在主容器启动前就位，依赖就绪也得到验证。
+	initContainers := append([]corev1.Container{}, userInitContainers...)
+	initContainers = append(initContainers, buildWaitForTCPInitContainers(req.Containers)...)
+
+	// 构建 Pod 卷。
+	//
+	// 卷类型规则（详见 VolumeSpec 注释，与文档 09-部署与运维/02 §6.3 一致）：
+	//   - Size 非空：image.default_volumes 声明的持久数据，提前建 PVC（按 size 容量）
+	//     并在 Pod 中以 PersistentVolumeClaim 引用；同名 VolumeSpec 共用一份 PVC，
+	//     允许 Pod 内多容器（init / 主容器）跨容器共享。Pod 重启 / 节点漂移后数据
+	//     保留；instance 销毁时由 namespace 级联删除统一回收 PVC，无需手动清理。
+	//   - Size 空：临时 Pod 内共享卷，使用 emptyDir，Pod 销毁即回收。
+	//
+	// PVC 不指定 storageClassName，沿用集群默认 StorageClass（dev/prod 都自带）。
 	volumes := make([]corev1.Volume, 0)
 	volumeNameSet := make(map[string]bool)
 	for _, cs := range req.Containers {
 		for _, v := range cs.Volumes {
-			if !volumeNameSet[v.Name] {
+			if volumeNameSet[v.Name] {
+				continue
+			}
+			volumeNameSet[v.Name] = true
+			if v.Size != "" {
+				if err := k.ensurePVC(ctx, req.Namespace, v.Name, v.Size, req.Labels); err != nil {
+					return nil, fmt.Errorf("创建 PVC %s 失败: %w", v.Name, err)
+				}
+				volumes = append(volumes, corev1.Volume{
+					Name: v.Name,
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: v.Name,
+							ReadOnly:  v.ReadOnly,
+						},
+					},
+				})
+			} else {
 				volumes = append(volumes, corev1.Volume{
 					Name: v.Name,
 					VolumeSource: corev1.VolumeSource{
 						EmptyDir: &corev1.EmptyDirVolumeSource{},
 					},
 				})
-				volumeNameSet[v.Name] = true
 			}
 		}
 	}
@@ -349,6 +496,7 @@ func (k *k8sClient) DeployPod(ctx context.Context, req *DeployPodRequest) (*Depl
 			Labels:    req.Labels,
 		},
 		Spec: corev1.PodSpec{
+			InitContainers: initContainers,
 			Containers:    containers,
 			Volumes:       volumes,
 			RestartPolicy: corev1.RestartPolicyNever,
@@ -682,6 +830,93 @@ func (k *k8sClient) ListPods(ctx context.Context, namespace string, labels map[s
 // ExecInPod 在 Pod 容器中执行命令
 func (k *k8sClient) ExecInPod(ctx context.Context, namespace, podName, container, command string) (*ExecResult, error) {
 	return k.execInPod(ctx, namespace, podName, container, []string{"/bin/sh", "-c", command}, nil)
+}
+
+// ExecPodPTY 在 Pod 容器内启动 PTY 进程，把 stdin/stdout/resize 桥接到调用方。
+//
+// 实现要点：
+//   - 使用 K8s Pod exec subresource（POST .../exec?stdin&stdout&stderr&tty&container=...），
+//     这是行业标准的容器交互通道（kubectl exec / Lens / Rancher / OpenShift Web Terminal
+//     全部基于该路径）。NetworkPolicy / Pod 端口 / Service / Ingress 完全不参与，权限仅
+//     来自 backend 的 ServiceAccount，业务边界已在 service 层完成。
+//   - Stderr 合并到 Stdout：TTY 模式下 K8s 本身就只用一条流（PTY 没有独立 stderr 概念），
+//     拆开反而打乱 ANSI 转义。
+//   - TerminalSizeQueue 由匿名实现包装调用方传入的 <-chan TerminalSize，channel 关闭时
+//     返回 nil 让 client-go 自然停止下发 SIGWINCH，不 panic。
+func (k *k8sClient) ExecPodPTY(ctx context.Context, req *ExecPodPTYRequest) error {
+	if req == nil {
+		return fmt.Errorf("exec pty request is nil")
+	}
+	if req.Stdin == nil || req.Stdout == nil {
+		return fmt.Errorf("exec pty stdin/stdout must not be nil")
+	}
+	command := req.Command
+	if len(command) == 0 {
+		// 默认 PTY shell 选取策略（可被 ExecPodPTYRequest.Command 显式覆盖）：
+		//
+		//   1) 镜像里有 bash —— 拉起 `bash -l`（登录交互 shell），它会 source
+		//      /etc/profile + ~/.bashrc，标准 Debian / Ubuntu 系镜像（code-server 的
+		//      coder 用户、jupyter 的 jovyan、postgres / fabric-tools / dapp-dev）
+		//      这条路径会得到 `\u@\h:\w\$ ` 的提示符，cwd 实时显示。
+		//
+		//   2) 镜像里没有 bash（典型：alpine 系的 geth / redis / xterm-server）——
+		//      显式注入 PS1，使用 `$(whoami)@$(hostname):$PWD$ `。POSIX sh 在每次
+		//      渲染提示符前会重新做参数与命令替换，所以 cwd 切换后下一行提示符
+		//      自动跟随，不需要 PROMPT_COMMAND。
+		//
+		// 这个默认值只影响"未显式指定 Command"的场景，service 层调用 ExecPodPTY
+		// 仍可以传入业务专用命令（如 `geth attach`、`psql -U ...`）走容器原生 CLI。
+		command = []string{"sh", "-c", `if command -v bash >/dev/null 2>&1; then exec bash -l; else PS1='$(whoami)@$(hostname):$PWD$ '; export PS1; exec /bin/sh; fi`}
+	}
+
+	execReq := k.clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(req.PodName).
+		Namespace(req.Namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: req.Container,
+			Command:   command,
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    false,
+			TTY:       true,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(k.restConfig, "POST", execReq.URL())
+	if err != nil {
+		return fmt.Errorf("创建 PTY 执行器失败: %w", err)
+	}
+
+	streamOpts := remotecommand.StreamOptions{
+		Stdin:             req.Stdin,
+		Stdout:            req.Stdout,
+		Tty:               true,
+		TerminalSizeQueue: ptySizeQueue{ch: req.Resize},
+	}
+	if err := executor.StreamWithContext(ctx, streamOpts); err != nil {
+		return fmt.Errorf("PTY 流执行失败: %w", err)
+	}
+	return nil
+}
+
+// ptySizeQueue 将 <-chan TerminalSize 适配为 client-go 的 TerminalSizeQueue 接口。
+// 当通道关闭后 Next 返回 nil，告诉 client-go 终止 SIGWINCH 下发。
+type ptySizeQueue struct {
+	ch <-chan TerminalSize
+}
+
+// Next 阻塞读取下一个 resize 事件；channel 关闭返回 nil。
+func (q ptySizeQueue) Next() *remotecommand.TerminalSize {
+	if q.ch == nil {
+		// 一旦消费就阻塞到 ctx 取消——客户端未发 resize 时此 goroutine 静止。
+		select {}
+	}
+	size, ok := <-q.ch
+	if !ok {
+		return nil
+	}
+	return &remotecommand.TerminalSize{Width: size.Width, Height: size.Height}
 }
 
 // GetPodLogs 获取 Pod 容器日志
@@ -1230,6 +1465,77 @@ func (k *k8sClient) resolveReadyPrePullNodes(ctx context.Context, requested []st
 // boolPtr 返回布尔指针，便于填充 K8s 安全上下文字段。
 func boolPtr(value bool) *bool {
 	return &value
+}
+
+// waitForTCPInitImage 是依赖等待 initContainer 使用的镜像。busybox 自带 nc(netcat)，
+// 体积仅几 MB；imagePullPolicy=IfNotPresent 让首个 Pod 拉一次后整个集群复用，避免
+// 私有 registry 不可达时无法启动业务实验。
+const waitForTCPInitImage = "busybox:1.36"
+
+// buildWaitForTCPInitContainers 把 ContainerSpec.WaitForTCP 翻译为单个 Pod 级
+// initContainer，串行 nc -z 等待所有依赖 host:port 可建联后退出。
+//
+// 设计取舍：
+//   - 单 init 容器、串行等待——比"每个依赖一个 init"语义等价但更省调度开销；
+//     init 串行执行本就是 K8s 默认行为，单容器内 for 循环更直接。
+//   - 失败策略：nc 不可用 / DNS 解析失败 / 端口永不就绪 → init 阻塞 → Pod 长时间
+//     处于 PodInitializing → DeployPod 等待超时返回错误，错误会冒泡到 instance_service
+//     的 K8s 部署失败处理，与现有错误链路对齐，无需新增分支。
+//   - 不与 readinessProbe 重复：readiness 是"运行中容器是否准备好接流量"，覆盖不了
+//     "依赖未就绪导致主进程一启动就退出"这一启动时窗口。两者职责不重合。
+//
+// 返回 nil 表示无依赖，调用方直接传给 PodSpec.InitContainers 也安全（nil slice）。
+func buildWaitForTCPInitContainers(specs []ContainerSpec) []corev1.Container {
+	targets := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, cs := range specs {
+		for _, t := range cs.WaitForTCP {
+			t = strings.TrimSpace(t)
+			if t == "" || seen[t] {
+				continue
+			}
+			seen[t] = true
+			targets = append(targets, t)
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	// 用引号 + 空格分隔的 shell 列表；逐个 nc -z 等待，间隔 1s 重试。
+	// `nc -w 2` 设单次 connect 超时 2s，避免 DNS 解析慢时白等。
+	listLiteral := "'" + strings.Join(targets, "' '") + "'"
+	script := fmt.Sprintf(
+		"set -e; for tgt in %s; do host=${tgt%%:*}; port=${tgt##*:}; "+
+			"echo \"[wait-for-tcp] $tgt\"; "+
+			"until nc -z -w 2 \"$host\" \"$port\" 2>/dev/null; do sleep 1; done; "+
+			"echo \"[wait-for-tcp] $tgt ready\"; done",
+		listLiteral,
+	)
+	return []corev1.Container{
+		{
+			Name:            "wait-for-deps",
+			Image:           waitForTCPInitImage,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Command:         []string{"/bin/sh", "-c", script},
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("32Mi"),
+				},
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("50m"),
+					corev1.ResourceMemory: resource.MustParse("16Mi"),
+				},
+			},
+			SecurityContext: &corev1.SecurityContext{
+				AllowPrivilegeEscalation: boolPtr(false),
+				Privileged:               boolPtr(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+			},
+		},
+	}
 }
 
 // protocolPtr 返回协议指针，便于拼装 NetworkPolicy 端口。

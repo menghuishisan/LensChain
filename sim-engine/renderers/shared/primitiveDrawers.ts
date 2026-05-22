@@ -508,22 +508,6 @@ const drawPhaseProgress: PrimitiveDrawer = (p, env) => {
   }
 };
 
-const drawProgressBar: PrimitiveDrawer = (p, env) => {
-  const pos = requirePos(p, env);
-  const value = asNumber(p.params.value, 0);
-  const max = Math.max(1, asNumber(p.params.max, 1));
-  const ratio = clamp(value / max, 0, 1);
-  const label = asString(p.params.label, "");
-  const w = pos.width ?? 160;
-  const h = 8;
-  const { ctx } = env;
-  if (label) drawText(ctx, label, pos.x, pos.y - 10, { color: env.theme.muted, size: 10, align: "center" });
-  ctx.fillStyle = withAlpha(env.theme.muted, 0.2);
-  ctx.fillRect(pos.x - w / 2, pos.y, w, h);
-  ctx.fillStyle = env.theme.accent;
-  ctx.fillRect(pos.x - w / 2, pos.y, w * ratio, h);
-};
-
 const drawTargetZone: PrimitiveDrawer = (p, env) => {
   const pos = requirePos(p, env);
   const label = asString(p.params.label, "");
@@ -609,29 +593,6 @@ const drawVerifyPathHighlight: PrimitiveDrawer = (p, env) => {
       }
     }
   }
-};
-
-const drawRiskGauge: PrimitiveDrawer = (p, env) => {
-  const pos = requirePos(p, env);
-  const value = clamp(asNumber(p.params.value, 0), 0, 1);
-  const r = 30;
-  const { ctx } = env;
-  // arc 底
-  ctx.beginPath();
-  ctx.arc(pos.x, pos.y + 10, r, Math.PI, 0);
-  ctx.strokeStyle = withAlpha(env.theme.muted, 0.3);
-  ctx.lineWidth = 6;
-  ctx.stroke();
-  // 当前
-  const color = value > 0.66 ? env.theme.danger : value > 0.33 ? env.theme.warning : env.theme.success;
-  ctx.beginPath();
-  ctx.arc(pos.x, pos.y + 10, r, Math.PI, Math.PI + Math.PI * value);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 6;
-  ctx.lineCap = "round";
-  ctx.stroke();
-  ctx.lineCap = "butt";
-  drawText(ctx, `${Math.round(value * 100)}%`, pos.x, pos.y + 12, { color, size: 12, weight: 700 });
 };
 
 // ============================================================
@@ -902,21 +863,31 @@ const drawCurvePoint: PrimitiveDrawer = (p, env) => {
 // 注册表（仅 33 canvas 原语）
 // ============================================================
 
-/** 画在 canvas 的 33 个原语 type。 */
+/**
+ * 画在 canvas 的 31 个原语 type。
+ *
+ * 与 layoutSolver.NON_CANVAS_TYPES 互补：47 原语中 9 个 DOM 渲染（code_block /
+ * math_formula / register_row / progress_bar / risk_gauge / tooltip / annotation /
+ * math_pipeline / error_overlay）+ 6 个布局容器（不直接画但解算位置） + 1 个 label
+ * （DOM 浮层，按 anchor 决定）= 16 个非 canvas，剩 31 个 canvas。
+ *
+ * progress_bar / risk_gauge 自 06.md §3.2.5 调整后从 canvas 移除（下沉为 SimSceneSlot
+ * ▼ 内容类原语 dropdown 的 DOM 渲染，详 redesign-proposal §② 明文判定）。
+ */
 export const CANVAS_PRIMITIVE_TYPES: ReadonlySet<PrimitiveType> = new Set<PrimitiveType>([
   // 几何 8
   "node", "edge", "bar", "curve", "polygon", "area", "grid_cell", "ring",
   // 动效 7
   "particle_stream", "burst", "pulse", "trail", "glow", "shake", "shift_animation",
-  // 状态 7（不含 error_overlay）
-  "phase_progress", "progress_bar", "target_zone", "link_indicator",
-  "external_event_marker", "verify_path_highlight", "risk_gauge",
+  // 状态 5（progress_bar / risk_gauge / error_overlay 走 DOM）
+  "phase_progress", "target_zone", "link_indicator",
+  "external_event_marker", "verify_path_highlight",
   // 领域 11
   "vote_matrix", "dual_track", "time_wheel", "pie_chart", "sankey_flow", "heat_map",
   "mempool_slot", "bridge_track", "code_marker", "partition_zone", "curve_point",
 ]);
 
-/** 33 个 canvas drawer 注册表；renderer 严格只用此表查找。 */
+/** 31 个 canvas drawer 注册表；renderer 严格只用此表查找。 */
 export const PRIMITIVE_DRAWER_MAP: ReadonlyMap<PrimitiveType, PrimitiveDrawer> = new Map<PrimitiveType, PrimitiveDrawer>([
   // 几何
   ["node", drawNode],
@@ -935,14 +906,12 @@ export const PRIMITIVE_DRAWER_MAP: ReadonlyMap<PrimitiveType, PrimitiveDrawer> =
   ["glow", drawGlow],
   ["shake", drawShake],
   ["shift_animation", drawShiftAnimation],
-  // 状态
+  // 状态（progress_bar / risk_gauge 已下沉 DOM，详 06.md §3.2.5）
   ["phase_progress", drawPhaseProgress],
-  ["progress_bar", drawProgressBar],
   ["target_zone", drawTargetZone],
   ["link_indicator", drawLinkIndicator],
   ["external_event_marker", drawExternalEventMarker],
   ["verify_path_highlight", drawVerifyPathHighlight],
-  ["risk_gauge", drawRiskGauge],
   // 领域
   ["vote_matrix", drawVoteMatrix],
   ["dual_track", drawDualTrack],

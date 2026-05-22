@@ -991,7 +991,11 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 		vIDs = append(vIDs, k)
 	}
 	sort.Strings(vIDs)
-	prims = append(prims, fw.PrimRingLayout("validator-ring", len(vIDs)))
+	validatorRingIDs := make([]string, len(vIDs))
+	for i, id := range vIDs {
+		validatorRingIDs[i] = "v-" + id
+	}
+	prims = append(prims, fw.PrimRingLayout("validator-ring", validatorRingIDs))
 	for _, id := range vIDs {
 		v := st.Validators[id]
 		role := "validator-active"

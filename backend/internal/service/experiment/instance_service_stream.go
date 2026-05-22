@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sort"
 	"strconv"
@@ -26,17 +27,6 @@ import (
 	jwtpkg "github.com/lenschain/backend/internal/pkg/jwt"
 )
 
-// terminalToolWebSocketPath 是 tool_kind="terminal" 镜像必须暴露的 WebSocket 路径。
-//
-// 这是平台 ↔ 镜像之间的协议合约（不是 service 层业务逻辑）：所有以 tool_kind=terminal
-// 注册到平台的镜像都必须在该路径上提供 PTY WebSocket。当前唯一实现是 deploy/images/
-// tools/xterm-server。如果将来引入新的终端工具镜像（如 ttyd），其 Dockerfile 必须把内部
-// WS 端点路由到 "/ws"——平台契约不会为单个镜像让路。
-//
-// 端口不在此处声明：每个镜像的端口由 images.default_ports / template_containers.ports
-// JSON 字段管理（mergePorts 解析），通过 resolveContainerFirstPort 数据驱动获取。
-const terminalToolWebSocketPath = "/ws"
-
 // TerminalStreamInfo 远程终端只读流所需的目标信息。
 type TerminalStreamInfo struct {
 	Namespace     string
@@ -50,22 +40,20 @@ type TerminalOutput struct {
 	Data      string
 }
 
-// TerminalProxyTarget xterm-server WebSocket 代理目标信息。
+// TerminalProxyTarget Web 终端 PTY 执行目标。
 //
-// 不暴露任何 URL：实验 Pod 的网络可达性必须通过 K8s API 的 SPDY portforward 隧道实现，
-// 不允许使用 Pod IP / Service ClusterIP / NodePort（详见 k8s_portforward.go 与
-// docs/modules/09-部署与运维/02-基础设施设计.md §2.4）。
+// Web 终端通过 K8s Pod exec subresource 在目标容器内直接拉起 PTY（kubectl exec / Lens /
+// Rancher / OpenShift Web Terminal 一致路径），不再依赖任何 sidecar 终端镜像。任意 Running
+// 容器只要内置 /bin/sh（绝大多数官方 / Alpine / distroless-debian 镜像默认满足）即可作为
+// 终端目标。调用方拿到该目标后应调用 K8sService.ExecPodPTY 完成 PTY 双向桥接。
 //
-// 调用方拿到该目标后应调用 InstanceService.DialPodPort(ctx, Namespace, PodName, Port)
-// 取得 net.Conn，再交给 gorilla/websocket Dialer.NetDialContext 完成 WS 拨号。
+// 不暴露任何 URL / Port：exec 子资源走 K8s API server 的 SPDY 流，业务边界已在 Resolve 阶段
+// 完成（本人 / Running / 该实例容器）。
 type TerminalProxyTarget struct {
 	InstanceID    int64
 	ContainerName string
 	Namespace     string
 	PodName       string
-	Port          int
-	// WebSocketPath xterm-server 内部的 WebSocket 路径（"/ws"）。
-	WebSocketPath string
 }
 
 // ToolProxyTarget 工具 iframe 反代目标信息（code-server / blockscout / VNC 桌面等）。
@@ -112,37 +100,39 @@ func (s *instanceService) GetTerminalStreamInfo(ctx context.Context, sc *svcctx.
 	return s.resolveTerminalStreamInfo(ctx, instance, "")
 }
 
-// ResolveTerminalProxyTarget 查找实例中的终端工具容器（images.tool_kind = 'terminal'）
-// 并返回 WebSocket 代理目标。
-// 当未指定容器名时，自动查找终端工具容器；当指定的容器名恰好是终端工具容器时使用 PTY 模式。
-// 返回 nil, nil 表示实例未挂载终端工具容器。
-// 终端 kind 取值规范见 docs/modules/04-实验环境/02-数据库设计.md §2.16。
+// ResolveTerminalProxyTarget 解析 Web 终端 PTY 目标容器。
+//
+// 终端通道走 K8s exec subresource，**目标可以是该实例内任意 Running 容器**——这是工业
+// 标准做法（kubectl exec / Lens / Rancher / OpenShift），让学生在 redis 容器里直接用
+// redis-cli、在 postgres 容器里直接用 psql、在 geth 容器里直接用 geth attach，工具按
+// 镜像自然就绪，不再依赖任何 "tool_kind=terminal" 的 sidecar。
+//
+// 容器选择规则（与前端 ExperimentInstancePanel 容器选择器一致）：
+//   - containerName 非空：必须精确匹配该实例内的容器；不匹配返回 nil, nil 让 handler 报错。
+//   - containerName 为空：选择首个 Pod 已就绪（PodName 已写入）的容器，默认入口的稳定性
+//     由 template_containers.sort_order 保证（仓库已按 sort_order 排序返回容器列表）。
+//
+// 返回 nil, nil 表示实例没有任何就绪容器可作为终端目标（实例刚启动 / 全部已终止）。
 func (s *instanceService) ResolveTerminalProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, id int64, containerName string) (*TerminalProxyTarget, error) {
 	namespace, containers, err := s.loadOwnedRunningInstanceContainers(ctx, sc, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// 指定了容器名：仅当该容器是终端工具容器时走 PTY 代理
-	if containerName != "" {
-		for _, c := range containers {
-			if c.ContainerName != containerName {
-				continue
-			}
-			if !isReadyToolContainer(c, "terminal") {
-				return nil, nil
-			}
-			return s.buildTerminalProxyTarget(ctx, id, namespace, c)
-		}
-		return nil, nil
-	}
-
-	// 未指定容器名：自动查找终端工具容器
+	containerName = strings.TrimSpace(containerName)
 	for _, c := range containers {
-		if !isReadyToolContainer(c, "terminal") {
+		if c == nil || c.PodName == nil || *c.PodName == "" {
 			continue
 		}
-		return s.buildTerminalProxyTarget(ctx, id, namespace, c)
+		if containerName != "" && c.ContainerName != containerName {
+			continue
+		}
+		return &TerminalProxyTarget{
+			InstanceID:    id,
+			ContainerName: c.ContainerName,
+			Namespace:     namespace,
+			PodName:       *c.PodName,
+		}, nil
 	}
 
 	return nil, nil
@@ -278,24 +268,6 @@ func isReadyToolContainer(c *entity.InstanceContainer, kind string) bool {
 	return true
 }
 
-// buildTerminalProxyTarget 把已就绪的终端工具容器封装为 TerminalProxyTarget。
-// WebSocket 路径固定为 terminalToolWebSocketPath（平台与镜像的协议契约，不是业务逻辑）；
-// 端口走 resolveContainerFirstPort 数据驱动。
-func (s *instanceService) buildTerminalProxyTarget(ctx context.Context, instanceID int64, namespace string, c *entity.InstanceContainer) (*TerminalProxyTarget, error) {
-	port, err := s.resolveContainerFirstPort(ctx, c)
-	if err != nil {
-		return nil, err
-	}
-	return &TerminalProxyTarget{
-		InstanceID:    instanceID,
-		ContainerName: c.ContainerName,
-		Namespace:     namespace,
-		PodName:       *c.PodName,
-		Port:          port,
-		WebSocketPath: terminalToolWebSocketPath,
-	}, nil
-}
-
 // resolveContainerFirstPort 从 template_container.ports / image.default_ports 解析首个端口。
 //
 // 路径：instance_container.template_container_id → template_containers.ports（含 image
@@ -335,6 +307,28 @@ func (s *instanceService) DialPodPort(ctx context.Context, namespace, podName st
 		return nil, fmt.Errorf("k8s service is not configured")
 	}
 	return s.k8sSvc.DialPodPort(ctx, namespace, podName, port)
+}
+
+// ExecTerminalPTY 在已解析的终端目标容器内启动 PTY 进程并桥接 stdin/stdout/resize。
+//
+// 该方法是 handler 与 K8sService.ExecPodPTY 之间的薄包装：业务边界（本人 / Running /
+// 该实例容器）已在 ResolveTerminalProxyTarget 完成，本方法只做参数转发 + 注入 k8s 客户端。
+// handler 不直接依赖 K8sService，保持分层。
+func (s *instanceService) ExecTerminalPTY(ctx context.Context, target *TerminalProxyTarget, stdin io.Reader, stdout io.Writer, resize <-chan TerminalSize) error {
+	if s.k8sSvc == nil {
+		return fmt.Errorf("k8s service is not configured")
+	}
+	if target == nil {
+		return fmt.Errorf("terminal target is nil")
+	}
+	return s.k8sSvc.ExecPodPTY(ctx, &ExecPodPTYRequest{
+		Namespace: target.Namespace,
+		PodName:   target.PodName,
+		Container: target.ContainerName,
+		Stdin:     stdin,
+		Stdout:    stdout,
+		Resize:    resize,
+	})
 }
 
 // GetTerminalOutput 获取教师远程查看学生终端的当前输出快照。

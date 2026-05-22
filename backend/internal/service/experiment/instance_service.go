@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/lenschain/backend/internal/model/dto"
 	"github.com/lenschain/backend/internal/model/entity"
@@ -48,8 +48,12 @@ type InstanceService interface {
 	// 该方法封装"签什么 token / cookie path 怎么算 / TTL 多少"等业务决策，避免 handler 触碰 jwt pkg。
 	IssueToolProxyAccess(ctx context.Context, sc *svcctx.ServiceContext, id int64, toolKind string) (*ToolProxyAccess, error)
 	// DialPodPort 通过 SPDY portforward 隧道建立到 Pod 端口的 net.Conn，用于 handler 在该 conn 上
-	// 跑 WebSocket 握手或 HTTP 反代。业务边界已由 Resolve***ProxyTarget 校验，本方法不重复校验。
+	// 跑 HTTP 反代 / iframe 工具透传。业务边界已由 Resolve***ProxyTarget 校验，本方法不重复校验。
 	DialPodPort(ctx context.Context, namespace, podName string, port int) (net.Conn, error)
+	// ExecTerminalPTY 在终端目标容器内启动 PTY 并桥接 stdin/stdout/resize。Web 终端 WebSocket
+	// handler 调用此方法把客户端 IO 接入 K8s exec 子资源。业务边界已由 ResolveTerminalProxyTarget
+	// 校验，本方法不重复校验。
+	ExecTerminalPTY(ctx context.Context, target *TerminalProxyTarget, stdin io.Reader, stdout io.Writer, resize <-chan TerminalSize) error
 	GetTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, id int64, tailLines int) (*TerminalOutput, error)
 	GetGroupMemberTerminalOutput(ctx context.Context, sc *svcctx.ServiceContext, groupID, studentID int64, tailLines int) (*TerminalOutput, error)
 	GetSimEngineProxyTarget(ctx context.Context, sc *svcctx.ServiceContext, sessionID string) (*SimEngineProxyTarget, error)
@@ -122,7 +126,6 @@ type instanceService struct {
 	courseGradeSyncer     CourseGradeSyncer
 	enrollmentChecker     EnrollmentChecker
 	eventDispatcher       NotificationEventDispatcher
-	toolProxyBaseURL      string
 }
 
 const (
@@ -238,7 +241,6 @@ func NewInstanceService(
 	courseGradeSyncer CourseGradeSyncer,
 	enrollmentChecker EnrollmentChecker,
 	eventDispatcher NotificationEventDispatcher,
-	toolProxyBaseURL string,
 ) InstanceService {
 	return &instanceService{
 		db:                    db,
@@ -270,7 +272,6 @@ func NewInstanceService(
 		courseGradeSyncer:     courseGradeSyncer,
 		enrollmentChecker:     enrollmentChecker,
 		eventDispatcher:       eventDispatcher,
-		toolProxyBaseURL:      toolProxyBaseURL,
 	}
 }
 
@@ -719,9 +720,9 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 					collectorSpec.CoreWebSocketURL = collectorWebSocketURL
 				}
 				deployReq := &DeployPodRequest{
-					Namespace:     sharedNamespace,
-					PodName:       sharedPodName,
-					Containers:    []ContainerSpec{containerSpec},
+					Namespace:  sharedNamespace,
+					PodName:    sharedPodName,
+					Containers: []ContainerSpec{containerSpec},
 					Labels: map[string]string{
 						"app":            "lenschain-experiment",
 						"template-id":    strconv.FormatInt(instance.TemplateID, 10),
@@ -751,31 +752,70 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 			}
 		}
 
-		// 部署容器
-		for _, tc := range containerPlan.Containers {
-			containerSpec, collectorSpec, err := s.buildContainerSpecWithServiceDiscovery(
-				ctx,
-				tc,
-				template,
-				serviceDiscoveryEnv,
-			)
-			if err != nil {
-				errMsg = fmt.Sprintf("构建容器 %s 规格失败: %v", tc.ContainerName, err)
-				return
+		// 预取本实例已有 instance_containers，键为 template_container_id：
+		//   - 首次创建实例：列表为空，部署循环里走 Create 分支。
+		//   - Resume / RestoreSnapshot：上一轮的 instance_containers 行依然存在（Pause
+		//     只把状态置为 stopped 并清空 PodName/InternalIP）。本轮必须 UpdateFields
+		//     在原行写入新 PodName/InternalIP/Status，而不是再 Create 一条同 instance_id
+		//     + 同 template_container_id 的重复行；否则 ListByInstanceID 返回 N×重复，
+		//     前端容器选择器把同一容器渲染多次，且 ResolveTerminalProxyTarget 拿到的
+		//     PodName 可能是已被新 Pod 替换的旧值，导致 PTY 流挂在已删除的 Pod 上、
+		//     终端持续显示"已连接"却接不到任何 stdin。
+		existingContainersByTemplateID := make(map[int64]*entity.InstanceContainer)
+		if existingContainers, listErr := s.containerRepo.ListByInstanceID(ctx, instance.ID); listErr == nil {
+			for _, ic := range existingContainers {
+				if ic == nil {
+					continue
+				}
+				existingContainersByTemplateID[ic.TemplateContainerID] = ic
 			}
-			if collectorSpec != nil {
-				collectorSpec.SessionID = simSessionID
-				collectorSpec.CoreWebSocketURL = collectorWebSocketURL
+		}
+
+		// 部署容器：先按 pod_group 分组生成 PodPlan，再逐 Pod 部署。
+		//
+		// pod_group=NULL 的容器一组一 Pod，与历史行为一致；pod_group 非空的容器合并到
+		// 同一个 Pod，通过同名 emptyDir 共享文件、通过 is_init_container 表达启动顺序。
+		// 详见 docs/modules/04-实验环境/02-数据库设计.md §2.5 Pod 打包与卷共享语义。
+		podPlans := GroupContainersForDeployment(containerPlan.Containers, nsName)
+		for _, plan := range podPlans {
+			specs := make([]ContainerSpec, 0, len(plan.Containers))
+			// 同 Pod 内只允许一个 Collector sidecar（混合实验当前仅出现在单容器 Pod 上，
+			// 多容器 Pod 由 Fabric / 类似 bootstrap 场景使用，无需 Collector）。取第一个
+			// 非空 collectorSpec，其余忽略。
+			var collectorSpec *CollectorSidecarSpec
+			for _, tc := range plan.Containers {
+				spec, cSpec, err := s.buildContainerSpecWithServiceDiscovery(
+					ctx,
+					tc,
+					template,
+					serviceDiscoveryEnv,
+				)
+				if err != nil {
+					errMsg = fmt.Sprintf("构建容器 %s 规格失败: %v", tc.ContainerName, err)
+					return
+				}
+				if collectorSpec == nil && cSpec != nil {
+					cSpec.SessionID = simSessionID
+					cSpec.CoreWebSocketURL = collectorWebSocketURL
+					collectorSpec = cSpec
+				}
+				specs = append(specs, spec)
 			}
+
 			podLabels := map[string]string{
-				"app":            "lenschain-experiment",
-				"instance-id":    strconv.FormatInt(instance.ID, 10),
-				"container-name": tc.ContainerName,
+				"app":         "lenschain-experiment",
+				"instance-id": strconv.FormatInt(instance.ID, 10),
 			}
+			if plan.PodGroupKey != "" {
+				podLabels["pod-group"] = plan.PodGroupKey
+			} else {
+				podLabels["container-name"] = plan.Containers[0].ContainerName
+			}
+
 			deployReq := &DeployPodRequest{
 				Namespace:     nsName,
-				PodName:       fmt.Sprintf("%s-%s", nsName, tc.ContainerName),
-				Containers:    []ContainerSpec{containerSpec},
+				PodName:       plan.PodName,
+				Containers:    specs,
 				Labels:        podLabels,
 				NetworkPolicy: networkPolicy,
 				Collector:     collectorSpec,
@@ -783,26 +823,42 @@ func (s *instanceService) provisionEnvironment(ctx context.Context, instance *en
 
 			deployResp, err := s.k8sSvc.DeployPod(ctx, deployReq)
 			if err != nil {
-				errMsg = fmt.Sprintf("部署容器 %s 失败: %v", tc.ContainerName, err)
+				errMsg = fmt.Sprintf("部署 Pod %s 失败: %v", plan.PodName, err)
 				return
 			}
 
-			// 派生 tool_kind 与 proxy_url（仅工具镜像非空，对齐 docs/modules/04-实验环境/02-数据库设计.md §2.16）
-			toolKind, proxyURL := s.deriveContainerToolMeta(ctx, tc.ImageVersionID, instance.ID)
-
-			// 记录实例容器
-			ic := &entity.InstanceContainer{
-				ID:                  snowflake.Generate(),
-				InstanceID:          instance.ID,
-				TemplateContainerID: tc.ID,
-				ContainerName:       tc.ContainerName,
-				PodName:             &deployResp.PodName,
-				InternalIP:          &deployResp.InternalIP,
-				Status:              enum.ContainerStatusRunning,
-				ToolKind:            toolKind,
-				ProxyURL:            proxyURL,
+			// 每个 template_container 对应一条 instance_container 行（多容器 Pod 时多行
+			// 共享 PodName，与 K8s `kubectl exec -c <container>` 语义一一对应）。
+			//
+			// instance_containers 的生命周期与 instance 一致：首次创建实例时 Create，
+			// Pause 只把 PodName / InternalIP 置 NULL + status=stopped 保留行，Destroy
+			// 才整体删除。因此本处必须按 (instance_id, template_container_id) 做幂等
+			// upsert：existing 命中 → UpdateFields 在原行写新 Pod 信息；未命中 → Create。
+			for _, tc := range plan.Containers {
+				toolKind, proxyURL := s.deriveContainerToolMeta(ctx, tc.ImageVersionID, instance.ID)
+				if existing := existingContainersByTemplateID[tc.ID]; existing != nil {
+					_ = s.containerRepo.UpdateFields(ctx, existing.ID, map[string]interface{}{
+						"pod_name":    deployResp.PodName,
+						"internal_ip": deployResp.InternalIP,
+						"status":      enum.ContainerStatusRunning,
+						"tool_kind":   toolKind,
+						"proxy_url":   proxyURL,
+					})
+					continue
+				}
+				ic := &entity.InstanceContainer{
+					ID:                  snowflake.Generate(),
+					InstanceID:          instance.ID,
+					TemplateContainerID: tc.ID,
+					ContainerName:       tc.ContainerName,
+					PodName:             &deployResp.PodName,
+					InternalIP:          &deployResp.InternalIP,
+					Status:              enum.ContainerStatusRunning,
+					ToolKind:            toolKind,
+					ProxyURL:            proxyURL,
+				}
+				_ = s.containerRepo.Create(ctx, ic)
 			}
-			_ = s.containerRepo.Create(ctx, ic)
 		}
 
 		// 新建环境执行初始化脚本；从快照恢复时跳过，避免覆盖恢复态数据。

@@ -716,7 +716,12 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 		cNames = append(cNames, k)
 	}
 	sort.Strings(cNames)
-	prims = append(prims, fw.PrimRingLayout("user-ring", len(cNames)+1))
+	userRingIDs := make([]string, 0, len(cNames)+1)
+	for _, n := range cNames {
+		userRingIDs = append(userRingIDs, "c-"+n)
+	}
+	userRingIDs = append(userRingIDs, "market")
+	prims = append(prims, fw.PrimRingLayout("user-ring", userRingIDs))
 	for _, n := range cNames {
 		c := st.UserClasses[n]
 		role := "user-class"

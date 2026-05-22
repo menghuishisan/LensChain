@@ -894,8 +894,12 @@ func buildEnvelope(cs clusterState, reason, summary string, fullSnapshot bool) f
 	// 2) 阶段进度条
 	prims = append(prims, fw.PrimPhaseProgress("phase-progress", phaseLabels, cs.CurrentPhase, float64(cs.CurrentPhase)/4.0))
 
-	// 3) 副本环
-	prims = append(prims, fw.PrimRingLayout("replica-ring", len(cs.Replicas)))
+	// 3) 副本环（按 cs.Replicas 顺序声明 ring 成员，渲染器据此把 PrimNode 落到 slot）
+	replicaNodeIDs := make([]string, len(cs.Replicas))
+	for i, r := range cs.Replicas {
+		replicaNodeIDs[i] = "rep-" + r.ID
+	}
+	prims = append(prims, fw.PrimRingLayout("replica-ring", replicaNodeIDs))
 	primaryID := cs.primaryID()
 	for _, r := range cs.Replicas {
 		status := "normal"

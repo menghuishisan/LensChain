@@ -655,7 +655,7 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 	for _, c := range st.Candidates {
 		candIDs = append(candIDs, "cand-"+c.ID)
 	}
-	prims = append(prims, fw.PrimRingLayout("candidate-ring", len(st.Candidates)))
+	prims = append(prims, fw.PrimRingLayout("candidate-ring", candIDs))
 	currentProducer, _ := st.nextProducer()
 	for _, c := range st.Candidates {
 		role := "candidate"

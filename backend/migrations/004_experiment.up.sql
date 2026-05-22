@@ -140,8 +140,17 @@ CREATE TABLE template_containers (
     cpu_limit VARCHAR(20) NULL,
     memory_limit VARCHAR(20) NULL,
     depends_on JSONB NULL,
-    startup_order INT NOT NULL DEFAULT 0,
     is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    -- pod_group：多容器同 Pod 打包键。NULL = 容器独立成 Pod（默认，1 容器 1 Pod）；
+    -- 非 NULL = 同 (template_id, role_id, pod_group) 容器打包到一个 K8s Pod，Pod 内通过
+    -- 同名 emptyDir 共享文件（典型场景：Fabric MSP 目录由 cryptogen initContainer 生成、
+    -- peer/orderer/CA 主容器以 sub_path 只读挂载各自子树）。详见 docs/modules/04-实验环境/
+    -- 02-数据库设计.md §2.5 Pod 打包与卷共享语义。
+    pod_group VARCHAR(100) NULL,
+    -- is_init_container：标记此容器为 K8s initContainers，串行先于主容器运行、退出 0 后
+    -- 主容器才启动。仅 pod_group 非空时生效；典型用途：cryptogen / configtxgen / DB
+    -- migration / 任何 bootstrap 工作。NULL pod_group + TRUE 由 service 层校验拒绝。
+    is_init_container BOOLEAN NOT NULL DEFAULT FALSE,
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -151,6 +160,10 @@ CREATE TABLE template_containers (
 CREATE INDEX idx_template_containers_template_id ON template_containers(template_id);
 CREATE INDEX idx_template_containers_image_version_id ON template_containers(image_version_id);
 CREATE INDEX idx_template_containers_deployment_scope ON template_containers(deployment_scope);
+-- 部分索引：仅对参与 Pod 打包的容器建索引，绝大多数 1 容器 1 Pod 模板不占用空间。
+CREATE INDEX idx_template_containers_pod_group
+    ON template_containers(template_id, pod_group)
+    WHERE pod_group IS NOT NULL;
 
 -- template_checkpoints：检查点定义表。
 CREATE TABLE template_checkpoints (

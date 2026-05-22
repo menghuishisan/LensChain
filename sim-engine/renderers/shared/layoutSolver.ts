@@ -108,16 +108,26 @@ const COMPACT_HEIGHT = 360;
 /** 平均字符像素宽（无 canvas ctx 时的估算值，对应 11px sans-serif）。 */
 const AVG_CHAR_WIDTH = 6.6;
 
-/** 14 个不在 canvas 绘制的原语 type（layoutSolver 跳过分配坐标）。 */
+/**
+ * 不在 canvas 绘制的原语 type（layoutSolver / primitiveRenderer 共同跳过）。
+ *
+ * 协议依据：
+ *   - 06.md §3.2.4 内容类：code_block / math_formula / register_row 由前端 KaTeX /
+ *     语法高亮渲染，DOM 浮层；
+ *   - 06.md §3.2.5 状态指示类：error_overlay 居中 Modal、progress_bar / risk_gauge
+ *     下沉到 SimSceneSlot 的 ▼ 内容类原语 dropdown DOM 渲染；
+ *   - 06.md §3.4 浮层：tooltip / annotation 由 React DOM 浮层处理；
+ *   - math_pipeline 走浮层。
+ *
+ * 注：6 个布局容器（horizontal_lane / stack / ring_layout / tree_layout / graph_layout /
+ * matrix_layout）虽然自身不画内容，但需要解算 ResolvedPosition 让子原语用容器槽位
+ * 定位 → 不放入此集合，由 Pass 3 正常解算。
+ */
 const NON_CANVAS_TYPES = new Set<PrimitiveType>([
-  // DOM 渲染 4
-  "code_block", "math_formula", "register_row", "error_overlay",
-  // DOM 浮层 4
-  "tooltip", "annotation", "math_pipeline",
-  // label 走浮层（drawer 内部按是否有 anchor 决定）— 仍解算位置以便浮层定位
-  // 6 个 layout 容器（自身不绘制，但需要解算给子原语用）
-  // 注：容器自己也需要 ResolvedPosition 让浮层 label 之类可锚定 → 保留容器解算，
-  //     只跳过纯 DOM 4 + 浮层 3。
+  // DOM 渲染（KaTeX / 语法高亮 / 进度条 / 仪表）—— SimSceneSlot ▼ 下沉
+  "code_block", "math_formula", "register_row", "progress_bar", "risk_gauge",
+  // DOM 浮层
+  "tooltip", "annotation", "math_pipeline", "error_overlay",
 ]);
 
 // ============================================================
@@ -140,15 +150,6 @@ export function resolveLayout(
   const compact = width < COMPACT_WIDTH || height < COMPACT_HEIGHT;
   const measure = measureText ?? defaultMeasureText;
 
-  // 索引：id → primitive
-  const byId = new Map<string, Primitive>();
-  for (const p of primitives) {
-    if (byId.has(p.id)) {
-      throw new Error(`resolveLayout: primitive id 重复 "${p.id}"`);
-    }
-    byId.set(p.id, p);
-  }
-
   // ===== Pass 1: HUD =====
   const hasPhaseProgress = primitives.some(p => p.type === "phase_progress");
   const hudH = compact ? HUD_HEIGHT_COMPACT : HUD_HEIGHT;
@@ -163,7 +164,29 @@ export function resolveLayout(
     height: height - mainY - MAIN_PADDING_Y * 2,
   };
   if (main.width <= 0 || main.height <= 0) {
-    throw new Error(`resolveLayout: 主区计算后非正 (${main.width}x${main.height})；画布过小`);
+    // 画布合法（W>0 H>0）但减完 HUD/padding 后无主区可分配。这不是协议违规，
+    // 而是运行时尺寸瞬态：典型场景是 ResizeObserver 在父容器挂载/收起时多次回报
+    // 中间值（如 height=17px），稳态后下一帧自然回到正常尺寸。返回空布局即可，
+    // renderer 这一帧自然不画任何 primitive。后续帧 W/H 一回到合理值就正常解算。
+    //
+    // 注意：保留上方 width/height ≤ 0 的 throw —— 那是调用方传非法值，属协议违规。
+    return {
+      positions: new Map(),
+      hud,
+      main: { x: main.x, y: main.y, width: 0, height: 0 },
+      lanes: [],
+      bounds: { width, height },
+      compact,
+    };
+  }
+
+  // 索引：id → primitive
+  const byId = new Map<string, Primitive>();
+  for (const p of primitives) {
+    if (byId.has(p.id)) {
+      throw new Error(`resolveLayout: primitive id 重复 "${p.id}"`);
+    }
+    byId.set(p.id, p);
   }
 
   const positions = new Map<string, ResolvedPosition>();
@@ -193,11 +216,17 @@ export function resolveLayout(
   for (const p of primitives) {
     switch (p.type) {
       case "ring_layout": {
-        const slots = resolveRingLayout(p, main, compact);
+        // 06.md §3.2.3：ring_layout.nodes[] 显式声明环上成员 ID 列表，
+        // 渲染器按列表顺序从 12 点钟方向顺时针均分 slot。语义对齐 graph_layout.nodes[]。
+        const nodes = asArray<string>(p.params.nodes);
+        if (nodes.length === 0) {
+          throw new Error(`ring_layout "${p.id}": nodes 为空`);
+        }
+        const ring = resolveRingLayout(p, main, compact, nodes.length);
         const center = readCenter(p, main);
-        positions.set(p.id, { x: center.x, y: center.y, radius: slots.radius });
-        const slotMap = new Map<number, ResolvedPosition>();
-        slots.points.forEach((pt, i) => slotMap.set(i, pt));
+        positions.set(p.id, { x: center.x, y: center.y, radius: ring.radius });
+        const slotMap = new Map<string, ResolvedPosition>();
+        nodes.forEach((nodeId, i) => slotMap.set(nodeId, ring.points[i]!));
         containerSlots.set(p.id, slotMap);
         break;
       }
@@ -316,7 +345,7 @@ export function resolveLayout(
     if (positions.has(p.id)) continue;
     if (NON_CANVAS_TYPES.has(p.type)) continue;
 
-    // node 通过被 stack.items / ring_layout 隐含包含 / graph_layout.nodes 找到容器
+    // node 通过被 stack.items[] / ring_layout.nodes[] / graph_layout.nodes[] 显式声明找到容器
     if (p.type === "node") {
       const owner = findOwnerForNode(p.id, primitives);
       if (owner) {
@@ -368,16 +397,44 @@ export function resolveLayout(
     }
   }
 
-  // 4.4 ring / progress_bar / risk_gauge / pie_chart / time_wheel / sankey_flow / dual_track /
-  //     vote_matrix / heat_map / bridge_track / partition_zone / curve_point / verify_path_highlight
-  //     这些当作"占据主区或剩余空间"的复合块：依次纵向堆叠，落在 lane 或主区中
+  // 4.4 ring / pie_chart / time_wheel / sankey_flow / dual_track / vote_matrix / heat_map /
+  //     bridge_track / partition_zone / curve_point / verify_path_highlight 等"占据主区或
+  //     剩余空间"的复合块：依次纵向堆叠，落在 lane 或主区中。
+  //     progress_bar / risk_gauge 已下沉到 SimSceneSlot 的 DOM dropdown，不再参与 canvas
+  //     主区分配（详 06.md §3.2.5 + NON_CANVAS_TYPES 注释）。
   const stackableTypes: PrimitiveType[] = [
-    "ring", "progress_bar", "risk_gauge", "pie_chart", "time_wheel",
+    "ring", "pie_chart", "time_wheel",
     "sankey_flow", "dual_track", "vote_matrix", "heat_map", "bridge_track",
     "partition_zone", "verify_path_highlight", "curve_point",
     "link_indicator", "external_event_marker",
   ];
   layoutOrphanStackables(primitives, stackableTypes, lanes, main, positions, compact);
+
+  // ===== Pass 4.5: edge 端点 → 中点位置 =====
+  // 协议依据：06.md §3.2.1 line 169 —— edge schema 为 (id, from_id, to_id, style?, animation?)，
+  // 不含 x/y，位置由 from_id / to_id 派生。drawEdge 自身用端点画线（不依赖 edge.id 的 position），
+  // 但 Pass 7 sanity 要求所有 canvas-绘制 primitive 在 positions 中有项；同时 anchor_id 也可能锚到
+  // 一条 edge（如 glow 高亮某段链路）。统一以 from/to 中点作为 edge 自身的 ResolvedPosition。
+  for (const p of primitives) {
+    if (p.type !== "edge" || positions.has(p.id)) continue;
+    const fromID = asString(p.params.from_id, "");
+    const toID = asString(p.params.to_id, "");
+    if (!fromID || !toID) {
+      throw new Error(`edge "${p.id}": 缺 from_id 或 to_id`);
+    }
+    const from = positions.get(fromID);
+    const to = positions.get(toID);
+    if (!from) {
+      throw new Error(`edge "${p.id}": from_id="${fromID}" 未解算（端点不存在或未参与父布局）`);
+    }
+    if (!to) {
+      throw new Error(`edge "${p.id}": to_id="${toID}" 未解算（端点不存在或未参与父布局）`);
+    }
+    positions.set(p.id, {
+      x: (from.x + to.x) / 2,
+      y: (from.y + to.y) / 2,
+    });
+  }
 
   // ===== Pass 5: 锚定效果 =====
   for (const p of primitives) {
@@ -483,8 +540,8 @@ function resolveRingLayout(
   p: Primitive,
   main: ResolvedLayout["main"],
   compact: boolean,
+  slots: number,
 ): { points: ResolvedPosition[]; radius: number } {
-  const slots = Math.max(1, asNumber(p.params.slots, 0));
   if (slots <= 0) {
     throw new Error(`ring_layout "${p.id}": slots 必须 ≥1，得到 ${slots}`);
   }
@@ -551,6 +608,9 @@ function readStackBox(
 }
 
 function findOwnerForNode(nodeId: string, primitives: readonly Primitive[]): Primitive | null {
+  // 06.md §3.2.3：5 个布局容器中 stack / graph_layout / ring_layout 通过显式
+  // members 字段（items[] 或 nodes[]）声明子节点；matrix_layout 子原语自带 row+col；
+  // tree_layout 子原语沿 root_id+edge 链路推导（本函数不参与）。
   for (const p of primitives) {
     if (p.type === "stack") {
       const items = asArray<string>(p.params.items);
@@ -560,9 +620,11 @@ function findOwnerForNode(nodeId: string, primitives: readonly Primitive[]): Pri
       const nodes = asArray<string>(p.params.nodes);
       if (nodes.includes(nodeId)) return p;
     }
+    if (p.type === "ring_layout") {
+      const nodes = asArray<string>(p.params.nodes);
+      if (nodes.includes(nodeId)) return p;
+    }
   }
-  // ring_layout 没有显式 items，节点按出场顺序填充：扫描 primitives 中第一个 ring_layout 收集 N 个 node
-  // 这里返回 null 让调用方退化到隐式分配
   return null;
 }
 
@@ -573,7 +635,7 @@ function lookupNodeSlot(
 ): ResolvedPosition | null {
   const slots = containerSlots.get(owner.id);
   if (!slots) return null;
-  if (owner.type === "stack" || owner.type === "graph_layout") {
+  if (owner.type === "stack" || owner.type === "graph_layout" || owner.type === "ring_layout") {
     return slots.get(node.id) ?? null;
   }
   return null;

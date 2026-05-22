@@ -67,6 +67,10 @@ export interface UseSimPanelReturn {
   linkTriggers: readonly LinkTrigger[];
   /** 累积 scene events（侧栏 timeline / 教师监控可消费）。 */
   sceneEvents: readonly { sceneCode: string; payload: EventMessagePayload; tick: number }[];
+  /** 累积 session-scoped events（envelope 不带 scene_code 的 `event` 消息，
+   * teacher_broadcast / link_update / snapshot_* / scene_runtime_failure 等）。
+   * 供 SimEnginePanel 跳 toast / sidebar 通知区 / 刷 SharedState 使用。 */
+  sessionEvents: readonly { payload: EventMessagePayload; tick: number }[];
 
   // ── canvas 绑定（子组件 mount 时调用） ──
   attachScene: (sceneCode: string, canvas: HTMLCanvasElement) => void;
@@ -97,6 +101,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
   const [lastControlAck, setLastControlAck] = useState<ControlAckPayload | null>(null);
   const [linkTriggers, setLinkTriggers] = useState<LinkTrigger[]>([]);
   const [sceneEvents, setSceneEvents] = useState<{ sceneCode: string; payload: EventMessagePayload; tick: number }[]>([]);
+  const [sessionEvents, setSessionEvents] = useState<{ payload: EventMessagePayload; tick: number }[]>([]);
 
   // 跟踪场景配置，避免 effect 因数组身份频繁变化重连
   const scenesRef = useRef(scenes);
@@ -152,6 +157,9 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     const offEvent = instance.onSceneEvent((sceneCode, payload, tick) => {
       setSceneEvents(prev => [...prev, { sceneCode, payload, tick }]);
     });
+    const offSession = instance.onSessionEvent((payload, tick) => {
+      setSessionEvents(prev => [...prev, { payload, tick }]);
+    });
     const offAck = instance.onControlAck((ack) => {
       setLastControlAck(ack);
     });
@@ -163,6 +171,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
       offState();
       offLink();
       offEvent();
+      offSession();
       offAck();
       instance.disconnect();
       setPanel(null);
@@ -171,6 +180,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
       setLastControlAck(null);
       setLinkTriggers([]);
       setSceneEvents([]);
+      setSessionEvents([]);
     };
   }, [sessionId, accessToken, userRole, actorId]);
 
@@ -209,6 +219,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     lastControlAck,
     linkTriggers,
     sceneEvents,
+    sessionEvents,
     attachScene,
     detachScene,
     getResolvedLayout,
@@ -217,7 +228,7 @@ export function useSimPanel(options: UseSimPanelOptions): UseSimPanelReturn {
     sendStepBack,
     captureScene,
   }), [
-    panel, connected, sceneStates, lastControlAck, linkTriggers, sceneEvents,
+    panel, connected, sceneStates, lastControlAck, linkTriggers, sceneEvents, sessionEvents,
     attachScene, detachScene, getResolvedLayout, dispatchAction, sendTimeControl, sendStepBack, captureScene,
   ]);
 }

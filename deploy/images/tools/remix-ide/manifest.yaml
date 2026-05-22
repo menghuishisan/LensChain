@@ -14,9 +14,9 @@ versions:
     tag: "latest"
     upstream_tag: "latest"
     min_cpu: "0.25"
-    min_memory: "256Mi"
+    min_memory: "512Mi"
     recommended_cpu: "0.5"
-    recommended_memory: "512Mi"
+    recommended_memory: "1Gi"
     is_default: true
 
 default_ports:

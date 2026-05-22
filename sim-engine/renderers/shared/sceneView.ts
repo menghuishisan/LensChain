@@ -43,7 +43,10 @@ export class SceneView {
       throw new Error("SceneView: canvas.getContext('2d') 返回 null");
     }
     this.ctx = ctx;
-    this.setSize(opts.canvas.clientWidth, opts.canvas.clientHeight);
+    // 不在构造期 eager 调用 setSize：构造时父容器布局可能尚未稳定（典型是 Tabs
+    // 刚切到 sim、grid 行高还在 reflow 中），此时 clientHeight 可能是瞬态小值。
+    // ResizeObserver.observe() 规范保证首次 observe 后会触发一次包含正确 contentRect
+    // 的回调；让该回调驱动初始 setSize，避免把瞬态尺寸写进 backbuffer。
     this.installResizeObserver();
   }
 
@@ -61,10 +64,13 @@ export class SceneView {
     if (cssWidth === this.width && cssHeight === this.height) return;
     this.width = cssWidth;
     this.height = cssHeight;
+    // 仅同步 backbuffer 像素到 CSS 尺寸 × DPR；canvas 的 CSS 渲染尺寸由父布局 +
+    // Tailwind `h-full w-full` 决定，**绝不**在此写入 style.width/height —— 一旦写入
+    // 就会以 inline 像素值锁死 canvas 的 CSS 尺寸，比 Tailwind 类优先级高，
+    // 后续父容器尺寸变化也无法传播到 canvas（ResizeObserver 也不会再 fire），
+    // 导致画布永久卡在某个瞬态小值（参见第 13 轮 bug 复盘）。
     this.canvas.width = Math.floor(cssWidth * this.dpr);
     this.canvas.height = Math.floor(cssHeight * this.dpr);
-    this.canvas.style.width = `${cssWidth}px`;
-    this.canvas.style.height = `${cssHeight}px`;
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.lastLayout = null; // 失效旧布局缓存
   }
@@ -111,6 +117,10 @@ export class SceneView {
     if (!this.state) {
       throw new Error("SceneView.renderOnce: state 未设置");
     }
+    // 构造期不再 eager setSize（避免锁死 inline style，详见 setSize 注释），
+    // ResizeObserver 首次回调到位前 width/height 为 0 是合法状态——直接跳过这帧，
+    // 不要把 0×0 传给 resolveLayout 触发协议层 throw "非法画布尺寸"。
+    if (this.width <= 0 || this.height <= 0) return;
     const status = this.microSteps.advance(now);
     this.lastLayout = renderFrame({
       ctx: this.ctx,

@@ -271,22 +271,32 @@ func PrimStackAt(id string, x float64, items []string, direction string) Primiti
 	}
 }
 
-// PrimRingLayout 构造默认（无绝对坐标 / 半径）的环形节点布局。仅声明 slots 数量
-// （环上节点个数，由场景的教学决策决定，如 PBFT 7 副本 → slots=7）；
-// 前端按画布尺寸响应式计算中心点与半径。
-func PrimRingLayout(id string, slots int) Primitive {
+// PrimRingLayout 构造默认（无绝对坐标 / 半径）的环形节点布局。
+//
+// 协议依据：06.md §3.2.3。`nodes` 显式声明环上成员 ID 列表，渲染器按列表顺序从 12 点
+// 钟方向顺时针均分 N 个 slot；语义与同级 PrimGraphLayout 的 nodes[] 完全一致。
+// slots 数量由 len(nodes) 推导，不再单独承载 slots 字段（避免 slots 与实际 node 数漂移）。
+//
+// 用法：场景先按业务顺序构造节点 ID 列表，把列表传入 PrimRingLayout，再为每个 ID
+// 输出对应的 PrimNode（坐标省略），渲染器自动把 PrimNode 落到 ring 的对应 slot。
+func PrimRingLayout(id string, nodes []string) Primitive {
+	// 复制切片，避免调用方后续修改污染已发出的 envelope。
+	cp := append([]string(nil), nodes...)
 	return Primitive{
 		ID: id, Type: PrimLayoutRing, Layer: LayerBackground,
-		Params: map[string]any{"id": id, "slots": slots},
+		Params: map[string]any{"id": id, "nodes": cp},
 	}
 }
 
 // PrimRingLayoutAt 构造带画布逻辑坐标的环形布局（中心点 + 半径），用于场景需要在画布
 // 特定位置（如对照展示左/右半侧）锁定环形布局的少数情况。
-func PrimRingLayoutAt(id string, slots int, centerX, centerY, radius float64) Primitive {
+//
+// nodes 语义同 PrimRingLayout。
+func PrimRingLayoutAt(id string, nodes []string, centerX, centerY, radius float64) Primitive {
+	cp := append([]string(nil), nodes...)
 	return Primitive{
 		ID: id, Type: PrimLayoutRing, Layer: LayerBackground,
-		Params: map[string]any{"id": id, "center_x": centerX, "center_y": centerY, "radius": radius, "slots": slots},
+		Params: map[string]any{"id": id, "center_x": centerX, "center_y": centerY, "radius": radius, "nodes": cp},
 	}
 }
 

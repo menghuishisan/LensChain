@@ -407,7 +407,11 @@ func (s *instanceService) RestoreSnapshot(ctx context.Context, sc *svcctx.Servic
 	}
 
 	if instance.Status == enum.InstanceStatusRunning || instance.Status == enum.InstanceStatusInitializing {
-		if err := s.teardownRuntimeEnvironment(ctx, instance); err != nil {
+		// 从快照恢复 = 丢弃当前运行态，按快照重建。走 destroyRuntimeEnvironment 删
+		// 整个 namespace（含 PVC），让重建的 Pod / PVC 完全是新的，再用 tar 归档把
+		// 快照内容回灌进去；走 pauseRuntimeEnvironment 会保留旧 PVC 数据，与"从
+		// 历史快照恢复"语义冲突。
+		if err := s.destroyRuntimeEnvironment(ctx, instance); err != nil {
 			if releaseConcurrencyOnError {
 				_ = s.quotaRepo.DecrUsedConcurrency(ctx, sc.SchoolID, 1)
 			}
@@ -714,7 +718,11 @@ func (s *instanceService) createInstanceSnapshot(ctx context.Context, instance *
 		}
 	}
 
-	runtimeStates, err := s.captureInstanceRuntimeState(ctx, instance)
+	// Pause 快照不再 tar 归档卷内容（PVC 本身负责持久化），其它快照类型仍归档以
+	// 支撑 RestoreSnapshot 路径下的 namespace 重建场景。详见 captureInstanceRuntimeState
+	// 注释里关于 PVC 与 tar 归档职责划分的说明。
+	captureVolumes := snapshotType != enum.SnapshotTypePause
+	runtimeStates, err := s.captureInstanceRuntimeState(ctx, instance, captureVolumes)
 	if err != nil {
 		return nil, err
 	}

@@ -710,7 +710,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO template_containers (
     id, template_id, image_version_id, container_name,
     deployment_scope, env_vars, ports, volumes,
-    cpu_limit, memory_limit, depends_on, startup_order,
+    cpu_limit, memory_limit, depends_on,
     is_primary, created_at, updated_at
 )
 VALUES
@@ -721,7 +721,7 @@ VALUES
     '[]'::jsonb,
     '[{"port":8545,"protocol":"tcp","name":"HTTP-RPC"},{"port":30303,"protocol":"tcp","name":"P2P"}]'::jsonb,
     '[]'::jsonb,
-    '500m', '1Gi', '[]'::jsonb, 1, FALSE, NOW(), NOW()
+    '500m', '1Gi', '[]'::jsonb, FALSE, NOW(), NOW()
 ),
 (
     920000000000009102, 920000000000008005, (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'remix-ide' AND iv.version = 'latest'),
@@ -729,7 +729,7 @@ VALUES
     '[{"name":"REMIX_URL","value":"http://geth:8545","desc":"RPC 地址"}]'::jsonb,
     '[{"port":8080,"protocol":"tcp","name":"Web UI"}]'::jsonb,
     '[]'::jsonb,
-    '300m', '512Mi', '["geth"]'::jsonb, 2, TRUE, NOW(), NOW()
+    '300m', '512Mi', '["geth"]'::jsonb, TRUE, NOW(), NOW()
 ),
 -- 混合实验 8006: geth + blockscout
 (
@@ -738,7 +738,7 @@ VALUES
     '[]'::jsonb,
     '[{"port":8545,"protocol":"tcp","name":"HTTP-RPC"},{"port":30303,"protocol":"tcp","name":"P2P"}]'::jsonb,
     '[]'::jsonb,
-    '500m', '1Gi', '[]'::jsonb, 1, FALSE, NOW(), NOW()
+    '500m', '1Gi', '[]'::jsonb, FALSE, NOW(), NOW()
 ),
 (
     920000000000009104, 920000000000008006, (SELECT iv.id FROM image_versions iv JOIN images i ON iv.image_id = i.id WHERE i.name = 'blockscout' AND iv.version = '6.3'),
@@ -746,7 +746,7 @@ VALUES
     '[{"name":"ETHEREUM_JSONRPC_HTTP_URL","value":"http://geth:8545","desc":"EVM 节点 RPC 地址"}]'::jsonb,
     '[{"port":4000,"protocol":"tcp","name":"Web UI"}]'::jsonb,
     '[]'::jsonb,
-    '500m', '1Gi', '["geth"]'::jsonb, 2, TRUE, NOW(), NOW()
+    '500m', '1Gi', '["geth"]'::jsonb, TRUE, NOW(), NOW()
 )
 ON CONFLICT (id) DO NOTHING;
 

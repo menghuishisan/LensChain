@@ -17,6 +17,33 @@ import { getStoredAuthSession } from "@/lib/auth-session";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
+// TOOL_PROXY_BASE_URL 决定 iframe / WS 请求的最终 origin。详见 frontend/.env.example
+// 与 frontend/next.config.js 顶部注释。
+//
+//   - 生产环境：留空，iframe / WS 走相对路径，由 Ingress 在同一源下兜底；
+//   - 本地开发：设为 http://localhost:8080，让 iframe 与 WS 直连后端，绕开 Next dev
+//     对 `/instance/<id>/<kind>/` 末尾斜杠 / WS upgrade 的路径归一化限制。
+//
+// localhost:3000 与 localhost:8080 是 same-site（eTLD+1 都是 localhost），SameSite=Lax
+// cookie 在跨源 same-site iframe 加载与 WS upgrade 中仍会被发送，鉴权链路与生产保持一致。
+const TOOL_PROXY_BASE_URL = (process.env.NEXT_PUBLIC_TOOL_PROXY_BASE_URL ?? "").replace(/\/$/, "");
+
+/**
+ * resolveToolProxyURL 把后端签发的相对 proxy_url（形如 `/instance/<id>/<kind>/`）解析为
+ * 浏览器实际请求的 URL。
+ *
+ * 业务组件不应直接使用 accessUrl 作为 iframe src 或 WS endpoint，必须经过本函数。
+ */
+export function resolveToolProxyURL(accessUrl: string): string {
+  if (!accessUrl) {
+    return accessUrl;
+  }
+  if (/^https?:\/\//i.test(accessUrl) || /^wss?:\/\//i.test(accessUrl)) {
+    return accessUrl;
+  }
+  return `${TOOL_PROXY_BASE_URL}${accessUrl}`;
+}
+
 /** 反代 cookie 端点响应。 */
 export interface ToolProxyCookie {
   /** 形如 /instance/<id>/<kind>/ 的反代访问路径，前端拼当前 origin 或外部域名后用作 iframe src。 */

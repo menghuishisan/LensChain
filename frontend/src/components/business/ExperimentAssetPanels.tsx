@@ -58,7 +58,7 @@ export function ExperimentImageUploadPanel() {
       ecosystem,
       default_ports: [{ port: 8545, protocol: "tcp", name: "JSON-RPC" }],
       default_env_vars: [{ key: "CHAIN_ECOSYSTEM", value: ecosystem, desc: "链生态", conditions: [] }],
-      default_volumes: [{ path: "/data", desc: "节点数据目录" }],
+      default_volumes: [{ mount_path: "/data", purpose: "chain_data", description: "节点数据目录" }],
       typical_companions: { required: [], recommended: [], optional: [] },
       required_dependencies: [],
       resource_recommendation: { cpu: "2", memory: "4Gi", disk: "20Gi" },

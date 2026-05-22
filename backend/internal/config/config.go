@@ -62,10 +62,6 @@ type K8sConfig struct {
 	DefaultMemory          string        `mapstructure:"default_memory"`
 	// CollectorImageTemplate 混合实验采集器镜像模板。
 	CollectorImageTemplate string        `mapstructure:"collector_image_template"`
-	// ToolProxyBaseURL 工具容器反向代理基地址，用于签发 instance_containers.proxy_url。
-	// 格式遵循文档 §2.16：{base_url}/instance/{instance_id}/{tool_kind}?token={jwt}
-	// 本地开发可填 http://127.0.0.1:8080；生产由 Ingress 提供 https://lab.lianjing.com 等域名。
-	ToolProxyBaseURL       string        `mapstructure:"tool_proxy_base_url"`
 	// Timeout 调用 K8s API 的超时时间。
 	Timeout                time.Duration `mapstructure:"timeout"`
 }

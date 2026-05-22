@@ -49,16 +49,22 @@ export interface UseExperimentRealtimeResult<TMessage> {
   clearMessages: () => void;
 }
 
-function parseRealtimeMessage<TMessage>(data: unknown): TMessage {
-  if (typeof data !== "string") {
-    return { type: "raw", data: { value: String(data) } } as TMessage;
+// parseRealtimeMessage 将 WS 的 onmessage event.data 解析为业务消息。
+//
+// 协议契约（前后端唯一约定）：
+//   - 二进制帧（ArrayBuffer）= K8s exec PTY 的 stdout 字节流，裹为
+//     {type:"binary",data:{bytes:Uint8Array}}，下游 xterm.js 的 write(Uint8Array)
+//     使用其内置有状态 UTF-8 解码器跨调用缓存半字符，中文/emoji 等多字节序列
+//     即使被 WS 帧切断也能正确还原，且 ANSI 控制字符按字节透传不被损坏。
+//   - 文本帧（string）= 后端 json.Marshal 出的业务 JSON，直接 JSON.parse。
+//
+// socket.binaryType="arraybuffer" 是走二进制分支的前提（默认 "blob" 是异步 API，
+// 不能在同步路径里使用）。
+function parseRealtimeMessage<TMessage>(data: ArrayBuffer | string): TMessage {
+  if (data instanceof ArrayBuffer) {
+    return { type: "binary", data: { bytes: new Uint8Array(data) } } as TMessage;
   }
-
-  try {
-    return JSON.parse(data) as TMessage;
-  } catch {
-    return { type: "raw", data: { value: data } } as TMessage;
-  }
+  return JSON.parse(data) as TMessage;
 }
 
 /**
@@ -127,6 +133,11 @@ export function useExperimentRealtime<TMessage extends RealtimeMessage>(path: st
     }
 
     const socket = new WebSocket(url);
+    // PTY stdout 等二进制帧需以字节形式透传到消费者。binaryType 默认 "blob"
+    // 在 onmessage 里拿到的是 Blob 对象，String(blob)==="[object Blob]"、blob.arrayBuffer()
+    // 是异步的，都不适合在同步路径里使用。统一改 arraybuffer 后可与 parseRealtimeMessage
+    // 里的 ArrayBuffer 分支直接衔接。文本帧不受影响（仍以 string 投递）。
+    socket.binaryType = "arraybuffer";
     socketRef.current = socket;
 
     // 所有事件回调先做身份校验：若 socketRef 已被 closeSocket / 新一轮 connect 覆盖，
@@ -227,7 +238,7 @@ export function useCourseExperimentMonitorRealtime(courseID: ID, templateID?: ID
 
 /**
  * useExperimentTerminal 连接学生 PTY 终端 WebSocket。
- * 通过 xterm-server 代理提供真 PTY 终端体验。
+ * 后端走 K8s exec subresource 在选中容器内拉起真 PTY。
  */
 export function useExperimentTerminal(instanceID: ID, container?: string, enabled = true) {
   const realtime = useExperimentRealtime<RealtimeMessage<ExperimentTerminalWSMessageType>>(`/experiment-instances/${instanceID}/terminal`, {
@@ -238,7 +249,7 @@ export function useExperimentTerminal(instanceID: ID, container?: string, enable
     ...realtime,
     /** 发送原始键击数据到 PTY。 */
     sendInput: (data: string) => realtime.sendRaw(data),
-    /** 发送终端尺寸变更到 xterm-server。 */
+    /** 发送终端尺寸变更到后端（进而下发 SIGWINCH 到容器内 PTY）。 */
     sendResize: (cols: number, rows: number) => realtime.sendJson({ type: "resize", cols, rows }),
   };
 }

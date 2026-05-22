@@ -823,8 +823,12 @@ func handleAction(state *fw.SceneState, in fw.ActionInput) (fw.ActionOutput, err
 func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.RenderEnvelope {
 	prims := make([]fw.Primitive, 0, 60)
 
-	// 1) 节点环形布局
-	prims = append(prims, fw.PrimRingLayout("node-ring", st.N))
+	// 1) 节点环形布局（按 st.Nodes 顺序声明 ring 成员）
+	nodeIDs := make([]string, len(st.Nodes))
+	for i, nd := range st.Nodes {
+		nodeIDs[i] = fmt.Sprintf("node-%d", nd.ID)
+	}
+	prims = append(prims, fw.PrimRingLayout("node-ring", nodeIDs))
 	for _, nd := range st.Nodes {
 		role := "node-honest"
 		switch nd.Fault {

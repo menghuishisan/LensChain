@@ -554,7 +554,11 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 	}
 	sort.Strings(accs)
 
-	prims = append(prims, fw.PrimRingLayout("account-ring", len(accs)))
+	ringNodeIDs := make([]string, len(accs))
+	for i, a := range accs {
+		ringNodeIDs[i] = "acc-" + a
+	}
+	prims = append(prims, fw.PrimRingLayout("account-ring", ringNodeIDs))
 
 	// 2) 合约节点
 	prims = append(prims, fw.PrimNodeAt("contract",

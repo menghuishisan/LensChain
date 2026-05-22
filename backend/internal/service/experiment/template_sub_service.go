@@ -22,6 +22,21 @@ import (
 	experimentrepo "github.com/lenschain/backend/internal/repository/experiment"
 )
 
+// normalizePodGroup 将前端传入的 pod_group 标准化：去首尾空白；空串视同未设置（返回 nil）。
+//
+// 该 helper 是 DTO→Entity 边界上的唯一入口，保证数据库里 pod_group 的非空值都满足
+// "trim 后仍非空"——避免 "  " 这类空白字符串走通 NOT NULL 检查却在分组键上产生歧义。
+func normalizePodGroup(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*raw)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 // mustMarshalRawJSON 将结构体编码为 JSONB 存储格式。
 func mustMarshalRawJSON(value any) json.RawMessage {
 	if value == nil {
@@ -316,8 +331,12 @@ func (s *templateSubService) CreateContainer(ctx context.Context, sc *svcctx.Ser
 		CPULimit:        req.CPULimit,
 		MemoryLimit:     req.MemoryLimit,
 		DependsOn:       datatypes.JSON(mustMarshalRawJSON(req.DependsOn)),
-		StartupOrder:    req.StartupOrder,
 		IsPrimary:       req.IsPrimary,
+		PodGroup:        normalizePodGroup(req.PodGroup),
+		IsInitContainer: req.IsInitContainer,
+	}
+	if container.IsInitContainer && container.PodGroup == nil {
+		return nil, errcode.ErrInvalidParams.WithMessage("is_init_container=true 要求 pod_group 非空")
 	}
 	if err := validateContainerDeploymentScope(template, req.DeploymentScope); err != nil {
 		return nil, err
@@ -404,11 +423,28 @@ func (s *templateSubService) UpdateContainer(ctx context.Context, sc *svcctx.Ser
 	if req.DependsOn != nil {
 		fields["depends_on"] = datatypes.JSON(mustMarshalRawJSON(req.DependsOn))
 	}
-	if req.StartupOrder != nil {
-		fields["startup_order"] = *req.StartupOrder
-	}
 	if req.IsPrimary != nil {
 		fields["is_primary"] = *req.IsPrimary
+	}
+	// pod_group / is_init_container 同步更新，并事后复查互斥约束。
+	if req.PodGroup != nil {
+		fields["pod_group"] = normalizePodGroup(req.PodGroup)
+	}
+	if req.IsInitContainer != nil {
+		fields["is_init_container"] = *req.IsInitContainer
+	}
+	if req.PodGroup != nil || req.IsInitContainer != nil {
+		finalPodGroup := container.PodGroup
+		if req.PodGroup != nil {
+			finalPodGroup = normalizePodGroup(req.PodGroup)
+		}
+		finalIsInit := container.IsInitContainer
+		if req.IsInitContainer != nil {
+			finalIsInit = *req.IsInitContainer
+		}
+		if finalIsInit && finalPodGroup == nil {
+			return errcode.ErrInvalidParams.WithMessage("is_init_container=true 要求 pod_group 非空")
+		}
 	}
 	if len(fields) == 0 {
 		return nil
@@ -476,9 +512,8 @@ func (s *templateSubService) SortContainers(ctx context.Context, sc *svcctx.Serv
 			return errcode.ErrForbidden.WithMessage("存在不属于当前模板的容器配置")
 		}
 		if err := s.containerRepo.UpdateFields(ctx, containerID, map[string]interface{}{
-			"sort_order":    item.SortOrder,
-			"startup_order": item.SortOrder,
-			"updated_at":    now,
+			"sort_order": item.SortOrder,
+			"updated_at": now,
 		}); err != nil {
 			return err
 		}

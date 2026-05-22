@@ -45,8 +45,13 @@ export type ExperimentGroupWSMessageType = "chat_message" | "system_notification
 /** 教师监控 WebSocket 消息类型。 */
 export type ExperimentMonitorWSMessageType = "student_status_change" | "checkpoint_completed" | "experiment_submitted" | "instance_error";
 
-/** 终端 WebSocket 消息类型。 */
-export type ExperimentTerminalWSMessageType = "terminal_output" | "terminal_init" | "guidance_message";
+/** 终端 WebSocket 消息类型。
+ *   - terminal_init：连接初始化通知（mode=pty 表示 PTY 已就绪 / mode=error 表示上游失败）
+ *   - terminal_output：教师只读流推送的快照（JSON 文本帧）
+ *   - guidance_message：教师下发指导文本
+ *   - binary：PTY stdout 字节流（前端 useExperimentRealtime 把 ArrayBuffer 帧统一裹为该类型）
+ */
+export type ExperimentTerminalWSMessageType = "terminal_output" | "terminal_init" | "guidance_message" | "binary";
 
 /** 镜像端口配置。 */
 export interface ImagePortItem {
@@ -70,10 +75,12 @@ export interface ImageEnvVarItem {
   conditions?: ImageEnvVarCondition[] | null;
 }
 
-/** 镜像卷配置。 */
+/** 镜像卷配置（与 backend dto.ImageVolumeItem 字段一致）。 */
 export interface ImageVolumeItem {
-  path: string;
-  desc?: string | null;
+  mount_path: string;
+  purpose?: string;
+  size?: string;
+  description?: string;
 }
 
 /** 镜像依赖/搭配项。 */
@@ -311,12 +318,17 @@ export interface TemplateContainer {
   role_id: ID | null;
   env_vars: Array<{ key: string; value: string }>;
   ports: Array<{ container: number; protocol: string }>;
-  volumes: Array<{ host_path: string; container_path: string }>;
+  volumes: Array<{ name?: string; mount_path: string; sub_path?: string; read_only?: boolean }>;
   cpu_limit: string | null;
   memory_limit: string | null;
   depends_on: string[];
-  startup_order: number;
   is_primary: boolean;
+  /** Pod 分组键：非空时同名容器打包到同一 K8s Pod，与后端 template_containers.pod_group 对齐。 */
+  pod_group: string | null;
+  /** 是否作为 K8s initContainer 串行先于主容器运行；要求 pod_group 非空。 */
+  is_init_container: boolean;
+  /** 列表展示用的拖拽顺序，与后端 sort_order 字段对齐；不影响实际启动顺序。 */
+  sort_order: number;
   image_version?: {
     id: ID;
     image_name: string;
@@ -452,12 +464,13 @@ export interface TemplateContainerRequest {
   role_id?: ID | null;
   env_vars: Array<{ key: string; value: string }>;
   ports: Array<{ container: number; protocol: string }>;
-  volumes: Array<{ host_path: string; container_path: string }>;
+  volumes: Array<{ name?: string; mount_path: string; sub_path?: string; read_only?: boolean }>;
   cpu_limit?: string | null;
   memory_limit?: string | null;
   depends_on: string[];
-  startup_order: number;
   is_primary: boolean;
+  pod_group?: string | null;
+  is_init_container?: boolean;
 }
 
 /** 模板检查点请求。 */

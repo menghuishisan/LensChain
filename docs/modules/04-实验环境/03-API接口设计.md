@@ -280,7 +280,7 @@
     { "key": "NETWORK_ID", "value": "1337", "desc": "网络ID" }
   ],
   "default_volumes": [
-    { "path": "/root/.ethereum", "desc": "数据目录" }
+    { "mount_path": "/root/.ethereum", "purpose": "chain_data", "size": "10Gi", "description": "数据目录" }
   ],
   "typical_companions": {
     "required": [],
@@ -477,7 +477,8 @@
         "env_vars": [{ "key": "NETWORK_ID", "value": "1337" }],
         "ports": [{ "container": 8545, "protocol": "tcp" }],
         "is_primary": true,
-        "startup_order": 0
+        "pod_group": null,
+        "is_init_container": false
       },
       {
         "id": "1780000000300102",
@@ -490,7 +491,8 @@
           "icon_url": "https://oss.example.com/icons/remix.png"
         },
         "is_primary": false,
-        "startup_order": 1
+        "pod_group": null,
+        "is_init_container": false
       }
     ],
     "checkpoints": [
@@ -585,13 +587,14 @@
     { "container": 30303, "protocol": "tcp" }
   ],
   "volumes": [
-    { "host_path": "", "container_path": "/root/.ethereum" }
+    { "name": "chain-data", "mount_path": "/root/.ethereum", "sub_path": "", "read_only": false }
   ],
   "cpu_limit": "1",
   "memory_limit": "2Gi",
   "depends_on": [],
-  "startup_order": 0,
-  "is_primary": true
+  "is_primary": true,
+  "pod_group": null,
+  "is_init_container": false
 }
 ```
 
@@ -607,7 +610,8 @@
     "image_version_id": "1780000000200101",
     "deployment_scope": 2,
     "is_primary": true,
-    "startup_order": 0
+    "pod_group": null,
+    "is_init_container": false
   }
 }
 ```
@@ -759,14 +763,6 @@
     "sim_session_id": "sim-20260408-0001",
     "tools": [
       {
-        "kind": "terminal",
-        "container_id": "1780000000600103",
-        "container_name": "xterm-server",
-        "proxy_url": "https://lab.lianjing.com/instance/1780000000600001/terminal/",
-        "status": 2,
-        "status_text": "运行中"
-      },
-      {
         "kind": "ide",
         "container_id": "1780000000600102",
         "container_name": "remix-ide",
@@ -805,16 +801,6 @@
         "status_text": "运行中",
         "internal_ip": "10.244.1.16",
         "tool_kind": "ide"
-      },
-      {
-        "id": "1780000000600103",
-        "container_name": "xterm-server",
-        "image_name": "xterm-server",
-        "image_version": "latest",
-        "status": 2,
-        "status_text": "运行中",
-        "internal_ip": "10.244.1.17",
-        "tool_kind": "terminal"
       },
       {
         "id": "1780000000600104",
@@ -869,10 +855,10 @@
 
 **字段说明：**
 
-- `tools[]`：工具容器列表（前端据此渲染 Tab 页签）
-  - `kind`：工具类型（terminal / ide / desktop / explorer / monitor），前端根据此字段决定渲染哪个面板组件
+- `tools[]`：**HTTP 反代工具**容器列表（前端据此渲染 IDE / 桌面 / 浏览器 / 监控等 iframe Tab）。**Web 终端不在 `tools[]` 中**：终端不需 HTTP 反代，后端走 K8s exec subresource 直接进入实例任意 Running 容器内拉起 PTY，前端从 `containers[]` 获取终端目标候选。
+  - `kind`：工具类型（ide / desktop / explorer / monitor），前端根据此字段决定渲染哪个 iframe 面板组件
   - `container_id`：对应的容器 ID（与 `containers[]` 中的 `id` 关联）
-  - `container_name`：容器名称（如 xterm-server、remix-ide、novnc-desktop）
+  - `container_name`：容器名称（如 remix-ide、novnc-desktop、blockscout）
   - `proxy_url`：反向代理访问 URL，末尾斜杠不可去掉。**不携 token**：前端加载 iframe 前必须先调 `POST /api/v1/experiment-instances/:id/tools/:kind/proxy-cookie` 签发 HttpOnly cookie（TTL 30分钟，path 作用域=`/instance/<id>/<kind>/`，跨子路径不泄漏），随后 iframe 各子资源请求自动携 cookie，避免 token 进 referer / 浏览器历史 / access log。
   - `status`：容器状态（1等待 2运行中 3已停止 4异常）
   - `status_text`：状态文本
@@ -882,10 +868,11 @@
 
 **前端使用规范：**
 
-1. 使用 `tools[]` 渲染工具 Tab（终端/IDE/桌面/浏览器/监控）
+1. 使用 `tools[]` 渲染 iframe 工具 Tab（IDE / 桌面 / 浏览器 / 监控）
 2. **iframe 加载顺序**：先 `POST .../tools/:kind/proxy-cookie`（带 Bearer access token，fetch 必须 `credentials:"include"` 才能接收 Set-Cookie）；cookie 签发成功后再渲染 iframe，`src=tools[].proxy_url`。同一 iframe 生命期内建议每 25 分钟重签一次（TTL 30 分钟，预留 5 分钟缓冲）
-3. 如果 `tools[]` 为空数组，说明此实验为纯仿真或未配置工具容器，不渲染工具 Tab
-4. `containers[]` 用于展示容器列表、资源监控、终端容器选择下拉框等场景
+3. 如果 `tools[]` 为空数组，说明此实验为纯仿真或未配置 iframe 工具容器，不渲染对应 Tab
+4. **终端 Tab 独立渲染**：真实环境/混合实验（`experiment_type ∈ {2,3}`）只要 `containers[]` 非空就显示终端 Tab，从 `containers[]` 取容器列表作为目标选择下拉框，连接 `WSS /experiment-instances/:id/terminal?container=<container_name>`
+5. `containers[]` 同时用于展示容器列表、资源监控等场景
 
 ---
 
@@ -2261,7 +2248,7 @@ wss://api.lianjing.com/api/v1/experiment-groups/:id/members/:student_id/terminal
       { "key": "ALLOW_INSECURE_UNLOCK", "value": "true", "desc": "允许HTTP解锁账户（教学环境）", "conditions": null }
     ],
     "default_volumes": [
-      { "path": "/root/.ethereum", "desc": "链数据目录" }
+      { "mount_path": "/root/.ethereum", "purpose": "chain_data", "size": "10Gi", "description": "链数据目录" }
     ],
     "typical_companions": {
       "required": [],

@@ -27,7 +27,7 @@ default_ports:
 
 default_env_vars:
   - key: ETHEREUM_JSONRPC_HTTP_URL
-    default_value: http://geth:8545
+    value: http://geth:8545
     description: EVM 节点 RPC 地址
     required: true
 

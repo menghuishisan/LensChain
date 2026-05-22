@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { useToolProxyCookie } from '@/hooks/useToolProxyCookie';
+import { resolveToolProxyURL } from '@/services/experimentToolProxy';
 import { cn } from '@/lib/utils';
 import type { ID } from '@/types/api';
 
@@ -33,6 +34,7 @@ interface VNCDesktopPanelProps {
 export function VNCDesktopPanel({ accessUrl, instanceID, toolKind = 'desktop', className }: VNCDesktopPanelProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const cookieQuery = useToolProxyCookie(instanceID, toolKind, !!accessUrl);
+  const iframeURL = resolveToolProxyURL(accessUrl);
 
   if (!accessUrl) {
     return (
@@ -67,13 +69,13 @@ export function VNCDesktopPanel({ accessUrl, instanceID, toolKind = 'desktop', c
           <Button variant="ghost" size="sm" onClick={() => setIsFullscreen(!isFullscreen)}>
             {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => window.open(accessUrl, '_blank')}>
+          <Button variant="ghost" size="sm" onClick={() => window.open(iframeURL, '_blank')}>
             <ExternalLink className="h-4 w-4" />
           </Button>
         </div>
       </div>
       <iframe
-        src={accessUrl}
+        src={iframeURL}
         className="flex-1 min-h-[500px] rounded-md border"
         sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
         title="VNC Desktop"

@@ -4,9 +4,25 @@
 // 全局 Toast 反馈组件，基于 Radix Toast 提供成功、普通和错误提示。
 
 import * as ToastPrimitive from "@radix-ui/react-toast";
-import { createContext, type ReactNode, useContext, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+
+// Toast 全局派发单例：让 React 组件树之外的代码（TanStack Query MutationCache、
+// api-client 401 处理器等）也能弹 Toast。ToastProvider 挂载时把当前 showToast
+// 注册进来，卸载时摘除；调用方通过 emitToast(...) 派发，不再依赖 React 上下文。
+let globalToastHandler: ((input: ToastInput) => string) | null = null;
+
+/**
+ * emitToast 在 React 组件树之外派发全局 Toast。
+ * 仅在 ToastProvider 已挂载（CSR 之后）时生效；SSR 或挂载前调用静默返回空串。
+ */
+export function emitToast(input: ToastInput): string {
+  if (globalToastHandler === null) {
+    return "";
+  }
+  return globalToastHandler(input);
+}
 
 /**
  * Toast 提示类型。
@@ -69,6 +85,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((current) => [...current, { ...input, id, variant: input.variant ?? "default" }]);
     return id;
   };
+
+  // 注册全局派发器，覆盖单例引用；卸载时仅在仍指向自身时清空，避免 React 18 StrictMode
+  // 双调用 / 多 Provider 嵌套场景下错误地清掉别人的 handler。
+  useEffect(() => {
+    globalToastHandler = showToast;
+    return () => {
+      if (globalToastHandler === showToast) {
+        globalToastHandler = null;
+      }
+    };
+  });
 
   return (
     <ToastContext.Provider value={{ showToast, dismissToast }}>

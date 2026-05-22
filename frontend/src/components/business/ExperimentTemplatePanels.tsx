@@ -229,12 +229,15 @@ export function ExperimentTemplateEditorPanel({ templateID }: { templateID?: ID 
       container_name: containerName,
       env_vars: resolvedEnvVars.map((item) => ({ key: item.key, value: item.value })),
       ports: config?.default_ports.map((item) => ({ container: item.port, protocol: item.protocol })) ?? [],
-      volumes: config?.default_volumes?.map((item) => ({ host_path: item.path, container_path: item.path })) ?? [],
+      volumes: config?.default_volumes?.map((item) => ({ mount_path: item.mount_path })) ?? [],
       cpu_limit: config?.resource_recommendation.cpu ?? null,
       memory_limit: config?.resource_recommendation.memory ?? null,
       depends_on: config?.typical_companions.required.map((item) => item.image) ?? [],
-      startup_order: (activeTemplate?.containers.length ?? 0) + 1,
       is_primary: (activeTemplate?.containers.length ?? 0) === 0,
+      // pod_group / is_init_container 默认空：单容器独立 Pod；如需打包到 Fabric / EVM 子网
+      // 等多容器 Pod，编辑容器时再显式设置（详见 docs/modules/04-实验环境/02-数据库设计.md §2.5）。
+      pod_group: null,
+      is_init_container: false,
     };
     configMutations.createContainer.mutate(payload);
   };

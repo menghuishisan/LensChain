@@ -88,7 +88,7 @@ func (r *containerRepository) ListByTemplateID(ctx context.Context, templateID i
 	var containers []*entity.TemplateContainer
 	err := r.db.WithContext(ctx).
 		Where("template_id = ?", templateID).
-		Order("sort_order asc, startup_order asc").
+		Order("sort_order asc").
 		Find(&containers).Error
 	return containers, err
 }
@@ -101,7 +101,7 @@ func (r *containerRepository) ListByTemplateIDs(ctx context.Context, templateIDs
 	var containers []*entity.TemplateContainer
 	err := r.db.WithContext(ctx).
 		Where("template_id IN ?", templateIDs).
-		Order("template_id asc, sort_order asc, startup_order asc").
+		Order("template_id asc, sort_order asc").
 		Find(&containers).Error
 	return containers, err
 }

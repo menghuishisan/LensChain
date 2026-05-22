@@ -185,7 +185,6 @@ func initExperimentModule(notificationDispatcher notificationsvc.EventDispatcher
 		courseGradeSyncer,
 		enrollmentChecker,
 		experimentNotificationDispatcher,
-		config.Get().K8s.ToolProxyBaseURL,
 	)
 	groupService := svc.NewGroupService(
 		db,

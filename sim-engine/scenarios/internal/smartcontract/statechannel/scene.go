@@ -906,7 +906,11 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 	sort.Strings(chIDs)
 
 	if len(chIDs) > 0 {
-		prims = append(prims, fw.PrimRingLayout("channels-ring", len(chIDs)))
+		channelNodeIDs := make([]string, len(chIDs))
+		for i, id := range chIDs {
+			channelNodeIDs[i] = "ch-" + id
+		}
+		prims = append(prims, fw.PrimRingLayout("channels-ring", channelNodeIDs))
 		for _, id := range chIDs {
 			c := st.Channels[id]
 			role := "channel-" + strings.ToLower(c.Phase)

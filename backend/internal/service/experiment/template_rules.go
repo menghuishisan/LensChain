@@ -348,7 +348,15 @@ func mergeContainerConfigWithServiceDiscovery(
 	}
 
 	envVars := make(map[string]string)
+	// 跳过当前容器自己的发现变量：自身不需要发现自己，且 `<NAME>_HOST` / `<NAME>_PORT_*`
+	// 等键会与运行时（code-server / 各类 web 框架）中"客户端连接目标"或"自己绑定地址"
+	// 语义冲突。例如 code-server 把 `CODE_SERVER_HOST=code-server` 当作 bind host，DNS
+	// 解析回 ClusterIP 后 bind 失败 (EADDRNOTAVAIL)。
+	selfPrefix := normalizeContainerEnvPrefix(container.ContainerName)
 	for key, value := range serviceDiscoveryEnv {
+		if selfPrefix != "" && (key == selfPrefix+"_HOST" || strings.HasPrefix(key, selfPrefix+"_PORT")) {
+			continue
+		}
 		envVars[key] = value
 	}
 	mergeDefaultEnvVars(envVars, image)
@@ -364,7 +372,125 @@ func mergeContainerConfigWithServiceDiscovery(
 
 	spec.Ports = mergePorts(image, json.RawMessage(container.Ports))
 	spec.Volumes = mergeVolumes(image, json.RawMessage(container.Volumes))
+	spec.WaitForTCP = buildWaitForTCPTargets(container, allContainers)
+	spec.IsInitContainer = container.IsInitContainer
 	return spec, nil
+}
+
+// buildWaitForTCPTargets 把当前容器的 depends_on 列表翻译为 host:port 等待目标。
+//
+//   - host = 依赖容器名（实例 namespace 内 Service 名与容器名一致，详见 k8s_client.go::
+//     DeployPod 的 Service 创建逻辑）。
+//   - port = 依赖容器的首个端口（与 mergePorts 同一份解析逻辑，传 image=nil 表示这里
+//     只关心模板显式声明的端口）。
+//
+// 同 PodGroup 的依赖会被忽略——同 Pod 容器无独立 Service，wait-for-tcp 在 DNS 解析阶段
+// 就会失败。Pod 内的启动顺序应由 IsInitContainer + readinessProbe 表达（详见
+// 02-数据库设计.md §2.5）。
+//
+// 没有端口的依赖（CLI 工具如 fabric-tools / dapp-dev）会被跳过——这些容器不接 TCP 流量，
+// 等待它们没有意义；如确需用作启动同步信号，应改用其他机制（例如 emptyDir + 信号文件），
+// 不在 TCP wait-for 范畴内。
+func buildWaitForTCPTargets(container entity.TemplateContainer, allContainers []entity.TemplateContainer) []string {
+	deps := parseDependsOn(json.RawMessage(container.DependsOn))
+	if len(deps) == 0 {
+		return nil
+	}
+	byName := make(map[string]entity.TemplateContainer, len(allContainers))
+	for _, c := range allContainers {
+		byName[c.ContainerName] = c
+	}
+	curPodKey := podGroupingKey(container)
+	targets := make([]string, 0, len(deps))
+	for _, depName := range deps {
+		dep, ok := byName[depName]
+		if !ok {
+			continue
+		}
+		// 同 Pod 内依赖：localhost 通信，无 Service，跳过 wait-for-tcp。
+		if podGroupingKey(dep) == curPodKey && curPodKey != "" {
+			continue
+		}
+		ports := mergePorts(nil, json.RawMessage(dep.Ports))
+		if len(ports) == 0 || ports[0].ContainerPort <= 0 {
+			continue
+		}
+		targets = append(targets, fmt.Sprintf("%s:%d", depName, ports[0].ContainerPort))
+	}
+	return targets
+}
+
+// PodPlan 描述一个 K8s Pod 的部署计划：哪些 template_containers 打包到同一个 Pod。
+//
+// 单容器 Pod（pod_group=NULL，历史默认）每个 PodPlan 只含 1 个 TemplateContainer；
+// 多容器 Pod（pod_group 非空）一个 PodPlan 含同组所有容器（init + main 混合）。
+// PodName 已是完整名（namespace 前缀已拼上）。
+type PodPlan struct {
+	PodName     string
+	PodGroupKey string // 非空 = 多容器 Pod 的分组键；空 = 单容器 Pod
+	Containers  []entity.TemplateContainer
+}
+
+// GroupContainersForDeployment 按 (role_id, pod_group) 分组生成部署计划。
+//
+// 分组键 = "<role_id>|<pod_group>"：
+//   - pod_group 为空字符串/NULL → 该容器独立成 Pod（Pod 名 <ns>-<container_name>）
+//   - pod_group 非空 → 同 (role_id, pod_group) 容器合并到一个 Pod（Pod 名 <ns>-<pod_group>）
+//
+// role_id 参与分组键保证跨角色容器不会被误打包，符合 02-数据库设计.md §2.5 的约束。
+//
+// 输出顺序：保持 containers 切片的输入顺序，让 sort_order 在 UI 与运行时之间一致。
+func GroupContainersForDeployment(containers []entity.TemplateContainer, namespace string) []PodPlan {
+	plans := make([]PodPlan, 0, len(containers))
+	groupIndex := make(map[string]int)
+	for _, c := range containers {
+		pg := ""
+		if c.PodGroup != nil {
+			pg = strings.TrimSpace(*c.PodGroup)
+		}
+		if pg == "" {
+			// 独立 Pod。每个独立容器都生成独立 PodPlan，不进合并 map。
+			plans = append(plans, PodPlan{
+				PodName:     fmt.Sprintf("%s-%s", namespace, c.ContainerName),
+				PodGroupKey: "",
+				Containers:  []entity.TemplateContainer{c},
+			})
+			continue
+		}
+		roleKey := ""
+		if c.RoleID != nil {
+			roleKey = strconv.FormatInt(*c.RoleID, 10)
+		}
+		key := roleKey + "|" + pg
+		if idx, ok := groupIndex[key]; ok {
+			plans[idx].Containers = append(plans[idx].Containers, c)
+			continue
+		}
+		groupIndex[key] = len(plans)
+		plans = append(plans, PodPlan{
+			PodName:     fmt.Sprintf("%s-%s", namespace, pg),
+			PodGroupKey: pg,
+			Containers:  []entity.TemplateContainer{c},
+		})
+	}
+	return plans
+}
+
+// podGroupingKey 返回容器的 Pod 分组键；空字符串表示独立 Pod。供 buildWaitForTCPTargets
+// 等内部用例判断"是否同 Pod"。
+func podGroupingKey(c entity.TemplateContainer) string {
+	if c.PodGroup == nil {
+		return ""
+	}
+	pg := strings.TrimSpace(*c.PodGroup)
+	if pg == "" {
+		return ""
+	}
+	roleKey := ""
+	if c.RoleID != nil {
+		roleKey = strconv.FormatInt(*c.RoleID, 10)
+	}
+	return roleKey + "|" + pg
 }
 
 // calculateRemainingConcurrency 计算学校剩余可分配并发额度。
@@ -518,7 +644,6 @@ func buildTemplateK8sConfig(template *TemplateAggregate) json.RawMessage {
 			"image_version_id": strconv.FormatInt(container.ImageVersionID, 10),
 			"deployment_scope": container.DeploymentScope,
 			"is_primary":       container.IsPrimary,
-			"startup_order":    container.StartupOrder,
 		}
 		if container.RoleID != nil {
 			item["role_id"] = strconv.FormatInt(*container.RoleID, 10)
@@ -582,6 +707,10 @@ func parseServiceDiscoveryPorts(raw json.RawMessage) []serviceDiscoveryPort {
 }
 
 // mergeDefaultEnvVars 合并镜像默认环境变量。
+//
+// DB 里 `images.default_env_vars` 的 JSON schema 唯一字段是 `value`（与 dto.ImageEnvVarItem
+// 对齐）。manifest YAML 写的是 `default_value`，由 image_manifest_sync 在落库前统一映射为
+// `value`，本函数不做兼容读取——保持单一真相源。
 func mergeDefaultEnvVars(target map[string]string, image *entity.Image) {
 	if image == nil || len(image.DefaultEnvVars) == 0 {
 		return
@@ -741,11 +870,15 @@ func mergeVolumes(image *entity.Image, explicit json.RawMessage) []VolumeSpec {
 	}
 
 	if image != nil && len(image.DefaultVolumes) > 0 {
-		var defaults []map[string]any
+		// 严格按 dto.ImageVolumeItem schema 解析（mount_path / purpose / size /
+		// description）。曾经误读 item["path"] 导致 default_volumes 在运行时全部静默
+		// 丢失（manifest 写得再认真也挂不上），改 typed 反序列化彻底杜绝键名漂移。
+		var defaults []dto.ImageVolumeItem
 		if err := json.Unmarshal(image.DefaultVolumes, &defaults); err == nil {
 			for _, item := range defaults {
-				path, _ := item["path"].(string)
-				appendVolume(VolumeSpec{MountPath: path})
+				// Size 非空时 k8s_client 会建独立 PVC（持久数据）；空时退化为 emptyDir
+				// 共享卷，详见 VolumeSpec 注释。
+				appendVolume(VolumeSpec{MountPath: item.MountPath, Size: item.Size})
 			}
 		}
 	}
@@ -865,34 +998,6 @@ func detectDependencyCycles(containers []*entity.TemplateContainer) []string {
 		}
 	}
 	return cycles
-}
-
-// findInvalidStartupOrders 返回依赖容器未先启动的配置问题。
-func findInvalidStartupOrders(containers []*entity.TemplateContainer) []string {
-	orderByName := make(map[string]int, len(containers))
-	for _, container := range containers {
-		if container == nil || container.ContainerName == "" {
-			continue
-		}
-		orderByName[container.ContainerName] = container.StartupOrder
-	}
-
-	issues := make([]string, 0)
-	for _, container := range containers {
-		if container == nil || container.ContainerName == "" {
-			continue
-		}
-		for _, dep := range parseDependsOn(json.RawMessage(container.DependsOn)) {
-			depOrder, ok := orderByName[dep]
-			if !ok {
-				continue
-			}
-			if depOrder >= container.StartupOrder {
-				issues = append(issues, fmt.Sprintf("%s 依赖 %s，但启动顺序未晚于依赖容器", container.ContainerName, dep))
-			}
-		}
-	}
-	return issues
 }
 
 // findMissingServiceReferences 返回环境变量中引用但不存在的服务发现变量。

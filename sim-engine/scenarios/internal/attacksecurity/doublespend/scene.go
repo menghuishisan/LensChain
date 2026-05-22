@@ -886,7 +886,11 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 	}
 	sort.Strings(uIDs)
 	if len(uIDs) > 0 {
-		prims = append(prims, fw.PrimRingLayout("utxo-ring", len(uIDs)))
+		ringNodeIDs := make([]string, len(uIDs))
+		for i, id := range uIDs {
+			ringNodeIDs[i] = "u-" + id
+		}
+		prims = append(prims, fw.PrimRingLayout("utxo-ring", ringNodeIDs))
 	}
 	for _, id := range uIDs {
 		u := st.UTXOs[id]

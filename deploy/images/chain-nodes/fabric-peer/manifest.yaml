@@ -30,7 +30,7 @@ default_ports:
 
 default_env_vars:
   - key: CORE_PEER_ID
-    default_value: peer0.org1.example.com
+    value: peer0.org1.example.com
     description: Peer 节点 ID
     required: false
 

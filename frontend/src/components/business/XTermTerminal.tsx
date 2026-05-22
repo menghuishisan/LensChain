@@ -18,7 +18,10 @@ interface XTermTerminalProps {
 }
 
 export interface XTermTerminalHandle {
-  write: (data: string) => void;
+  /** 写入终端。string 走前端控制提示（如错误标红行）；Uint8Array 走 PTY 字节流，
+   *  xterm.js 的 write(Uint8Array) 内部用有状态 UTF-8 解码器跨调用缓存半字符，
+   *  正确还原中文 / emoji 等多字节序列，并按字节透传 ANSI 控制序列。 */
+  write: (data: string | Uint8Array) => void;
   clear: () => void;
   focus: () => void;
   fit: () => void;
@@ -46,7 +49,7 @@ export const XTermTerminal = forwardRef<XTermTerminalHandle, XTermTerminalProps>
     useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
 
     useImperativeHandle(ref, () => ({
-      write: (data: string) => terminalRef.current?.write(data),
+      write: (data: string | Uint8Array) => terminalRef.current?.write(data),
       clear: () => terminalRef.current?.clear(),
       focus: () => terminalRef.current?.focus(),
       fit: () => fitAddonRef.current?.fit(),

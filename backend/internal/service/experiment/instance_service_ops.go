@@ -48,7 +48,7 @@ func (s *instanceService) Pause(ctx context.Context, sc *svcctx.ServiceContext, 
 		return nil, err
 	}
 
-	if err := s.teardownRuntimeEnvironment(ctx, instance); err != nil {
+	if err := s.pauseRuntimeEnvironment(ctx, instance); err != nil {
 		return nil, err
 	}
 	if err := s.syncPausedContainerState(ctx, instance.ID); err != nil {
@@ -60,12 +60,15 @@ func (s *instanceService) Pause(ctx context.Context, sc *svcctx.ServiceContext, 
 	}
 
 	// 更新实例状态
+	//
+	// 注意：暂停时不能清掉 namespace 字段。namespace 是 Resume 重建 Pod 的目标
+	// 容器（PVC / Service / NetworkPolicy 仍在其中），清掉等于让 Resume 失去定位
+	// 资源的能力。SimSessionID / SimWebSocketURL 是动态会话，必须清。
 	now := time.Now()
 	fields := map[string]interface{}{
 		"status":            enum.InstanceStatusPaused,
 		"paused_at":         now,
 		"updated_at":        now,
-		"namespace":         nil,
 		"sim_session_id":    nil,
 		"sim_websocket_url": nil,
 	}
@@ -196,22 +199,48 @@ func (s *instanceService) Resume(ctx context.Context, sc *svcctx.ServiceContext,
 	}, nil
 }
 
-// teardownRuntimeEnvironment 停止实例当前运行时环境，但不写入终态状态。
-// SimEngine 会话销毁失败只记日志（会话有 TTL 自动过期），不阻塞 K8s 资源释放。
-// K8s 命名空间删除是真正释放容器资源的关键步骤，失败时必须返回错误。
-func (s *instanceService) teardownRuntimeEnvironment(ctx context.Context, instance *entity.ExperimentInstance) error {
+// destroySimSession 关闭实例的 SimEngine 会话；失败仅记日志，由 TTL 兜底过期回收，
+// 不阻塞 K8s 资源释放（K8s 才是真正占用 CPU / 内存 / 存储的部分）。Pause 与 Destroy
+// 共用此清理逻辑。
+func (s *instanceService) destroySimSession(ctx context.Context, instance *entity.ExperimentInstance) {
+	if instance == nil || instance.SimSessionID == nil || *instance.SimSessionID == "" {
+		return
+	}
+	if err := s.simEngineSvc.DestroySession(ctx, *instance.SimSessionID); err != nil {
+		logger.L.Warn("销毁 SimEngine 会话失败，会话将由 TTL 自动过期回收",
+			zap.Int64("instance_id", instance.ID),
+			zap.String("session_id", *instance.SimSessionID),
+			zap.Error(err),
+		)
+	}
+}
+
+// pauseRuntimeEnvironment 暂停时的运行时清理：销毁 SimEngine 会话 + 删除 namespace
+// 内全部 Pod。Service / NetworkPolicy / PVC / namespace 全部保留，让 Resume 路径可
+// 以在同一 namespace 复挂同名 PVC、复用既有 Service 路由。详见 K8s 客户端
+// `DeletePodsInNamespace` 注释里的根因说明。
+func (s *instanceService) pauseRuntimeEnvironment(ctx context.Context, instance *entity.ExperimentInstance) error {
 	if instance == nil {
 		return nil
 	}
-	if instance.SimSessionID != nil && *instance.SimSessionID != "" {
-		if err := s.simEngineSvc.DestroySession(ctx, *instance.SimSessionID); err != nil {
-			logger.L.Warn("销毁 SimEngine 会话失败，会话将由 TTL 自动过期回收",
-				zap.Int64("instance_id", instance.ID),
-				zap.String("session_id", *instance.SimSessionID),
-				zap.Error(err),
-			)
+	s.destroySimSession(ctx, instance)
+	if instance.Namespace != nil && *instance.Namespace != "" {
+		if err := s.k8sSvc.DeletePodsInNamespace(ctx, *instance.Namespace); err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+// destroyRuntimeEnvironment 销毁时的运行时清理：销毁 SimEngine 会话 + 删除整个
+// namespace。namespace 级联删除会一并回收 PVC / Service / NetworkPolicy / Pod，对应
+// F-39 "重新开始：从初始状态" 的语义。失败时必须返回错误，否则 K8s 资源会泄漏占用
+// 节点配额。
+func (s *instanceService) destroyRuntimeEnvironment(ctx context.Context, instance *entity.ExperimentInstance) error {
+	if instance == nil {
+		return nil
+	}
+	s.destroySimSession(ctx, instance)
 	if instance.Namespace != nil && *instance.Namespace != "" {
 		if err := s.k8sSvc.DeleteNamespace(ctx, *instance.Namespace); err != nil {
 			return err
@@ -466,7 +495,7 @@ func (s *instanceService) ForceDestroy(ctx context.Context, sc *svcctx.ServiceCo
 
 // destroyEnvironment 销毁实验环境（K8s + SimEngine）
 func (s *instanceService) destroyEnvironment(ctx context.Context, instance *entity.ExperimentInstance) error {
-	if err := s.teardownRuntimeEnvironment(ctx, instance); err != nil {
+	if err := s.destroyRuntimeEnvironment(ctx, instance); err != nil {
 		return err
 	}
 

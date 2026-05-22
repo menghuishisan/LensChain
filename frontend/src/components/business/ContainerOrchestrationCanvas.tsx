@@ -35,10 +35,11 @@ interface ContainerOrchestrationCanvasProps {
 interface ContainerConfigPayload {
   container_name: string;
   is_primary: boolean;
-  startup_order: number;
+  pod_group: string | null;
+  is_init_container: boolean;
   env_vars: Array<{ key: string; value: string }>;
   ports: Array<{ container: number; protocol: string }>;
-  volumes: Array<{ host_path: string; container_path: string }>;
+  volumes: Array<{ name?: string; mount_path: string; sub_path?: string; read_only?: boolean }>;
   cpu_limit: string | null;
   memory_limit: string | null;
   depends_on: string[];
@@ -58,8 +59,12 @@ export function ContainerOrchestrationCanvas({
   const [editingID, setEditingID] = useState<ID>("");
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // 按启动顺序排列
-  const sorted = useMemo(() => [...containers].sort((a, b) => a.startup_order - b.startup_order), [containers]);
+  // 按 sort_order 排列：渲染顺序与模板编辑页 UI 拖拽后的列表一致；
+  // 运行时实际启动顺序由后端根据 depends_on + pod_group + wait-for-tcp init 综合决定。
+  const sorted = useMemo(
+    () => [...containers].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    [containers],
+  );
 
   // 计算容器卡片位置（简化为2列网格），用于 SVG 连线
   const positions = useMemo(() => {
@@ -200,7 +205,12 @@ function ContainerCard({
           {container.image_version?.image_display_name ?? "未关联镜像"} · {container.image_version?.version ?? "-"}
         </p>
         <div className="flex flex-wrap gap-1">
-          <Badge variant="outline" className="text-xs">顺序 {container.startup_order}</Badge>
+          {container.pod_group ? (
+            <Badge variant="outline" className="text-xs">Pod {container.pod_group}</Badge>
+          ) : null}
+          {container.is_init_container ? (
+            <Badge variant="outline" className="text-xs">init</Badge>
+          ) : null}
           {container.cpu_limit ? <Badge variant="outline" className="text-xs">CPU {container.cpu_limit}</Badge> : null}
           {container.memory_limit ? <Badge variant="outline" className="text-xs">内存 {container.memory_limit}</Badge> : null}
           {container.ports.length > 0 ? <Badge variant="outline" className="text-xs">{container.ports.length} 端口</Badge> : null}
@@ -246,12 +256,19 @@ function ContainerConfigModal({
 }) {
   const [name, setName] = useState(container.container_name);
   const [isPrimary, setIsPrimary] = useState(container.is_primary);
-  const [startupOrder, setStartupOrder] = useState(container.startup_order);
+  const [podGroup, setPodGroup] = useState(container.pod_group ?? "");
+  const [isInitContainer, setIsInitContainer] = useState(container.is_init_container);
   const [cpuLimit, setCpuLimit] = useState(container.cpu_limit ?? "");
   const [memoryLimit, setMemoryLimit] = useState(container.memory_limit ?? "");
   const [envText, setEnvText] = useState(container.env_vars.map((e) => `${e.key}=${e.value}`).join("\n"));
   const [portsText, setPortsText] = useState(container.ports.map((p) => `${p.container}/${p.protocol}`).join("\n"));
-  const [volumesText, setVolumesText] = useState(container.volumes.map((v) => `${v.host_path}:${v.container_path}`).join("\n"));
+  // 文本输入格式：每行一个挂载点，可选附 ":ro" 标记只读。Pod 内挂载只允许平台托管的
+  // emptyDir / PVC（详见 dto.ContainerVolumeItem 注释），所以输入只关心容器内路径。
+  const [volumesText, setVolumesText] = useState(
+    container.volumes
+      .map((v) => (v.read_only ? `${v.mount_path}:ro` : v.mount_path))
+      .join("\n"),
+  );
   const [dependsOn, setDependsOn] = useState(container.depends_on.join(","));
 
   const handleSave = () => {
@@ -263,15 +280,21 @@ function ContainerConfigModal({
       const [port, protocol] = line.split("/");
       return { container: Number(port) || 0, protocol: protocol || "tcp" };
     });
-    const volumes = volumesText.split("\n").filter(Boolean).map((line) => {
-      const [hostPath, containerPath] = line.split(":");
-      return { host_path: hostPath || "", container_path: containerPath || hostPath || "" };
-    });
+    const volumes = volumesText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [mountPath, flag] = line.split(":");
+        return { mount_path: mountPath || "", read_only: (flag || "").trim().toLowerCase() === "ro" };
+      })
+      .filter((v) => v.mount_path);
     const deps = dependsOn.split(",").map((d) => d.trim()).filter(Boolean);
     onSave({
       container_name: name,
       is_primary: isPrimary,
-      startup_order: startupOrder,
+      pod_group: podGroup.trim() ? podGroup.trim() : null,
+      is_init_container: isInitContainer,
       cpu_limit: cpuLimit || null,
       memory_limit: memoryLimit || null,
       env_vars: envVars,
@@ -294,8 +317,8 @@ function ContainerConfigModal({
             <FormField label="容器名称">
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </FormField>
-            <FormField label="启动顺序">
-              <Input type="number" value={startupOrder} onChange={(e) => setStartupOrder(Number(e.target.value))} />
+            <FormField label="Pod 分组（可选，相同分组容器打包到同一 K8s Pod）">
+              <Input value={podGroup} onChange={(e) => setPodGroup(e.target.value)} placeholder="例如 fabric-network" />
             </FormField>
             <FormField label="CPU 限制">
               <Input value={cpuLimit} onChange={(e) => setCpuLimit(e.target.value)} placeholder="例如 2" />
@@ -304,10 +327,23 @@ function ContainerConfigModal({
               <Input value={memoryLimit} onChange={(e) => setMemoryLimit(e.target.value)} placeholder="例如 4Gi" />
             </FormField>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={isPrimary} onChange={(e) => setIsPrimary(e.target.checked)} className="accent-primary" />
               设为主容器
+            </label>
+            <label
+              className="flex items-center gap-2 text-sm cursor-pointer"
+              title="勾选后该容器作为同 Pod 的 K8s initContainer 串行先于主容器运行；要求 Pod 分组非空"
+            >
+              <input
+                type="checkbox"
+                checked={isInitContainer}
+                onChange={(e) => setIsInitContainer(e.target.checked)}
+                className="accent-primary"
+                disabled={!podGroup.trim()}
+              />
+              作为 initContainer
             </label>
           </div>
           <FormField label="环境变量（每行一个 KEY=VALUE）">
@@ -316,8 +352,8 @@ function ContainerConfigModal({
           <FormField label="端口映射（每行一个 端口/协议）">
             <Textarea value={portsText} onChange={(e) => setPortsText(e.target.value)} rows={3} className="font-mono text-xs" placeholder="8545/tcp" />
           </FormField>
-          <FormField label="挂载卷（每行一个 宿主路径:容器路径）">
-            <Textarea value={volumesText} onChange={(e) => setVolumesText(e.target.value)} rows={3} className="font-mono text-xs" placeholder="/data:/data" />
+          <FormField label="挂载卷（每行一个 容器内路径，可附 :ro 标记只读）">
+            <Textarea value={volumesText} onChange={(e) => setVolumesText(e.target.value)} rows={3} className="font-mono text-xs" placeholder="/home/coder/project" />
           </FormField>
           <FormField label="依赖容器（逗号分隔容器名）">
             <Input value={dependsOn} onChange={(e) => setDependsOn(e.target.value)} placeholder={otherContainers.join(", ") || "无其他容器"} />

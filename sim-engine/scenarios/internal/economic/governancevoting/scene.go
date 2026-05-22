@@ -986,7 +986,11 @@ func buildEnvelope(st snapState, reason, summary string, fullSnapshot bool) fw.R
 		vAddrs = append(vAddrs, k)
 	}
 	sort.Strings(vAddrs)
-	prims = append(prims, fw.PrimRingLayout("voter-ring", len(vAddrs)))
+	voterRingIDs := make([]string, len(vAddrs))
+	for i, a := range vAddrs {
+		voterRingIDs[i] = "v-" + a
+	}
+	prims = append(prims, fw.PrimRingLayout("voter-ring", voterRingIDs))
 	for _, a := range vAddrs {
 		v := st.Voters[a]
 		role := "voter"

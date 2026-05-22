@@ -157,34 +157,29 @@ rate_limit:
   burst: 200
 
 k8s:
+  # in_cluster: 是否使用集群内配置；true 表示运行在 K8s 集群内（dev 关闭，CI/CD 关闭）
   in_cluster: false
+  # kubeconfig_path: 集群外模式使用的 kubeconfig 路径；为空时走默认 ~/.kube/config
   kubeconfig_path: ""
+  # platform_namespace: 平台自身的 namespace（用于复用 image-pull secret 等基础资源）
   platform_namespace: "lenschain"
+  # namespace_prefix: 实验环境动态 namespace 前缀，最终 ns 形如 exp-<instance_id>
   namespace_prefix: "exp"
+  # image_pull_secret_name: 平台 namespace 中的 image pull secret 名称，运行时
+  # 复制到每个动态 namespace 给 Pod 使用，避免再签私有 registry 凭据。
   image_pull_secret_name: "registry-pull-secret"
+  # default_cpu / default_memory: 模板未给出 cpu_limit/memory_limit 时的兜底值。
   default_cpu: "250m"
-  default_memory: "512Mi"
-  collector_image_template: "registry.lianjing.com/lenschain/collector-agent-%s:v1.0.0"
-  # tool_proxy_base_url: 工具容器反向代理基地址（用于签发 instance_containers.proxy_url）
-  # 格式：{base_url}/instance/{instance_id}/{tool_kind}?token={jwt}
-  # 本地开发：http://127.0.0.1:8080；生产：https://lab.lianjing.com
-  tool_proxy_base_url: "http://127.0.0.1:8080"
-  timeout: "15s"
-
-  # in_cluster: 是否使用集群内配置；true 表示运行在 K8s 集群内
-  in_cluster: false
-  # kubeconfig_path: 集群外模式使用的 kubeconfig 路径；为空时走默认路径
-  kubeconfig_path: ""
-  # namespace_prefix: 实验环境命名空间前缀
-  namespace_prefix: "lenschain-exp"
-  # default_cpu: K8s 默认 CPU 配额
-  default_cpu: "500m"
-  # default_memory: K8s 默认内存配额
   default_memory: "512Mi"
   # collector_image_template: 混合实验采集器镜像模板
   # - %s 占位符填入链适配器编码：ethereum / fabric / chainmaker / fisco
   # - 镜像命名规范详见 docs/modules/09-部署与运维/03-镜像与容器设计.md §9.2
   collector_image_template: "registry.lianjing.com/lenschain/collector-agent-%s:v1.0.0"
+  # 注：工具反代 proxy_url 始终签发为相对路径 /instance/<id>/<kind>/，浏览器最终
+  # 请求的 origin 由前端 NEXT_PUBLIC_TOOL_PROXY_BASE_URL 决定：
+  #   - 生产：留空，frontend / backend 同源（Ingress 兜底），iframe 用相对路径；
+  #   - 本地开发：设为后端地址（如 http://localhost:8080），iframe 直连后端。
+  # backend 不感知前端走哪种 origin，只负责解析路径前缀做 SPDY 反代。
   # timeout: 调用 K8s API 的超时时间
   timeout: "30s"
 
